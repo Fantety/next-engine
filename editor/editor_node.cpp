@@ -115,6 +115,7 @@
 #include "editor/gui/editor_title_bar.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/history_dock.h"
+#include "editor/ai_dock.h"
 #include "editor/import/3d/editor_import_collada.h"
 #include "editor/import/3d/resource_importer_obj.h"
 #include "editor/import/3d/resource_importer_scene.h"
@@ -8026,6 +8027,14 @@ EditorNode::EditorNode() {
 	settings_menu = memnew(PopupMenu);
 	_add_to_main_menu(TTRC("Editor"), settings_menu);
 
+	ai_menu = memnew(PopupMenu);
+	_add_to_main_menu(TTRC("AI Assistant"), ai_menu);
+
+	ai_menu->add_item(TTR("AI Settings"), AI_OPEN_SETTINGS);
+
+
+
+
 #ifdef MACOS_ENABLED
 	if (!global_menu) {
 		settings_menu->add_shortcut(ED_GET_SHORTCUT("editor/editor_settings"), EDITOR_OPEN_SETTINGS);
@@ -8207,6 +8216,7 @@ EditorNode::EditorNode() {
 	get_project_settings()->connect_filesystem_dock_signals(filesystem_dock);
 
 	history_dock = memnew(HistoryDock);
+	ai_dock = memnew(AIDock);
 
 	// Scene: Top left.
 	editor_dock_manager->add_dock(SceneTreeDock::get_singleton(), TTRC("Scene"), EditorDockManager::DOCK_SLOT_LEFT_UR, ED_SHORTCUT_AND_COMMAND("docks/open_scene", TTRC("Open Scene Dock")), "PackedScene");
@@ -8226,6 +8236,8 @@ EditorNode::EditorNode() {
 	// History: Full height right, behind Node.
 	editor_dock_manager->add_dock(history_dock, TTRC("History"), EditorDockManager::DOCK_SLOT_RIGHT_UL, ED_SHORTCUT_AND_COMMAND("docks/open_history", TTRC("Open History Dock")), "History");
 
+	editor_dock_manager->add_dock(ai_dock, TTRC("Chat"), EditorDockManager::DOCK_SLOT_RIGHT_UL, ED_SHORTCUT_AND_COMMAND("docks/open_chat", TTRC("Open Chat Dock")), "Chat");
+
 	// Add some offsets to left_r and main hsplits to make LEFT_R and RIGHT_L docks wider than minsize.
 	left_r_hsplit->set_split_offset(270 * EDSCALE);
 	main_hsplit->set_split_offset(-270 * EDSCALE);
@@ -8237,7 +8249,7 @@ EditorNode::EditorNode() {
 	// Dock numbers are based on DockSlot enum value + 1.
 	default_layout->set_value(docks_section, "dock_3", "Scene,Import");
 	default_layout->set_value(docks_section, "dock_4", "FileSystem");
-	default_layout->set_value(docks_section, "dock_5", "Inspector,Node,History");
+	default_layout->set_value(docks_section, "dock_5", "Inspector,Node,History,Chat");
 
 	// There are 4 vsplits and 4 hsplits.
 	for (int i = 0; i < editor_dock_manager->get_vsplit_count(); i++) {

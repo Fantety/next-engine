@@ -93,6 +93,7 @@ class EditorQuickOpenDialog;
 class FBXImporterManager;
 class FileSystemDock;
 class HistoryDock;
+class AIDock;
 class OrphanResourcesDialog;
 class ProgressDialog;
 class ProjectExportDialog;
@@ -265,6 +266,7 @@ private:
 	EditorSelection *editor_selection = nullptr;
 	EditorSettingsDialog *editor_settings_dialog = nullptr;
 	HistoryDock *history_dock = nullptr;
+	AIDock *ai_dock = nullptr;
 
 	ProjectExportDialog *project_export = nullptr;
 	ProjectSettingsEditor *project_settings_editor = nullptr;
@@ -342,6 +344,7 @@ private:
 	PopupMenu *debug_menu = nullptr;
 	PopupMenu *settings_menu = nullptr;
 	PopupMenu *help_menu = nullptr;
+	PopupMenu *ai_menu = nullptr;
 	PopupMenu *tool_menu = nullptr;
 	PopupMenu *export_as_menu = nullptr;
 	Button *export_button = nullptr;
