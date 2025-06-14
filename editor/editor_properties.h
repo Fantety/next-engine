@@ -39,6 +39,7 @@ class EditorFileDialog;
 class EditorLocaleDialog;
 class EditorResourcePicker;
 class EditorSpinSlider;
+class EditorVariantTypePopupMenu;
 class MenuButton;
 class PropertySelector;
 class SceneTreeDialog;
@@ -59,12 +60,14 @@ class EditorPropertyVariant : public EditorProperty {
 
 	HBoxContainer *content = nullptr;
 	EditorProperty *sub_property = nullptr;
-	MenuButton *change_type = nullptr;
+	Button *edit_button = nullptr;
+	EditorVariantTypePopupMenu *change_type = nullptr;
 
 	Variant::Type current_type = Variant::VARIANT_MAX;
 	Variant::Type new_type = Variant::VARIANT_MAX;
 
 	void _change_type(int p_to_type);
+	void _popup_edit_menu();
 
 protected:
 	virtual void _set_read_only(bool p_read_only) override;
@@ -158,6 +161,7 @@ class EditorPropertyPath : public EditorProperty {
 	bool folder = false;
 	bool global = false;
 	bool save_mode = false;
+	bool enable_uid = false;
 	EditorFileDialog *dialog = nullptr;
 	LineEdit *path = nullptr;
 	Button *path_edit = nullptr;
@@ -175,7 +179,7 @@ protected:
 	void _notification(int p_what);
 
 public:
-	void setup(const Vector<String> &p_extensions, bool p_folder, bool p_global);
+	void setup(const Vector<String> &p_extensions, bool p_folder, bool p_global, bool p_enable_uid);
 	void set_save_mode();
 	virtual void update_property() override;
 	EditorPropertyPath();

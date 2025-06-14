@@ -38,9 +38,6 @@
 class VisualShaderNodeParameter;
 class VisualShaderNode;
 
-template <typename T, typename V>
-class VMap;
-
 class VisualShader : public Shader {
 	GDCLASS(VisualShader, Shader);
 
@@ -140,6 +137,11 @@ private:
 
 	HashMap<String, int> modes;
 	HashSet<StringName> flags;
+
+	bool stencil_enabled = false;
+	HashMap<String, int> stencil_modes;
+	HashSet<StringName> stencil_flags;
+	int stencil_reference = 1;
 
 	HashMap<String, Varying> varyings;
 #ifdef TOOLS_ENABLED
