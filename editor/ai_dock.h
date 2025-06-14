@@ -1,58 +1,39 @@
-/*
- * @FilePath: \editor\ai_docker.h
- * @Author: Fantety
- * @Descripttion: 
- * @Date: 2025-05-28 15:38:34
- * @LastEditors: Fantety
- * @LastEditTime: 2025-05-28 15:51:34
- */
-/**************************************************************************/
-/*  history_dock.h                                                        */
-/**************************************************************************/
-/*                         This file is part of:                          */
-/*                             GODOT ENGINE                               */
-/*                        https://godotengine.org                         */
-/**************************************************************************/
-/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
-/*                                                                        */
-/* Permission is hereby granted, free of charge, to any person obtaining  */
-/* a copy of this software and associated documentation files (the        */
-/* "Software"), to deal in the Software without restriction, including    */
-/* without limitation the rights to use, copy, modify, merge, publish,    */
-/* distribute, sublicense, and/or sell copies of the Software, and to     */
-/* permit persons to whom the Software is furnished to do so, subject to  */
-/* the following conditions:                                              */
-/*                                                                        */
-/* The above copyright notice and this permission notice shall be         */
-/* included in all copies or substantial portions of the Software.        */
-/*                                                                        */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
-/**************************************************************************/
-
-#pragma once
+#ifndef AI_DOCK_H
+#define AI_DOCK_H
 
 #include "scene/gui/box_container.h"
-
-class CheckBox;
-class ConfigFile;
-class ItemList;
-class EditorUndoRedoManager;
+#include "scene/gui/option_button.h"
+#include "scene/gui/text_edit.h"
+#include "scene/gui/line_edit.h"
+#include "scene/gui/button.h"
+#include "ai_settings_dialog.h"
 
 class AIDock : public VBoxContainer {
-	GDCLASS(AIDock, VBoxContainer);
+    GDCLASS(AIDock, VBoxContainer);
+
+private:
+    TextEdit *chat_display;
+    LineEdit *input_box;
+    OptionButton *model_selector;
+    Button *send_button;
+    Button *settings_button;
+    AISettingsDialog *dialog;
+
+    void _send_message();
+    void _update_model_list();
+    void _show_settings();
+    void _add_message(const String &message, bool is_user);  // 确保这个方法有声明
 
 protected:
-	void _notification(int p_notification);
-	static void _bind_methods();
+    void _notification(int p_notification);
+    static void _bind_methods();
 
 public:
+    AIDock();
+    ~AIDock();
 
-	AIDock();
+
+    void set_ai_settings_dialog(AISettingsDialog *i_dialog);
 };
+
+#endif // AI_DOCK_H

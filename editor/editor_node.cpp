@@ -167,6 +167,7 @@
 #include "editor/themes/editor_scale.h"
 #include "editor/themes/editor_theme_manager.h"
 #include "editor/window_wrapper.h"
+#include "editor/ai_settings_dialog.h"
 
 #include "modules/modules_enabled.gen.h" // For gdscript, mono.
 
@@ -3423,6 +3424,9 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 		case HELP_SUPPORT_GODOT_DEVELOPMENT: {
 			OS::get_singleton()->shell_open("https://fund.godotengine.org");
 		} break;
+		case AI_OPEN_SETTINGS:{
+			ai_settings->popup_centered_clamped(Size2(900, 700) * EDSCALE, 0.8);
+		} break;
 	}
 }
 
@@ -5951,6 +5955,7 @@ void EditorNode::_layout_menu_option(int p_id) {
 	}
 }
 
+
 void EditorNode::_proceed_closing_scene_tabs() {
 	List<String>::Element *E = tabs_to_close.front();
 	if (!E) {
@@ -7883,9 +7888,11 @@ EditorNode::EditorNode() {
 	gui_base->add_child(build_profile_manager);
 
 	about = memnew(EditorAbout);
+	ai_settings = memnew(AISettingsDialog);
 	gui_base->add_child(about);
+	gui_base->add_child(ai_settings);
 	feature_profile_manager->connect("current_feature_profile_changed", callable_mp(this, &EditorNode::_feature_profile_changed));
-
+	
 #if !defined(ANDROID_ENABLED) && !defined(WEB_ENABLED)
 	fbx_importer_manager = memnew(FBXImporterManager);
 	gui_base->add_child(fbx_importer_manager);
@@ -8026,11 +8033,8 @@ EditorNode::EditorNode() {
 
 	settings_menu = memnew(PopupMenu);
 	_add_to_main_menu(TTRC("Editor"), settings_menu);
-
-	ai_menu = memnew(PopupMenu);
-	_add_to_main_menu(TTRC("AI Assistant"), ai_menu);
-
-	ai_menu->add_item(TTR("AI Settings"), AI_OPEN_SETTINGS);
+	
+	
 
 
 
@@ -8062,7 +8066,8 @@ EditorNode::EditorNode() {
 	ED_SHORTCUT_OVERRIDE("editor/fullscreen_mode", "macos", KeyModifierMask::META | KeyModifierMask::CTRL | Key::F);
 	settings_menu->add_shortcut(ED_GET_SHORTCUT("editor/fullscreen_mode"), EDITOR_TOGGLE_FULLSCREEN);
 	settings_menu->add_separator();
-
+	settings_menu->add_shortcut(ED_SHORTCUT_AND_COMMAND("editor/ai_settings", TTRC("AI Settings")),AI_OPEN_SETTINGS);
+	settings_menu->add_separator();
 #ifndef ANDROID_ENABLED
 	if (OS::get_singleton()->get_data_path() == OS::get_singleton()->get_config_path()) {
 		// Configuration and data folders are located in the same place (Windows/macOS).
@@ -8217,7 +8222,7 @@ EditorNode::EditorNode() {
 
 	history_dock = memnew(HistoryDock);
 	ai_dock = memnew(AIDock);
-
+	ai_dock->set_ai_settings_dialog(ai_settings);
 	// Scene: Top left.
 	editor_dock_manager->add_dock(SceneTreeDock::get_singleton(), TTRC("Scene"), EditorDockManager::DOCK_SLOT_LEFT_UR, ED_SHORTCUT_AND_COMMAND("docks/open_scene", TTRC("Open Scene Dock")), "PackedScene");
 

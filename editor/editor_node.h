@@ -100,6 +100,7 @@ class ProjectExportDialog;
 class ProjectSettingsEditor;
 class SceneImportSettingsDialog;
 class ProjectUpgradeTool;
+class AISettingsDialog;
 
 #ifdef ANDROID_ENABLED
 class TouchActionsPanel;
@@ -193,6 +194,7 @@ public:
 		LAYOUT_DELETE,
 		LAYOUT_DEFAULT,
 
+
 		// Help menu.
 		HELP_SEARCH,
 		HELP_DOCS,
@@ -217,6 +219,9 @@ public:
 		RESOURCE_SAVE,
 		RESOURCE_SAVE_AS,
 		SETTINGS_PICK_MAIN_SCENE,
+
+		//AI Assistant Menu
+		AI_OPEN_SETTINGS,
 	};
 
 	struct ExecuteThreadArgs {
@@ -344,7 +349,6 @@ private:
 	PopupMenu *debug_menu = nullptr;
 	PopupMenu *settings_menu = nullptr;
 	PopupMenu *help_menu = nullptr;
-	PopupMenu *ai_menu = nullptr;
 	PopupMenu *tool_menu = nullptr;
 	PopupMenu *export_as_menu = nullptr;
 	Button *export_button = nullptr;
@@ -389,6 +393,7 @@ private:
 	EditorAbout *about = nullptr;
 	AcceptDialog *warning = nullptr;
 	EditorPlugin *plugin_to_save = nullptr;
+	AISettingsDialog *ai_settings = nullptr;
 
 	int overridden_default_layout = -1;
 	Ref<ConfigFile> default_layout;
