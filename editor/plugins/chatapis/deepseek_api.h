@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-19 13:37:30
+ * @LastEditTime: 2025-06-19 18:49:47
  */
 // deepseek_api.h
 #ifndef DEEPSEEK_API_H
@@ -19,6 +19,7 @@
 #include <memory>
 
 class DeepSeekAPI : public AIStreamingBase {
+    GDCLASS(DeepSeekAPI, Object);
 public:
     DeepSeekAPI(const std::string& modelName = "deepseek-chat") 
         : AIStreamingBase(modelName){}
@@ -30,6 +31,7 @@ protected:
     static void _bind_methods();
 
     void handleStreamResponse(const char* data, size_t len) override;
+    String parseJsonData(const String& data);
 
 
 };

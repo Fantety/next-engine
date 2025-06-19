@@ -40,6 +40,8 @@ private:
     void _handle_ai_response(const String& content, bool isFinal);
     void _handle_request_completed();
     void _handle_error(const String& message);
+
+    void on_stream_response(const String &data);
 protected:
     void _notification(int p_notification);
     static void _bind_methods();

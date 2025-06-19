@@ -18,8 +18,8 @@
 #include "core/io/http_client.h"
 #include "core/io/stream_peer_tcp.h"
 
-class AIStreamingBase : public RefCounted {
-    GDCLASS(AIStreamingBase, RefCounted);
+class AIStreamingBase : public Object {
+    GDCLASS(AIStreamingBase, Object);
 
 public:
     AIStreamingBase(const std::string& modelName) : model(modelName) {}

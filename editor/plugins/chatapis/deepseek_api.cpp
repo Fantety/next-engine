@@ -11,10 +11,6 @@
 
 
 DeepSeekAPI::~DeepSeekAPI() {}
-// 在 Godot 模块或核心代码中使用
-#include "core/io/http_client.h"
-#include "core/os/os.h"
-
 
 bool DeepSeekAPI::sendStreamingRequest(const std::string& prompt) {
     print_line("[Call]: DeepSeekAPI::sendStreamingRequest");
@@ -45,12 +41,23 @@ bool DeepSeekAPI::sendStreamingRequest(const std::string& prompt) {
     headers.push_back("Authorization: Bearer " + String{apiKey.c_str()});
     headers.push_back("Content-Type: application/json");
     headers.push_back("Accept: text/event-stream");
+
+    Dictionary body;
+    body["model"] = "deepseek-chat";
+    body["stream"] = true; // 假设需要流式响应
     
-    String request_body = R"({
-        "model": "deepseek-chat",
-        "messages": [{"role": "user", "content": "Hello!"}],
-        "stream": true
-    })";
+    Array messages;
+    Dictionary sys_msg;
+    sys_msg["role"] = "system";
+    sys_msg["content"] = "你是一个Godot引擎专家，游戏开发大师";
+    Dictionary msg;
+    msg["role"] = "user";
+    msg["content"] = String{prompt.c_str()};
+    messages.push_back(sys_msg);
+    messages.push_back(msg);
+    body["messages"] = messages;
+    
+    String request_body = JSON::stringify(body);
     
     // 5. 发送请求（使用 PackedByteArray 转换）
     PackedByteArray body_data = request_body.to_utf8_buffer();
@@ -70,7 +77,18 @@ bool DeepSeekAPI::sendStreamingRequest(const std::string& prompt) {
             if (chunk.size() > 0) {
                 // 正确转换 uint8_t* 到 String
                 String chunk_str = String::utf8(reinterpret_cast<const char *>(chunk.ptr()), chunk.size());
-                print_line("Received chunk: " + chunk_str);
+                
+                if(chunk_str.contains("[DONE]")){
+                    break;
+                }
+                PackedStringArray lines = chunk_str.split("\n", false);
+                for (int i = 0; i < lines.size(); i++) {
+                    String line = lines[i].strip_edges();
+                    if (line.is_empty() || !line.begins_with("data: ")) {
+                        continue;
+                    }
+                    print_line("Received chunk: " + parseJsonData(line.trim_prefix("data: ")));
+                }
             }
         }
         else if (status == HTTPClient::STATUS_DISCONNECTED) {
@@ -80,7 +98,6 @@ bool DeepSeekAPI::sendStreamingRequest(const std::string& prompt) {
             ERR_PRINT("Error status: " + String::num_int64(status));
             break;
         }
-        
         OS::get_singleton()->delay_usec(1000);
     }
     
@@ -88,72 +105,41 @@ bool DeepSeekAPI::sendStreamingRequest(const std::string& prompt) {
     return true;
 }
 
-
-// void DeepSeekAPI::processStreamResponse(const std::string& chunk, const ResponseCallback& callback) {
-//     // 确保在主线程执行
-//     if (Thread::get_caller_id() != Thread::get_main_id()) {
-//         call_deferred("processStreamResponse", String(chunk.c_str()), callback);
-//         return;
-//     }
-    
-//     size_t pos = 0;
-//     while (pos < chunk.size()) {
-//         // 查找下一个data行
-//         size_t lineStart = chunk.find("data: ", pos);
-//         if (lineStart == std::string::npos) break;
-//         lineStart += 6; // 跳过"data: "
-        
-//         // 查找行结束
-//         size_t lineEnd = chunk.find("\n", lineStart);
-//         if (lineEnd == std::string::npos) lineEnd = chunk.size();
-        
-//         // 获取一行数据
-//         std::string line = chunk.substr(lineStart, lineEnd - lineStart);
-        
-//         // 处理结束标记
-//         if (line == "[DONE]") {
-//             if (callback) {
-//                 callback("", true); // 发送结束标记
-//             }
-//             pos = lineEnd + 1;
-//             continue;
-//         }
-        
-//         // 使用Godot的JSON解析器
-//         String jsonStr(line.c_str());
-//         Ref<JSON> json;
-//         json.instantiate();
-//         Error err = json->parse(jsonStr);
-//         if (err == OK) {
-//             Variant jsonData = json->get_data();
-//             if (jsonData.get_type() == Variant::DICTIONARY) {
-//                 Dictionary data = jsonData;
-//                 // 提取内容
-//                 if (data.has("choices")) {
-//                     Array choices = data["choices"];
-//                     if (choices.size() > 0) {
-//                         if (choices[0].get_type() == Variant::DICTIONARY) {
-//                             Dictionary choice = choices[0];
-//                             if (choice.has("delta")) {
-//                                 Dictionary delta = choice["delta"];
-//                                 if (delta.has("content")) {
-//                                     String content = delta["content"];
-//                                     if (callback) {
-//                                         callback(content.utf8().get_data(), false); // 发送内容片段
-//                                     }
-//                                 }
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//         } else {
-//             std::cerr << "JSON parse error at line " << json->get_error_line() << ": " << json->get_error_message().utf8().get_data() << std::endl;
-//         }
-        
-//         pos = lineEnd + 1;
-//     }
-// }
+String DeepSeekAPI::parseJsonData(const String& data){
+    Ref<JSON> json;
+    json.instantiate();
+    Error err = json->parse(data);
+    if (err != OK) {
+        ERR_PRINT("Parse Json Failed");
+        return String{};
+    }
+    Variant json_data = json->get_data();
+    if (json_data.get_type() == Variant::DICTIONARY) {
+        Dictionary dict_data = json_data;
+        if (!dict_data.has("choices")) {
+            return String{};
+        }
+        Array choices = dict_data["choices"];
+        if (choices.size() <= 0) {
+            return String{};
+        }
+        if (choices[0].get_type() != Variant::DICTIONARY) {
+            return String{};
+        }
+        Dictionary choice = choices[0];
+        if (!choice.has("delta")) {
+            return String{};
+        }
+        Dictionary delta = choice["delta"];
+        if (!delta.has("content")) {
+            return String{};
+        }
+        String content = delta["content"];
+        call_deferred("emit_signal", SNAME("stream_response"), content);
+        return content;
+    }
+    return String{};
+}
 
 void DeepSeekAPI::handleStreamResponse(const char* data, size_t len) {
     std::string chunk(data, len);
@@ -161,4 +147,5 @@ void DeepSeekAPI::handleStreamResponse(const char* data, size_t len) {
 }
 
 void DeepSeekAPI::_bind_methods() {
+    ADD_SIGNAL(MethodInfo("stream_response", PropertyInfo(Variant::STRING, "data")));
 }

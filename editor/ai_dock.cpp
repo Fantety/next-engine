@@ -139,6 +139,14 @@ void AIDock::_add_message_without_flash(const String &text, bool is_user){
     chat_display->set_text(current_text + text);
 }
 
+void AIDock::on_stream_response(const String &data){
+    if (!chat_display) {
+        return;
+    }
+    String current_text = chat_display->get_text();
+    chat_display->set_text(current_text + data);
+}
+
 void AIDock::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
     ClassDB::bind_method(D_METHOD("_show_settings"), &AIDock::_show_settings);
@@ -179,6 +187,7 @@ void AIDock::_handle_error(const String& message) {
 AIDock::AIDock() {
     deepseek_api = new DeepSeekAPI("deepseek-chat");
     current_ai_response = "";  // 初始化响应内容
+    deepseek_api->connect("stream_response", callable_mp(this, &AIDock::on_stream_response));
 }
 AIDock::~AIDock() {
     if (deepseek_api) {
