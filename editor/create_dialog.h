@@ -37,6 +37,10 @@
 #include "scene/gui/line_edit.h"
 #include "scene/gui/tree.h"
 
+#ifdef CreateDialog
+#undef CreateDialog
+#endif
+
 class CreateDialog : public ConfirmationDialog {
 	GDCLASS(CreateDialog, ConfirmationDialog);
 
@@ -123,8 +127,6 @@ public:
 
 	void set_type_blocklist(const HashSet<StringName> &p_blocklist) { custom_type_blocklist = p_blocklist; }
 	void set_preferred_search_result_type(const String &p_preferred_type) { preferred_search_result_type = p_preferred_type; }
-
 	void popup_create(bool p_dont_clear, bool p_replace_mode = false, const String &p_current_type = "", const String &p_current_name = "");
-
 	CreateDialog();
 };

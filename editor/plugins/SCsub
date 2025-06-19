@@ -4,7 +4,7 @@ Author: Fantety
 Descripttion: 
 Date: 2025-05-28 09:49:19
 LastEditors: Fantety
-LastEditTime: 2025-05-28 14:56:33
+LastEditTime: 2025-06-17 19:21:02
 '''
 #!/usr/bin/env python
 from misc.utility.scons_hints import *
@@ -14,9 +14,6 @@ Import("env")
 env.add_source_files(env.editor_sources, "*.cpp")
 
 SConscript("gizmos/SCsub")
-<<<<<<< HEAD
-SConscript("tiles/SCsub")
-=======
 SConscript("shader_baker/SCsub")
 SConscript("tiles/SCsub")
->>>>>>> 1218a16de55e8a8f2e0646ad1f8ea02ad5e77b39
+SConscript("chatapis/SCsub")

@@ -1,43 +1,41 @@
+/*
+ * @FilePath: \editor\plugins\chatapis\deepseek_api.h
+ * @Author: Fantety
+ * @Descripttion: 
+ * @Date: 2025-06-17 19:18:53
+ * @LastEditors: Fantety
+ * @LastEditTime: 2025-06-19 13:37:30
+ */
 // deepseek_api.h
 #ifndef DEEPSEEK_API_H
 #define DEEPSEEK_API_H
 
-#include "core/object/ref_counted.h"
-#include "core/io/http_client.h"
-#include "core/io/json.h"
+#include "ai_streaming_base.h"
+#include "core/variant/variant.h"
+#include "core/variant/dictionary.h"
+#include "core/os/mutex.h"
+#include "scene/main/timer.h"
+#include <queue>
+#include <memory>
 
-class DeepSeekAPI : public RefCounted {
-    GDCLASS(DeepSeekAPI, RefCounted);
+class DeepSeekAPI : public AIStreamingBase {
+public:
+    DeepSeekAPI(const std::string& modelName = "deepseek-chat") 
+        : AIStreamingBase(modelName){}
+    ~DeepSeekAPI();
 
-private:
-    Ref<HTTPClient> http_client;
-    String api_key;
-    String base_url = "https://api.deepseek.com/v1";
+    bool sendStreamingRequest(const std::string& prompt) override;
     
-    void _parse_response(int p_status, PackedByteArray p_body);
-    void _handle_request_completed(int p_status, PackedByteArray p_body);
-
 protected:
     static void _bind_methods();
 
-public:
-    enum Error {
-        OK = 0,
-        INVALID_REQUEST,
-        NETWORK_ERROR,
-        INVALID_RESPONSE,
-        API_ERROR
-    };
+    void handleStreamResponse(const char* data, size_t len) override;
 
-    void set_api_key(const String &p_key);
-    String get_api_key() const;
-    
-    Error send_message(const String &p_message, const Callable &p_callback);
-    
-    DeepSeekAPI();
-    ~DeepSeekAPI();
+
 };
 
-VARIANT_ENUM_CAST(DeepSeekAPI::Error);
+
+
+
 
 #endif // DEEPSEEK_API_H

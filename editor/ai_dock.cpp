@@ -96,17 +96,26 @@ void AIDock::_update_model_list() {
 }
 
 void AIDock::_send_message() {
-    String text = input_box->get_text().strip_edges();
-    if (text.is_empty()) {
-        return;
-    }
+    String message = input_box->get_text();
+    if (message.strip_edges().is_empty()) return;
 
-    String selected_model = model_selector->get_item_text(model_selector->get_selected());
-    _add_message("[You @ " + selected_model + "]: " + text, true);
+    _add_message(message, true);
     input_box->clear();
+    String selected_model = model_selector->get_item_text(model_selector->get_selected());
+    String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
+    deepseek_api->setApiKey(apikey.utf8().get_data());
+
+    auto callback = [this](const std::string& content, bool isFinal) {
+        call_deferred("_handle_ai_response", String(content.c_str()), isFinal);
+    };
+    _add_message_without_flash("[AI]: ", false);
     
-    // 这里可以添加根据选择模型调用不同API的逻辑
-    _add_message("[AI @ " + selected_model + "]: This is a sample response", false);
+    // // 发送请求（包含回调函数）
+    // Dictionary additionalParams;
+    // additionalParams["temperature"] = 0.7;
+    // additionalParams["max_tokens"] = 500;
+    // 发送请求，不再需要回调
+    deepseek_api->sendStreamingRequest(message.utf8().get_data());
 }
 
 void AIDock::_show_settings() {
@@ -122,20 +131,58 @@ void AIDock::_add_message(const String &message, bool is_user) {
     chat_display->set_caret_line(chat_display->get_line_count() - 1);
 }
 
+void AIDock::_add_message_without_flash(const String &text, bool is_user){
+    if (!chat_display) {
+        return;
+    }
+    String current_text = chat_display->get_text();
+    chat_display->set_text(current_text + text);
+}
+
 void AIDock::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
     ClassDB::bind_method(D_METHOD("_show_settings"), &AIDock::_show_settings);
     ClassDB::bind_method(D_METHOD("_update_model_list"), &AIDock::_update_model_list);
     ClassDB::bind_method(D_METHOD("_add_message", "message", "is_user"), &AIDock::_add_message);  // 确保这个方法被绑定
+    ClassDB::bind_method(D_METHOD("_handle_ai_response", "content", "is_final"), &AIDock::_handle_ai_response);
 }
 
 
 void AIDock::set_ai_settings_dialog(AISettingsDialog *i_dialog){
     this->dialog = i_dialog;
-}
-
-AIDock::AIDock() {
     dialog->connect("confirmed", callable_mp(this, &AIDock::_update_model_list));
     dialog->connect("settings_changed", callable_mp(this, &AIDock::_update_model_list));
 }
-AIDock::~AIDock() {}
+
+void AIDock::_handle_ai_response(const String& content, bool isFinal) {
+    if (isFinal) {
+        // 结束响应
+        _add_message("", false);
+    } else {
+        // 更新最后一条消息
+        if (content.length() > 0) {
+            _add_message_without_flash(content, false);
+        }
+    }
+}
+
+void AIDock::_handle_request_completed() {
+    // 请求完成，可以添加清理代码
+    print_line("AI request completed");
+}
+
+void AIDock::_handle_error(const String& message) {
+    // 显示错误消息
+    _add_message("[ERROR] " + message, false);
+}
+
+AIDock::AIDock() {
+    deepseek_api = new DeepSeekAPI("deepseek-chat");
+    current_ai_response = "";  // 初始化响应内容
+}
+AIDock::~AIDock() {
+    if (deepseek_api) {
+        memdelete(deepseek_api);
+        deepseek_api = nullptr;
+    }
+}
