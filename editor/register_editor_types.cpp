@@ -127,6 +127,10 @@
 #include "editor/plugins/tool_button_editor_plugin.h"
 #include "editor/plugins/voxel_gi_editor_plugin.h"
 #include "editor/register_exporters.h"
+#include "editor/chatapis/ai_streaming_base.h"
+#include "editor/chatapis/deepseek_api.h"
+#include "editor/ai_dock.h"
+#include "editor/ai_settings_dialog.h"
 #ifndef DISABLE_DEPRECATED
 #include "editor/plugins/parallax_background_editor_plugin.h"
 #include "editor/plugins/skeleton_ik_3d_editor_plugin.h"
@@ -139,7 +143,6 @@ void register_editor_types() {
 	ResourceSaver::set_timestamp_on_save(true);
 
 	EditorStringNames::create();
-
 	GDREGISTER_CLASS(EditorPaths);
 	GDREGISTER_CLASS(EditorPlugin);
 	GDREGISTER_CLASS(EditorTranslationParserPlugin);
@@ -207,6 +210,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterTexture);
 	GDREGISTER_CLASS(ResourceImporterTextureAtlas);
 	GDREGISTER_CLASS(ResourceImporterWAV);
+	GDREGISTER_CLASS(DeepSeekAPI);
 
 	// This list is alphabetized, and plugins that depend on Node2D are in their own section below.
 	EditorPlugins::add_by_type<AnimationTreeEditorPlugin>();

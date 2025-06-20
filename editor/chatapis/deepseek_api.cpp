@@ -9,14 +9,14 @@
 #include "core/os/mutex.h" // 添加互斥锁头文件
 #include "core/os/thread.h"
 
-void DeepSeekAPI::_notification(int p_notification) {
+void DeepSeekAPI::_notification(int p_what) {
 }
 
 DeepSeekAPI::~DeepSeekAPI() {
     cancel_request();
 }
 
-bool DeepSeekAPI::sendStreamingRequest(const std::string& prompt) {
+bool DeepSeekAPI::sendStreamingRequest(const String& prompt) {
     if (thread_running) {
         cancel_request();
     }
@@ -24,7 +24,6 @@ bool DeepSeekAPI::sendStreamingRequest(const std::string& prompt) {
     ThreadParams *params = memnew(ThreadParams);
     params->self = this;
     params->prompt = prompt;
-    http_client = HTTPClient::create();
     thread_running = true;
     thread.start(_thread_func, params);
     return true;
@@ -92,7 +91,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     Vector<String> headers;
     headers.push_back("Authorization: Bearer " + String{params->self->apiKey.c_str()});
     headers.push_back("Content-Type: application/json");
-    headers.push_back("Accept: text/event-stream");
+    //headers.push_back("Accept: text/event-stream");
 
     Dictionary body;
     body["model"] = "deepseek-chat";
@@ -104,7 +103,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     sys_msg["content"] = "你是一个Godot引擎专家，游戏开发大师";
     Dictionary msg;
     msg["role"] = "user";
-    msg["content"] = String{params->prompt.c_str()};
+    msg["content"] = params->prompt;
     messages.push_back(sys_msg);
     messages.push_back(msg);
     body["messages"] = messages;
@@ -117,21 +116,42 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
         return;
     }
 
+    PackedByteArray buffer; // 用于累积不完整的UTF-8字节
     while (true) {
         t_http_client->poll();
         HTTPClient::Status status = t_http_client->get_status();
         if (status == HTTPClient::STATUS_BODY) {
             PackedByteArray chunk = t_http_client->read_response_body_chunk();
             if (chunk.size() > 0) {
-                // 正确转换 uint8_t* 到 String
-                String chunk_str = String::utf8(reinterpret_cast<const char *>(chunk.ptr()), chunk.size());
+                // 将新数据追加到缓冲区
+                buffer.append_array(chunk);
+                // 检查缓冲区末尾是否有完整的UTF-8字符
+                int valid_length = buffer.size();
+                while (valid_length > 0) {
+                    if (params->self->is_valid_utf8(buffer.ptr(), valid_length)) {
+                        break;
+                    }
+                    valid_length--;
+                }
+                if (valid_length == 0) {
+                    continue; // 没有完整的字符，等待更多数据
+                }
+                // 提取有效部分并转换为字符串
+                String chunk_str = String::utf8(reinterpret_cast<const char*>(buffer.ptr()), valid_length);
+                // 保留剩余字节在缓冲区
+                buffer = buffer.slice(valid_length);
+
+                if (!params->self->is_valid_utf8(chunk.ptr(), chunk.size())) { // 检查UTF-8有效性
+                    ERR_PRINT("Invalid UTF-8");
+                }
+                print_line(String::utf8(reinterpret_cast<const char *>(chunk.ptr())));
                 if(chunk_str.contains("[DONE]")){
                     break;
                 }
                 if (status == HTTPClient::STATUS_DISCONNECTED || status == HTTPClient::STATUS_CONNECTION_ERROR) {
                     break;
                 }
-                PackedStringArray lines = chunk_str.split("\n", false);
+                PackedStringArray lines = chunk_str.split("\n\n", false);
                 for (int i = 0; i < lines.size(); i++) {
                     String line = lines[i].strip_edges();
                     if (line.is_empty() || !line.begins_with("data: ")) {
@@ -139,8 +159,8 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                     }
                     String result_data = params->self->parseJsonData(line.trim_prefix("data: "));
                     print_line("Received chunk: " + result_data);
-                    params->self->call_deferred("emit_signal", SNAME("data_received"), result_data);
-                    params->self->emit_signal("deepseek_data_updated");
+                    params->self->call_deferred("emit_signal", SNAME("deepseek_data_received"), result_data);
+                    params->self->call_deferred("emit_signal", SNAME("deepseek_data_updated"));
                     OS::get_singleton()->delay_usec(10); // 减少CPU占用
                 }
             }

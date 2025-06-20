@@ -32,13 +32,25 @@ public:
     // 设置超时时间(秒)
     void setTimeout(int seconds) { timeout = seconds; }
     // 发送流式请求(纯虚函数，子类必须实现)
-    virtual bool sendStreamingRequest(const std::string& prompt) = 0;
+    virtual bool sendStreamingRequest(const String& prompt) = 0;
     virtual void handleStreamResponse(const char* data, size_t len) = 0;
     
 protected:
     std::string model;
     std::string apiKey;
     int timeout = 60;
+    bool is_valid_utf8(const uint8_t* data, int len) {
+        int i = 0;
+        while (i < len) {
+            if (data[i] <= 0x7F) { i++; continue; } // ASCII
+            // 多字节UTF-8序列检查
+            if ((data[i] & 0xE0) == 0xC0) { if (i+1 >= len || (data[i+1] & 0xC0) != 0x80) return false; i+=2; }
+            else if ((data[i] & 0xF0) == 0xE0) { if (i+2 >= len || (data[i+1] & 0xC0) != 0x80 || (data[i+2] & 0xC0) != 0x80) return false; i+=3; }
+            else if ((data[i] & 0xF8) == 0xF0) { if (i+3 >= len || (data[i+1] & 0xC0) != 0x80 || (data[i+2] & 0xC0) != 0x80 || (data[i+3] & 0xC0) != 0x80) return false; i+=4; }
+            else return false;
+        }
+        return true;
+    }
 };
 
 #endif // AI_STREAMING_BASE_H

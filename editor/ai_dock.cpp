@@ -105,7 +105,7 @@ void AIDock::_send_message() {
     String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
     deepseek_api->setApiKey(apikey.utf8().get_data());
     _add_message_without_flash("[AI]: ", false);
-    deepseek_api->sendStreamingRequest(message.utf8().get_data());
+    deepseek_api->sendStreamingRequest(message);
 }
 
 void AIDock::_show_settings() {
@@ -129,12 +129,8 @@ void AIDock::_add_message_without_flash(const String &text, bool is_user){
     chat_display->set_text(current_text + text);
 }
 
-void AIDock::on_stream_response(String chunk){
-    if (!chat_display) {
-        return;
-    }
-    String current_text = chat_display->get_text();
-    chat_display->set_text(current_text + chunk);
+void AIDock::on_stream_response(String text){
+    _add_message_without_flash(text, false);
 }
 
 void AIDock::on_data_updated(){
@@ -153,7 +149,7 @@ void AIDock::_bind_methods() {
 void AIDock::set_ai_settings_dialog(AISettingsDialog *i_dialog){
     this->dialog = i_dialog;
     dialog->connect("confirmed", callable_mp(this, &AIDock::_update_model_list));
-    dialog->connect("settings_changed", callable_mp(this, &AIDock::_update_model_list));
+    dialog->connect("ai_settings_changed", callable_mp(this, &AIDock::_update_model_list));
 }
 
 void AIDock::_handle_ai_response(const String& content, bool isFinal) {

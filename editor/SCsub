@@ -1,3 +1,11 @@
+'''
+FilePath: \editor\SCsub
+Author: Fantety
+Descripttion: 
+Date: 2025-05-28 09:49:18
+LastEditors: Fantety
+LastEditTime: 2025-06-20 16:30:12
+'''
 #!/usr/bin/env python
 from misc.utility.scons_hints import *
 
@@ -93,6 +101,7 @@ if env.editor_build:
     SConscript("plugins/SCsub")
     SConscript("project_manager/SCsub")
     SConscript("themes/SCsub")
+    SConscript("chatapis/SCsub")
 
     lib = env.add_library("editor", env.editor_sources)
     env.Prepend(LIBS=[lib])

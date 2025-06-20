@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-18 12:41:59
+ * @LastEditTime: 2025-06-20 16:33:14
  */
 #ifndef AI_DOCK_H
 #define AI_DOCK_H
@@ -15,7 +15,7 @@
 #include "scene/gui/line_edit.h"
 #include "scene/gui/button.h"
 #include "ai_settings_dialog.h"
-#include "plugins/chatapis/deepseek_api.h"
+#include "chatapis/deepseek_api.h"
 
 
 class AIDock : public VBoxContainer {
@@ -43,7 +43,7 @@ private:
     void _handle_request_completed();
     void _handle_error(const String& message);
 
-    void on_stream_response(String chunk);
+    void on_stream_response(String text);
     void on_data_updated();
 protected:
     void _notification(int p_notification);

@@ -8,7 +8,7 @@
 
 void AISettingsDialog::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_save_settings"), &AISettingsDialog::_save_settings);
-    ADD_SIGNAL(MethodInfo("settings_changed"));
+    ADD_SIGNAL(MethodInfo("ai_settings_changed"));
 }
 
 void AISettingsDialog::_notification(int p_what) {
