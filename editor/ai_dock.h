@@ -36,12 +36,15 @@ private:
     void _update_model_list();
     void _show_settings();
     void _add_message(const String &message, bool is_user);  // 确保这个方法有声明
+public:
     void _add_message_without_flash(const String &text, bool is_user);  // 确保这个方法有声明
+private:
     void _handle_ai_response(const String& content, bool isFinal);
     void _handle_request_completed();
     void _handle_error(const String& message);
 
-    void on_stream_response(const String &data);
+    void on_stream_response(String chunk);
+    void on_data_updated();
 protected:
     void _notification(int p_notification);
     static void _bind_methods();

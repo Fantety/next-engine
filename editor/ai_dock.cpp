@@ -104,17 +104,7 @@ void AIDock::_send_message() {
     String selected_model = model_selector->get_item_text(model_selector->get_selected());
     String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
     deepseek_api->setApiKey(apikey.utf8().get_data());
-
-    auto callback = [this](const std::string& content, bool isFinal) {
-        call_deferred("_handle_ai_response", String(content.c_str()), isFinal);
-    };
     _add_message_without_flash("[AI]: ", false);
-    
-    // // 发送请求（包含回调函数）
-    // Dictionary additionalParams;
-    // additionalParams["temperature"] = 0.7;
-    // additionalParams["max_tokens"] = 500;
-    // 发送请求，不再需要回调
     deepseek_api->sendStreamingRequest(message.utf8().get_data());
 }
 
@@ -139,12 +129,16 @@ void AIDock::_add_message_without_flash(const String &text, bool is_user){
     chat_display->set_text(current_text + text);
 }
 
-void AIDock::on_stream_response(const String &data){
+void AIDock::on_stream_response(String chunk){
     if (!chat_display) {
         return;
     }
     String current_text = chat_display->get_text();
-    chat_display->set_text(current_text + data);
+    chat_display->set_text(current_text + chunk);
+}
+
+void AIDock::on_data_updated(){
+    print_line("updated");
 }
 
 void AIDock::_bind_methods() {
@@ -186,12 +180,10 @@ void AIDock::_handle_error(const String& message) {
 
 AIDock::AIDock() {
     deepseek_api = new DeepSeekAPI("deepseek-chat");
+    add_child(deepseek_api);
     current_ai_response = "";  // 初始化响应内容
-    deepseek_api->connect("stream_response", callable_mp(this, &AIDock::on_stream_response));
+    deepseek_api->connect("deepseek_data_received", callable_mp(this, &AIDock::on_stream_response), CONNECT_DEFERRED);
+    deepseek_api->connect("deepseek_data_updated", callable_mp(this, &AIDock::on_data_updated), CONNECT_DEFERRED);
 }
 AIDock::~AIDock() {
-    if (deepseek_api) {
-        memdelete(deepseek_api);
-        deepseek_api = nullptr;
-    }
 }

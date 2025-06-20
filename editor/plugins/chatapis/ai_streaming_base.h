@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 20:48:06
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-19 16:44:43
+ * @LastEditTime: 2025-06-20 14:52:53
  */
 #ifndef AI_STREAMING_BASE_H
 #define AI_STREAMING_BASE_H
@@ -13,16 +13,17 @@
 #include <functional>
 #include "core/variant/variant.h"
 #include "core/variant/dictionary.h"
-#include "core/object/ref_counted.h"
+#include "scene/main/node.h"
 #include "core/object/class_db.h"
 #include "core/io/http_client.h"
 #include "core/io/stream_peer_tcp.h"
 
-class AIStreamingBase : public Object {
-    GDCLASS(AIStreamingBase, Object);
-
+class AIStreamingBase : public Node {
+    GDCLASS(AIStreamingBase, Node);
+    
 public:
-    AIStreamingBase(const std::string& modelName) : model(modelName) {}
+    AIStreamingBase(const std::string& modelName = "deepseek-chat") 
+        : model(modelName){}
     virtual ~AIStreamingBase() = default;
     // 设置API密钥
     void setApiKey(const std::string& key) { apiKey = key; }
