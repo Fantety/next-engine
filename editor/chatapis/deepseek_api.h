@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-20 18:34:12
+ * @LastEditTime: 2025-06-21 13:10:53
  */
 // deepseek_api.h
 #ifndef DEEPSEEK_API_H
@@ -16,7 +16,6 @@
 #include "core/os/mutex.h"
 #include "scene/main/timer.h"
 #include "core/os/thread.h"
-#include "utf8.h"
 #include <queue>
 #include <memory>
 class DeepSeekAPI;
@@ -47,12 +46,12 @@ public:
     ~DeepSeekAPI();
 
     bool sendStreamingRequest(const String& prompt) override;
+    void cancel_request(); 
     
 protected:
     static void _bind_methods();
     //SIGNAL("data_received", "data");
     void _notification(int p_what);
-    void cancel_request(); 
     void handleStreamResponse(const char* data, size_t len) override;
     String parseJsonData(const String& data);
 

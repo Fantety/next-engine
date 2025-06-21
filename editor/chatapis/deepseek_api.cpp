@@ -144,8 +144,10 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                 if (!params->self->is_valid_utf8(chunk.ptr(), chunk.size())) { // 检查UTF-8有效性
                     ERR_PRINT("Invalid UTF-8");
                 }
-                print_line(String::utf8(reinterpret_cast<const char *>(chunk.ptr())));
+                //print_line(String::utf8(reinterpret_cast<const char *>(chunk.ptr())));
                 if(chunk_str.contains("[DONE]")){
+                    print_line("thread has done");
+                    params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"));
                     break;
                 }
                 if (status == HTTPClient::STATUS_DISCONNECTED || status == HTTPClient::STATUS_CONNECTION_ERROR) {
@@ -158,7 +160,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                         continue;
                     }
                     String result_data = params->self->parseJsonData(line.trim_prefix("data: "));
-                    print_line("Received chunk: " + result_data);
+                    //print_line("Received chunk: " + result_data);
                     params->self->call_deferred("emit_signal", SNAME("deepseek_data_received"), result_data);
                     params->self->call_deferred("emit_signal", SNAME("deepseek_data_updated"));
                     OS::get_singleton()->delay_usec(10); // 减少CPU占用
@@ -178,7 +180,6 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
 }
 
 void DeepSeekAPI::cancel_request() {
-    exit_flag.set();
     if (thread.is_started()) {
         thread.wait_to_finish();
     }
@@ -193,6 +194,6 @@ void DeepSeekAPI::handleStreamResponse(const char* data, size_t len) {
 
 void DeepSeekAPI::_bind_methods() {
     ADD_SIGNAL(MethodInfo("deepseek_data_received", PropertyInfo(Variant::STRING, "text")));
-    ADD_SIGNAL(MethodInfo("request_completed"));
+    ADD_SIGNAL(MethodInfo("deepseek_request_completed"));
     ADD_SIGNAL(MethodInfo("deepseek_data_updated"));
 }

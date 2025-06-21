@@ -6,48 +6,82 @@
 void AIDock::_notification(int p_what) {
     switch (p_what) {
         case NOTIFICATION_READY: {
+            //历史页面
+            history_view = memnew(VBoxContainer);
+            add_child(history_view);
+            set_tab_title(0, "History");
+            search_box = memnew(LineEdit);
+            search_box->set_placeholder("Search history...");
+            history_view->add_child(search_box);
+
+            history_list = memnew(ItemList);
+            history_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+            history_list->connect("item_selected", callable_mp(this, &AIDock::_on_history_selected));
+            history_view->add_child(history_list);
+            new_chat_btn = memnew(Button);
+            new_chat_btn->set_text("New Chat");
+            new_chat_btn->connect("pressed", callable_mp(this, &AIDock::_start_new_chat));
+            history_view->add_child(new_chat_btn);
+
             // 聊天显示区域
-            chat_display = memnew(TextEdit);
-            chat_display->set_custom_minimum_size(Size2(0, 200));
-            chat_display->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-            chat_display->set_editable(false);
-            chat_display->set_line_wrapping_mode(TextEdit::LINE_WRAPPING_BOUNDARY);
-            add_child(chat_display);
+            chat_view = memnew(VBoxContainer);
+            chat_scroll = memnew(ScrollContainer);
+            chat_list = memnew(VBoxContainer);
+            add_child(chat_view);
+            set_tab_title(1, "Chat");
+            chat_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+            chat_scroll->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+            chat_scroll->set_stretch_ratio(4);
+            chat_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+            chat_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+            chat_view->add_child(chat_scroll);
+            chat_scroll->add_child(chat_list);
 
             // 模型选择器
             HBoxContainer *selector_container = memnew(HBoxContainer);
-            add_child(selector_container);
-            
             Label *model_label = memnew(Label);
             model_label->set_text("Model:");
             selector_container->add_child(model_label);
-            
             model_selector = memnew(OptionButton);
             model_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
             _update_model_list(); // 初始化模型列表
             selector_container->add_child(model_selector);
+            selector_container->set_stretch_ratio(4);
 
             // 输入区域
-            HBoxContainer *input_container = memnew(HBoxContainer);
-            input_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-            
-            input_box = memnew(LineEdit);
-            input_box->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-            input_box->set_placeholder("Type your message...");
-            input_box->connect("text_submitted", callable_mp(this, &AIDock::_send_message));
-            input_container->add_child(input_box);
+            input_panel = memnew(PanelContainer);
+            input_panel->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+            input_panel->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+            input_panel->set_stretch_ratio(1);
+
+            input_view = memnew(VBoxContainer);
+            input_view->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+            input_view->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+
+            input_bottom_bar = memnew(HBoxContainer);
+            input_bottom_bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+            input_bottom_bar->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+            input_bottom_bar->set_stretch_ratio(1);
 
             send_button = memnew(Button);
             send_button->set_text("Send");
             send_button->connect("pressed", callable_mp(this, &AIDock::_send_message));
-            input_container->add_child(send_button);
+            send_button->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+            send_button->set_stretch_ratio(1);
 
-            settings_button = memnew(Button);
-            settings_button->set_text("Settings");
-            settings_button->connect("pressed", callable_mp(this, &AIDock::_show_settings));
-            input_container->add_child(settings_button);
+            input_box = memnew(TextEdit);
+            input_box->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+            input_box->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+            input_box->set_placeholder("Type your message...");
+            input_box->set_stretch_ratio(4);
 
-            add_child(input_container);
+            input_bottom_bar->add_child(selector_container);
+            input_bottom_bar->add_child(send_button);
+            chat_view->add_child(input_panel);
+            input_panel->add_child(input_view);
+            input_view->add_child(input_box);
+            input_view->add_child(input_bottom_bar);
+            
         } break;
     }
 }
@@ -98,48 +132,48 @@ void AIDock::_update_model_list() {
 void AIDock::_send_message() {
     String message = input_box->get_text();
     if (message.strip_edges().is_empty()) return;
-
-    _add_message(message, true);
+    send_button->set_disabled(true);
+    current_chat_index++;
+    _add_message(message,current_chat_index, true);
     input_box->clear();
     String selected_model = model_selector->get_item_text(model_selector->get_selected());
     String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
     deepseek_api->setApiKey(apikey.utf8().get_data());
-    _add_message_without_flash("[AI]: ", false);
+    current_chat_index++;
     deepseek_api->sendStreamingRequest(message);
 }
-
-void AIDock::_show_settings() {
-    dialog->popup_centered();
-}
-
-void AIDock::_add_message(const String &message, bool is_user) {
-    if (!chat_display) {
+void AIDock::_add_message(const String &message, int block_index, bool is_user) {
+    if(block_index==chat_blocks.size()){
+        AIChatBlock* block = memnew(AIChatBlock);
+        block->set_fit_content(true);
+        block->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+        chat_blocks.append(block);
+        chat_list->add_child(block);
+    }
+    else if (block_index>chat_blocks.size()||block_index == -1)
+    {
+        ERR_PRINT("chat_block_index out of range");
         return;
     }
-    String current_text = chat_display->get_text();
-    chat_display->set_text(current_text + message + "\n\n");
-    chat_display->set_caret_line(chat_display->get_line_count() - 1);
+    chat_blocks[block_index]->add_text(message);
 }
 
-void AIDock::_add_message_without_flash(const String &text, bool is_user){
-    if (!chat_display) {
-        return;
-    }
-    String current_text = chat_display->get_text();
-    chat_display->set_text(current_text + text);
-}
 
 void AIDock::on_stream_response(String text){
-    _add_message_without_flash(text, false);
+    _add_message(text, current_chat_index, false);
 }
 
 void AIDock::on_data_updated(){
-    print_line("updated");
+    //print_line("updated");
 }
+void AIDock::on_request_completed(){
+    deepseek_api->cancel_request();
+    send_button->set_disabled(false);
+}
+
 
 void AIDock::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
-    ClassDB::bind_method(D_METHOD("_show_settings"), &AIDock::_show_settings);
     ClassDB::bind_method(D_METHOD("_update_model_list"), &AIDock::_update_model_list);
     ClassDB::bind_method(D_METHOD("_add_message", "message", "is_user"), &AIDock::_add_message);  // 确保这个方法被绑定
     ClassDB::bind_method(D_METHOD("_handle_ai_response", "content", "is_final"), &AIDock::_handle_ai_response);
@@ -155,13 +189,38 @@ void AIDock::set_ai_settings_dialog(AISettingsDialog *i_dialog){
 void AIDock::_handle_ai_response(const String& content, bool isFinal) {
     if (isFinal) {
         // 结束响应
-        _add_message("", false);
+        //_add_message("", false);
     } else {
         // 更新最后一条消息
         if (content.length() > 0) {
-            _add_message_without_flash(content, false);
+            //_add_message_without_flash(content, false);
         }
     }
+}
+
+String AIDock::generate_uuid() const {
+    return OS::get_singleton()->get_unique_id() + "_" + itos(OS::get_singleton()->get_unix_time()) + "_" + itos(rand());
+}
+
+void AIDock::_start_new_chat() {
+    ChatSession new_session;
+    new_session.uuid = generate_uuid();
+    new_session.timestamp = OS::get_singleton()->get_unix_time();
+    sessions.push_back(new_session);
+    _update_history_list();
+    set_current_tab(1);
+}
+
+
+void AIDock::_on_history_selected(int index) {
+    if (index >= 0 && index < sessions.size()) {
+        current_session = sessions[index].uuid;
+        //chat_display->set_text(String("\n").join(sessions[index].messages));
+        set_current_tab(1);
+    }
+}
+void AIDock::_update_history_list(){
+
 }
 
 void AIDock::_handle_request_completed() {
@@ -171,7 +230,7 @@ void AIDock::_handle_request_completed() {
 
 void AIDock::_handle_error(const String& message) {
     // 显示错误消息
-    _add_message("[ERROR] " + message, false);
+    //_add_message("[ERROR] " + message, false);
 }
 
 AIDock::AIDock() {
@@ -180,6 +239,8 @@ AIDock::AIDock() {
     current_ai_response = "";  // 初始化响应内容
     deepseek_api->connect("deepseek_data_received", callable_mp(this, &AIDock::on_stream_response), CONNECT_DEFERRED);
     deepseek_api->connect("deepseek_data_updated", callable_mp(this, &AIDock::on_data_updated), CONNECT_DEFERRED);
+    deepseek_api->connect("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
 }
 AIDock::~AIDock() {
+    memdelete(deepseek_api);
 }
