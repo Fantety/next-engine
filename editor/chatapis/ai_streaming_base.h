@@ -1,10 +1,10 @@
 /*
- * @FilePath: \editor\plugins\chatapis\ai_streaming_base.h
+ * @FilePath: \editor\chatapis\ai_streaming_base.h
  * @Author: Fantety
  * @Descripttion: 
  * @Date: 2025-06-17 20:48:06
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-20 14:52:53
+ * @LastEditTime: 2025-06-23 15:16:51
  */
 #ifndef AI_STREAMING_BASE_H
 #define AI_STREAMING_BASE_H
@@ -24,7 +24,6 @@ class AIStreamingBase : public Node {
 public:
     AIStreamingBase(const std::string& modelName = "deepseek-chat") 
         : model(modelName){}
-    virtual ~AIStreamingBase() = default;
     // 设置API密钥
     void setApiKey(const std::string& key) { apiKey = key; }
     // 设置模型

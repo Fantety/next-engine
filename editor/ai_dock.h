@@ -86,7 +86,6 @@ protected:
 
 public:
     AIDock();
-    ~AIDock();
 
 
     void set_ai_settings_dialog(AISettingsDialog *i_dialog);

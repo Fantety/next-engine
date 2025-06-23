@@ -43,7 +43,6 @@ private:
 public:
     DeepSeekAPI(const std::string& modelName = "deepseek-chat") 
         : AIStreamingBase(modelName){}
-    ~DeepSeekAPI();
 
     bool sendStreamingRequest(const String& prompt) override;
     void cancel_request(); 

@@ -46,8 +46,8 @@ void EditorColorMap::create() {
 	// This can be a basis for proper palette validation later.
 
 	// Convert:               FROM       TO
-	add_conversion_color_pair("#478cbf", "#478cbf"); // Godot Blue
-	add_conversion_color_pair("#414042", "#414042"); // Godot Gray
+	add_conversion_color_pair("#38A3A5", "#38A3A5"); // Next Green
+	add_conversion_color_pair("#154040", "#154040"); // Godot Gray
 
 	add_conversion_color_pair("#ffffff", "#414141"); // Pure white
 	add_conversion_color_pair("#fefefe", "#fefefe"); // Forced light color

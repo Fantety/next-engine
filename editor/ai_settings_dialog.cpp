@@ -253,7 +253,3 @@ void AISettingsDialog::_save_settings() {
 AISettingsDialog::AISettingsDialog() {
     // Initialization handled in _notification
 }
-
-AISettingsDialog::~AISettingsDialog() {
-    // Cleanup resources
-}

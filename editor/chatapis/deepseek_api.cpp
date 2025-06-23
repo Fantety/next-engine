@@ -12,10 +12,6 @@
 void DeepSeekAPI::_notification(int p_what) {
 }
 
-DeepSeekAPI::~DeepSeekAPI() {
-    cancel_request();
-}
-
 bool DeepSeekAPI::sendStreamingRequest(const String& prompt) {
     if (thread_running) {
         cancel_request();

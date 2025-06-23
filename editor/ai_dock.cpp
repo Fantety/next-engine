@@ -243,8 +243,5 @@ AIDock::AIDock() {
     deepseek_api->connect("deepseek_data_updated", callable_mp(this, &AIDock::on_data_updated), CONNECT_DEFERRED);
     deepseek_api->connect("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
 }
-AIDock::~AIDock() {
-    memdelete(deepseek_api);
-}
 
 

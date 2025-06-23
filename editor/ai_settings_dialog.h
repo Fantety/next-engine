@@ -43,7 +43,6 @@ protected:
 
 public:
     AISettingsDialog();
-    ~AISettingsDialog();
 };
 
 #endif // AI_SETTINGS_DIALOG_H

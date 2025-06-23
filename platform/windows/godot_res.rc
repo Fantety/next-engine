@@ -4,7 +4,7 @@
 #define RT_MANIFEST 24
 #endif
 
-GODOT_ICON ICON platform/windows/godot.ico
+GODOT_ICON ICON platform/windows/next.ico
 1 RT_MANIFEST "godot.manifest"
 
 1 VERSIONINFO

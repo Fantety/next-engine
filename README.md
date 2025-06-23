@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-05-28 09:49:17
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-23 14:41:31
+ * @LastEditTime: 2025-06-23 14:46:15
 -->
 # Next Engine
 
@@ -16,4 +16,4 @@
 
 ## 2D and 3D cross-platform game engine
 
-Next Engine is deeply integrated with AI on the foundation of ![Godot Engin](https://godotengine.org/), providing extraordinary assistance for game development.
+Next Engine is deeply integrated with AI on the foundation of ![Godot Engine](https://godotengine.org/), providing extraordinary assistance for game development.
