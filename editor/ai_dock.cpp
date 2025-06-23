@@ -169,6 +169,8 @@ void AIDock::on_data_updated(){
 void AIDock::on_request_completed(){
     deepseek_api->cancel_request();
     send_button->set_disabled(false);
+    if(current_chat_index<chat_blocks.size()&&current_chat_index!=-1)
+        chat_blocks[current_chat_index]->to_bbcode();
 }
 
 
@@ -244,3 +246,5 @@ AIDock::AIDock() {
 AIDock::~AIDock() {
     memdelete(deepseek_api);
 }
+
+
