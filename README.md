@@ -9,11 +9,11 @@
 # Next Engine
 
 <p align="center">
-  <a href="https://godotengine.org">
-    <img src="logo_outlined.svg" width="400" alt="Godot Engine logo">
+  <a href="">
+    <img src="logo_outlined.svg" width="400" alt="Next Engine logo">
   </a>
 </p>
 
 ## 2D and 3D cross-platform game engine
 
-Next Engine is deeply integrated with AI on the foundation of Godot Engine, providing extraordinary assistance for game development.
+Next Engine is deeply integrated with AI on the foundation of ![Godot Engin](https://godotengine.org/), providing extraordinary assistance for game development.
