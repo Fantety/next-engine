@@ -6,8 +6,10 @@
 void AIDock::_notification(int p_what) {
     switch (p_what) {
         case NOTIFICATION_READY: {
-            
-            //输入区域
+            add_child(history_view);
+            add_child(chat_view);
+            set_tab_title(0, "History");
+            set_tab_title(1, "Chat");
         } break;
     }
 }
@@ -40,6 +42,7 @@ void AIDock::_send_message() {
     deepseek_api->set_apikey(apikey.utf8().get_data());
     current_chat_index++;
     print_line(String("Sending streaming request, chat index: ") + itos(current_chat_index));
+    print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
     deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
 }
 void AIDock::_add_message(const String &message, int block_index, bool is_user) {
@@ -78,11 +81,11 @@ void AIDock::on_request_completed(){
 
 
 void AIDock::_bind_methods() {
-    print_line("_bind_methods called");
     ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
     ClassDB::bind_method(D_METHOD("_add_message", "message", "block_index", "is_user"), &AIDock::_add_message);  // 修正参数数量
     ClassDB::bind_method(D_METHOD("_handle_ai_response", "content", "is_final"), &AIDock::_handle_ai_response);
-    print_line("_bind_methods called finished");
+    ClassDB::bind_method(D_METHOD("_handle_request_completed"), &AIDock::_handle_request_completed);
+    ClassDB::bind_method(D_METHOD("set_ai_settings_dialog", "i_dialog"), &AIDock::set_ai_settings_dialog);
 }
 
 
@@ -123,7 +126,6 @@ void AIDock::_start_new_chat() {
 void AIDock::_on_history_selected(int index) {
     if (index >= 0 && index < sessions.size()) {
         current_session = sessions[index].uuid;
-        //chat_display->set_text(String("\n").join(sessions[index].messages));
         set_current_tab(1);
     }
 }
@@ -145,23 +147,12 @@ AIDock::AIDock() {
 
     print_line("AIDock Init Start");
     chat_input_panel = memnew(AIChatPanel);
-    chat_input_panel->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    chat_input_panel->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-    chat_input_panel->set_stretch_ratio(1);
     history_input_panel = memnew(AIChatPanel);
-    history_input_panel->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    history_input_panel->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-    history_input_panel->set_stretch_ratio(1);
     chat_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
     history_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
     print_line("AIChatPanel Init Finished");
     //历史页面
     history_view = memnew(VBoxContainer);
-    print_line("3");
-    add_child(history_view);
-    print_line("1");
-    set_tab_title(0, "History");
-    print_line("2");
     history_view->add_child(history_input_panel);
     history_list = memnew(ItemList);
     history_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
@@ -171,8 +162,7 @@ AIDock::AIDock() {
     print_line("history_view Init Finished");
     // 聊天显示区域
     chat_view = memnew(VBoxContainer);
-    add_child(chat_view);
-    set_tab_title(1, "Chat");
+    
     chat_scroll = memnew(ScrollContainer);
     chat_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     chat_scroll->set_v_size_flags(Control::SIZE_EXPAND_FILL);
@@ -184,9 +174,6 @@ AIDock::AIDock() {
     chat_view->add_child(chat_scroll);
     chat_view->add_child(chat_input_panel);
     print_line("AIDock Init Finish");
-
-
-
     print_line("AIDock constructor called");
     deepseek_api = new DeepSeekAPI("deepseek-chat");
     if (!deepseek_api) {
@@ -195,21 +182,11 @@ AIDock::AIDock() {
     add_child(deepseek_api);
     current_ai_response = "";  // 初始化响应内容
     deepseek_api->connect("deepseek_data_received", callable_mp(this, &AIDock::on_stream_response), CONNECT_DEFERRED);
-    if (!deepseek_api->is_connected("deepseek_data_received", callable_mp(this, &AIDock::on_stream_response))) {
-        print_line("Failed to connect deepseek_data_received signal");
-    }
     deepseek_api->connect("deepseek_data_updated", callable_mp(this, &AIDock::on_data_updated), CONNECT_DEFERRED);
-    if (!deepseek_api->is_connected("deepseek_data_updated", callable_mp(this, &AIDock::on_data_updated))) {
-        print_line("Failed to connect deepseek_data_updated signal");
-    }
     deepseek_api->connect("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
-    if (!deepseek_api->is_connected("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed))) {
-        print_line("Failed to connect deepseek_request_completed signal");
-    }
     print_line("AIDock constructor called finished");
-
-
     
 }
+
 
 

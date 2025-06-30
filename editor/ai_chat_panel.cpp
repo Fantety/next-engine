@@ -3,10 +3,13 @@
 #include "editor/editor_node.h"
 
 void AIChatPanel::on_send_button_pressed(){
-    call_deferred("emit_signal", SNAME("send_button_pressed"));
+    emit_signal("send_button_pressed");
 }
 
 AIChatPanel::AIChatPanel(){
+    set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    set_stretch_ratio(1);
     print_line("AIChatPanel Init Start");
     selector_container = memnew(HBoxContainer);
     model_label = memnew(Label);

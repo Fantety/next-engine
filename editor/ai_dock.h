@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-29 16:05:46
+ * @LastEditTime: 2025-06-30 15:30:16
  */
 #ifndef AI_DOCK_H
 #define AI_DOCK_H
@@ -27,9 +27,8 @@
 
 
 class AIDock : public TabContainer {
-    String generate_uuid() const;
     GDCLASS(AIDock, TabContainer);
-
+    String generate_uuid() const;
 private:
     // 历史视图组件
     VBoxContainer *history_view;

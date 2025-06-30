@@ -110,7 +110,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     Dictionary sys_msg;
     sys_msg["role"] = "system";
     sys_msg["content"] = "你是嵌入在Godot当中的AI助手，可以帮助用户开发游戏";
-    if(params->prompt == "none"){
+    if(params->prompt != "none"){
         Dictionary msg;
         msg["role"] = "user";
         msg["content"] = params->prompt;
