@@ -12,11 +12,11 @@
 void DeepSeekAPI::_notification(int p_what) {
 }
 
-bool DeepSeekAPI::sendStreamingRequest(const String& prompt) {
+bool DeepSeekAPI::send_streaming_request(const String& prompt) {
     if (thread_running) {
         cancel_request();
     }
-    print_line("[Call]: DeepSeekAPI::sendStreamingRequest");
+    print_line("[Call]: DeepSeekAPI::send_streaming_request");
     ThreadParams *params = memnew(ThreadParams);
     params->self = this;
     params->prompt = prompt;
@@ -24,11 +24,24 @@ bool DeepSeekAPI::sendStreamingRequest(const String& prompt) {
     thread.start(_thread_func, params);
     return true;
 }
+bool DeepSeekAPI::send_streaming_request(const Array& prompt){
+    if (thread_running) {
+        cancel_request();
+    }
+    print_line("[Call]: DeepSeekAPI::send_streaming_request");
+    ThreadParams *params = memnew(ThreadParams);
+    params->self = this;
+    params->prompt = "none";
+    params->prompt_array = prompt;
+    thread_running = true;
+    thread.start(_thread_func, params);
+    return true;
+}
 
-String DeepSeekAPI::parseJsonData(const String& data){
+String DeepSeekAPI::parse_json_data(const String& jdata){
     Ref<JSON> json;
     json.instantiate();
-    Error err = json->parse(data);
+    Error err = json->parse(jdata);
     if (err != OK) {
         ERR_PRINT("Parse Json Failed");
         return String{};
@@ -63,7 +76,7 @@ String DeepSeekAPI::parseJsonData(const String& data){
 
 void DeepSeekAPI::_thread_func(void *p_userdata) {
     ThreadParams *params = static_cast<ThreadParams*>(p_userdata);
-    print_line("[Call]: DeepSeekAPI::sendStreamingRequest");
+    print_line("[Call]: DeepSeekAPI::send_streaming_request");
     Ref<HTTPClient> t_http_client = HTTPClient::create();
     t_http_client->set_blocking_mode(true);
     Error err = t_http_client->connect_to_host("https://api.deepseek.com", 443, Ref<TLSOptions>());
@@ -96,12 +109,18 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     Array messages;
     Dictionary sys_msg;
     sys_msg["role"] = "system";
-    sys_msg["content"] = "你是一个Godot引擎专家，游戏开发大师";
-    Dictionary msg;
-    msg["role"] = "user";
-    msg["content"] = params->prompt;
-    messages.push_back(sys_msg);
-    messages.push_back(msg);
+    sys_msg["content"] = "你是嵌入在Godot当中的AI助手，可以帮助用户开发游戏";
+    if(params->prompt == "none"){
+        Dictionary msg;
+        msg["role"] = "user";
+        msg["content"] = params->prompt;
+        messages.push_back(sys_msg);
+        messages.push_back(msg);
+    }
+    else{
+        messages = params->prompt_array;
+        messages.push_front(sys_msg);
+    }
     body["messages"] = messages;
     String request_body = JSON::stringify(body);
     // 5. 发送请求（使用 PackedByteArray 转换）
@@ -136,11 +155,9 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                 String chunk_str = String::utf8(reinterpret_cast<const char*>(buffer.ptr()), valid_length);
                 // 保留剩余字节在缓冲区
                 buffer = buffer.slice(valid_length);
-
                 if (!params->self->is_valid_utf8(chunk.ptr(), chunk.size())) { // 检查UTF-8有效性
                     ERR_PRINT("Invalid UTF-8");
                 }
-                //print_line(String::utf8(reinterpret_cast<const char *>(chunk.ptr())));
                 if(chunk_str.contains("[DONE]")){
                     print_line("thread has done");
                     params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"));
@@ -155,7 +172,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                     if (line.is_empty() || !line.begins_with("data: ")) {
                         continue;
                     }
-                    String result_data = params->self->parseJsonData(line.trim_prefix("data: "));
+                    String result_data = params->self->parse_json_data(line.trim_prefix("data: "));
                     //print_line("Received chunk: " + result_data);
                     params->self->call_deferred("emit_signal", SNAME("deepseek_data_received"), result_data);
                     params->self->call_deferred("emit_signal", SNAME("deepseek_data_updated"));
@@ -182,11 +199,6 @@ void DeepSeekAPI::cancel_request() {
     thread_running = false;
 }
 
-
-void DeepSeekAPI::handleStreamResponse(const char* data, size_t len) {
-    std::string chunk(data, len);
-    print_line("Received chunk: " + String{chunk.c_str()});
-}
 
 void DeepSeekAPI::_bind_methods() {
     ADD_SIGNAL(MethodInfo("deepseek_data_received", PropertyInfo(Variant::STRING, "text")));

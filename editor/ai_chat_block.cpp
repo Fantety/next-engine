@@ -2,6 +2,7 @@
 
 void AIChatBlock::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_text", "text"), &AIChatBlock::set_text);
+    ClassDB::bind_method(D_METHOD("get_text"), &AIChatBlock::get_text);
     ClassDB::bind_method(D_METHOD("to_bbcode"), &AIChatBlock::to_bbcode);
 }
 
@@ -13,6 +14,10 @@ AIChatBlock::AIChatBlock() {
     chat_content->set_scroll_follow(true);
     chat_content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     chat_content->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+}
+
+String AIChatBlock::get_text(){
+    return chat_content->get_text();
 }
 
 void AIChatBlock::set_text(const String &p_text) {

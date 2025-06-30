@@ -30,7 +30,6 @@ void AISettingsDialog::_notification(int p_what) {
             main_container = memnew(VBoxContainer);
             main_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
             scroll_container->add_child(main_container);
-
             // Add provider sections
             _add_provider_section(
                 "DeepSeek",
@@ -38,10 +37,7 @@ void AISettingsDialog::_notification(int p_what) {
                 "deepseek/url",
                 {
                     "deepseek-chat", 
-                    "deepseek-reason", 
-                    "deepseek-coder",
-                    "deepseek-math",
-                    "deepseek-vision"
+                    "deepseek-reason"
                 },
                 "https://api.deepseek.com/v1"
             );

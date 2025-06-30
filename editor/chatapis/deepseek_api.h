@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-21 13:10:53
+ * @LastEditTime: 2025-06-24 15:30:46
  */
 // deepseek_api.h
 #ifndef DEEPSEEK_API_H
@@ -22,6 +22,7 @@ class DeepSeekAPI;
 struct ThreadParams {
     DeepSeekAPI *self;
     String prompt;
+    Array prompt_array;
 };
 class DeepSeekAPI : public AIStreamingBase {
     GDCLASS(DeepSeekAPI, Node);
@@ -31,28 +32,19 @@ class DeepSeekAPI : public AIStreamingBase {
 
 private:
     static void _thread_func(void *p_userdata);
-
-    String get_string_from_utf8(PackedByteArray* chunk){
-        String s;
-		if (chunk->size() > 0) {
-			const uint8_t *r = chunk->ptr();
-			s.append_utf8((const char *)r, chunk->size());
-		}
-		return s;
-    };
 public:
-    DeepSeekAPI(const std::string& modelName = "deepseek-chat") 
+    DeepSeekAPI(const std::string& modelName = "deepseek-chat")
         : AIStreamingBase(modelName){}
 
-    bool sendStreamingRequest(const String& prompt) override;
+    bool send_streaming_request(const String& prompt) override;
+    bool send_streaming_request(const Array& prompt) override;
     void cancel_request(); 
     
 protected:
     static void _bind_methods();
     //SIGNAL("data_received", "data");
     void _notification(int p_what);
-    void handleStreamResponse(const char* data, size_t len) override;
-    String parseJsonData(const String& data);
+    String parse_json_data(const String& jdata);
 
 };
 

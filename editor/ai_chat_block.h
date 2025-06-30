@@ -26,6 +26,7 @@ public:
     void to_bbcode();
     void set_text(const String &p_text);
     void add_text(const String &p_text);
+    String get_text();
     void set_fit_content(bool fit);
     AIChatBlock();
 };
