@@ -2773,6 +2773,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	GLOBAL_DEF_BASIC("xr/openxr/extensions/hand_tracking_controller_data_source", false); // XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT
 	GLOBAL_DEF_RST_BASIC("xr/openxr/extensions/hand_interaction_profile", false);
 	GLOBAL_DEF_RST_BASIC("xr/openxr/extensions/eye_gaze_interaction", false);
+	GLOBAL_DEF_BASIC("xr/openxr/extensions/render_model", false);
 
 	// OpenXR Binding modifier settings
 	GLOBAL_DEF_BASIC("xr/openxr/binding_modifiers/analog_threshold", false);
@@ -3881,7 +3882,7 @@ int Main::start() {
 		} else if (E->get() == "--scene") {
 			E = E->next();
 			if (E) {
-				game_path = E->get();
+				game_path = ResourceUID::ensure_path(E->get());
 			} else {
 				ERR_FAIL_V_MSG(EXIT_FAILURE, "Missing scene path, aborting.");
 			}
@@ -3900,7 +3901,7 @@ int Main::start() {
 				// or other file extensions without trouble. This can be used to implement
 				// "drag-and-drop onto executable" logic, which can prove helpful
 				// for non-game applications.
-				game_path = E->get();
+				game_path = scene_path;
 			}
 		}
 		// Then parameters that have an argument to the right.
