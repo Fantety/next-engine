@@ -88,8 +88,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     while (t_http_client->get_status() == HTTPClient::STATUS_CONNECTING || 
             t_http_client->get_status() == HTTPClient::STATUS_RESOLVING) {
         t_http_client->poll();
-        OS::get_singleton()->delay_usec(100); // 降低轮询频率，减轻CPU负担
-        //status = t_http_client->get_status();
+        OS::get_singleton()->delay_usec(100);
     }
     if (t_http_client->get_status() != HTTPClient::STATUS_CONNECTED) {
         ERR_PRINT("Connection failed with status: " + String::num_int64(t_http_client->get_status()));
@@ -125,12 +124,11 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     String request_body = JSON::stringify(body);
     // 5. 发送请求（使用 PackedByteArray 转换）
     PackedByteArray body_data = request_body.to_utf8_buffer();
-    err = t_http_client->request(HTTPClient::METHOD_POST, "/v1/chat/completions", headers, body_data.ptr(), body_data.size());
+    err = t_http_client->request(HTTPClient::METHOD_POST, "/chat/completions", headers, body_data.ptr(), body_data.size());
     if (err != OK) {
         ERR_PRINT("Request failed: " + String::num_int64(err));
         return;
     }
-
     PackedByteArray buffer; // 用于累积不完整的UTF-8字节
     while (true) {
         t_http_client->poll();
@@ -176,7 +174,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                     //print_line("Received chunk: " + result_data);
                     params->self->call_deferred("emit_signal", SNAME("deepseek_data_received"), result_data);
                     params->self->call_deferred("emit_signal", SNAME("deepseek_data_updated"));
-                    OS::get_singleton()->delay_usec(10); // 减少CPU占用
+                    OS::get_singleton()->delay_usec(10);
                 }
             }
         }

@@ -37,11 +37,13 @@ void AIDock::_send_message() {
             String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
             if (apikey.is_empty()) return;
             deepseek_api->set_apikey(apikey.utf8().get_data());
+            print_line(apikey);
             deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
             break;
         }
         case AIStreamingBase::DEEPSEEK_REASON:{
             String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
+            print_line("deepseek_reson");
             if (apikey.is_empty()) return;
             deepseek_api->set_apikey(apikey.utf8().get_data());
             deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
@@ -50,9 +52,6 @@ void AIDock::_send_message() {
         default:
             break;
     }
-    //print_line(String("Sending streaming request, chat index: ") + itos(current_chat_index));
-    //print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
-    
 }
 void AIDock::_create_chat_block(AIChatBlock::ChatType chat_type, const String& message){
     AIChatBlock* block = memnew(AIChatBlock(chat_type));
@@ -96,7 +95,7 @@ void AIDock::on_request_completed(){
 
 void AIDock::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
-    ClassDB::bind_method(D_METHOD("_add_message", "message", "block_index", "is_user"), &AIDock::_add_message);  // 修正参数数量
+    ClassDB::bind_method(D_METHOD("_add_message", "message", "block_index"), &AIDock::_add_message);  // 修正参数数量
     ClassDB::bind_method(D_METHOD("set_ai_settings_dialog", "i_dialog"), &AIDock::set_ai_settings_dialog);
 }
 
@@ -121,7 +120,7 @@ AIDock::AIDock() {
     chat_input_panel = memnew(AIChatPanel);
     history_input_panel = memnew(AIChatPanel);
     chat_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
-    history_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
+    //history_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
     print_line("AIChatPanel Init Finished");
     //历史页面
     history_view = memnew(VBoxContainer);

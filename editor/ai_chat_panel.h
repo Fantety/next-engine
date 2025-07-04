@@ -1,3 +1,11 @@
+/*
+ * @FilePath: \editor\ai_chat_panel.h
+ * @Author: Fantety
+ * @Descripttion: 
+ * @Date: 2025-06-29 15:06:20
+ * @LastEditors: Fantety
+ * @LastEditTime: 2025-07-04 22:29:35
+ */
 #ifndef AI_CHAT_PANEL_H
 #define AI_CHAT_PANEL_H
 
@@ -25,7 +33,6 @@ class AIChatPanel:public PanelContainer{
 public:
     AIChatPanel();
 protected:
-    //void _notification(int p_notification);
     static void _bind_methods();
 
 public:
