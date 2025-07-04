@@ -33,6 +33,7 @@ bool DeepSeekAPI::send_streaming_request(const Array& prompt){
     params->self = this;
     params->prompt = "none";
     params->prompt_array = prompt;
+    print_line(JSON::stringify(prompt));
     thread_running = true;
     thread.start(_thread_func, params);
     return true;
@@ -131,10 +132,12 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     }
     PackedByteArray buffer; // 用于累积不完整的UTF-8字节
     while (true) {
+        //print_line("poll");
         t_http_client->poll();
         HTTPClient::Status status = t_http_client->get_status();
         if (status == HTTPClient::STATUS_BODY) {
             PackedByteArray chunk = t_http_client->read_response_body_chunk();
+            print_line(chunk);
             if (chunk.size() > 0) {
                 // 将新数据追加到缓冲区
                 buffer.append_array(chunk);
@@ -162,6 +165,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                     break;
                 }
                 if (status == HTTPClient::STATUS_DISCONNECTED || status == HTTPClient::STATUS_CONNECTION_ERROR) {
+                    params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"));
                     break;
                 }
                 PackedStringArray lines = chunk_str.split("\n\n", false);
@@ -179,10 +183,12 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
             }
         }
         else if (status == HTTPClient::STATUS_DISCONNECTED) {
+            params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"));
             break;
         }
         else if (status >= HTTPClient::STATUS_CONNECTION_ERROR) {
             ERR_PRINT("Error status: " + String::num_int64(status));
+            params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"));
             break;
         }
         OS::get_singleton()->delay_usec(1000);

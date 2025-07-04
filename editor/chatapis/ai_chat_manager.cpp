@@ -11,7 +11,8 @@ void AIChatManager::create_new_chat(const String& uid){
 
 void AIChatManager::add_user_chat(const String& uid, const String& chat_text){
     Dictionary chat;
-    chat["user"] = chat_text;
+    chat["role"] = "user";
+    chat["content"] = chat_text;
     if(chat_datas[uid].is_array()){
         Array temp = chat_datas[uid];
         temp.push_back(chat);
@@ -21,7 +22,8 @@ void AIChatManager::add_user_chat(const String& uid, const String& chat_text){
 }
 void AIChatManager::add_assistant_chat(const String& uid, const String& chat_text){
     Dictionary chat;
-    chat["assistant"] = chat_text;
+    chat["role"] = "assistant";
+    chat["content"] = chat_text;
     if(chat_datas[uid].is_array()){
         Array temp = chat_datas[uid];
         temp.push_back(chat);
