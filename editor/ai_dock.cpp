@@ -83,8 +83,6 @@ void AIDock::on_request_completed(){
 void AIDock::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
     ClassDB::bind_method(D_METHOD("_add_message", "message", "block_index", "is_user"), &AIDock::_add_message);  // 修正参数数量
-    ClassDB::bind_method(D_METHOD("_handle_ai_response", "content", "is_final"), &AIDock::_handle_ai_response);
-    ClassDB::bind_method(D_METHOD("_handle_request_completed"), &AIDock::_handle_request_completed);
     ClassDB::bind_method(D_METHOD("set_ai_settings_dialog", "i_dialog"), &AIDock::set_ai_settings_dialog);
 }
 
@@ -97,51 +95,11 @@ void AIDock::set_ai_settings_dialog(AISettingsDialog *i_dialog){
     dialog->connect("ai_settings_changed", callable_mp(history_input_panel, &AIChatPanel::_update_model_list));
 }
 
-void AIDock::_handle_ai_response(const String& content, bool isFinal) {
-    if (isFinal) {
-        // 结束响应
-        //_add_message("", false);
-    } else {
-        // 更新最后一条消息
-        if (content.length() > 0) {
-            //_add_message_without_flash(content, false);
-        }
-    }
-}
 
 String AIDock::generate_uuid() const {
     return OS::get_singleton()->get_unique_id() + "_" + itos(OS::get_singleton()->get_unix_time()) + "_" + itos(rand());
 }
 
-void AIDock::_start_new_chat() {
-    ChatSession new_session;
-    new_session.uuid = generate_uuid();
-    new_session.timestamp = OS::get_singleton()->get_unix_time();
-    sessions.push_back(new_session);
-    _update_history_list();
-    set_current_tab(1);
-}
-
-
-void AIDock::_on_history_selected(int index) {
-    if (index >= 0 && index < sessions.size()) {
-        current_session = sessions[index].uuid;
-        set_current_tab(1);
-    }
-}
-void AIDock::_update_history_list(){
-
-}
-
-void AIDock::_handle_request_completed() {
-    // 请求完成，可以添加清理代码
-    print_line("AI request completed");
-}
-
-void AIDock::_handle_error(const String& message) {
-    // 显示错误消息
-    //_add_message("[ERROR] " + message, false);
-}
 
 AIDock::AIDock() {
 
@@ -156,7 +114,7 @@ AIDock::AIDock() {
     history_view->add_child(history_input_panel);
     history_list = memnew(ItemList);
     history_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-    history_list->connect("item_selected", callable_mp(this, &AIDock::_on_history_selected));
+    //history_list->connect("item_selected", callable_mp(this, &AIDock::_on_history_selected));
     history_list->set_stretch_ratio(4);
     history_view->add_child(history_list);
     print_line("history_view Init Finished");

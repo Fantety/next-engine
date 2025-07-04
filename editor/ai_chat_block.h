@@ -7,6 +7,16 @@
 
 class AIChatBlock : public PanelContainer {
     GDCLASS(AIChatBlock, PanelContainer);
+
+    enum ChatType
+    {
+        AI_CHAT_TYPE_USER = 0,
+        AI_CHAT_TYPE_ASSISTANT,
+        AI_CHAT_SYS_MESSAGE
+    };
+    
+    Ref<Theme> theme;
+    AIChatBlock::ChatType chat_type = AIChatBlock::AI_CHAT_TYPE_USER;
     RichTextLabel *chat_content;
     String mark_text;
 private:
@@ -28,6 +38,9 @@ public:
     void add_text(const String &p_text);
     String get_text();
     void set_fit_content(bool fit);
+    void set_chat_type(AIChatBlock::ChatType type);
+    AIChatBlock::ChatType get_chat_type();
+    void change_panel_color(const Color &new_color);
     AIChatBlock();
 };
 

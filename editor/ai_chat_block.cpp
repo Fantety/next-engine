@@ -7,6 +7,7 @@ void AIChatBlock::_bind_methods() {
 }
 
 AIChatBlock::AIChatBlock() {
+    theme = get_theme();
     chat_content = memnew(RichTextLabel);
     chat_content->set_use_bbcode(true);
     add_child(chat_content);
@@ -274,4 +275,23 @@ String AIChatBlock::_replace_markdown_inline_code(const String &text) {
     result += text.substr(last_pos);
     return result;
 }
-// 其他辅助函数（图片、代码块等）类似实现...
+
+void AIChatBlock::set_chat_type(AIChatBlock::ChatType type) {
+    chat_type = type;
+}
+AIChatBlock::ChatType AIChatBlock::get_chat_type() {
+    return chat_type;
+}
+
+
+void AIChatBlock::change_panel_color(const Color &new_color){
+    Ref<StyleBox> style = this->get_theme_stylebox("panel");
+    // 检查是否是 StyleBoxFlat（可修改颜色的类型）
+    if (style.is_valid() && style->is_class("StyleBoxFlat")) {
+        // 转换为 StyleBoxFlat 并修改颜色
+        Ref<StyleBoxFlat> style_flat = style;
+        style_flat->set_bg_color(new_color);
+        // 重新应用修改后的 StyleBox
+        panel->add_theme_stylebox_override("panel", style_flat);
+    }
+}

@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-30 15:30:16
+ * @LastEditTime: 2025-06-30 16:25:09
  */
 #ifndef AI_DOCK_H
 #define AI_DOCK_H
@@ -43,17 +43,7 @@ private:
     String current_ai_response;
     int current_chat_index = -1;
 
-    // 新增数据结构
-    struct ChatSession {
-        String uuid;
-        String model;
-        String preview;
-        uint64_t timestamp;
-        Vector<String> messages;
-    };
-    Vector<ChatSession> sessions;
     Vector<AIChatBlock*> chat_blocks;
-    String current_session;
 
     String current_chat_uid;
     AIChatManager chat_manager;
@@ -63,17 +53,11 @@ private:
     void _send_message();
     void _add_message(const String &message, int block_index, bool is_user);  // 确保这个方法有声明
 private:
-    void _handle_ai_response(const String& content, bool isFinal);
-    void _handle_request_completed();
-    void _handle_error(const String& message);
 
     void on_stream_response(String text);
     void on_data_updated();
     void on_request_completed();
 
-    void _start_new_chat();
-    void _on_history_selected(int index);
-    void _update_history_list();
 protected:
     void _notification(int p_notification);
     static void _bind_methods();
