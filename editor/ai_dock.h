@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-30 16:25:09
+ * @LastEditTime: 2025-07-04 18:32:07
  */
 #ifndef AI_DOCK_H
 #define AI_DOCK_H
@@ -24,11 +24,10 @@
 #include "ai_chat_block.h"
 #include "core/io/json.h"
 #include "ai_chat_panel.h"
-
-
 class AIDock : public TabContainer {
     GDCLASS(AIDock, TabContainer);
     String generate_uuid() const;
+
 private:
     // 历史视图组件
     VBoxContainer *history_view;
@@ -42,6 +41,7 @@ private:
     DeepSeekAPI *deepseek_api;
     String current_ai_response;
     int current_chat_index = -1;
+    int chat_sum = 0;
 
     Vector<AIChatBlock*> chat_blocks;
 
@@ -51,8 +51,9 @@ private:
 
 
     void _send_message();
-    void _add_message(const String &message, int block_index, bool is_user);  // 确保这个方法有声明
-private:
+    void _add_message(const String &message, int block_index);  // 确保这个方法有声明
+    void _create_chat_block(AIChatBlock::ChatType chat_type, const String& message);
+    private:
 
     void on_stream_response(String text);
     void on_data_updated();

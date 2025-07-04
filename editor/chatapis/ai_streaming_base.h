@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 20:48:06
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-29 16:58:16
+ * @LastEditTime: 2025-07-04 18:34:16
  */
 #ifndef AI_STREAMING_BASE_H
 #define AI_STREAMING_BASE_H
@@ -20,10 +20,21 @@
 
 class AIStreamingBase : public Node {
     GDCLASS(AIStreamingBase, Node);
-    
+public:
+    enum AIModel
+    {
+        DEEPSEEK_CHAT = 0,
+        DEEPSEEK_REASON,
+        OPENAI,
+    };
+    inline static Dictionary AIStringName;
+
 public:
     AIStreamingBase(const std::string& modelName = "deepseek-chat") 
-        : model(modelName){}
+        : model(modelName){
+            AIStringName["deepseek-chat"] = DEEPSEEK_CHAT;
+            AIStringName["deepseek-reason"] = DEEPSEEK_REASON;
+        }
     // 设置API密钥
     void set_apikey(const std::string& key) { apiKey = key; }
     // 设置模型

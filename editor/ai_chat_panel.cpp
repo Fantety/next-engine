@@ -55,7 +55,7 @@ void AIChatPanel::_update_model_list() {
         if (EditorSettings::get_singleton()->has_setting(setting_path)) {
             bool model_enabled = EditorSettings::get_singleton()->get(setting_path);
             if (model_enabled) {
-                model_selector->add_item("DeepSeek: " + deepseek_models[i]);
+                model_selector->add_item(deepseek_models[i]);
                 print_line("DeepSeek: " + deepseek_models[i]);
             }
         }
@@ -66,7 +66,7 @@ void AIChatPanel::_update_model_list() {
         if (EditorSettings::get_singleton()->has_setting(setting_path)) {
             bool model_enabled = EditorSettings::get_singleton()->get(setting_path);
             if (model_enabled) {
-                model_selector->add_item("OpenAI: " + openai_models[i]);
+                model_selector->add_item(openai_models[i]);
             }
         }
     }
@@ -77,7 +77,7 @@ void AIChatPanel::_update_model_list() {
         if (EditorSettings::get_singleton()->has_setting(setting_path)) {
             bool model_enabled = EditorSettings::get_singleton()->get(setting_path);
             if (model_enabled) {
-                model_selector->add_item("Gemini: " + gemini_models[i]);
+                model_selector->add_item(gemini_models[i]);
             }
         }
     }

@@ -15,60 +15,75 @@ void AIDock::_notification(int p_what) {
 }
 
 void AIDock::_send_message() {
-    print_line("_send_message called");
     int tab_index = this->get_current_tab();
     String message = tab_index==1?chat_input_panel->get_input_text():history_input_panel->get_input_text();
     if (message.strip_edges().is_empty()) {
         print_line("Message is empty, returning");
         return;
     }
-    if(chat_blocks.size()==0){
-        String uid = generate_uuid();
-        current_chat_uid = uid;
-        print_line(String("Creating new chat with UID: ") + uid);
-        chat_manager.create_new_chat(uid);
+    if(chat_sum==0 && tab_index==1){
+        current_chat_uid = generate_uuid();
+        chat_manager.create_new_chat(current_chat_uid);
     }
-    tab_index==1?chat_input_panel->set_button_enabled(false):history_input_panel->set_button_enabled(false);
-    current_chat_index++;
-    print_line(String("Adding user message, chat index: ") + itos(current_chat_index));
-    _add_message(message,current_chat_index, true);
+    chat_input_panel->set_button_enabled(false);
+    history_input_panel->set_button_enabled(false);
+    _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_USER, message);
     chat_manager.add_user_chat(current_chat_uid,message);
     tab_index==1?chat_input_panel->clear_text():history_input_panel->clear_text();
     String selected_model = tab_index==1?chat_input_panel->get_model():history_input_panel->get_model();
-    String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
-    if (apikey.is_empty()) {
-        print_line("DeepSeek API key is empty");
+    switch ((AIChatBlock::ChatType)AIStreamingBase::AIStringName[selected_model])
+    {
+        case AIStreamingBase::DEEPSEEK_CHAT:{
+            String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
+            if (apikey.is_empty()) return;
+            deepseek_api->set_apikey(apikey.utf8().get_data());
+            deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
+            break;
+        }
+        case AIStreamingBase::DEEPSEEK_REASON:{
+            String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
+            if (apikey.is_empty()) return;
+            deepseek_api->set_apikey(apikey.utf8().get_data());
+            deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
+            break;
+        }
+        default:
+            break;
     }
-    deepseek_api->set_apikey(apikey.utf8().get_data());
-    current_chat_index++;
-    print_line(String("Sending streaming request, chat index: ") + itos(current_chat_index));
-    print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
-    deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
+    //print_line(String("Sending streaming request, chat index: ") + itos(current_chat_index));
+    //print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
+    
 }
-void AIDock::_add_message(const String &message, int block_index, bool is_user) {
-    if(block_index==chat_blocks.size()){
-        AIChatBlock* block = memnew(AIChatBlock);
-        block->set_fit_content(true);
-        block->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-        chat_blocks.append(block);
-        chat_list->add_child(block);
+void AIDock::_create_chat_block(AIChatBlock::ChatType chat_type, const String& message){
+    AIChatBlock* block = memnew(AIChatBlock(chat_type));
+    block->set_fit_content(true);
+    block->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    chat_blocks.append(block);
+    chat_list->add_child(block);
+    block->add_text(message);
+    chat_sum++;
+    current_chat_index++;
+}
+
+void AIDock::_add_message(const String &message, int block_index) {
+    if(block_index < chat_blocks.size()){
+        chat_blocks[block_index]->add_text(message);
     }
-    else if (block_index>chat_blocks.size()||block_index == -1)
+    else if (block_index>=chat_blocks.size()||block_index == -1)
     {
         ERR_PRINT("chat_block_index out of range");
         return;
     }
-    chat_blocks[block_index]->add_text(message);
 }
 
 
 void AIDock::on_stream_response(String text){
-    _add_message(text, current_chat_index, false);
+    _add_message(text, current_chat_index);
 }
 
 void AIDock::on_data_updated(){
-    //print_line("updated");
 }
+
 void AIDock::on_request_completed(){
     deepseek_api->cancel_request();
     this->get_current_tab()==1?chat_input_panel->set_button_enabled(true):history_input_panel->set_button_enabled(true);
@@ -76,7 +91,6 @@ void AIDock::on_request_completed(){
         chat_manager.add_assistant_chat(current_chat_uid, chat_blocks[current_chat_index]->get_text());
         chat_blocks[current_chat_index]->to_bbcode();
     }
-    //print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
 }
 
 
