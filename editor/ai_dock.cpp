@@ -80,7 +80,8 @@ void AIDock::on_stream_response(String text){
     _add_message(text, current_chat_index);
 }
 
-void AIDock::on_data_updated(){
+void AIDock::on_data_start(){
+    _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
 }
 
 void AIDock::on_request_completed(){
@@ -153,7 +154,7 @@ AIDock::AIDock() {
     add_child(deepseek_api);
     current_ai_response = "";  // 初始化响应内容
     deepseek_api->connect("deepseek_data_received", callable_mp(this, &AIDock::on_stream_response), CONNECT_DEFERRED);
-    deepseek_api->connect("deepseek_data_updated", callable_mp(this, &AIDock::on_data_updated), CONNECT_DEFERRED);
+    deepseek_api->connect("deepseek_data_start", callable_mp(this, &AIDock::on_data_start), CONNECT_DEFERRED);
     deepseek_api->connect("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
     print_line("AIDock constructor called finished");
     

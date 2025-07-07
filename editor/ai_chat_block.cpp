@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-30 14:47:07
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-04 18:23:51
+ * @LastEditTime: 2025-07-06 17:12:43
  */
 #include "ai_chat_block.h"
 
@@ -22,6 +22,9 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
     add_child(chat_content);
     chat_content->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
     chat_content->set_scroll_follow(true);
+    chat_content->set_fit_content(true);
+    chat_content->set_selection_enabled(true);
+    chat_content->set_drag_and_drop_selection_enabled(true);
     chat_content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     chat_content->set_v_size_flags(Control::SIZE_EXPAND_FILL);
     switch (this->chat_type)
@@ -30,7 +33,7 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
         change_panel_color(Color(0.0, 78/255, 100/255));//rgb(0,78,100)
         break;
     case ChatType::AI_CHAT_TYPE_ASSISTANT:
-        change_panel_color(Color(30/255, 55/255, 153/255));//rgb(30, 55, 153)
+        change_panel_color(Color(30/255, 55/255, 153/255));//hsl(228, 67.20%, 35.90%)
         break;
     case ChatType::AI_CHAT_SYS_MESSAGE:
         change_panel_color(Color(48/255, 57/255, 82/255));//rgb(48, 57, 82)

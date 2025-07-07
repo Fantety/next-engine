@@ -56,7 +56,7 @@ private:
     private:
 
     void on_stream_response(String text);
-    void on_data_updated();
+    void on_data_start();
     void on_request_completed();
 
 protected:

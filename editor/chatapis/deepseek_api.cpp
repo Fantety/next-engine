@@ -130,6 +130,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
         ERR_PRINT("Request failed: " + String::num_int64(err));
         return;
     }
+    params->self->call_deferred("emit_signal", SNAME("deepseek_data_start"));
     PackedByteArray buffer; // 用于累积不完整的UTF-8字节
     while (true) {
         //print_line("poll");
@@ -177,7 +178,6 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                     String result_data = params->self->parse_json_data(line.trim_prefix("data: "));
                     //print_line("Received chunk: " + result_data);
                     params->self->call_deferred("emit_signal", SNAME("deepseek_data_received"), result_data);
-                    params->self->call_deferred("emit_signal", SNAME("deepseek_data_updated"));
                     OS::get_singleton()->delay_usec(10);
                 }
             }
@@ -207,5 +207,5 @@ void DeepSeekAPI::cancel_request() {
 void DeepSeekAPI::_bind_methods() {
     ADD_SIGNAL(MethodInfo("deepseek_data_received", PropertyInfo(Variant::STRING, "text")));
     ADD_SIGNAL(MethodInfo("deepseek_request_completed"));
-    ADD_SIGNAL(MethodInfo("deepseek_data_updated"));
+    ADD_SIGNAL(MethodInfo("deepseek_data_start"));
 }
