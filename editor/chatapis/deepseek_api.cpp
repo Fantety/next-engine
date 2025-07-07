@@ -16,7 +16,7 @@ bool DeepSeekAPI::send_streaming_request(const String& prompt) {
     if (thread_running) {
         cancel_request();
     }
-    print_line("[Call]: DeepSeekAPI::send_streaming_request");
+    //print_line("[Call]: DeepSeekAPI::send_streaming_request");
     ThreadParams *params = memnew(ThreadParams);
     params->self = this;
     params->prompt = prompt;
@@ -33,7 +33,7 @@ bool DeepSeekAPI::send_streaming_request(const Array& prompt){
     params->self = this;
     params->prompt = "none";
     params->prompt_array = prompt;
-    print_line(JSON::stringify(prompt));
+    //print_line(JSON::stringify(prompt));
     thread_running = true;
     thread.start(_thread_func, params);
     return true;
@@ -138,7 +138,6 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
         HTTPClient::Status status = t_http_client->get_status();
         if (status == HTTPClient::STATUS_BODY) {
             PackedByteArray chunk = t_http_client->read_response_body_chunk();
-            print_line(chunk);
             if (chunk.size() > 0) {
                 // 将新数据追加到缓冲区
                 buffer.append_array(chunk);

@@ -132,6 +132,7 @@
 #include "editor/ai_dock.h"
 #include "editor/ai_settings_dialog.h"
 #include "editor/ai_chat_panel.h"
+#include "editor/ai_chat_block.h"
 #ifndef DISABLE_DEPRECATED
 #include "editor/plugins/parallax_background_editor_plugin.h"
 #include "editor/plugins/skeleton_ik_3d_editor_plugin.h"
@@ -212,6 +213,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterTextureAtlas);
 	GDREGISTER_CLASS(ResourceImporterWAV);
 	GDREGISTER_CLASS(DeepSeekAPI);
+	GDREGISTER_CLASS(AIChatBlock);
 	GDREGISTER_CLASS(AIChatPanel);
 
 	// This list is alphabetized, and plugins that depend on Node2D are in their own section below.

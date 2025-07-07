@@ -37,13 +37,11 @@ void AIDock::_send_message() {
             String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
             if (apikey.is_empty()) return;
             deepseek_api->set_apikey(apikey.utf8().get_data());
-            print_line(apikey);
             deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
             break;
         }
         case AIStreamingBase::DEEPSEEK_REASON:{
             String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
-            print_line("deepseek_reson");
             if (apikey.is_empty()) return;
             deepseek_api->set_apikey(apikey.utf8().get_data());
             deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
@@ -78,6 +76,7 @@ void AIDock::_add_message(const String &message, int block_index) {
 
 void AIDock::on_stream_response(String text){
     _add_message(text, current_chat_index);
+    chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
 }
 
 void AIDock::on_data_start(){

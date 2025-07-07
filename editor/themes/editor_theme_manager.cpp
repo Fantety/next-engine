@@ -142,8 +142,8 @@ Ref<StyleBoxFlat> make_flat_stylebox(Color p_color, float p_margin_left = -1, fl
 	Ref<StyleBoxFlat> style(memnew(StyleBoxFlat));
 	style->set_bg_color(p_color);
 	// Adjust level of detail based on the corners' effective sizes.
-	style->set_corner_detail(Math::ceil(0.8 * p_corner_width * EDSCALE));
-	style->set_corner_radius_all(p_corner_width * EDSCALE);
+	style->set_corner_detail(Math::ceil(0.8 * p_corner_width * EDSCALE*3));
+	style->set_corner_radius_all(p_corner_width * EDSCALE * 3);
 	style->set_content_margin_individual(p_margin_left * EDSCALE, p_margin_top * EDSCALE, p_margin_right * EDSCALE, p_margin_bottom * EDSCALE);
 	// Work around issue about antialiased edges being blurrier (GH-35279).
 	style->set_anti_aliased(false);
@@ -290,8 +290,8 @@ EditorThemeManager::ThemeConfiguration EditorThemeManager::_create_theme_config(
 				preset_base_color = Color(0.24, 0.26, 0.28);
 				preset_contrast = config.default_contrast;
 			} else if (config.preset == "Godot 2") {
-				preset_accent_color = Color(0.53, 0.67, 0.89);
-				preset_base_color = Color(0.24, 0.23, 0.27);
+				preset_accent_color = Color(0.53, 0.67, 0.89);//rgb(135, 171, 226)
+				preset_base_color = Color(0.24, 0.23, 0.27);//rgb(61, 59, 69)
 				preset_contrast = config.default_contrast;
 			} else if (config.preset == "Gray") {
 				preset_accent_color = Color(0.44, 0.73, 0.98);
@@ -322,8 +322,8 @@ EditorThemeManager::ThemeConfiguration EditorThemeManager::_create_theme_config(
 				preset_base_color = Color(1.0, 1.0, 1.0);
 				preset_contrast = -0.06;
 			} else { // Default
-				preset_accent_color = Color(0.22, 0.64, 0.65);
-				preset_base_color = Color(0.24, 0.26, 0.28);
+				preset_accent_color = Color(0.83, 0.75, 0.96);//rgb(212,191,247)
+				preset_base_color = Color(0.17, 0.18, 0.29);//rgb(173,106,248)
 				preset_contrast = config.default_contrast;
 			}
 
