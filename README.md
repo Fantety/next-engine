@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="">
-    <img src="logo_outlined.svg" width="400" alt="Next Engine logo">
+    <img src="logo.svg" width="400" alt="Next Engine logo">
   </a>
 </p>
 
