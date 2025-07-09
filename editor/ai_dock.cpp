@@ -18,10 +18,10 @@ void AIDock::_send_message() {
     int tab_index = this->get_current_tab();
     String message = tab_index==1?chat_input_panel->get_input_text():history_input_panel->get_input_text();
     if (message.strip_edges().is_empty()) {
-        print_line("Message is empty, returning");
+        ERR_PRINT("Message is empty, returning");
         return;
     }
-    if(chat_sum==0 && tab_index==1){
+    if(chat_blocks.size()==0 && tab_index==1){
         current_chat_uid = generate_uuid();
         chat_manager.create_new_chat(current_chat_uid);
     }
@@ -31,6 +31,7 @@ void AIDock::_send_message() {
     chat_manager.add_user_chat(current_chat_uid,message);
     tab_index==1?chat_input_panel->clear_text():history_input_panel->clear_text();
     String selected_model = tab_index==1?chat_input_panel->get_model():history_input_panel->get_model();
+    
     switch ((AIChatBlock::ChatType)AIStreamingBase::AIStringName[selected_model])
     {
         case AIStreamingBase::DEEPSEEK_CHAT:{
@@ -57,7 +58,13 @@ void AIDock::_create_chat_block(AIChatBlock::ChatType chat_type, const String& m
     block->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     chat_blocks.append(block);
     chat_list->add_child(block);
-    block->add_text(message);
+    if(chat_type==AIChatBlock::ChatType::AI_CHAT_TYPE_USER){
+        block->set_text(message);
+    }
+    else if(chat_type==AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT){
+        block->set_text("");
+        block->add_text(message);
+    }
     chat_sum++;
     current_chat_index++;
 }
@@ -76,10 +83,12 @@ void AIDock::_add_message(const String &message, int block_index) {
 
 void AIDock::on_stream_response(String text){
     _add_message(text, current_chat_index);
+    current_text_buff = current_text_buff + text;
     chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
 }
 
 void AIDock::on_data_start(){
+    current_text_buff.clear();
     _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
 }
 
@@ -87,7 +96,8 @@ void AIDock::on_request_completed(){
     deepseek_api->cancel_request();
     this->get_current_tab()==1?chat_input_panel->set_button_enabled(true):history_input_panel->set_button_enabled(true);
     if(current_chat_index<chat_blocks.size()&&current_chat_index!=-1){
-        chat_manager.add_assistant_chat(current_chat_uid, chat_blocks[current_chat_index]->get_text());
+        print_line(chat_blocks[current_chat_index]->get_text());
+        chat_manager.add_assistant_chat(current_chat_uid, current_text_buff);
         chat_blocks[current_chat_index]->to_bbcode();
     }
 }

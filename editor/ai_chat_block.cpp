@@ -85,11 +85,16 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
 }
 
 String AIChatBlock::get_text(){
-    return chat_content->get_text();
+    if(mark_text.is_empty()){
+        ERR_PRINT("chat_content is empty");
+        return "";
+    }
+    return mark_text;
 }
 
 void AIChatBlock::set_text(const String &p_text) {
     chat_content->set_text(p_text);
+    mark_text = p_text;
 }
 void AIChatBlock::add_text(const String &p_text) {
     chat_content->add_text(p_text);

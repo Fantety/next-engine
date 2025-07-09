@@ -47,7 +47,7 @@ private:
 
     String current_chat_uid;
     AIChatManager chat_manager;
-
+    String current_text_buff;
 
 
     void _send_message();

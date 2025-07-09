@@ -10,10 +10,10 @@ private:
     /* data */
 public:
     AIChatManager(/* args */);
-    void create_new_chat(const String& uid);
+    void create_new_chat(const String uid);
 
-    void add_user_chat(const String& uid, const String& chat_text);
-    void add_assistant_chat(const String& uid, const String& chat_text);
+    void add_user_chat(const String uid, const String chat_text);
+    void add_assistant_chat(const String uid, const String chat_text);
 
     Array get_chat(const String& uid);
 

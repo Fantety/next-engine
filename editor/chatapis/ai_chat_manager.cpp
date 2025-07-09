@@ -4,12 +4,12 @@ AIChatManager::AIChatManager(/* args */)
 {
 }
 
-void AIChatManager::create_new_chat(const String& uid){
+void AIChatManager::create_new_chat(const String uid){
     Array new_chat;
     chat_datas[uid] = new_chat;
 }
 
-void AIChatManager::add_user_chat(const String& uid, const String& chat_text){
+void AIChatManager::add_user_chat(const String uid, const String chat_text){
     Dictionary chat;
     chat["role"] = "user";
     chat["content"] = chat_text;
@@ -20,7 +20,7 @@ void AIChatManager::add_user_chat(const String& uid, const String& chat_text){
     }
     
 }
-void AIChatManager::add_assistant_chat(const String& uid, const String& chat_text){
+void AIChatManager::add_assistant_chat(const String uid, const String chat_text){
     Dictionary chat;
     chat["role"] = "assistant";
     chat["content"] = chat_text;

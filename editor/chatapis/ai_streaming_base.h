@@ -35,15 +35,12 @@ public:
             AIStringName["deepseek-chat"] = DEEPSEEK_CHAT;
             AIStringName["deepseek-reason"] = DEEPSEEK_REASON;
         }
-    // 设置API密钥
     void set_apikey(const std::string& key) { apiKey = key; }
-    // 设置模型
     void set_model(const std::string& modelName) { model = modelName; }
-    // 设置超时时间(秒)
     void set_timeout(int seconds) { timeout = seconds; }
-    // 发送流式请求(纯虚函数，子类必须实现)
-    virtual bool send_streaming_request(const String& prompt) = 0;
     virtual bool send_streaming_request(const Array& prompt) = 0;
+    virtual PackedByteArray construct_body(const Array& prompt) = 0;
+    virtual String get_respone_content(const String& jdata) = 0;
     
 protected:
     std::string model;

@@ -21,8 +21,7 @@
 class DeepSeekAPI;
 struct ThreadParams {
     DeepSeekAPI *self;
-    String prompt;
-    Array prompt_array;
+    Array prompt;
 };
 class DeepSeekAPI : public AIStreamingBase {
     GDCLASS(DeepSeekAPI, Node);
@@ -35,14 +34,13 @@ private:
 public:
     DeepSeekAPI(const std::string& modelName = "deepseek-chat")
         : AIStreamingBase(modelName){}
-
-    bool send_streaming_request(const String& prompt) override;
     bool send_streaming_request(const Array& prompt) override;
+    PackedByteArray construct_body(const Array& prompt) override;
+    String get_respone_content(const String& jdata) override;
     void cancel_request(); 
     
 protected:
     static void _bind_methods();
-    //SIGNAL("data_received", "data");
     void _notification(int p_what);
     String parse_json_data(const String& jdata);
 
