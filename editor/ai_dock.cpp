@@ -17,34 +17,45 @@ void AIDock::_notification(int p_what) {
 void AIDock::_send_message() {
     int tab_index = this->get_current_tab();
     String message = tab_index==1?chat_input_panel->get_input_text():history_input_panel->get_input_text();
+    String selected_model = tab_index==1?chat_input_panel->get_model():history_input_panel->get_model();
+    int selected_index = tab_index==1?chat_input_panel->get_model_index():history_input_panel->get_model_index();
     if (message.strip_edges().is_empty()) {
         ERR_PRINT("Message is empty, returning");
         return;
     }
     if(chat_blocks.size()==0 && tab_index==1){
         current_chat_uid = generate_uuid();
-        chat_manager.create_new_chat(current_chat_uid);
+        chat_manager.create_new_chat(current_chat_uid, message);
+    }
+    else if(tab_index==0){
+        current_chat_uid = generate_uuid();
+        chat_manager.create_new_chat(current_chat_uid, message);
+        delete_all_blocks();
+        set_current_tab(1);
+        chat_input_panel->set_model(selected_index);
     }
     chat_input_panel->set_button_enabled(false);
     history_input_panel->set_button_enabled(false);
     _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_USER, message);
     chat_manager.add_user_chat(current_chat_uid,message);
-    tab_index==1?chat_input_panel->clear_text():history_input_panel->clear_text();
-    String selected_model = tab_index==1?chat_input_panel->get_model():history_input_panel->get_model();
-    
+    chat_input_panel->clear_text();
+    history_input_panel->clear_text();
+    print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
     switch ((AIChatBlock::ChatType)AIStreamingBase::AIStringName[selected_model])
     {
         case AIStreamingBase::DEEPSEEK_CHAT:{
             String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
             if (apikey.is_empty()) return;
-            deepseek_api->set_apikey(apikey.utf8().get_data());
+            deepseek_api->set_apikey(apikey);
+            deepseek_api->set_model("deepseek-chat");
             deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
             break;
         }
-        case AIStreamingBase::DEEPSEEK_REASON:{
+        case AIStreamingBase::DEEPSEEK_REASONER:{
             String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
             if (apikey.is_empty()) return;
-            deepseek_api->set_apikey(apikey.utf8().get_data());
+            deepseek_api->set_apikey(apikey);
+            deepseek_api->set_model("deepseek-reasoner");
             deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
             break;
         }
@@ -79,27 +90,41 @@ void AIDock::_add_message(const String &message, int block_index) {
         return;
     }
 }
-
+void AIDock::_add_reason_message(const String &message, int block_index){
+    if(block_index < chat_blocks.size()){
+        chat_blocks[block_index]->add_reason_text(message);
+    }
+    else if (block_index>=chat_blocks.size()||block_index == -1)
+    {
+        ERR_PRINT("chat_block_index out of range");
+        return;
+    }
+}
 
 void AIDock::on_stream_response(String text){
     _add_message(text, current_chat_index);
-    current_text_buff = current_text_buff + text;
+    chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
+}
+
+void AIDock::on_reason_response(String text){
+    _add_reason_message(text, current_chat_index);
     chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
 }
 
 void AIDock::on_data_start(){
-    current_text_buff.clear();
     _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
 }
 
 void AIDock::on_request_completed(){
     deepseek_api->cancel_request();
-    this->get_current_tab()==1?chat_input_panel->set_button_enabled(true):history_input_panel->set_button_enabled(true);
+    print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
+    chat_input_panel->set_button_enabled(true);
+    history_input_panel->set_button_enabled(true);
     if(current_chat_index<chat_blocks.size()&&current_chat_index!=-1){
-        print_line(chat_blocks[current_chat_index]->get_text());
-        chat_manager.add_assistant_chat(current_chat_uid, current_text_buff);
+        chat_manager.add_assistant_chat(current_chat_uid, chat_blocks[current_chat_index]->get_text());
         chat_blocks[current_chat_index]->to_bbcode();
     }
+    chat_manager.save_chats();
 }
 
 
@@ -130,7 +155,7 @@ AIDock::AIDock() {
     chat_input_panel = memnew(AIChatPanel);
     history_input_panel = memnew(AIChatPanel);
     chat_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
-    //history_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
+    history_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
     print_line("AIChatPanel Init Finished");
     //历史页面
     history_view = memnew(VBoxContainer);
@@ -156,17 +181,35 @@ AIDock::AIDock() {
     chat_view->add_child(chat_input_panel);
     print_line("AIDock Init Finish");
     print_line("AIDock constructor called");
-    deepseek_api = new DeepSeekAPI("deepseek-chat");
+    deepseek_api = memnew(DeepSeekAPI("deepseek-chat"));
     if (!deepseek_api) {
         print_line("Failed to create deepseek_api");
     }
     add_child(deepseek_api);
     current_ai_response = "";  // 初始化响应内容
     deepseek_api->connect("deepseek_data_received", callable_mp(this, &AIDock::on_stream_response), CONNECT_DEFERRED);
+    deepseek_api->connect("deepseek_reason_received", callable_mp(this, &AIDock::on_reason_response), CONNECT_DEFERRED);
     deepseek_api->connect("deepseek_data_start", callable_mp(this, &AIDock::on_data_start), CONNECT_DEFERRED);
     deepseek_api->connect("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
     print_line("AIDock constructor called finished");
     
+}
+
+
+void AIDock::delete_all_blocks(){
+    if(chat_list->get_child_count()==0){
+        return;
+    }
+    for(int i=0;i<chat_list->get_child_count();i++){
+        chat_list->remove_child(chat_list->get_child(i));
+    }
+    if(chat_blocks.size()==0){
+        return;
+    }
+    for(int i=0;i<chat_blocks.size();i++){
+        chat_blocks[i]->queue_free();
+    }
+    chat_blocks.clear();
 }
 
 

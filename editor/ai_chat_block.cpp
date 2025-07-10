@@ -1,31 +1,13 @@
 
 #include "ai_chat_block.h"
+#include "editor/themes/editor_scale.h"
 
 void AIChatBlock::_notification(int p_what) {
-    switch (p_what) {
-        case NOTIFICATION_READY: {
-            switch (this->chat_type)
-            {
-            case ChatType::AI_CHAT_TYPE_USER:
-                change_panel_color(Color(0.0, 0.3, 0.4));//rgb(0,78,100)
-                break;
-            case ChatType::AI_CHAT_TYPE_ASSISTANT:
-                change_panel_color(Color(0.12, 0.22, 0.6));//hsl(228, 67.20%, 35.90%)
-                break;
-            case ChatType::AI_CHAT_SYS_MESSAGE:
-                change_panel_color(Color(0.18, 0.22, 0.32));//rgb(48, 57, 82)
-                break;
-            case ChatType::AI_CHAT_SYS_WARNING:
-                change_panel_color(Color(0.9, 0.56, 0.15));//rgb(229, 142, 38)
-                break;
-            case ChatType::AI_CHAT_SYS_ERROR:
-                change_panel_color(Color(0.72, 0.08, 0.25));//rgb(183, 21, 64)
-                break;
-            default:
-                break;
-            }
-        } break;
-    }
+    // switch (p_what) {
+    //     case NOTIFICATION_THEME_CHANGED: {
+            
+    //     } break;
+    // }
 }
 
 void AIChatBlock::set_clipboard(){
@@ -44,13 +26,32 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
     v_container = memnew(VBoxContainer);
     h_container = memnew(HBoxContainer);
     chat_content = memnew(RichTextLabel);
+    reason_content = memnew(RichTextLabel);
+    thinking_process_button = memnew(Button);
+    thinking_process_button->set_text("Thinking Process");
+    thinking_process_button->connect("pressed", callable_mp(this, &AIChatBlock::change_thinking_process_visible));
+    reason_content->set_visible(false);
+    reason_content->add_theme_color_override(SceneStringName(font_color), Color(0.35, 0.43, 0.47));
+    chat_content->set_visible(false);
     copy_button = memnew(Button);
     retry_button = memnew(Button);
+    margin_container = memnew(MarginContainer);
     copy_button->connect("pressed", callable_mp(this, &AIChatBlock::set_clipboard));
     chat_content->set_use_bbcode(true);
     v_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     v_container->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-    add_child(v_container);
+    margin_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    margin_container->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    Size2 borders = Size2(5, 5) * EDSCALE;
+	margin_container->add_theme_constant_override("margin_right", borders.width);
+	margin_container->add_theme_constant_override("margin_top", borders.height);
+	margin_container->add_theme_constant_override("margin_left", borders.width);
+	margin_container->add_theme_constant_override("margin_bottom", borders.height);
+    add_child(margin_container);
+    margin_container->add_child(v_container);
+    v_container->add_child(thinking_process_button);
+    thinking_process_button->set_visible(false);
+    v_container->add_child(reason_content);
     v_container->add_child(chat_content);
     v_container->add_child(h_container);
     h_container->add_child(copy_button);
@@ -58,19 +59,6 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
     h_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     copy_button->set_text("Copy");
-    switch (chat_type)
-    {
-    case ChatType::AI_CHAT_TYPE_ASSISTANT:
-        retry_button->set_text("Retry");
-        break;
-    case ChatType::AI_CHAT_TYPE_USER:
-        retry_button->set_text("Edit");
-        break;
-    default:
-        break;
-    }
-    
-
     chat_content->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
     chat_content->set_scroll_follow(true);
     chat_content->set_fit_content(true);
@@ -78,10 +66,28 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
     chat_content->set_drag_and_drop_selection_enabled(true);
     chat_content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     chat_content->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-
-
-    
-    
+    switch (this->chat_type)
+    {
+        case ChatType::AI_CHAT_TYPE_USER:
+            change_panel_color(Color(0.0, 0.3, 0.4));//rgb(0,78,100)
+            retry_button->set_text("Edit");
+            break;
+        case ChatType::AI_CHAT_TYPE_ASSISTANT:
+            change_panel_color(Color(0.12, 0.22, 0.6));//hsl(228, 67.20%, 35.90%)
+            retry_button->set_text("Retry");
+            break;
+        case ChatType::AI_CHAT_SYS_MESSAGE:
+            change_panel_color(Color(0.18, 0.22, 0.32));//rgb(48, 57, 82)
+            break;
+        case ChatType::AI_CHAT_SYS_WARNING:
+            change_panel_color(Color(0.9, 0.56, 0.15));//rgb(229, 142, 38)
+            break;
+        case ChatType::AI_CHAT_SYS_ERROR:
+            change_panel_color(Color(0.72, 0.08, 0.25));//rgb(183, 21, 64)
+            break;
+        default:
+            break;
+    }
 }
 
 String AIChatBlock::get_text(){
@@ -93,16 +99,31 @@ String AIChatBlock::get_text(){
 }
 
 void AIChatBlock::set_text(const String &p_text) {
+    chat_content->set_visible(true);
+    reason_content->set_visible(false);
     chat_content->set_text(p_text);
     mark_text = p_text;
 }
 void AIChatBlock::add_text(const String &p_text) {
+    chat_content->set_visible(true);
+    reason_content->set_visible(false);
     chat_content->add_text(p_text);
     mark_text+=p_text;
+}
+void AIChatBlock::set_reason_text(const String &p_text){
+    thinking_process_button->set_visible(true);
+    reason_content->set_visible(true);
+    reason_content->set_text(p_text);
+}
+void AIChatBlock::add_reason_text(const String &p_text){
+    thinking_process_button->set_visible(true);
+    reason_content->set_visible(true);
+    reason_content->add_text(p_text);
 }
 
 void AIChatBlock::set_fit_content(bool fit){
     chat_content->set_fit_content(fit);
+    reason_content->set_fit_content(fit);
 }
 
 void AIChatBlock::to_bbcode(){
@@ -116,17 +137,20 @@ void AIChatBlock::set_chat_type(AIChatBlock::ChatType type) {
 AIChatBlock::ChatType AIChatBlock::get_chat_type() {
     return chat_type;
 }
-
+void AIChatBlock::change_thinking_process_visible(){
+    thinking_process_flag = !thinking_process_flag;
+    reason_content->set_visible(thinking_process_flag);
+}
 
 void AIChatBlock::change_panel_color(const Color &new_color){
-    Ref<StyleBox> style = this->get_theme_stylebox("panel");
-    // 检查是否是 StyleBoxFlat（可修改颜色的类型）
-    if (style.is_valid()) {
-        // 转换为 StyleBoxFlat 并修改颜色
-        Ref<StyleBoxFlat> style_flat = style;
-        style_flat->set_bg_color(new_color);
-        style_flat->set_corner_radius_all(10);
-        // 重新应用修改后的 StyleBox
-        this->add_theme_style_override("panel", style_flat);
-    }
+    // panel_style->set_bg_color(Color(0.1, 0.1, 0.1, 1));
+	// panel_style->set_border_color(Color(0.3, 0.3, 0.3, 1));
+	// panel_style->set_border_width_all(3);
+	// panel_style->set_corner_radius_all(10);
+	// panel_style->set_content_margin_all(12);
+    Ref<StyleBoxFlat> style_flat;
+    style_flat.instantiate();
+    style_flat->set_bg_color(new_color);
+    style_flat->set_corner_radius_all(7);
+    add_theme_style_override(SceneStringName(panel), style_flat);
 }

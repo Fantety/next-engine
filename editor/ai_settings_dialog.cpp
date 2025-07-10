@@ -37,7 +37,7 @@ void AISettingsDialog::_notification(int p_what) {
                 "deepseek/url",
                 {
                     "deepseek-chat", 
-                    "deepseek-reason"
+                    "deepseek-reasoner"
                 },
                 "https://api.deepseek.com/v1"
             );

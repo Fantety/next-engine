@@ -7,6 +7,7 @@
 #include "scene/resources/style_box_flat.h"
 #include "scene/gui/button.h"
 #include "servers/display_server.h"
+#include "scene/gui/margin_container.h"
 
 
 class AIChatBlock : public PanelContainer {
@@ -24,11 +25,14 @@ private:
     Ref<Theme> theme;
     VBoxContainer* v_container;
     HBoxContainer* h_container;
+    MarginContainer* margin_container;
     Button* copy_button;
     Button* retry_button;
+    Button* thinking_process_button;
 
     AIChatBlock::ChatType chat_type = AIChatBlock::AI_CHAT_TYPE_USER;
     RichTextLabel *chat_content;
+    RichTextLabel *reason_content;
     String mark_text;
 
     Ref<Texture2D> copy_icon;
@@ -36,13 +40,17 @@ private:
 
 
     void set_clipboard();
-
+    bool thinking_process_flag = false;
+    void change_thinking_process_visible();
 protected:
     static void _bind_methods();
     void _notification(int p_notification);
 
+
 public:
     void to_bbcode();
+    void set_reason_text(const String &p_text);
+    void add_reason_text(const String &p_text);
     void set_text(const String &p_text);
     void add_text(const String &p_text);
     String get_text();

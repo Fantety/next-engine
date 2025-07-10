@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-06-24 15:30:46
+ * @LastEditTime: 2025-07-10 11:58:15
  */
 // deepseek_api.h
 #ifndef DEEPSEEK_API_H
@@ -32,7 +32,7 @@ class DeepSeekAPI : public AIStreamingBase {
 private:
     static void _thread_func(void *p_userdata);
 public:
-    DeepSeekAPI(const std::string& modelName = "deepseek-chat")
+    DeepSeekAPI(const String modelName = "deepseek-chat")
         : AIStreamingBase(modelName){}
     bool send_streaming_request(const Array& prompt) override;
     PackedByteArray construct_body(const Array& prompt) override;
@@ -42,7 +42,6 @@ public:
 protected:
     static void _bind_methods();
     void _notification(int p_what);
-    String parse_json_data(const String& jdata);
 
 };
 

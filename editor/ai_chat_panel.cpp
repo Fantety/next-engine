@@ -49,7 +49,7 @@ AIChatPanel::AIChatPanel(){
 
 void AIChatPanel::_update_model_list() {
     model_selector->clear();
-    const String deepseek_models[] = {"deepseek-chat", "deepseek-reason", "deepseek-coder"};
+    const String deepseek_models[] = {"deepseek-chat", "deepseek-reasoner"};
     for (int i = 0; i < 3; i++) {
         String setting_path = "deepseek/models/" + deepseek_models[i];
         if (EditorSettings::get_singleton()->has_setting(setting_path)) {
@@ -96,6 +96,14 @@ String AIChatPanel::get_input_text(){
 }
 String AIChatPanel::get_model(){
     return model_selector->get_item_text(model_selector->get_selected());
+}
+
+void AIChatPanel::set_model(int index){
+    model_selector->select(index);
+}
+
+int AIChatPanel::get_model_index(){
+    return model_selector->get_selected();
 }
 
 void AIChatPanel::clear_text(){

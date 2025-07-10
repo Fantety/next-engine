@@ -47,15 +47,16 @@ private:
 
     String current_chat_uid;
     AIChatManager chat_manager;
-    String current_text_buff;
 
 
     void _send_message();
-    void _add_message(const String &message, int block_index);  // 确保这个方法有声明
+    void _add_message(const String &message, int block_index);
+    void _add_reason_message(const String &message, int block_index);
     void _create_chat_block(AIChatBlock::ChatType chat_type, const String& message);
     private:
-
+    void delete_all_blocks();
     void on_stream_response(String text);
+    void on_reason_response(String text);
     void on_data_start();
     void on_request_completed();
 

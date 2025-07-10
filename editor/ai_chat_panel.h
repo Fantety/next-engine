@@ -39,6 +39,8 @@ public:
     void _update_model_list();
     String get_input_text();
     String get_model();
+    int get_model_index();
+    void set_model(int index);
     void clear_text();
     void set_button_enabled(bool enabled);
     void on_send_button_pressed();

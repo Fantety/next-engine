@@ -15,10 +15,9 @@ bool DeepSeekAPI::send_streaming_request(const Array& prompt){
     if (thread_running) {
         cancel_request();
     }
-    //print_line("[Call]: DeepSeekAPI::send_streaming_request");
     ThreadParams *params = memnew(ThreadParams);
     params->self = this;
-    params->prompt = prompt;
+    params->prompt = prompt.duplicate();
     thread_running = true;
     thread.start(_thread_func, params);
     return true;
@@ -27,17 +26,16 @@ bool DeepSeekAPI::send_streaming_request(const Array& prompt){
 
 PackedByteArray DeepSeekAPI::construct_body(const Array& prompt){
     Dictionary body;
-    body["model"] = "deepseek-chat";
+    body["model"] = model;
     body["stream"] = true;
     Array messages;
     Dictionary sys_msg;
     sys_msg["role"] = "system";
-    sys_msg["content"] = "你是嵌入在Godot当中的AI助手，可以帮助用户开发游戏";
+    sys_msg["content"] = String::utf8("你是嵌入在Godot当中的AI助手，可以帮助用户开发游戏");
     messages = prompt;
     messages.push_front(sys_msg);
     body["messages"] = messages;
     String request_body = JSON::stringify(body);
-    print_line(request_body);
     PackedByteArray body_data = request_body.to_utf8_buffer();
     return body_data;
 }
@@ -57,10 +55,16 @@ String DeepSeekAPI::get_respone_content(const String& jdata){
         Dictionary choice = choices[0];
         if (!choice.has("delta")) return String{"Something Wrong"};
         Dictionary delta = choice["delta"];
-        if (!delta.has("content")) return String{"Something Wrong"};
-        String content = delta["content"];
-        call_deferred("emit_signal", SNAME("stream_response"), content);
-        return content;
+        if(delta["reasoning_content"]){
+            String content = delta["reasoning_content"];
+            call_deferred("emit_signal", SNAME("deepseek_reason_received"), content);
+            return content;
+        }
+        else if(delta["content"]){
+            String content = delta["content"];
+            call_deferred("emit_signal", SNAME("deepseek_data_received"), content);
+            return content;
+        }
     }
     return String{};
 }
@@ -84,7 +88,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
         return;
     }
     Vector<String> headers;
-    headers.push_back("Authorization: Bearer " + String{params->self->apiKey.c_str()});
+    headers.push_back("Authorization: Bearer " + String{params->self->apiKey});
     headers.push_back("Content-Type: application/json");
     PackedByteArray body_data = params->self->construct_body(params->prompt);
     err = t_http_client->request(HTTPClient::METHOD_POST, "/chat/completions", headers, body_data.ptr(), body_data.size());
@@ -109,7 +113,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                     valid_length--;
                 }
                 if (valid_length == 0) {
-                    continue; // 没有完整的字符，等待更多数据
+                    continue;
                 }
                 String chunk_str = String::utf8(reinterpret_cast<const char*>(buffer.ptr()), valid_length);
                 buffer = buffer.slice(valid_length);
@@ -130,8 +134,8 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                     if (line.is_empty() || !line.begins_with("data: ")) {
                         continue;
                     }
-                    String result_data = params->self->parse_json_data(line.trim_prefix("data: "));
-                    params->self->call_deferred("emit_signal", SNAME("deepseek_data_received"), result_data);
+                    String result_data = params->self->get_respone_content(line.trim_prefix("data: "));
+                    //params->self->call_deferred("emit_signal", SNAME("deepseek_data_received"), result_data);
                     OS::get_singleton()->delay_usec(10);
                 }
             }
@@ -157,45 +161,10 @@ void DeepSeekAPI::cancel_request() {
     thread_running = false;
 }
 
-String DeepSeekAPI::parse_json_data(const String& jdata){
-    Ref<JSON> json;
-    json.instantiate();
-    Error err = json->parse(jdata);
-    if (err != OK) {
-        ERR_PRINT("Parse Json Failed");
-        return String{};
-    }
-    Variant json_data = json->get_data();
-    if (json_data.get_type() == Variant::DICTIONARY) {
-        Dictionary dict_data = json_data;
-        if (!dict_data.has("choices")) {
-            return String{};
-        }
-        Array choices = dict_data["choices"];
-        if (choices.size() <= 0) {
-            return String{};
-        }
-        if (choices[0].get_type() != Variant::DICTIONARY) {
-            return String{};
-        }
-        Dictionary choice = choices[0];
-        if (!choice.has("delta")) {
-            return String{};
-        }
-        Dictionary delta = choice["delta"];
-        if (!delta.has("content")) {
-            return String{};
-        }
-        String content = delta["content"];
-        call_deferred("emit_signal", SNAME("stream_response"), content);
-        return content;
-    }
-    return String{};
-}
-
 
 void DeepSeekAPI::_bind_methods() {
     ADD_SIGNAL(MethodInfo("deepseek_data_received", PropertyInfo(Variant::STRING, "text")));
+    ADD_SIGNAL(MethodInfo("deepseek_reason_received", PropertyInfo(Variant::STRING, "text")));
     ADD_SIGNAL(MethodInfo("deepseek_request_completed"));
     ADD_SIGNAL(MethodInfo("deepseek_data_start"));
 }
