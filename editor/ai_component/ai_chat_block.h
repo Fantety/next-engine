@@ -38,10 +38,14 @@ private:
     Ref<Texture2D> copy_icon;
     Ref<Texture2D> retry_icon;
 
+    int index = -1;
 
     void set_clipboard();
     bool thinking_process_flag = false;
     void change_thinking_process_visible();
+    void send_retry_pressed();
+
+
 protected:
     static void _bind_methods();
     void _notification(int p_notification);
@@ -58,6 +62,10 @@ public:
     void set_chat_type(AIChatBlock::ChatType type);
     AIChatBlock::ChatType get_chat_type();
     void change_panel_color(const Color &new_color);
+    int get_block_index();
+    void set_block_index(int black_index);
+
+
     AIChatBlock(){};
     AIChatBlock(AIChatBlock::ChatType i_chat_type);
 };

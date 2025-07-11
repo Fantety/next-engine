@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-07-07 12:16:06
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-10 13:57:29
+ * @LastEditTime: 2025-07-11 16:57:54
  */
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
@@ -17,6 +17,7 @@ class AIChatManager
 private:
     Dictionary chat_datas;
     /* data */
+    void load_chats();
 public:
     AIChatManager(/* args */);
     void create_new_chat(const String uid, const String title);
@@ -25,6 +26,8 @@ public:
     void add_assistant_chat(const String uid, const String chat_text);
     void save_chats();
     Array get_chat(const String& uid);
+    Array get_chat_before_index(const String& uid, int index);
     String get_title(const String& uid);
+    Dictionary get_chat_datas();
 };
 

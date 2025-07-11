@@ -18,6 +18,11 @@ void AIChatBlock::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_text", "text"), &AIChatBlock::set_text);
     ClassDB::bind_method(D_METHOD("get_text"), &AIChatBlock::get_text);
     ClassDB::bind_method(D_METHOD("to_bbcode"), &AIChatBlock::to_bbcode);
+    ADD_SIGNAL(MethodInfo("retry_pressed", PropertyInfo(Variant::INT, "chat_type"), PropertyInfo(Variant::INT, "block_index")));
+}
+
+void AIChatBlock::send_retry_pressed(){
+    call_deferred("emit_signal", SNAME("retry_pressed"), (int)this->chat_type, this->index);
 }
 
 AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
@@ -36,6 +41,7 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
     copy_button = memnew(Button);
     retry_button = memnew(Button);
     margin_container = memnew(MarginContainer);
+    retry_button->connect("pressed", callable_mp(this, &AIChatBlock::send_retry_pressed));
     copy_button->connect("pressed", callable_mp(this, &AIChatBlock::set_clipboard));
     chat_content->set_use_bbcode(true);
     v_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -78,12 +84,18 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
             break;
         case ChatType::AI_CHAT_SYS_MESSAGE:
             change_panel_color(Color(0.18, 0.22, 0.32));//rgb(48, 57, 82)
+            retry_button->set_visible(false);
+            copy_button->set_visible(false);
             break;
         case ChatType::AI_CHAT_SYS_WARNING:
             change_panel_color(Color(0.9, 0.56, 0.15));//rgb(229, 142, 38)
+            retry_button->set_visible(false);
+            copy_button->set_visible(false);
             break;
         case ChatType::AI_CHAT_SYS_ERROR:
             change_panel_color(Color(0.72, 0.08, 0.25));//rgb(183, 21, 64)
+            retry_button->set_visible(false);
+            copy_button->set_visible(false);
             break;
         default:
             break;
@@ -140,6 +152,13 @@ AIChatBlock::ChatType AIChatBlock::get_chat_type() {
 void AIChatBlock::change_thinking_process_visible(){
     thinking_process_flag = !thinking_process_flag;
     reason_content->set_visible(thinking_process_flag);
+}
+
+int AIChatBlock::get_block_index(){
+    return index;
+}
+void AIChatBlock::set_block_index(int black_index){
+    this->index = black_index;
 }
 
 void AIChatBlock::change_panel_color(const Color &new_color){

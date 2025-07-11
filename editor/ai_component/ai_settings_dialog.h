@@ -30,6 +30,8 @@ private:
     VBoxContainer *main_container;
     HashMap<String, ProviderSettings> provider_settings;
 
+    static inline AISettingsDialog *singleton = nullptr;
+
     void _save_settings();
     void _add_provider_section(const String &p_provider_name, 
                             const String &p_api_key_setting,
@@ -43,6 +45,8 @@ protected:
 
 public:
     AISettingsDialog();
+
+    static AISettingsDialog* get_singleton();
 };
 
 #endif // AI_SETTINGS_DIALOG_H

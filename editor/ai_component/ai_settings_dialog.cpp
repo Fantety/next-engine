@@ -1,10 +1,20 @@
+/*
+ * @FilePath: \editor\ai_component\ai_settings_dialog.cpp
+ * @Author: Fantety
+ * @Descripttion: 
+ * @Date: 2025-07-10 18:34:02
+ * @LastEditors: Fantety
+ * @LastEditTime: 2025-07-11 15:35:20
+ */
 #include "ai_settings_dialog.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/gui/label.h"
 #include "scene/gui/separator.h"
 #include "scene/gui/margin_container.h"
 
-
+AISettingsDialog* AISettingsDialog::get_singleton() {
+	return singleton;
+}
 
 void AISettingsDialog::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_save_settings"), &AISettingsDialog::_save_settings);
@@ -247,5 +257,5 @@ void AISettingsDialog::_save_settings() {
 }
 
 AISettingsDialog::AISettingsDialog() {
-    // Initialization handled in _notification
+    singleton = this;
 }

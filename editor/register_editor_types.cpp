@@ -135,6 +135,7 @@
 #include "editor/ai_component/ai_settings_dialog.h"
 #include "editor/ai_component/ai_chat_panel.h"
 #include "editor/ai_component/ai_chat_block.h"
+#include "editor/ai_component/ai_history_button.h"
 
 
 #ifndef DISABLE_DEPRECATED
@@ -219,6 +220,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(DeepSeekAPI);
 	GDREGISTER_CLASS(AIChatBlock);
 	GDREGISTER_CLASS(AIChatPanel);
+	GDREGISTER_CLASS(AIHistoryButton);
 
 	// This list is alphabetized, and plugins that depend on Node2D are in their own section below.
 	EditorPlugins::add_by_type<AnimationTreeEditorPlugin>();

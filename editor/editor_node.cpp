@@ -8361,7 +8361,6 @@ EditorNode::EditorNode() {
 
 	history_dock = memnew(HistoryDock);
 	ai_dock = memnew(AIDock);
-	ai_dock->set_ai_settings_dialog(ai_settings);
 	// Scene: Top left.
 	editor_dock_manager->add_dock(SceneTreeDock::get_singleton(), TTRC("Scene"), EditorDockManager::DOCK_SLOT_LEFT_UR, ED_SHORTCUT_AND_COMMAND("docks/open_scene", TTRC("Open Scene Dock")), "PackedScene");
 
@@ -8380,7 +8379,7 @@ EditorNode::EditorNode() {
 	// History: Full height right, behind Node.
 	editor_dock_manager->add_dock(history_dock, TTRC("History"), EditorDockManager::DOCK_SLOT_RIGHT_UL, ED_SHORTCUT_AND_COMMAND("docks/open_history", TTRC("Open History Dock")), "History");
 
-	editor_dock_manager->add_dock(ai_dock, TTRC("Chat"), EditorDockManager::DOCK_SLOT_RIGHT_UL, ED_SHORTCUT_AND_COMMAND("docks/open_chat", TTRC("Open Chat Dock")), "Chat");
+	editor_dock_manager->add_dock(AIDock::get_singleton(), TTRC("Chat"), EditorDockManager::DOCK_SLOT_RIGHT_UL, ED_SHORTCUT_AND_COMMAND("docks/open_chat", TTRC("Open Chat Dock")), "Chat");
 
 	// Add some offsets to left_r and main hsplits to make LEFT_R and RIGHT_L docks wider than minsize.
 	left_r_hsplit->set_split_offset(270 * EDSCALE);
