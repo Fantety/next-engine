@@ -162,11 +162,6 @@ void AIChatBlock::set_block_index(int black_index){
 }
 
 void AIChatBlock::change_panel_color(const Color &new_color){
-    // panel_style->set_bg_color(Color(0.1, 0.1, 0.1, 1));
-	// panel_style->set_border_color(Color(0.3, 0.3, 0.3, 1));
-	// panel_style->set_border_width_all(3);
-	// panel_style->set_corner_radius_all(10);
-	// panel_style->set_content_margin_all(12);
     Ref<StyleBoxFlat> style_flat;
     style_flat.instantiate();
     style_flat->set_bg_color(new_color);

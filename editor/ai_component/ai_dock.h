@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-11 16:22:32
+ * @LastEditTime: 2025-07-12 16:46:47
  */
 #ifndef AI_DOCK_H
 #define AI_DOCK_H
@@ -25,11 +25,13 @@
 #include "ai_chat_panel.h"
 #include "ai_accept_dialog.h"
 #include "ai_history_button.h"
+#include "ai_ide_interface.h"
 
 
 class AIDock : public TabContainer {
     GDCLASS(AIDock, TabContainer);
 private:
+
     VBoxContainer *history_view = nullptr;
     VBoxContainer *history_list = nullptr;
     ScrollContainer *chat_scroll = nullptr;
@@ -46,9 +48,12 @@ private:
     Vector<AIHistoryButton*> history_buttons;
     String current_chat_uid;
     AIChatManager chat_manager;
+    AIIDEInterface *ide_interface = nullptr;
     static inline AIDock *singleton = nullptr;
     int retry_chat_type = 0;
     int retry_block_index = 0;
+
+    bool block_create_flag = true;
     void _send_message();
     void _retry_message();
     void _add_message(const String &message, int block_index);
@@ -58,8 +63,9 @@ private:
     void delete_all_blocks();
     void on_stream_response(String text);
     void on_reason_response(String text);
+    void on_tool_response(Array tools);
     void on_data_start();
-    void on_request_completed();
+    void on_request_completed(int chat_flag);
     void on_retry_pressed(int chat_type, int block_index);
     void on_history_button_pressed(String uuid);
 

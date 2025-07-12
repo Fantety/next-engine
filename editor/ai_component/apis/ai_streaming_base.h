@@ -1,10 +1,10 @@
 /*
- * @FilePath: \editor\ai_component\ai_streaming_base.h
+ * @FilePath: \editor\ai_component\apis\ai_streaming_base.h
  * @Author: Fantety
  * @Descripttion: 
  * @Date: 2025-06-17 20:48:06
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-10 10:33:59
+ * @LastEditTime: 2025-07-12 15:24:23
  */
 #ifndef AI_STREAMING_BASE_H
 #define AI_STREAMING_BASE_H
@@ -17,6 +17,8 @@
 #include "core/object/class_db.h"
 #include "core/io/http_client.h"
 #include "core/io/stream_peer_tcp.h"
+#include "core/io/json.h"
+#include "tools_json.h"
 
 class AIStreamingBase : public Node {
     GDCLASS(AIStreamingBase, Node);
@@ -27,14 +29,29 @@ public:
         DEEPSEEK_REASONER,
         OPENAI,
     };
+    enum CurrentChatFlag{
+        NORMAL_CHAT = 0,
+        TOOL_CHAT,
+        ERR_CHAT,
+        ERR_NETWORK,
+    };
     inline static Dictionary AIStringName;
 
 public:
     AIStreamingBase(const String modelName = "deepseek-chat") 
         : model(modelName){
-            AIStringName["deepseek-chat"] = DEEPSEEK_CHAT;
-            AIStringName["deepseek-reasoner"] = DEEPSEEK_REASONER;
+        AIStringName["deepseek-chat"] = DEEPSEEK_CHAT;
+        AIStringName["deepseek-reasoner"] = DEEPSEEK_REASONER;
+        Ref<JSON> json;
+        json.instantiate();
+        Error err = json->parse(AITools::TOOLS_JSON_STR);
+        if (err != OK) return;
+        Variant json_data = json->get_data();
+        if (json_data.get_type() == Variant::ARRAY) {
+            this->tools_data = json_data;
+            print_line("[AI Component]: Init tools data success");
         }
+    }
     void set_apikey(const String key) { apiKey = key; }
     void set_model(const String modelName) { model = modelName; }
     void set_timeout(int seconds) { timeout = seconds; }
@@ -46,6 +63,8 @@ protected:
     String model;
     String apiKey;
     int timeout = 60;
+    Array tools_data;
+
     bool is_valid_utf8(const uint8_t* tdata, int len);
 };
 

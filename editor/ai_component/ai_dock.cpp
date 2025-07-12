@@ -108,6 +108,15 @@ void AIDock::_create_chat_block(AIChatBlock::ChatType chat_type, const String& m
         block->set_text("");
         block->add_text(message);
     }
+    else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_ERROR){
+        block->set_text(message);
+    }
+    else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_MESSAGE){
+        block->set_text(message);
+    }
+    else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_WARNING){
+        block->set_text(message);
+    }
     chat_sum++;
     current_chat_index++;
     block->set_block_index(current_chat_index);
@@ -135,107 +144,78 @@ void AIDock::_add_reason_message(const String &message, int block_index){
 }
 
 void AIDock::on_stream_response(String text){
+    if(block_create_flag){
+        _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
+        block_create_flag = false;
+    }
     _add_message(text, current_chat_index);
     chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
 }
 
 void AIDock::on_reason_response(String text){
+    if(block_create_flag){
+        _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
+        block_create_flag = false;
+    }
     _add_reason_message(text, current_chat_index);
     chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
 }
 
-void AIDock::on_data_start(){
-    _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
-}
-
-void AIDock::on_request_completed(){
-    deepseek_api->cancel_request();
-    print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
-    chat_input_panel->set_button_enabled(true);
-    history_input_panel->set_button_enabled(true);
-    if(current_chat_index<chat_blocks.size()&&current_chat_index!=-1){
-        chat_manager.add_assistant_chat(current_chat_uid, chat_blocks[current_chat_index]->get_text());
-        chat_blocks[current_chat_index]->to_bbcode();
+void AIDock::on_tool_response(Array tools){
+    for(int i = 0; i<tools.size(); i++){
+        if(tools[i].get_type() == Variant::DICTIONARY){
+            Dictionary tool = tools[i];
+            Dictionary function = tool["function"];
+            String name = function["name"];
+            String arguments = function["arguments"];
+            String text = "Tool：" + name + "\nArguments" + arguments;
+            ide_interface->add_tool(name);
+        }
     }
-    chat_manager.save_chats();
 }
 
-
-void AIDock::_bind_methods() {
-    ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
-    ClassDB::bind_method(D_METHOD("_add_message", "message", "block_index"), &AIDock::_add_message);  // 修正参数数量
+void AIDock::on_data_start(){
 }
 
-
-
+void AIDock::on_request_completed(int chat_flag){
+    block_create_flag = true;
+    if(chat_flag == AIStreamingBase::NORMAL_CHAT){
+        deepseek_api->cancel_request();
+        chat_input_panel->set_button_enabled(true);
+        history_input_panel->set_button_enabled(true);
+        if(current_chat_index<chat_blocks.size()&&current_chat_index!=-1){
+            chat_manager.add_assistant_chat(current_chat_uid, chat_blocks[current_chat_index]->get_text());
+        }
+        chat_manager.save_chats();
+    }
+    else if(chat_flag == AIStreamingBase::TOOL_CHAT){
+        Vector<String> tools = ide_interface->get_tools();
+        for(int i = 0; i < tools.size(); i++){
+            _create_chat_block(AIChatBlock::AI_CHAT_SYS_MESSAGE, tools[i]);
+        }
+        chat_input_panel->set_button_enabled(true);
+        history_input_panel->set_button_enabled(true);
+    }
+    else if(chat_flag == AIStreamingBase::ERR_CHAT){
+        ERR_PRINT("API Request END ERROR");
+        chat_input_panel->set_button_enabled(true);
+        history_input_panel->set_button_enabled(true);
+    }
+    else if(chat_flag == AIStreamingBase::ERR_NETWORK){
+        _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_ERROR, "Please check the network connection!");
+        chat_input_panel->set_button_enabled(true);
+        history_input_panel->set_button_enabled(true);
+    }
+    
+}
 
 String AIDock::generate_uuid() const {
     return OS::get_singleton()->get_unique_id() + "_" + itos(OS::get_singleton()->get_unix_time()) + "_" + itos(rand());
 }
 
-
-AIDock::AIDock() {
-    print_line("AIDock Init Start");
-    chat_input_panel = memnew(AIChatPanel);
-    history_input_panel = memnew(AIChatPanel);
-    chat_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
-    history_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
-    print_line("AIChatPanel Init Finished");
-    //历史页面
-    history_view = memnew(VBoxContainer);
-    history_view->add_child(history_input_panel);
-    history_view->add_theme_constant_override("separation",40);
-    history_list = memnew(VBoxContainer);
-    history_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-    history_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    //history_list->connect("item_selected", callable_mp(this, &AIDock::_on_history_selected));
-    history_list->set_stretch_ratio(4);
-    history_view->add_child(history_list);
-    print_line("history_view Init Finished");
-    // 聊天显示区域
-    chat_view = memnew(VBoxContainer);
-    accept_dialog = memnew(AIAcceptDialog);
-    add_child(accept_dialog);
-    chat_scroll = memnew(ScrollContainer);
-    chat_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    chat_scroll->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-    chat_scroll->set_stretch_ratio(4);
-    chat_list = memnew(VBoxContainer);
-    chat_list->add_theme_constant_override("separation",10);
-    chat_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    chat_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-    chat_scroll->add_child(chat_list);
-    chat_view->add_child(chat_scroll);
-    chat_view->add_child(chat_input_panel);
-    print_line("AIDock Init Finish");
-    print_line("AIDock constructor called");
-    deepseek_api = memnew(DeepSeekAPI("deepseek-chat"));
-    if (!deepseek_api) {
-        print_line("Failed to create deepseek_api");
-    }
-    add_child(deepseek_api);
-    current_ai_response = "";  // 初始化响应内容
-    deepseek_api->connect("deepseek_data_received", callable_mp(this, &AIDock::on_stream_response), CONNECT_DEFERRED);
-    deepseek_api->connect("deepseek_reason_received", callable_mp(this, &AIDock::on_reason_response), CONNECT_DEFERRED);
-    deepseek_api->connect("deepseek_data_start", callable_mp(this, &AIDock::on_data_start), CONNECT_DEFERRED);
-    deepseek_api->connect("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
-    print_line("AIDock constructor called finished");
-
-    AISettingsDialog::get_singleton()->connect("confirmed", callable_mp(chat_input_panel, &AIChatPanel::_update_model_list));
-    AISettingsDialog::get_singleton()->connect("ai_settings_changed", callable_mp(chat_input_panel, &AIChatPanel::_update_model_list));
-    AISettingsDialog::get_singleton()->connect("confirmed", callable_mp(history_input_panel, &AIChatPanel::_update_model_list));
-    AISettingsDialog::get_singleton()->connect("ai_settings_changed", callable_mp(history_input_panel, &AIChatPanel::_update_model_list));
-    
-    accept_dialog->connect("confirmed", callable_mp(this, &AIDock::confirm_retry));
-    singleton = this;
-    load_historys();
-}
-
-
 AIDock* AIDock::get_singleton(){
     return singleton;
 }
-
 
 void AIDock::delete_all_blocks(){
     if(chat_list->get_child_count()==0){
@@ -310,7 +290,6 @@ void AIDock::delete_blocks_after_index(int index){
     current_chat_index = index-1;
 }
 
-
 void AIDock::on_history_button_pressed(String uuid){
     delete_all_blocks();
     set_current_tab(1);
@@ -327,4 +306,68 @@ void AIDock::on_history_button_pressed(String uuid){
             _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, content);
         }
     }
+}
+
+void AIDock::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
+    ClassDB::bind_method(D_METHOD("_add_message", "message", "block_index"), &AIDock::_add_message);  // 修正参数数量
+}
+
+AIDock::AIDock() {
+    print_line("AIDock Init Start");
+    chat_input_panel = memnew(AIChatPanel);
+    history_input_panel = memnew(AIChatPanel);
+    chat_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
+    history_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
+    print_line("AIChatPanel Init Finished");
+    //历史页面
+    history_view = memnew(VBoxContainer);
+    history_view->add_child(history_input_panel);
+    history_view->add_theme_constant_override("separation",40);
+    history_list = memnew(VBoxContainer);
+    history_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    history_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    //history_list->connect("item_selected", callable_mp(this, &AIDock::_on_history_selected));
+    history_list->set_stretch_ratio(4);
+    history_view->add_child(history_list);
+    print_line("history_view Init Finished");
+    // 聊天显示区域
+    chat_view = memnew(VBoxContainer);
+    accept_dialog = memnew(AIAcceptDialog);
+    add_child(accept_dialog);
+    chat_scroll = memnew(ScrollContainer);
+    chat_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    chat_scroll->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    chat_scroll->set_stretch_ratio(4);
+    chat_list = memnew(VBoxContainer);
+    chat_list->add_theme_constant_override("separation",10);
+    chat_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    chat_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    chat_scroll->add_child(chat_list);
+    chat_view->add_child(chat_scroll);
+    chat_view->add_child(chat_input_panel);
+    print_line("AIDock Init Finish");
+    print_line("AIDock constructor called");
+    deepseek_api = memnew(DeepSeekAPI("deepseek-chat"));
+    if (!deepseek_api) {
+        print_line("Failed to create deepseek_api");
+    }
+    add_child(deepseek_api);
+    current_ai_response = "";  // 初始化响应内容
+    deepseek_api->connect("deepseek_data_received", callable_mp(this, &AIDock::on_stream_response), CONNECT_DEFERRED);
+    deepseek_api->connect("deepseek_reason_received", callable_mp(this, &AIDock::on_reason_response), CONNECT_DEFERRED);
+    deepseek_api->connect("deepseek_tool_received", callable_mp(this, &AIDock::on_tool_response), CONNECT_DEFERRED);
+    deepseek_api->connect("deepseek_data_start", callable_mp(this, &AIDock::on_data_start), CONNECT_DEFERRED);
+    deepseek_api->connect("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
+    print_line("AIDock constructor called finished");
+
+    AISettingsDialog::get_singleton()->connect("confirmed", callable_mp(chat_input_panel, &AIChatPanel::_update_model_list));
+    AISettingsDialog::get_singleton()->connect("ai_settings_changed", callable_mp(chat_input_panel, &AIChatPanel::_update_model_list));
+    AISettingsDialog::get_singleton()->connect("confirmed", callable_mp(history_input_panel, &AIChatPanel::_update_model_list));
+    AISettingsDialog::get_singleton()->connect("ai_settings_changed", callable_mp(history_input_panel, &AIChatPanel::_update_model_list));
+    
+    accept_dialog->connect("confirmed", callable_mp(this, &AIDock::confirm_retry));
+    singleton = this;
+    ide_interface = memnew(AIIDEInterface);
+    load_historys();
 }

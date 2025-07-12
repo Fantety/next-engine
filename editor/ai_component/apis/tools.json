@@ -1,0 +1,13 @@
+[
+    {
+        "type": "function",
+        "function": {
+            "name": "get_project_structure",
+            "description": "Obtain the complete directory structure of the project folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    }
+]

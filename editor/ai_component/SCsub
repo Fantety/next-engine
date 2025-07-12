@@ -1,3 +1,11 @@
+'''
+FilePath: \editor\ai_component\SCsub
+Author: Fantety
+Descripttion: 
+Date: 2025-07-10 18:34:02
+LastEditors: Fantety
+LastEditTime: 2025-07-12 10:39:51
+'''
 #!/usr/bin/env python
 from misc.utility.scons_hints import *
 
@@ -6,3 +14,4 @@ Import("env")
 env.add_source_files(env.editor_sources, "*.cpp")
 
 SConscript("apis/SCsub")
+SConscript("tools/SCsub")

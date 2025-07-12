@@ -1,10 +1,10 @@
 /*
- * @FilePath: \editor\ai_component\deepseek_api.h
+ * @FilePath: \editor\ai_component\apis\deepseek_api.h
  * @Author: Fantety
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-10 11:58:15
+ * @LastEditTime: 2025-07-12 16:51:19
  */
 // deepseek_api.h
 #ifndef DEEPSEEK_API_H
@@ -29,19 +29,23 @@ class DeepSeekAPI : public AIStreamingBase {
     SafeFlag exit_flag;
     bool thread_running = false;
 
+
+    
 private:
     static void _thread_func(void *p_userdata);
 public:
+
     DeepSeekAPI(const String modelName = "deepseek-chat")
         : AIStreamingBase(modelName){}
     bool send_streaming_request(const Array& prompt) override;
     PackedByteArray construct_body(const Array& prompt) override;
     String get_respone_content(const String& jdata) override;
     void cancel_request(); 
-    
+    int current_chat_flag = AIStreamingBase::NORMAL_CHAT;
 protected:
     static void _bind_methods();
     void _notification(int p_what);
+    
 
 };
 

@@ -1,7 +1,6 @@
 // deepseek_api.cpp
 // 假设更新后的 includePath 能正确找到头文件，这里暂时保持不变
 #include "deepseek_api.h"
-#include "core/io/json.h"
 #include "core/variant/variant.h"
 #include "core/os/os.h"
 #include "core/config/engine.h"
@@ -28,6 +27,7 @@ PackedByteArray DeepSeekAPI::construct_body(const Array& prompt){
     Dictionary body;
     body["model"] = model;
     body["stream"] = true;
+    body["tools"] = tools_data;
     Array messages;
     Dictionary sys_msg;
     sys_msg["role"] = "system";
@@ -41,6 +41,7 @@ PackedByteArray DeepSeekAPI::construct_body(const Array& prompt){
 }
 
 String DeepSeekAPI::get_respone_content(const String& jdata){
+    print_line(jdata);
     Ref<JSON> json;
     json.instantiate();
     Error err = json->parse(jdata);
@@ -57,13 +58,24 @@ String DeepSeekAPI::get_respone_content(const String& jdata){
         Dictionary delta = choice["delta"];
         if(delta["reasoning_content"]){
             String content = delta["reasoning_content"];
-            call_deferred("emit_signal", SNAME("deepseek_reason_received"), content);
-            return content;
+            current_chat_flag = AIStreamingBase::NORMAL_CHAT;
+            if(content!=""){
+                call_deferred("emit_signal", SNAME("deepseek_reason_received"), content);
+                return content;
+            }
         }
         else if(delta["content"]){
             String content = delta["content"];
-            call_deferred("emit_signal", SNAME("deepseek_data_received"), content);
-            return content;
+            current_chat_flag = AIStreamingBase::NORMAL_CHAT;
+            if(content!=""){
+                call_deferred("emit_signal", SNAME("deepseek_data_received"), content);
+                return content;
+            }
+        }
+        if(delta["tools_call"]){
+            current_chat_flag = AIStreamingBase::TOOL_CHAT;
+            Array tools = delta["tools_call"];
+            call_deferred("emit_signal", SNAME("deepseek_tool_received"), tools);
         }
     }
     return String{};
@@ -75,6 +87,8 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     t_http_client->set_blocking_mode(true);
     Error err = t_http_client->connect_to_host("https://api.deepseek.com", 443, Ref<TLSOptions>());
     if (err != OK) {
+        params->self->current_chat_flag = AIStreamingBase::ERR_NETWORK;
+        params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
         ERR_PRINT("Failed to connect to host: " + String::num_int64(err));
         return;
     }
@@ -84,6 +98,8 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
         OS::get_singleton()->delay_usec(100);
     }
     if (t_http_client->get_status() != HTTPClient::STATUS_CONNECTED) {
+        params->self->current_chat_flag = AIStreamingBase::ERR_NETWORK;
+        params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
         ERR_PRINT("Connection failed with status: " + String::num_int64(t_http_client->get_status()));
         return;
     }
@@ -94,6 +110,8 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     err = t_http_client->request(HTTPClient::METHOD_POST, "/chat/completions", headers, body_data.ptr(), body_data.size());
     if (err != OK) {
         ERR_PRINT("Request failed: " + String::num_int64(err));
+        params->self->current_chat_flag = AIStreamingBase::ERR_NETWORK;
+        params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
         return;
     }
     params->self->call_deferred("emit_signal", SNAME("deepseek_data_start"));
@@ -121,11 +139,12 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                     ERR_PRINT("Invalid UTF-8");
                 }
                 if(chunk_str.contains("[DONE]")){
-                    params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"));
+                    params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
                     break;
                 }
                 if (status == HTTPClient::STATUS_DISCONNECTED || status == HTTPClient::STATUS_CONNECTION_ERROR) {
-                    params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"));
+                    params->self->current_chat_flag = AIStreamingBase::ERR_CHAT;
+                    params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
                     break;
                 }
                 PackedStringArray lines = chunk_str.split("\n\n", false);
@@ -141,12 +160,14 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
             }
         }
         else if (status == HTTPClient::STATUS_DISCONNECTED) {
-            params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"));
+            params->self->current_chat_flag = AIStreamingBase::ERR_CHAT;
+            params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
             break;
         }
         else if (status >= HTTPClient::STATUS_CONNECTION_ERROR) {
+            params->self->current_chat_flag = AIStreamingBase::ERR_CHAT;
             ERR_PRINT("Error status: " + String::num_int64(status));
-            params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"));
+            params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
             break;
         }
         OS::get_singleton()->delay_usec(1000);
@@ -165,6 +186,7 @@ void DeepSeekAPI::cancel_request() {
 void DeepSeekAPI::_bind_methods() {
     ADD_SIGNAL(MethodInfo("deepseek_data_received", PropertyInfo(Variant::STRING, "text")));
     ADD_SIGNAL(MethodInfo("deepseek_reason_received", PropertyInfo(Variant::STRING, "text")));
-    ADD_SIGNAL(MethodInfo("deepseek_request_completed"));
+    ADD_SIGNAL(MethodInfo("deepseek_tool_received", PropertyInfo(Variant::ARRAY, "tools")));
+    ADD_SIGNAL(MethodInfo("deepseek_request_completed", PropertyInfo(Variant::INT, "chat_type")));
     ADD_SIGNAL(MethodInfo("deepseek_data_start"));
 }
