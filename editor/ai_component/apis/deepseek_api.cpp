@@ -41,7 +41,6 @@ PackedByteArray DeepSeekAPI::construct_body(const Array& prompt){
 }
 
 String DeepSeekAPI::get_respone_content(const String& jdata){
-    print_line(jdata);
     Ref<JSON> json;
     json.instantiate();
     Error err = json->parse(jdata);
@@ -72,9 +71,10 @@ String DeepSeekAPI::get_respone_content(const String& jdata){
                 return content;
             }
         }
-        if(delta["tools_call"]){
+        if(jdata.contains("{\"tool_calls\":[{\"index\":")){
             current_chat_flag = AIStreamingBase::TOOL_CHAT;
-            Array tools = delta["tools_call"];
+            print_line(JSON::stringify(delta));
+            Array tools = delta["tool_calls"];
             call_deferred("emit_signal", SNAME("deepseek_tool_received"), tools);
         }
     }

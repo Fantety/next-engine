@@ -162,10 +162,12 @@ void AIDock::on_reason_response(String text){
 }
 
 void AIDock::on_tool_response(Array tools){
+    print_line(JSON::stringify(tools));
     for(int i = 0; i<tools.size(); i++){
         if(tools[i].get_type() == Variant::DICTIONARY){
             Dictionary tool = tools[i];
             Dictionary function = tool["function"];
+            if(!function["name"]) return;
             String name = function["name"];
             String arguments = function["arguments"];
             String text = "Tool：" + name + "\nArguments" + arguments;
@@ -295,6 +297,7 @@ void AIDock::on_history_button_pressed(String uuid){
     set_current_tab(1);
     Dictionary temp_chat_datas = chat_manager.get_chat_datas();
     Dictionary temp_data = temp_chat_datas[uuid];
+    current_chat_uid = uuid;
     Array temp_array = temp_data["chats"];
     for(int i=0;i<temp_array.size();i++){
         Dictionary temp_dict = temp_array[i];
