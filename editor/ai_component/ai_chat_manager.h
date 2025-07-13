@@ -24,6 +24,7 @@ public:
 
     void add_user_chat(const String uid, const String chat_text);
     void add_assistant_chat(const String uid, const String chat_text);
+    void add_tool_chat(const String uid, const Dictionary dict);
     void save_chats();
     Array get_chat(const String& uid);
     Array get_chat_before_index(const String& uid, int index);

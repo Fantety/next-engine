@@ -64,6 +64,7 @@ private:
     void on_stream_response(String text);
     void on_reason_response(String text);
     void on_tool_response(Array tools);
+    void on_streaming_response(Dictionary dict, String finish_reason);
     void on_data_start();
     void on_request_completed(int chat_flag);
     void on_retry_pressed(int chat_type, int block_index);

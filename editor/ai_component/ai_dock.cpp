@@ -78,6 +78,7 @@ void AIDock::_retry_message(){
             if (apikey.is_empty()) return;
             deepseek_api->set_apikey(apikey);
             deepseek_api->set_model("deepseek-chat");
+            print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
             deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
             break;
         }
@@ -86,6 +87,7 @@ void AIDock::_retry_message(){
             if (apikey.is_empty()) return;
             deepseek_api->set_apikey(apikey);
             deepseek_api->set_model("deepseek-reasoner");
+            print_line(JSON::stringify(chat_manager.get_chat(current_chat_uid)));
             deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
             break;
         }
@@ -124,7 +126,7 @@ void AIDock::_create_chat_block(AIChatBlock::ChatType chat_type, const String& m
 
 void AIDock::_add_message(const String &message, int block_index) {
     if(block_index < chat_blocks.size()){
-        chat_blocks[block_index]->add_text(message);
+        chat_blocks[block_index]->set_text(message);
     }
     else if (block_index>=chat_blocks.size()||block_index == -1)
     {
@@ -140,6 +142,87 @@ void AIDock::_add_reason_message(const String &message, int block_index){
     {
         ERR_PRINT("chat_block_index out of range");
         return;
+    }
+}
+
+void AIDock::on_streaming_response(Dictionary dict, String finish_reason) {
+    // 处理普通文本内容
+    if (dict.has("content") && dict["content"].get_type() == Variant::STRING) {
+        String content = dict["content"];
+        if (block_create_flag) {
+            _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
+            block_create_flag = false;
+        }
+        _add_message(content, current_chat_index);
+        chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
+    }
+    // 处理推理内容
+    if (dict.has("reasoning_content") && dict["reasoning_content"].get_type() == Variant::STRING) {
+        String reasoning_content = dict["reasoning_content"];
+        if (block_create_flag) {
+            _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
+            block_create_flag = false;
+        }
+        _add_reason_message(reasoning_content, current_chat_index);
+        chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
+    }
+    // 处理工具调用
+    if (dict.has("tool_calls") && dict["tool_calls"].get_type() == Variant::ARRAY) {
+        Array tool_calls = dict["tool_calls"];
+        for (int i = 0; i < tool_calls.size(); i++) {
+            if (tool_calls[i].get_type() == Variant::DICTIONARY) {
+                Dictionary tool = tool_calls[i];
+                if (tool.has("function") && tool["function"].get_type() == Variant::DICTIONARY) {
+                    Dictionary function = tool["function"];
+                    String name = function.get("name", "");
+                    String arguments = function.get("arguments", "");
+                    String id = tool.get("id", "");
+                    // 显示工具调用信息
+                    // String tool_text = "Tool: " + name + "\tArguments: " + arguments;
+                    // if (block_create_flag) {
+                    //     _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
+                    //     block_create_flag = false;
+                    // }
+                    // _add_message(tool_text, current_chat_index);
+                    // 添加到IDE接口
+                    if (arguments.is_empty()) {
+                        ide_interface->add_tool(name, Array{}, id);
+                    } else {
+                        // 如果有参数，解析为字典
+                        Ref<JSON> json;
+                        json.instantiate();
+                        Error err = json->parse(arguments);
+                        if (err != OK) return;
+                        Variant parsed_args = json->get_data();
+                        if (parsed_args.get_type() == Variant::DICTIONARY) {
+                            Dictionary args_dict = parsed_args;
+                            Array args_array;
+                            args_array.append(args_dict);
+                            ide_interface->add_tool(name, args_array, id);
+                        } else {
+                            Array args_array;
+                            args_array.append(arguments);
+                            ide_interface->add_tool(name, args_array, id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // 处理其他可能的信息
+    if (dict.has("role") && dict["role"].get_type() == Variant::STRING) {
+        String role = dict["role"];
+    }
+    // 处理完成状态
+    if (finish_reason!="null") {
+        if (finish_reason == "stop") {
+            on_request_completed(AIStreamingBase::NORMAL_CHAT);
+        } else if (finish_reason == "tool_calls") {
+            print_line(JSON::stringify(dict));
+            Dictionary tool_dict = dict.duplicate();
+            chat_manager.add_tool_chat(current_chat_uid, tool_dict);
+            on_request_completed(AIStreamingBase::TOOL_CHAT);
+        }
     }
 }
 
@@ -162,16 +245,18 @@ void AIDock::on_reason_response(String text){
 }
 
 void AIDock::on_tool_response(Array tools){
-    print_line(JSON::stringify(tools));
     for(int i = 0; i<tools.size(); i++){
         if(tools[i].get_type() == Variant::DICTIONARY){
             Dictionary tool = tools[i];
             Dictionary function = tool["function"];
-            if(!function["name"]) return;
+            if(!function["name"]||function["name"] == "") return;
             String name = function["name"];
             String arguments = function["arguments"];
-            String text = "Tool：" + name + "\nArguments" + arguments;
-            ide_interface->add_tool(name);
+            String id = tool["id"];
+            String text = "Tool: " + name + "\tArguments: " + arguments;
+            if(arguments == ""){
+                ide_interface->add_tool(name, Array{}, id);
+            }
         }
     }
 }
@@ -189,26 +274,32 @@ void AIDock::on_request_completed(int chat_flag){
             chat_manager.add_assistant_chat(current_chat_uid, chat_blocks[current_chat_index]->get_text());
         }
         chat_manager.save_chats();
-    }
-    else if(chat_flag == AIStreamingBase::TOOL_CHAT){
-        Vector<String> tools = ide_interface->get_tools();
-        for(int i = 0; i < tools.size(); i++){
-            _create_chat_block(AIChatBlock::AI_CHAT_SYS_MESSAGE, tools[i]);
+        if(!ide_interface->is_empty()){
+            chat_flag = AIStreamingBase::TOOL_CHAT;
         }
-        chat_input_panel->set_button_enabled(true);
-        history_input_panel->set_button_enabled(true);
     }
-    else if(chat_flag == AIStreamingBase::ERR_CHAT){
+    if(chat_flag == AIStreamingBase::TOOL_CHAT){
+        if(ide_interface->is_empty()) return;
+        else{
+            String text = "Tool executing: " + ide_interface->get_first()->tool_name;
+            _create_chat_block(AIChatBlock::AI_CHAT_SYS_MESSAGE, text);
+            Dictionary dict = ide_interface->get_tool_result();
+            chat_manager.add_tool_chat(current_chat_uid, dict);
+            deepseek_api->cancel_request();
+            _retry_message();
+        }
+        
+    }
+    if(chat_flag == AIStreamingBase::ERR_CHAT){
         ERR_PRINT("API Request END ERROR");
         chat_input_panel->set_button_enabled(true);
         history_input_panel->set_button_enabled(true);
     }
-    else if(chat_flag == AIStreamingBase::ERR_NETWORK){
+    if(chat_flag == AIStreamingBase::ERR_NETWORK){
         _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_ERROR, "Please check the network connection!");
         chat_input_panel->set_button_enabled(true);
         history_input_panel->set_button_enabled(true);
     }
-    
 }
 
 String AIDock::generate_uuid() const {
@@ -362,6 +453,7 @@ AIDock::AIDock() {
     deepseek_api->connect("deepseek_tool_received", callable_mp(this, &AIDock::on_tool_response), CONNECT_DEFERRED);
     deepseek_api->connect("deepseek_data_start", callable_mp(this, &AIDock::on_data_start), CONNECT_DEFERRED);
     deepseek_api->connect("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
+    deepseek_api->connect("deepseek_streaming_received", callable_mp(this, &AIDock::on_streaming_response), CONNECT_DEFERRED);
     print_line("AIDock constructor called finished");
 
     AISettingsDialog::get_singleton()->connect("confirmed", callable_mp(chat_input_panel, &AIChatPanel::_update_model_list));

@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-07-10 18:34:02
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-12 21:39:53
+ * @LastEditTime: 2025-07-13 18:48:08
  */
 #include "ai_chat_manager.h"
 #include "core/io/json.h"
@@ -112,4 +112,12 @@ String AIChatManager::get_title(const String& uid){
 
 Dictionary AIChatManager::get_chat_datas(){
     return chat_datas;
+}
+
+void AIChatManager::add_tool_chat(const String uid, const Dictionary dict){
+    Dictionary d_data = chat_datas[uid];
+    Array array_data = d_data["chats"];
+    array_data.push_back(dict);
+    d_data["chats"] = array_data;
+    chat_datas[uid] = d_data;
 }

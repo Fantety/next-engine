@@ -14,6 +14,7 @@ bool DeepSeekAPI::send_streaming_request(const Array& prompt){
     if (thread_running) {
         cancel_request();
     }
+    current_delta.clear();
     ThreadParams *params = memnew(ThreadParams);
     params->self = this;
     params->prompt = prompt.duplicate();
@@ -55,28 +56,33 @@ String DeepSeekAPI::get_respone_content(const String& jdata){
         Dictionary choice = choices[0];
         if (!choice.has("delta")) return String{"Something Wrong"};
         Dictionary delta = choice["delta"];
-        if(delta["reasoning_content"]){
-            String content = delta["reasoning_content"];
-            current_chat_flag = AIStreamingBase::NORMAL_CHAT;
-            if(content!=""){
-                call_deferred("emit_signal", SNAME("deepseek_reason_received"), content);
-                return content;
-            }
-        }
-        else if(delta["content"]){
-            String content = delta["content"];
-            current_chat_flag = AIStreamingBase::NORMAL_CHAT;
-            if(content!=""){
-                call_deferred("emit_signal", SNAME("deepseek_data_received"), content);
-                return content;
-            }
-        }
-        if(jdata.contains("{\"tool_calls\":[{\"index\":")){
-            current_chat_flag = AIStreamingBase::TOOL_CHAT;
-            print_line(JSON::stringify(delta));
-            Array tools = delta["tool_calls"];
-            call_deferred("emit_signal", SNAME("deepseek_tool_received"), tools);
-        }
+        current_delta = merge_delta(delta);
+        String finish_reason = choice["finish_reason"];
+        print_line(finish_reason);
+        call_deferred("emit_signal", SNAME("deepseek_streaming_received"), current_delta, finish_reason);
+        
+        // if(delta["reasoning_content"]){
+        //     String content = delta["reasoning_content"];
+        //     current_chat_flag = AIStreamingBase::NORMAL_CHAT;
+        //     if(content!=""){
+        //         call_deferred("emit_signal", SNAME("deepseek_reason_received"), content);
+        //         return content;
+        //     }
+        // }
+        // else if(delta["content"]){
+        //     String content = delta["content"];
+        //     current_chat_flag = AIStreamingBase::NORMAL_CHAT;
+        //     if(content!=""){
+        //         call_deferred("emit_signal", SNAME("deepseek_data_received"), content);
+        //         return content;
+        //     }
+        // }
+        // if(jdata.contains("{\"tool_calls\":[{\"index\":")){
+        //     current_chat_flag = AIStreamingBase::TOOL_CHAT;
+        //     print_line(JSON::stringify(delta));
+        //     Array tools = delta["tool_calls"];
+        //     call_deferred("emit_signal", SNAME("deepseek_tool_received"), tools);
+        // }
     }
     return String{};
 }
@@ -176,17 +182,147 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
 }
 
 void DeepSeekAPI::cancel_request() {
+    current_delta.clear();
     if (thread.is_started()) {
         thread.wait_to_finish();
     }
     thread_running = false;
 }
 
+void DeepSeekAPI::reset_delta(){
+    Array temp_array;
+    current_delta["reasoning_content"] = "";
+    current_delta["content"] = "";
+    current_delta["role"] = "";
+    current_delta["logprobs"] = Variant::NIL;
+    current_delta["finish_reason"] = Variant::NIL;
+    current_delta["tool_calls"] = Array{};
+
+
+}
+
+Dictionary DeepSeekAPI::merge_delta(Dictionary new_delta) {
+    // 1. 处理 content 字段
+    if (new_delta.has("content")) {
+        String new_content = new_delta["content"];
+        if (current_delta.has("content")) {
+            String old_content = current_delta["content"];
+            current_delta["content"] = old_content + new_content;
+        } else {
+            current_delta["content"] = new_content;
+        }
+    }
+    // 2. 处理 tool_calls 数组
+    if (new_delta.has("tool_calls")) {
+        Array new_tool_calls = new_delta["tool_calls"];
+        Array merged_tool_calls;
+        // 获取当前累积的 tool_calls 或创建新数组
+        if (current_delta.has("tool_calls")) {
+            merged_tool_calls = current_delta["tool_calls"];
+        } else {
+            merged_tool_calls = Array();
+        }
+        // 遍历新的 tool_calls 进行合并
+        for (int i = 0; i < new_tool_calls.size(); i++) {
+            Dictionary new_call = new_tool_calls[i];
+            // 确保包含 index 字段
+            if (!new_call.has("index")) {
+                ERR_PRINT("Tool call missing 'index' field, skipping");
+                continue;
+            }
+            int index = new_call["index"];
+            // 检查索引是否有效
+            if (index < 0) {
+                ERR_PRINT("Invalid tool call index: " + itos(index));
+                continue;
+            }
+            // 确保数组足够大
+            if (index >= merged_tool_calls.size()) {
+                merged_tool_calls.resize(index + 1);
+            }
+            // 获取或创建当前索引处的工具调用
+            Dictionary merged_call;
+            if (merged_tool_calls.size() > index && merged_tool_calls[index].get_type() == Variant::DICTIONARY) {
+                merged_call = merged_tool_calls[index];
+            }
+            // 合并 function 字段
+            if (new_call.has("function")) {
+                Dictionary new_func = new_call["function"];
+                Dictionary merged_func;
+                if(merged_call.has("function")) merged_func = merged_call["function"];
+                else merged_func = Dictionary();
+                // 合并 arguments (分块拼接)
+                if (new_func.has("arguments")) {
+                    String new_args = new_func["arguments"];
+                    if (merged_func.has("arguments")) {
+                        String merged_args = merged_func["arguments"];
+                        merged_func["arguments"] = merged_args + new_args;
+                    } else {
+                        merged_func["arguments"] = new_args;
+                    }
+                }
+                // 合并 name
+                if (new_func.has("name")) {
+                    merged_func["name"] = new_func["name"];
+                }
+                merged_call["function"] = merged_func;
+            }
+            // 合并其他字段 (id, type 等)
+            Array keys = new_call.keys();
+            for (int j = 0; j < keys.size(); j++) {
+                String key = keys[j];
+                // 跳过已处理的 function 和 index
+                if (key == "function" || key == "index") continue;
+                // 特殊处理：如果字段已存在且是字符串，则拼接
+                if (merged_call.has(key) && merged_call[key].get_type() == Variant::STRING &&
+                    new_call[key].get_type() == Variant::STRING) {
+                    merged_call[key] = String(merged_call[key]) + String(new_call[key]);
+                } else {
+                    // 否则直接覆盖
+                    merged_call[key] = new_call[key];
+                }
+            }
+            // 更新工具调用
+            merged_tool_calls[index] = merged_call;
+        }
+        current_delta["tool_calls"] = merged_tool_calls;
+    }
+
+    // 3. 合并其他字段 (role, finish_reason 等)
+    Array new_keys = new_delta.keys();
+    for (int i = 0; i < new_keys.size(); i++) {
+        String key = new_keys[i];
+        // 跳过已处理的字段
+        if (key == "content" || key == "tool_calls") continue;
+        
+        // 特殊字段处理
+        if (key == "finish_reason") {
+            // finish_reason 总是覆盖
+            current_delta[key] = new_delta[key];
+        } else {
+            // 其他字段：如果已存在且是字符串则拼接，否则覆盖
+            if (current_delta.has(key) && current_delta[key].get_type() == Variant::STRING &&
+                new_delta[key].get_type() == Variant::STRING) {
+                current_delta[key] = String(current_delta[key]) + String(new_delta[key]);
+            } else {
+                current_delta[key] = new_delta[key];
+            }
+        }
+    }
+
+    return current_delta.duplicate();
+}
+
 
 void DeepSeekAPI::_bind_methods() {
     ADD_SIGNAL(MethodInfo("deepseek_data_received", PropertyInfo(Variant::STRING, "text")));
+    ADD_SIGNAL(MethodInfo("deepseek_streaming_received", PropertyInfo(Variant::DICTIONARY, "dict"), PropertyInfo(Variant::STRING, "finish_reason")));
     ADD_SIGNAL(MethodInfo("deepseek_reason_received", PropertyInfo(Variant::STRING, "text")));
     ADD_SIGNAL(MethodInfo("deepseek_tool_received", PropertyInfo(Variant::ARRAY, "tools")));
     ADD_SIGNAL(MethodInfo("deepseek_request_completed", PropertyInfo(Variant::INT, "chat_type")));
     ADD_SIGNAL(MethodInfo("deepseek_data_start"));
 }
+
+
+
+

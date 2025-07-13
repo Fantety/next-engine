@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-12 16:51:19
+ * @LastEditTime: 2025-07-13 17:53:03
  */
 // deepseek_api.h
 #ifndef DEEPSEEK_API_H
@@ -29,10 +29,13 @@ class DeepSeekAPI : public AIStreamingBase {
     SafeFlag exit_flag;
     bool thread_running = false;
 
+    Dictionary current_delta;
 
     
 private:
     static void _thread_func(void *p_userdata);
+    Dictionary merge_delta(Dictionary new_delta);
+    void reset_delta();
 public:
 
     DeepSeekAPI(const String modelName = "deepseek-chat")
@@ -49,8 +52,4 @@ protected:
 
 };
 
-
-
-
-
-#endif // DEEPSEEK_API_H
+#endif
