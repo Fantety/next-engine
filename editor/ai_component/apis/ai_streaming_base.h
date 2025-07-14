@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 20:48:06
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-12 15:24:23
+ * @LastEditTime: 2025-07-14 12:36:14
  */
 #ifndef AI_STREAMING_BASE_H
 #define AI_STREAMING_BASE_H
@@ -19,6 +19,7 @@
 #include "core/io/stream_peer_tcp.h"
 #include "core/io/json.h"
 #include "tools_json.h"
+#include "scene/main/timer.h"
 
 class AIStreamingBase : public Node {
     GDCLASS(AIStreamingBase, Node);
@@ -34,6 +35,7 @@ public:
         TOOL_CHAT,
         ERR_CHAT,
         ERR_NETWORK,
+        ERR_TIMEOUT,
     };
     inline static Dictionary AIStringName;
 
@@ -62,10 +64,11 @@ public:
 protected:
     String model;
     String apiKey;
-    int timeout = 60;
+    int timeout = 30;
     Array tools_data;
 
     bool is_valid_utf8(const uint8_t* tdata, int len);
+
 };
 
 #endif // AI_STREAMING_BASE_H

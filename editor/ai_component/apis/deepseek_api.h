@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-13 17:53:03
+ * @LastEditTime: 2025-07-14 13:32:10
  */
 // deepseek_api.h
 #ifndef DEEPSEEK_API_H
@@ -30,16 +30,27 @@ class DeepSeekAPI : public AIStreamingBase {
     bool thread_running = false;
 
     Dictionary current_delta;
-
+    Timer *timeout_timer; // 添加定时器成员变量
+    Ref<JSON> json;
     
 private:
     static void _thread_func(void *p_userdata);
     Dictionary merge_delta(Dictionary new_delta);
     void reset_delta();
+private:
+    void _on_request_start();
+    void _on_request_complete();
+    void _on_timeout();
 public:
 
     DeepSeekAPI(const String modelName = "deepseek-chat")
-        : AIStreamingBase(modelName){}
+        : AIStreamingBase(modelName){
+            json.instantiate();
+            timeout_timer = memnew(Timer);
+            timeout_timer->connect("timeout", callable_mp(this, &DeepSeekAPI::_on_timeout));
+            this->connect("deepseek_stop_timer", callable_mp(this, &DeepSeekAPI::_on_request_complete));
+            add_child(timeout_timer);
+        }
     bool send_streaming_request(const Array& prompt) override;
     PackedByteArray construct_body(const Array& prompt) override;
     String get_respone_content(const String& jdata) override;
@@ -48,8 +59,6 @@ public:
 protected:
     static void _bind_methods();
     void _notification(int p_what);
-    
-
 };
 
 #endif

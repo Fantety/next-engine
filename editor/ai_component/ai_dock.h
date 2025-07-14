@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-12 16:46:47
+ * @LastEditTime: 2025-07-14 11:57:18
  */
 #ifndef AI_DOCK_H
 #define AI_DOCK_H
@@ -61,14 +61,12 @@ private:
     void _create_chat_block(AIChatBlock::ChatType chat_type, const String& message);
 private:
     void delete_all_blocks();
-    void on_stream_response(String text);
-    void on_reason_response(String text);
-    void on_tool_response(Array tools);
     void on_streaming_response(Dictionary dict, String finish_reason);
     void on_data_start();
     void on_request_completed(int chat_flag);
     void on_retry_pressed(int chat_type, int block_index);
     void on_history_button_pressed(String uuid);
+    void send_or_retry_message(bool is_retry);
 
 
     void confirm_retry();

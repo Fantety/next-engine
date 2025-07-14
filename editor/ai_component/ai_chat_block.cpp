@@ -48,7 +48,7 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
     v_container->set_v_size_flags(Control::SIZE_EXPAND_FILL);
     margin_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     margin_container->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-    Size2 borders = Size2(5, 5) * EDSCALE;
+    Size2 borders = Size2(7, 7) * EDSCALE;
 	margin_container->add_theme_constant_override("margin_right", borders.width);
 	margin_container->add_theme_constant_override("margin_top", borders.height);
 	margin_container->add_theme_constant_override("margin_left", borders.width);
@@ -87,6 +87,11 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
             retry_button->set_visible(false);
             copy_button->set_visible(false);
             break;
+        case ChatType::AI_CHAT_SYS_TOOL:
+            change_panel_color(Color(0.02, 0.46, 0.29));//rgb(5, 119, 71)
+            retry_button->set_visible(false);
+            copy_button->set_visible(false);
+            break;
         case ChatType::AI_CHAT_SYS_WARNING:
             change_panel_color(Color(0.9, 0.56, 0.15));//rgb(229, 142, 38)
             retry_button->set_visible(false);
@@ -94,7 +99,7 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
             break;
         case ChatType::AI_CHAT_SYS_ERROR:
             change_panel_color(Color(0.72, 0.08, 0.25));//rgb(183, 21, 64)
-            retry_button->set_visible(false);
+            retry_button->set_visible(true);
             copy_button->set_visible(false);
             break;
         default:
@@ -165,6 +170,6 @@ void AIChatBlock::change_panel_color(const Color &new_color){
     Ref<StyleBoxFlat> style_flat;
     style_flat.instantiate();
     style_flat->set_bg_color(new_color);
-    style_flat->set_corner_radius_all(7);
+    style_flat->set_corner_radius_all(10);
     add_theme_style_override(SceneStringName(panel), style_flat);
 }

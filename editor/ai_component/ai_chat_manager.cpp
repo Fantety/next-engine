@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-07-10 18:34:02
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-13 18:48:08
+ * @LastEditTime: 2025-07-14 10:27:47
  */
 #include "ai_chat_manager.h"
 #include "core/io/json.h"
@@ -88,7 +88,14 @@ void AIChatManager::add_assistant_chat(const String uid, const String chat_text)
 Array AIChatManager::get_chat(const String& uid){
     Dictionary d_data = chat_datas[uid];
     Array array_data = d_data["chats"];
-    return array_data;
+    Array temp_data;
+    for(int i=0;i<array_data.size();i++){
+        Dictionary temp = array_data[i];
+        if(temp["role"]=="user"||temp["role"]=="assistant"||temp["role"]=="tool"){
+            temp_data.push_back(temp);
+        }
+    }
+    return temp_data;
 }
 
 Array AIChatManager::get_chat_before_index(const String& uid, int index){
@@ -96,7 +103,12 @@ Array AIChatManager::get_chat_before_index(const String& uid, int index){
     Array array_data = d_data["chats"];
     Array temp_array;
     for(int i=0;i<index;i++){
-        temp_array.push_back(array_data[i]);
+        if(index < array_data.size()){
+            temp_array.push_back(array_data[i]);
+        }
+        else{
+            ERR_PRINT("Index out of range. Index:"+String::num(index)+" Size:"+String::num(array_data.size()));
+        }
     }
     d_data["chats"] = temp_array;
     chat_datas[uid] = d_data;
@@ -121,3 +133,17 @@ void AIChatManager::add_tool_chat(const String uid, const Dictionary dict){
     d_data["chats"] = array_data;
     chat_datas[uid] = d_data;
 }
+
+void AIChatManager::add_sys_chat(const String uid, const String chat_text, String sys_type){
+    Dictionary chat;
+    chat["role"] = sys_type;
+    chat["content"] = chat_text;
+    Dictionary temp_data = chat_datas[uid];
+    if( temp_data.has("chats")){
+        Array temp_array =  temp_data["chats"];
+        temp_array.push_back(chat);
+        temp_data["chats"] = temp_array;
+        chat_datas[uid] = temp_data;
+    }
+}
+

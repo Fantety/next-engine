@@ -20,6 +20,7 @@ public:
         AI_CHAT_SYS_MESSAGE,
         AI_CHAT_SYS_ERROR,
         AI_CHAT_SYS_WARNING,
+        AI_CHAT_SYS_TOOL,
     };
 private:
     Ref<Theme> theme;

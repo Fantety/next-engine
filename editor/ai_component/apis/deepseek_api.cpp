@@ -19,6 +19,7 @@ bool DeepSeekAPI::send_streaming_request(const Array& prompt){
     params->self = this;
     params->prompt = prompt.duplicate();
     thread_running = true;
+    _on_request_start(); 
     thread.start(_thread_func, params);
     return true;
 }
@@ -42,8 +43,7 @@ PackedByteArray DeepSeekAPI::construct_body(const Array& prompt){
 }
 
 String DeepSeekAPI::get_respone_content(const String& jdata){
-    Ref<JSON> json;
-    json.instantiate();
+    call_deferred("_on_request_complete");
     Error err = json->parse(jdata);
     if (err != OK) return String{"Something Wrong"};
     Variant json_data = json->get_data();
@@ -58,31 +58,7 @@ String DeepSeekAPI::get_respone_content(const String& jdata){
         Dictionary delta = choice["delta"];
         current_delta = merge_delta(delta);
         String finish_reason = choice["finish_reason"];
-        print_line(finish_reason);
         call_deferred("emit_signal", SNAME("deepseek_streaming_received"), current_delta, finish_reason);
-        
-        // if(delta["reasoning_content"]){
-        //     String content = delta["reasoning_content"];
-        //     current_chat_flag = AIStreamingBase::NORMAL_CHAT;
-        //     if(content!=""){
-        //         call_deferred("emit_signal", SNAME("deepseek_reason_received"), content);
-        //         return content;
-        //     }
-        // }
-        // else if(delta["content"]){
-        //     String content = delta["content"];
-        //     current_chat_flag = AIStreamingBase::NORMAL_CHAT;
-        //     if(content!=""){
-        //         call_deferred("emit_signal", SNAME("deepseek_data_received"), content);
-        //         return content;
-        //     }
-        // }
-        // if(jdata.contains("{\"tool_calls\":[{\"index\":")){
-        //     current_chat_flag = AIStreamingBase::TOOL_CHAT;
-        //     print_line(JSON::stringify(delta));
-        //     Array tools = delta["tool_calls"];
-        //     call_deferred("emit_signal", SNAME("deepseek_tool_received"), tools);
-        // }
     }
     return String{};
 }
@@ -96,17 +72,19 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
         params->self->current_chat_flag = AIStreamingBase::ERR_NETWORK;
         params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
         ERR_PRINT("Failed to connect to host: " + String::num_int64(err));
+        params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
         return;
     }
     while (t_http_client->get_status() == HTTPClient::STATUS_CONNECTING || 
             t_http_client->get_status() == HTTPClient::STATUS_RESOLVING) {
         t_http_client->poll();
-        OS::get_singleton()->delay_usec(100);
+        //OS::get_singleton()->delay_usec(100);
     }
     if (t_http_client->get_status() != HTTPClient::STATUS_CONNECTED) {
         params->self->current_chat_flag = AIStreamingBase::ERR_NETWORK;
         params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
         ERR_PRINT("Connection failed with status: " + String::num_int64(t_http_client->get_status()));
+        params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
         return;
     }
     Vector<String> headers;
@@ -118,6 +96,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
         ERR_PRINT("Request failed: " + String::num_int64(err));
         params->self->current_chat_flag = AIStreamingBase::ERR_NETWORK;
         params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
+        params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
         return;
     }
     params->self->call_deferred("emit_signal", SNAME("deepseek_data_start"));
@@ -145,12 +124,13 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                     ERR_PRINT("Invalid UTF-8");
                 }
                 if(chunk_str.contains("[DONE]")){
-                    params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
+                    params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
                     break;
                 }
                 if (status == HTTPClient::STATUS_DISCONNECTED || status == HTTPClient::STATUS_CONNECTION_ERROR) {
                     params->self->current_chat_flag = AIStreamingBase::ERR_CHAT;
                     params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
+                    params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
                     break;
                 }
                 PackedStringArray lines = chunk_str.split("\n\n", false);
@@ -160,23 +140,23 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                         continue;
                     }
                     String result_data = params->self->get_respone_content(line.trim_prefix("data: "));
-                    //params->self->call_deferred("emit_signal", SNAME("deepseek_data_received"), result_data);
-                    OS::get_singleton()->delay_usec(10);
                 }
             }
         }
         else if (status == HTTPClient::STATUS_DISCONNECTED) {
             params->self->current_chat_flag = AIStreamingBase::ERR_CHAT;
             params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
+            params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
             break;
         }
         else if (status >= HTTPClient::STATUS_CONNECTION_ERROR) {
             params->self->current_chat_flag = AIStreamingBase::ERR_CHAT;
             ERR_PRINT("Error status: " + String::num_int64(status));
             params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
+            params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
             break;
         }
-        OS::get_singleton()->delay_usec(1000);
+        //OS::get_singleton()->delay_usec(1000);
     }
     params->self->thread_running = false;
 }
@@ -187,6 +167,7 @@ void DeepSeekAPI::cancel_request() {
         thread.wait_to_finish();
     }
     thread_running = false;
+    _on_request_complete(); // 停止定时器
 }
 
 void DeepSeekAPI::reset_delta(){
@@ -313,6 +294,20 @@ Dictionary DeepSeekAPI::merge_delta(Dictionary new_delta) {
     return current_delta.duplicate();
 }
 
+void DeepSeekAPI::_on_request_start() {
+    call_deferred("stop_timeout_timer");
+    timeout_timer->set_wait_time(timeout);
+    if(timeout_timer->is_stopped())
+        timeout_timer->start();
+}
+void DeepSeekAPI::_on_request_complete() {
+    if(timeout_timer->is_stopped()) return;
+    timeout_timer->stop();
+}
+void DeepSeekAPI::_on_timeout() {
+    current_chat_flag = AIStreamingBase::ERR_TIMEOUT;
+    call_deferred("emit_signal", SNAME("deepseek_request_completed"), current_chat_flag);
+}
 
 void DeepSeekAPI::_bind_methods() {
     ADD_SIGNAL(MethodInfo("deepseek_data_received", PropertyInfo(Variant::STRING, "text")));
@@ -321,8 +316,8 @@ void DeepSeekAPI::_bind_methods() {
     ADD_SIGNAL(MethodInfo("deepseek_tool_received", PropertyInfo(Variant::ARRAY, "tools")));
     ADD_SIGNAL(MethodInfo("deepseek_request_completed", PropertyInfo(Variant::INT, "chat_type")));
     ADD_SIGNAL(MethodInfo("deepseek_data_start"));
+    ADD_SIGNAL(MethodInfo("deepseek_stop_timer"));
 }
-
 
 
 

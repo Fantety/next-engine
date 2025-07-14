@@ -1,3 +1,11 @@
+/*
+ * @FilePath: \editor\ai_component\ai_ide_interface.cpp
+ * @Author: Fantety
+ * @Descripttion: 
+ * @Date: 2025-07-10 18:34:02
+ * @LastEditors: Fantety
+ * @LastEditTime: 2025-07-14 11:09:48
+ */
 #include "ai_ide_interface.h"
 
 
@@ -6,6 +14,7 @@ AIIDEInterface::AIIDEInterface(){
 }
 
 void AIIDEInterface::add_tool(String tool_name, Array tool_arguments, String id){
+    if(tool_name.is_empty()) return;
     if(!tools_list.empty()){
         if(tools_list.back()->tool_name == tool_name) return;
     }
