@@ -20,6 +20,8 @@
 #include "scene/gui/panel_container.h"
 #include "scene/gui/rich_text_label.h"
 #include "scene/gui/label.h"
+#include "scene/gui/progress_bar.h"
+#include "scene/main/timer.h"
 
 class AIChatPanel:public PanelContainer{
     GDCLASS(AIChatPanel, PanelContainer);
@@ -30,6 +32,7 @@ class AIChatPanel:public PanelContainer{
     Button *send_button;
     HBoxContainer *selector_container;
     Label *model_label;
+    ProgressBar* loading_bar;
 public:
     AIChatPanel();
 protected:
@@ -44,6 +47,7 @@ public:
     void clear_text();
     void set_button_enabled(bool enabled);
     void on_send_button_pressed();
+    void set_loading_bar_visible(bool visible);
 };
 
 #endif

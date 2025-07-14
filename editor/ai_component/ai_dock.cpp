@@ -39,6 +39,7 @@ void AIDock::send_or_retry_message(bool is_retry) {
 
     chat_input_panel->set_button_enabled(false);
     history_input_panel->set_button_enabled(false);
+    chat_input_panel->set_loading_bar_visible(true);
 
     if (!is_retry) {
         _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_USER, message);
@@ -131,6 +132,7 @@ void AIDock::_add_reason_message(const String &message, int block_index){
 }
 
 void AIDock::on_streaming_response(Dictionary dict, String finish_reason) {
+    chat_input_panel->set_loading_bar_visible(false);
     if (dict.has("content") && dict["content"].get_type() == Variant::STRING) {
         String content = dict["content"];
         if(content.is_empty()||content == ""){}

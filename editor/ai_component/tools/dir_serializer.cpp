@@ -55,28 +55,22 @@ Dictionary DirSerializer::_build_directory_structure(const String &p_path) {
         dir_info["size"] = 0; // 目录大小为0，或可递归计算
         dir_info["modified_time"] = 0; // 需要实现获取修改时间
     }
-
     Array children;
-
     if (dir_access->change_dir(p_path) == OK) {
         dir_access->list_dir_begin();
         String entry = dir_access->get_next();
-
         while (!entry.is_empty()) {
             if (entry == "." || entry == "..") {
                 entry = dir_access->get_next();
                 continue;
             }
-
             bool is_hidden = entry.begins_with(".");
             if (!include_hidden && is_hidden) {
                 entry = dir_access->get_next();
                 continue;
             }
-
             String full_path = p_path.path_join(entry);
             bool is_dir = dir_access->current_is_dir();
-
             if (is_dir) {
                 Dictionary sub_dir = _build_directory_structure(full_path);
                 children.push_back(sub_dir);
@@ -84,7 +78,6 @@ Dictionary DirSerializer::_build_directory_structure(const String &p_path) {
                 Dictionary file_info;
                 file_info["name"] = entry;
                 file_info["path"] = full_path;
-
                 if (include_metadata) {
                     file_info["is_dir"] = false;
                     Ref<FileAccess> file = FileAccess::open(full_path, FileAccess::READ);
@@ -94,12 +87,10 @@ Dictionary DirSerializer::_build_directory_structure(const String &p_path) {
                         file_info["size"] = 0;
                     }
                 }
-
                 children.push_back(file_info);
             }
             entry = dir_access->get_next();
         }
-
         dir_access->list_dir_end();
     }
     dir_info["children"] = children;

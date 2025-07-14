@@ -11,6 +11,9 @@
 
 #include "editor/docks/filesystem_dock.h"
 #include "tools/dir_serializer.h"
+#include "tools/file_serializer.h"
+
+
 #include "scene/main/node.h"
 #include <queue>
 typedef struct ToolComponent
@@ -27,11 +30,17 @@ class AIIDEInterface : public Node {
     enum ToolsType
     {
         GET_PROJECT_STRUCTURE = 0,
+        GET_FILE_CONTENT,
     };
     
     inline static Dictionary ToolsName;
     std::queue<ToolComponent*> tools_list;
     DirSerializer dir_serializer;
+    FileSerializer file_serializer;
+
+
+private:
+    bool is_arguments_equal(Array arguments);
 
 public:
     AIIDEInterface();

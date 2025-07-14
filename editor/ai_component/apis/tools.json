@@ -9,5 +9,22 @@
                 "properties": {}
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_content",
+            "description": "Get file content",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path, starting with res://"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
     }
 ]

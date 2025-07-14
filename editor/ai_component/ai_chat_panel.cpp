@@ -12,6 +12,7 @@ AIChatPanel::AIChatPanel(){
     set_stretch_ratio(1);
     print_line("AIChatPanel Init Start");
     selector_container = memnew(HBoxContainer);
+    loading_bar = memnew(ProgressBar);
     model_label = memnew(Label);
     model_label->set_text("Model:");
     selector_container->add_child(model_label);
@@ -21,9 +22,16 @@ AIChatPanel::AIChatPanel(){
     selector_container->add_child(model_selector);
     selector_container->set_stretch_ratio(4);
 
+    loading_bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    //loading_bar->set_max(1);
+    //loading_bar->set_step(0.1);
+    loading_bar->set_visible(false);
+    //loading_bar->set_show_percentage(false);
+    loading_bar->set_indeterminate(true);
     input_view = memnew(VBoxContainer);
     input_view->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     input_view->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    input_view->add_child(loading_bar);
     input_bottom_bar = memnew(HBoxContainer);
     input_bottom_bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     input_bottom_bar->set_v_size_flags(Control::SIZE_EXPAND_FILL);
@@ -113,7 +121,9 @@ void AIChatPanel::clear_text(){
 void AIChatPanel::set_button_enabled(bool enabled){
     send_button->set_disabled(!enabled);
 }
-
+void AIChatPanel::set_loading_bar_visible(bool visible){
+    loading_bar->set_visible(visible);
+}
 
 void AIChatPanel::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_update_model_list"), &AIChatPanel::_update_model_list);

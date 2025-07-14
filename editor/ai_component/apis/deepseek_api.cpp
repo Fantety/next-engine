@@ -43,7 +43,7 @@ PackedByteArray DeepSeekAPI::construct_body(const Array& prompt){
 }
 
 String DeepSeekAPI::get_respone_content(const String& jdata){
-    call_deferred("_on_request_complete");
+    call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
     Error err = json->parse(jdata);
     if (err != OK) return String{"Something Wrong"};
     Variant json_data = json->get_data();
@@ -295,13 +295,10 @@ Dictionary DeepSeekAPI::merge_delta(Dictionary new_delta) {
 }
 
 void DeepSeekAPI::_on_request_start() {
-    call_deferred("stop_timeout_timer");
     timeout_timer->set_wait_time(timeout);
-    if(timeout_timer->is_stopped())
-        timeout_timer->start();
+    timeout_timer->start();
 }
 void DeepSeekAPI::_on_request_complete() {
-    if(timeout_timer->is_stopped()) return;
     timeout_timer->stop();
 }
 void DeepSeekAPI::_on_timeout() {
