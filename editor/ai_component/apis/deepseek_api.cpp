@@ -57,7 +57,9 @@ String DeepSeekAPI::get_respone_content(const String& jdata){
         if (!choice.has("delta")) return String{"Something Wrong"};
         Dictionary delta = choice["delta"];
         current_delta = merge_delta(delta);
+        print_line(current_delta);
         String finish_reason = choice["finish_reason"];
+        print_line(finish_reason);
         call_deferred("emit_signal", SNAME("deepseek_streaming_received"), current_delta, finish_reason);
     }
     return String{};
@@ -78,7 +80,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
     while (t_http_client->get_status() == HTTPClient::STATUS_CONNECTING || 
             t_http_client->get_status() == HTTPClient::STATUS_RESOLVING) {
         t_http_client->poll();
-        //OS::get_singleton()->delay_usec(100);
+        OS::get_singleton()->delay_usec(100);
     }
     if (t_http_client->get_status() != HTTPClient::STATUS_CONNECTED) {
         params->self->current_chat_flag = AIStreamingBase::ERR_NETWORK;
@@ -123,10 +125,6 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                 if (!params->self->is_valid_utf8(chunk.ptr(), chunk.size())) { // 检查UTF-8有效性
                     ERR_PRINT("Invalid UTF-8");
                 }
-                if(chunk_str.contains("[DONE]")){
-                    params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
-                    break;
-                }
                 if (status == HTTPClient::STATUS_DISCONNECTED || status == HTTPClient::STATUS_CONNECTION_ERROR) {
                     params->self->current_chat_flag = AIStreamingBase::ERR_CHAT;
                     params->self->call_deferred("emit_signal", SNAME("deepseek_request_completed"), params->self->current_chat_flag);
@@ -140,6 +138,10 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
                         continue;
                     }
                     String result_data = params->self->get_respone_content(line.trim_prefix("data: "));
+                }
+                if(chunk_str.contains("[DONE]")){
+                    params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
+                    break;
                 }
             }
         }
@@ -156,7 +158,7 @@ void DeepSeekAPI::_thread_func(void *p_userdata) {
             params->self->call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
             break;
         }
-        //OS::get_singleton()->delay_usec(1000);
+        OS::get_singleton()->delay_usec(1000);
     }
     params->self->thread_running = false;
 }
@@ -268,14 +270,12 @@ Dictionary DeepSeekAPI::merge_delta(Dictionary new_delta) {
         }
         current_delta["tool_calls"] = merged_tool_calls;
     }
-
     // 3. 合并其他字段 (role, finish_reason 等)
     Array new_keys = new_delta.keys();
     for (int i = 0; i < new_keys.size(); i++) {
         String key = new_keys[i];
         // 跳过已处理的字段
         if (key == "content" || key == "tool_calls") continue;
-        
         // 特殊字段处理
         if (key == "finish_reason") {
             // finish_reason 总是覆盖
@@ -290,16 +290,18 @@ Dictionary DeepSeekAPI::merge_delta(Dictionary new_delta) {
             }
         }
     }
-
     return current_delta.duplicate();
 }
 
 void DeepSeekAPI::_on_request_start() {
+    timeout_timer->connect("timeout", callable_mp(this, &DeepSeekAPI::_on_timeout));
     timeout_timer->set_wait_time(timeout);
     timeout_timer->start();
 }
 void DeepSeekAPI::_on_request_complete() {
-    timeout_timer->stop();
+    if(!timeout_timer->is_connected("timeout", callable_mp(this, &DeepSeekAPI::_on_timeout)))
+        return;
+    timeout_timer->disconnect("timeout", callable_mp(this, &DeepSeekAPI::_on_timeout));
 }
 void DeepSeekAPI::_on_timeout() {
     current_chat_flag = AIStreamingBase::ERR_TIMEOUT;

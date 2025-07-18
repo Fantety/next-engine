@@ -206,7 +206,7 @@ void AIDock::on_streaming_response(Dictionary dict, String finish_reason) {
         String role = dict["role"];
     }
     // 处理完成状态
-    if (finish_reason!="null") {
+    if (finish_reason!="null" || !finish_reason.is_empty()) {
         if (finish_reason == "stop") {
             on_request_completed(AIStreamingBase::NORMAL_CHAT);
         } else if (finish_reason == "tool_calls") {
@@ -326,6 +326,7 @@ void AIDock::load_historys(){
         history_buttons.clear();
     }
     Dictionary temp_chat_datas = chat_manager.get_chat_datas();
+    if(temp_chat_datas.is_empty()) return;
     Array chat_keys = temp_chat_datas.keys();
     for(int i=0;i<chat_keys.size();i++){
         AIHistoryButton* history_button = memnew(AIHistoryButton(chat_keys[i]));

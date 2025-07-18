@@ -24,16 +24,16 @@ public:
     };
 private:
     Ref<Theme> theme;
-    VBoxContainer* v_container;
-    HBoxContainer* h_container;
-    MarginContainer* margin_container;
-    Button* copy_button;
-    Button* retry_button;
-    Button* thinking_process_button;
+    VBoxContainer* v_container = nullptr;
+    HBoxContainer* h_container = nullptr;
+    MarginContainer* margin_container = nullptr;
+    Button* copy_button = nullptr;
+    Button* retry_button = nullptr;
+    Button* thinking_process_button = nullptr;
 
     AIChatBlock::ChatType chat_type = AIChatBlock::AI_CHAT_TYPE_USER;
-    RichTextLabel *chat_content;
-    RichTextLabel *reason_content;
+    RichTextLabel *chat_content = nullptr;
+    RichTextLabel *reason_content = nullptr;
     String mark_text;
 
     Ref<Texture2D> copy_icon;

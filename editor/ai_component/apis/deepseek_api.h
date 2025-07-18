@@ -47,10 +47,9 @@ public:
         : AIStreamingBase(modelName){
             json.instantiate();
             timeout_timer = memnew(Timer);
-            timeout_timer->connect("timeout", callable_mp(this, &DeepSeekAPI::_on_timeout));
             timeout_timer->set_one_shot(true);
-            this->connect("deepseek_stop_timer", callable_mp(this, &DeepSeekAPI::_on_request_complete));
             add_child(timeout_timer);
+            this->connect("deepseek_stop_timer", callable_mp(this, &DeepSeekAPI::_on_request_complete));
         }
     bool send_streaming_request(const Array& prompt) override;
     PackedByteArray construct_body(const Array& prompt) override;

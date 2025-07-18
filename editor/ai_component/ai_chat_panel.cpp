@@ -58,7 +58,7 @@ AIChatPanel::AIChatPanel(){
 void AIChatPanel::_update_model_list() {
     model_selector->clear();
     const String deepseek_models[] = {"deepseek-chat", "deepseek-reasoner"};
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
         String setting_path = "deepseek/models/" + deepseek_models[i];
         if (EditorSettings::get_singleton()->has_setting(setting_path)) {
             bool model_enabled = EditorSettings::get_singleton()->get(setting_path);
@@ -121,8 +121,8 @@ void AIChatPanel::clear_text(){
 void AIChatPanel::set_button_enabled(bool enabled){
     send_button->set_disabled(!enabled);
 }
-void AIChatPanel::set_loading_bar_visible(bool visible){
-    loading_bar->set_visible(visible);
+void AIChatPanel::set_loading_bar_visible(bool i_visible){
+    loading_bar->set_visible(i_visible);
 }
 
 void AIChatPanel::_bind_methods() {

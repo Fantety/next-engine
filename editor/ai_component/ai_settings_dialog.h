@@ -26,8 +26,8 @@ private:
         HashMap<String, CheckButton*> model_toggles;
     };
 
-    ScrollContainer *scroll_container;
-    VBoxContainer *main_container;
+    ScrollContainer *scroll_container = nullptr;
+    VBoxContainer *main_container = nullptr;
     HashMap<String, ProviderSettings> provider_settings;
 
     static inline AISettingsDialog *singleton = nullptr;

@@ -25,14 +25,14 @@
 
 class AIChatPanel:public PanelContainer{
     GDCLASS(AIChatPanel, PanelContainer);
-    VBoxContainer *input_view;
-    HBoxContainer* input_bottom_bar;
-    TextEdit *input_box;
-    OptionButton *model_selector;
-    Button *send_button;
-    HBoxContainer *selector_container;
-    Label *model_label;
-    ProgressBar* loading_bar;
+    VBoxContainer *input_view = nullptr;
+    HBoxContainer* input_bottom_bar = nullptr;
+    TextEdit *input_box = nullptr;
+    OptionButton *model_selector = nullptr;
+    Button *send_button = nullptr;
+    HBoxContainer *selector_container = nullptr;
+    Label *model_label = nullptr;
+    ProgressBar* loading_bar = nullptr;
 public:
     AIChatPanel();
 protected:
@@ -47,7 +47,7 @@ public:
     void clear_text();
     void set_button_enabled(bool enabled);
     void on_send_button_pressed();
-    void set_loading_bar_visible(bool visible);
+    void set_loading_bar_visible(bool i_visible);
 };
 
 #endif
