@@ -173,7 +173,7 @@ void AIDock::on_streaming_response(Dictionary dict, String finish_reason) {
                     String tool_text = "[Tool: " + name + "] [Arguments: " + arguments+"]";
                     tools_text += tool_text + "\n";
                     // 添加到IDE接口
-                    if (arguments.is_empty()) {
+                    if (arguments.is_empty() || arguments == "{}") {
                         ide_interface->add_tool(name, Array{}, id);
                     } else {
                         Ref<JSON> json;
@@ -206,7 +206,7 @@ void AIDock::on_streaming_response(Dictionary dict, String finish_reason) {
         String role = dict["role"];
     }
     // 处理完成状态
-    if (finish_reason!="null" || !finish_reason.is_empty()) {
+    if (finish_reason != "null" && !finish_reason.is_empty()) {
         if (finish_reason == "stop") {
             on_request_completed(AIStreamingBase::NORMAL_CHAT);
         } else if (finish_reason == "tool_calls") {
@@ -221,7 +221,9 @@ void AIDock::on_data_start(){
 
 void AIDock::on_request_completed(int chat_flag){
     block_create_flag = true;
+    print_line("on_request_completed");
     if(chat_flag == AIStreamingBase::NORMAL_CHAT){
+        print_line("on_request_completed: AIStreamingBase::NORMAL_CHAT");
         deepseek_api->cancel_request();
         chat_input_panel->set_button_enabled(true);
         history_input_panel->set_button_enabled(true);
@@ -234,6 +236,7 @@ void AIDock::on_request_completed(int chat_flag){
         }
     }
     if(chat_flag == AIStreamingBase::TOOL_CHAT){
+        print_line("on_request_completed: AIStreamingBase::TOOL_CHAT");
         if(ide_interface->is_empty()) return;
         else{
             Dictionary dict = ide_interface->get_tool_result();
