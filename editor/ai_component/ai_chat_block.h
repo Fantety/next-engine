@@ -1,3 +1,19 @@
+/*
+ * @FilePath: \editor\ai_component\ai_chat_block.h
+ * @Author: Fantety
+ * @Descripttion: 
+ * @Date: 2025-07-14 13:57:28
+ * @LastEditors: Fantety
+ * @LastEditTime: 2025-07-19 11:26:01
+ */
+/*
+ * @FilePath: \editor\ai_component\ai_chat_block.h
+ * @Author: Fantety
+ * @Descripttion: 
+ * @Date: 2025-07-14 13:57:28
+ * @LastEditors: Fantety
+ * @LastEditTime: 2025-07-18 17:51:52
+ */
 #ifndef AI_CHAT_BLOCK_H
 #define AI_CHAT_BLOCK_H
 
@@ -35,6 +51,7 @@ private:
     RichTextLabel *chat_content = nullptr;
     RichTextLabel *reason_content = nullptr;
     String mark_text;
+    String bbcode_text;
 
     Ref<Texture2D> copy_icon;
     Ref<Texture2D> retry_icon;

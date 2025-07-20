@@ -8,6 +8,7 @@ env.scene_sources = []
 # Godot source files
 env.add_source_files(env.scene_sources, "*.cpp")
 
+
 # Chain load SCsubs
 SConscript("main/SCsub")
 SConscript("gui/SCsub")

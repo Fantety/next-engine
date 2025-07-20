@@ -79,6 +79,9 @@
 #include "core/string/optimized_translation.h"
 #include "core/string/translation.h"
 #include "core/string/translation_server.h"
+#include "core/markdown/markdown_parser.h"
+#include "core/markdown/markdown_node.h"
+
 #ifndef DISABLE_DEPRECATED
 #include "core/io/packed_data_container.h"
 #endif
@@ -209,6 +212,10 @@ void register_core_types() {
 	GDREGISTER_CLASS(PacketPeerStream);
 	GDREGISTER_CLASS(PacketPeerUDP);
 	GDREGISTER_CLASS(UDPServer);
+
+	//Markdown
+	GDREGISTER_CLASS(MarkdownParser);
+	GDREGISTER_CLASS(MarkdownNode);
 
 	GDREGISTER_ABSTRACT_CLASS(WorkerThreadPool);
 

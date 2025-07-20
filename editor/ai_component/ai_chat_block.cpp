@@ -72,6 +72,7 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
     chat_content->set_drag_and_drop_selection_enabled(true);
     chat_content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     chat_content->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    //chat_content->push_list(4, RichTextLabel::ListType::LIST_NUMBERS);
     switch (this->chat_type)
     {
         case ChatType::AI_CHAT_TYPE_USER:
@@ -118,8 +119,8 @@ String AIChatBlock::get_text(){
 void AIChatBlock::set_text(const String &p_text) {
     chat_content->set_visible(true);
     reason_content->set_visible(false);
-    chat_content->set_text(p_text);
     mark_text = p_text;
+    chat_content->set_text(mark_text);
 }
 void AIChatBlock::add_text(const String &p_text) {
     chat_content->set_visible(true);

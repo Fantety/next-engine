@@ -159,6 +159,40 @@ if env["builtin_zstd"]:
 
     env_thirdparty.add_source_files(thirdparty_obj, thirdparty_zstd_sources)
 
+# cmark-gfm library	hirdparty_cmark_gfm_dir = "#thirdparty/cmark-gfm/"
+if env["builtin_cmark"]:
+    thirdparty_cmark_gfm_dir = "#thirdparty/cmark/"
+    thirdparty_cmark_gfm_sources = [
+        "src/cmark.c",
+        "src/buffer.c",
+        "src/cmark_ctype.c",
+        "src/commonmark.c",
+        "src/node.c",
+        "src/blocks.c",
+        "src/inlines.c",
+        "src/iterator.c",
+        "src/utf8.c",
+        "src/render.c",
+        "src/man.c",
+        "src/html.c",
+        "src/xml.c",
+        "src/latex.c",
+        "src/references.c",
+        "src/scanners.c",
+        "src/houdini_href_e.c",
+        "src/houdini_html_e.c",
+        "src/houdini_html_u.c",
+    ]
+    thirdparty_cmark_gfm_sources = [thirdparty_cmark_gfm_dir + file for file in thirdparty_cmark_gfm_sources]
+    include_paths = [
+        thirdparty_cmark_gfm_dir + "src"
+    ]
+    env_thirdparty.Prepend(CPPEXTPATH=include_paths)
+    env.Prepend(CPPEXTPATH=include_paths)  # 添加这行
+    env_thirdparty.Append(CPPDEFINES=["CMARK_STATIC_DEFINE"])
+    env.Append(CPPDEFINES=["CMARK_STATIC_DEFINE"])  # 添加这行
+    env_thirdparty.add_source_files(thirdparty_obj, thirdparty_cmark_gfm_sources)
+
 
 env.core_sources += thirdparty_obj
 
@@ -230,10 +264,12 @@ SConscript("templates/SCsub")
 SConscript("string/SCsub")
 SConscript("config/SCsub")
 SConscript("error/SCsub")
+SConscript("markdown/SCsub")
 
 
 # Build it all as a library
 lib = env.add_library("core", env.core_sources)
+
 env.Prepend(LIBS=[lib])
 
 # Needed to force rebuilding the core files when the thirdparty code is updated.
