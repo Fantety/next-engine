@@ -4,7 +4,7 @@
 
 Ref<MarkdownNode> MarkdownParser::parse_markdown(const String &markdown_text) {
     const char *text = markdown_text.utf8().get_data();
-    size_t len = markdown_text.length();
+    size_t len = strlen(text);
     
     if (len == 0) {
         ERR_PRINT("Empty Markdown text provided");
@@ -36,7 +36,7 @@ Ref<MarkdownNode> MarkdownParser::_convert_node_to_markdown_node(cmark_node *nod
     // 设置文本内容
     const char *literal = cmark_node_get_literal(node);
     if (literal) {
-        md_node->set_literal(String(literal));
+        md_node->set_literal(String::utf8(literal));
     }
 
     // 设置标题级别
@@ -56,18 +56,18 @@ Ref<MarkdownNode> MarkdownParser::_convert_node_to_markdown_node(cmark_node *nod
     // 设置链接和图片属性
     const char *url = cmark_node_get_url(node);
     if (url && *url) {
-        md_node->set_url(String(url));
+        md_node->set_url(String::utf8(url));
     }
 
     const char *title = cmark_node_get_title(node);
     if (title && *title) {
-        md_node->set_title(String(title));
+        md_node->set_title(String::utf8(title));
     }
 
     // 设置代码块信息
     const char *fence_info = cmark_node_get_fence_info(node);
     if (fence_info && *fence_info) {
-        md_node->set_fence_info(String(fence_info));
+        md_node->set_fence_info(String::utf8(fence_info));
     }
 
     // 处理子节点

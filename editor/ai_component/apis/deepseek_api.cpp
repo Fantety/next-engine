@@ -43,6 +43,7 @@ PackedByteArray DeepSeekAPI::construct_body(const Array& prompt){
 }
 
 String DeepSeekAPI::get_respone_content(const String& jdata){
+    print_line(jdata);
     call_deferred("emit_signal", SNAME("deepseek_stop_timer"));
     Error err = json->parse(jdata);
     if (err != OK) return String{"Something Wrong"};

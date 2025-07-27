@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-07-10 18:34:02
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-17 13:55:31
+ * @LastEditTime: 2025-07-27 09:24:31
  */
 #include "ai_ide_interface.h"
 
@@ -43,11 +43,11 @@ Dictionary AIIDEInterface::get_tool_result(){
     switch ((AIIDEInterface::ToolsType)ToolsName[tools_list.front()->tool_name])
     {
         case AIIDEInterface::GET_PROJECT_STRUCTURE:{
-            print_line("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
+            //print_line("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
             String data_t = dir_serializer.directory_to_json("res://");
             temp["role"] = "tool";
             temp["tool_call_id"] = tools_list.front()->id;
-            print_line("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            //print_line("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             temp["content"] = data_t;
             break;
         }
