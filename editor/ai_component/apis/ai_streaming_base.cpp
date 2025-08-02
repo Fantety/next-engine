@@ -12,3 +12,18 @@ bool AIStreamingBase::is_valid_utf8(const uint8_t* tdata, int len) {
     }
     return true;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -16,15 +16,15 @@ void AIDock::_notification(int p_what) {
 
 // 在 ai_dock.cpp 中
 void AIDock::send_or_retry_message(bool is_retry) {
+    current_tool_str = "";
     int tab_index = this->get_current_tab();
-    String message = tab_index==1?chat_input_panel->get_input_text():history_input_panel->get_input_text();
+    String message = "<question>" + (tab_index==1?chat_input_panel->get_input_text():history_input_panel->get_input_text()) + "</question>";
     String selected_model = tab_index==1?chat_input_panel->get_model():history_input_panel->get_model();
     int selected_index = tab_index==1?chat_input_panel->get_model_index():history_input_panel->get_model_index();
     if (message.strip_edges().is_empty()&&!is_retry) {
         ERR_PRINT("Message is empty, returning");
         return;
     }
-
     if (!is_retry && chat_blocks.size()==0 && tab_index==1) {
         current_chat_uid = generate_uuid();
         chat_manager.create_new_chat(current_chat_uid, message);
@@ -36,33 +36,30 @@ void AIDock::send_or_retry_message(bool is_retry) {
         chat_input_panel->set_model(selected_index);
         load_historys();
     }
-
     chat_input_panel->set_button_enabled(false);
     history_input_panel->set_button_enabled(false);
     chat_input_panel->set_loading_bar_visible(true);
-
     if (!is_retry) {
         _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_USER, message);
         chat_manager.add_user_chat(current_chat_uid, message);
         chat_input_panel->clear_text();
         history_input_panel->clear_text();
     }
-
     switch ((AIChatBlock::ChatType)AIStreamingBase::AIStringName[selected_model]) {
         case AIStreamingBase::DEEPSEEK_CHAT: {
             String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
             if (apikey.is_empty()) return;
-            deepseek_api->set_apikey(apikey);
-            deepseek_api->set_model("deepseek-chat");
-            deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
+            openai_api->set_apikey(apikey);
+            openai_api->set_model("deepseek-chat");
+            openai_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
             break;
         }
         case AIStreamingBase::DEEPSEEK_REASONER: {
             String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
             if (apikey.is_empty()) return;
-            deepseek_api->set_apikey(apikey);
-            deepseek_api->set_model("deepseek-reasoner");
-            deepseek_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
+            openai_api->set_apikey(apikey);
+            openai_api->set_model("deepseek-reasoner");
+            openai_api->send_streaming_request(chat_manager.get_chat(current_chat_uid));
             break;
         }
         default:
@@ -78,36 +75,64 @@ void AIDock::_retry_message() {
     send_or_retry_message(true);
 }
 
+void AIDock::_toggle_mcp_server(bool p_toggled) {
+    if (p_toggled) {
+        Error err = mcp_server->start_server(3000);
+        if (err == OK) {
+            mcp_toggle_button->set_text("Stop MCP Server");
+        } else {
+            // 显示错误信息
+            print_line("Failed to start MCP server: " + itos(err));
+            mcp_toggle_button->set_pressed(false);
+        }
+    } else {
+        mcp_server->stop_server();
+        mcp_toggle_button->set_text("Start MCP Server");
+    }
+}
 
-void AIDock::_create_chat_block(AIChatBlock::ChatType chat_type, const String& message){
-    AIChatBlock* block = memnew(AIChatBlock(chat_type));
-    block->set_fit_content(true);
-    block->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    chat_blocks.append(block);
-    chat_list->add_child(block);
-    block->connect("retry_pressed", callable_mp(this, &AIDock::on_retry_pressed));
-    if(chat_type==AIChatBlock::ChatType::AI_CHAT_TYPE_USER){
-        block->set_text(message);
+
+void AIDock::_create_chat_block(AIChatBlock::ChatType chat_type, const String& thought, const String& tool, const String& final_answer){
+    if(block_create_flag){
+        AIChatBlock* block = memnew(AIChatBlock(chat_type));
+        current_chat_block = block;
+        block->set_fit_content(true);
+        block->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+        chat_blocks.append(block);
+        chat_list->add_child(block);
+        block->connect("retry_pressed", callable_mp(this, &AIDock::on_retry_pressed));
+        if(chat_type==AIChatBlock::ChatType::AI_CHAT_TYPE_USER){
+            block->set_text(thought);
+        }
+        else if(chat_type==AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT){
+            block->set_text(thought);
+            if(!tool.empty()){
+                block->set_tool_content(tool);
+            }
+            if(!final_answer.empty()){
+                block->set_final_answer_content(final_answer);
+            }
+        }
+        else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_ERROR){
+            block->set_text(thought);
+        }
+        else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_MESSAGE){
+            block->set_text(thought);
+        }
+        else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_WARNING){
+            block->set_text(thought);
+        }
+        chat_sum++;
+        current_chat_index++;
+        block->set_block_index(current_chat_index);
     }
-    else if(chat_type==AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT){
-        block->set_text("");
-        block->add_text(message);
+    else{
+        if(current_chat_block){
+            current_chat_block->set_text(thought);
+            current_chat_block->set_tool_content(tool);
+            current_chat_block->set_final_answer_content(final_answer);
+        }
     }
-    else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_TOOL){
-        block->add_text(message);
-    }
-    else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_ERROR){
-        block->set_text(message);
-    }
-    else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_MESSAGE){
-        block->set_text(message);
-    }
-    else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_WARNING){
-        block->set_text(message);
-    }
-    chat_sum++;
-    current_chat_index++;
-    block->set_block_index(current_chat_index);
 }
 
 void AIDock::_add_message(const String &message, int block_index) {
@@ -131,120 +156,59 @@ void AIDock::_add_reason_message(const String &message, int block_index){
     }
 }
 
-void AIDock::on_streaming_response(Dictionary dict, String finish_reason) {
-    chat_input_panel->set_loading_bar_visible(false);
-    if (dict.has("content") && dict["content"].get_type() == Variant::STRING) {
-        String content = dict["content"];
-        if(content.is_empty()||content == ""){}
-        else{
-            if (block_create_flag) {
-                _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
-                block_create_flag = false;
-            }
-            _add_message(content, current_chat_index);
-            chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
-        }
-    }
-    // 处理推理内容
-    if (dict.has("reasoning_content") && dict["reasoning_content"].get_type() == Variant::STRING) {
-        String reasoning_content = dict["reasoning_content"];
-        if(reasoning_content.is_empty()||reasoning_content == ""){}
-        else{
-            if (block_create_flag) {
-                _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, "");
-                block_create_flag = false;
-            }
-            _add_reason_message(reasoning_content, current_chat_index);
-            chat_scroll->get_v_scroll_bar()->set_value(chat_scroll->get_v_scroll_bar()->get_max());
-        }
-    }
-    // 处理工具调用
-    if (dict.has("tool_calls") && dict["tool_calls"].get_type() == Variant::ARRAY) {
-        Array tool_calls = dict["tool_calls"];
-        String tools_text;
-        for (int i = 0; i < tool_calls.size(); i++) {
-            if (tool_calls[i].get_type() == Variant::DICTIONARY) {
-                Dictionary tool = tool_calls[i];
-                if (tool.has("function") && tool["function"].get_type() == Variant::DICTIONARY) {
-                    Dictionary function = tool["function"];
-                    String name = function.get("name", "");
-                    String arguments = function.get("arguments", "");
-                    String id = tool.get("id", "");
-                    String tool_text = "[Tool: " + name + "] [Arguments: " + arguments+"]";
-                    tools_text += tool_text + "\n";
-                    // 添加到IDE接口
-                    if (arguments.is_empty() || arguments == "{}") {
-                        ide_interface->add_tool(name, Array{}, id);
-                    } else {
-                        Ref<JSON> json;
-                        json.instantiate();
-                        Error err = json->parse(arguments);
-                        if (err != OK) return;
-                        Variant parsed_args = json->get_data();
-                        if (parsed_args.get_type() == Variant::DICTIONARY) {
-                            Dictionary args_dict = parsed_args;
-                            Array args_array;
-                            args_array.append(args_dict);
-                            ide_interface->add_tool(name, args_array, id);
-                        } else {
-                            Array args_array;
-                            args_array.append(arguments);
-                            ide_interface->add_tool(name, args_array, id);
-                        }
-                    }
-                }
-            }
-        }
-        // 显示工具调用信息
-        if (block_create_flag) {
-            _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, tools_text);
-            block_create_flag = false;
-        }
-    }
-    // 处理其他可能的信息
-    if (dict.has("role") && dict["role"].get_type() == Variant::STRING) {
-        String role = dict["role"];
-    }
-    // 处理完成状态
-    if (finish_reason != "null" && !finish_reason.is_empty()) {
-        if (finish_reason == "stop") {
-            on_request_completed(AIStreamingBase::NORMAL_CHAT);
-        } else if (finish_reason == "tool_calls") {
-            Dictionary tool_dict = dict.duplicate();
-            chat_manager.add_tool_chat(current_chat_uid, tool_dict);
+void AIDock::on_streaming_response(String content, String finish_reason) {
+    if(finish_reason.is_empty()){
+        chat_manager.add_assistant_chat(current_chat_uid, stream_processor->get_full_content());
+        on_request_completed(AIStreamingBase::NORMAL_CHAT);
+        if(!current_tool_str.is_empty()){
+            engine_operator->add_tool_with_parse(current_tool_str);
             on_request_completed(AIStreamingBase::TOOL_CHAT);
         }
     }
+    else{
+        if (!content.is_empty()) {
+            stream_processor->process_stream_data(content);
+            // 获取特定标签的内容
+            String thought = stream_processor->get_tag_content("thought");
+            String tool = stream_processor->get_tag_content("tool");
+            String final_answer = stream_processor->get_tag_content("final_answer");
+            if(!thought.is_empty()){
+                _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, thought, tool, final_answer);
+            }
+            if(!tool.is_empty()){
+                current_tool_str = tool;
+            }
+        }
+    }
 }
+
+
 void AIDock::on_data_start(){
 }
 
 void AIDock::on_request_completed(int chat_flag){
     block_create_flag = true;
-    print_line("on_request_completed");
+    //print_line("on_request_completed");
     if(chat_flag == AIStreamingBase::NORMAL_CHAT){
         print_line("on_request_completed: AIStreamingBase::NORMAL_CHAT");
-        deepseek_api->cancel_request();
+        openai_api->cancel_request();
         chat_input_panel->set_button_enabled(true);
         history_input_panel->set_button_enabled(true);
         if(current_chat_index<chat_blocks.size()&&current_chat_index!=-1){
             chat_manager.add_assistant_chat(current_chat_uid, chat_blocks[current_chat_index]->get_text());
         }
         chat_manager.save_chats();
-        if(!ide_interface->is_empty()){
+        if(!engine_operator->is_empty()){
             chat_flag = AIStreamingBase::TOOL_CHAT;
         }
     }
     if(chat_flag == AIStreamingBase::TOOL_CHAT){
         print_line("on_request_completed: AIStreamingBase::TOOL_CHAT");
-        if(ide_interface->is_empty()) return;
+        if(engine_operator->is_empty()) return;
         else{
-            Dictionary dict = ide_interface->get_tool_result();
-            String call_id = dict["tool_call_id"];
-            String text = "Complete execute: " + call_id;
-            _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_TOOL, text);
+            Dictionary dict = engine_operator->get_tool_result();
             chat_manager.add_tool_chat(current_chat_uid, dict);
-            deepseek_api->cancel_request();
+            openai_api->cancel_request();
             _retry_message();
         }
     }
@@ -402,19 +366,24 @@ void AIDock::on_history_button_pressed(String uuid){
 void AIDock::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
     ClassDB::bind_method(D_METHOD("_add_message", "message", "block_index"), &AIDock::_add_message);  // 修正参数数量
+    ClassDB::bind_method(D_METHOD("_toggle_mcp_server", "toggled"), &AIDock::_toggle_mcp_server);
 }
 
 AIDock::AIDock() {
     print_line("AIDock Init Start");
-    chat_input_panel = memnew(AIChatPanel);
-    history_input_panel = memnew(AIChatPanel);
-    chat_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
-    history_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_message));
-    print_line("AIChatPanel Init Finished");
-    //历史页面
+    
+    // 创建MCP开关按钮
+    mcp_toggle_button = memnew(CheckButton);
+    mcp_toggle_button->set_text("Start MCP Server");
+    mcp_toggle_button->connect("toggled", callable_mp(this, &AIDock::_toggle_mcp_server));
+    
+    // 将MCP开关按钮添加到历史视图的顶部
     history_view = memnew(VBoxContainer);
+    history_view->add_child(mcp_toggle_button);
     history_view->add_child(history_input_panel);
     history_view->add_theme_constant_override("separation",40);
+    
+    //历史页面
     history_list = memnew(VBoxContainer);
     history_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
     history_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -422,6 +391,7 @@ AIDock::AIDock() {
     history_list->set_stretch_ratio(4);
     history_view->add_child(history_list);
     print_line("history_view Init Finished");
+    
     // 聊天显示区域
     chat_view = memnew(VBoxContainer);
     accept_dialog = memnew(AIAcceptDialog);
@@ -439,15 +409,38 @@ AIDock::AIDock() {
     chat_view->add_child(chat_input_panel);
     print_line("AIDock Init Finish");
     print_line("AIDock constructor called");
+    
+    // 初始化DeepSeek API
     deepseek_api = memnew(DeepSeekAPI("deepseek-chat"));
     if (!deepseek_api) {
         print_line("Failed to create deepseek_api");
     }
     add_child(deepseek_api);
-    current_ai_response = "";  // 初始化响应内容
+    
     deepseek_api->connect("deepseek_data_start", callable_mp(this, &AIDock::on_data_start), CONNECT_DEFERRED);
     deepseek_api->connect("deepseek_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
     deepseek_api->connect("deepseek_streaming_received", callable_mp(this, &AIDock::on_streaming_response), CONNECT_DEFERRED);
+    
+    current_ai_response = "";  // 初始化响应内容
+    // 初始化OpenAI API
+    openai_api = memnew(OpenAIRequestHandler("deepseek-chat"));
+    if (!openai_api) {
+        print_line("Failed to create openai_api");
+    }
+    add_child(openai_api);
+    stream_processor = memnew(AIStreamProcessor());
+
+    openai_api->connect("openai_data_start", callable_mp(this, &AIDock::on_data_start), CONNECT_DEFERRED);
+    openai_api->connect("openai_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
+    openai_api->connect("openai_streaming_received", callable_mp(this, &AIDock::on_streaming_response), CONNECT_DEFERRED);
+    
+    // 初始化MCP服务器
+    mcp_server = memnew(MCPServer);
+    if (!mcp_server) {
+        print_line("Failed to create mcp_server");
+    }
+    add_child(mcp_server);
+    
     print_line("AIDock constructor called finished");
 
     AISettingsDialog::get_singleton()->connect("confirmed", callable_mp(chat_input_panel, &AIChatPanel::_update_model_list));
@@ -457,6 +450,6 @@ AIDock::AIDock() {
     
     accept_dialog->connect("confirmed", callable_mp(this, &AIDock::confirm_retry));
     singleton = this;
-    ide_interface = memnew(AIIDEInterface);
+    engine_operator = memnew(EngineOperator);
     load_historys();
 }

@@ -30,20 +30,26 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
     theme = get_theme();
     v_container = memnew(VBoxContainer);
     h_container = memnew(HBoxContainer);
-    chat_content = memnew(RichTextLabel);
+    thought_content = memnew(RichTextLabel);
     reason_content = memnew(RichTextLabel);
+    tool_content = memnew(RichTextLabel);
+    final_answer_content = memnew(RichTextLabel);
     thinking_process_button = memnew(Button);
     thinking_process_button->set_text("Thinking Process");
     thinking_process_button->connect("pressed", callable_mp(this, &AIChatBlock::change_thinking_process_visible));
     reason_content->set_visible(false);
     reason_content->add_theme_color_override(SceneStringName(font_color), Color(0.35, 0.43, 0.47));
-    chat_content->set_visible(false);
+    thought_content->set_visible(false);
+    tool_content->set_visible(false);
+    final_answer_content->set_visible(false);
     copy_button = memnew(Button);
     retry_button = memnew(Button);
     margin_container = memnew(MarginContainer);
     retry_button->connect("pressed", callable_mp(this, &AIChatBlock::send_retry_pressed));
     copy_button->connect("pressed", callable_mp(this, &AIChatBlock::set_clipboard));
-    chat_content->set_use_bbcode(true);
+    thought_content->set_use_bbcode(true);
+    tool_content->set_use_bbcode(true);
+    final_answer_content->set_use_bbcode(true);
     v_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     v_container->set_v_size_flags(Control::SIZE_EXPAND_FILL);
     margin_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -58,21 +64,36 @@ AIChatBlock::AIChatBlock(AIChatBlock::ChatType i_chat_type) {
     v_container->add_child(thinking_process_button);
     thinking_process_button->set_visible(false);
     v_container->add_child(reason_content);
-    v_container->add_child(chat_content);
+    v_container->add_child(thought_content);
+    v_container->add_child(tool_content);
+    v_container->add_child(final_answer_content);
     v_container->add_child(h_container);
     h_container->add_child(copy_button);
     h_container->add_child(retry_button);
     h_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     copy_button->set_text("Copy");
-    chat_content->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
-    chat_content->set_scroll_follow(true);
-    chat_content->set_fit_content(true);
-    chat_content->set_selection_enabled(true);
-    chat_content->set_drag_and_drop_selection_enabled(true);
-    chat_content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    chat_content->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-    //chat_content->push_list(4, RichTextLabel::ListType::LIST_NUMBERS);
+    thought_content->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
+    thought_content->set_scroll_follow(true);
+    thought_content->set_fit_content(true);
+    thought_content->set_selection_enabled(true);
+    thought_content->set_drag_and_drop_selection_enabled(true);
+    thought_content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    thought_content->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    tool_content->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
+    tool_content->set_scroll_follow(true);
+    tool_content->set_fit_content(true);
+    tool_content->set_selection_enabled(true);
+    tool_content->set_drag_and_drop_selection_enabled(true);
+    tool_content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    tool_content->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    final_answer_content->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
+    final_answer_content->set_scroll_follow(true);
+    final_answer_content->set_fit_content(true);
+    final_answer_content->set_selection_enabled(true);
+    final_answer_content->set_drag_and_drop_selection_enabled(true);
+    final_answer_content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    final_answer_content->set_v_size_flags(Control::SIZE_EXPAND_FILL);
     switch (this->chat_type)
     {
         case ChatType::AI_CHAT_TYPE_USER:
@@ -117,15 +138,15 @@ String AIChatBlock::get_text(){
 }
 
 void AIChatBlock::set_text(const String &p_text) {
-    chat_content->set_visible(true);
+    thought_content->set_visible(true);
     reason_content->set_visible(false);
     mark_text = p_text;
-    chat_content->set_text(mark_text);
+    thought_content->set_text(mark_text);
 }
 void AIChatBlock::add_text(const String &p_text) {
-    chat_content->set_visible(true);
+    thought_content->set_visible(true);
     reason_content->set_visible(false);
-    chat_content->add_text(p_text);
+    thought_content->add_text(p_text);
     mark_text+=p_text;
 }
 void AIChatBlock::set_reason_text(const String &p_text){
@@ -140,13 +161,13 @@ void AIChatBlock::add_reason_text(const String &p_text){
 }
 
 void AIChatBlock::set_fit_content(bool fit){
-    chat_content->set_fit_content(fit);
+    thought_content->set_fit_content(fit);
     reason_content->set_fit_content(fit);
 }
 
 void AIChatBlock::to_bbcode(){
     String bbcode = mark_text;
-    chat_content->set_text(bbcode);
+    thought_content->set_text(bbcode);
 }
 
 void AIChatBlock::set_chat_type(AIChatBlock::ChatType type) {
@@ -173,4 +194,14 @@ void AIChatBlock::change_panel_color(const Color &new_color){
     style_flat->set_bg_color(new_color);
     style_flat->set_corner_radius_all(10);
     add_theme_style_override(SceneStringName(panel), style_flat);
+}
+
+
+void AIChatBlock::set_tool_content(const String &p_text){
+    tool_content->set_visible(true)
+    tool_content->set_text(p_text);
+}
+void AIChatBlock::set_final_reason_content(const String &p_text){
+    final_answer_content->set_visible(true);
+    final_answer_content->set_text(p_text);
 }

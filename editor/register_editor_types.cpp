@@ -130,12 +130,14 @@
 #include "editor/version_control/editor_vcs_interface.h"
 
 #include "editor/ai_component/apis/ai_streaming_base.h"
-#include "editor/ai_component/apis/deepseek_api.h"
+#include "editor/ai_component/apis/openai_request_handler.h"
 #include "editor/ai_component/ai_dock.h"
 #include "editor/ai_component/ai_settings_dialog.h"
 #include "editor/ai_component/ai_chat_panel.h"
 #include "editor/ai_component/ai_chat_block.h"
 #include "editor/ai_component/ai_history_button.h"
+#include "editor/ai_component/mcp/mcp_tool_register.h"
+#include "editor/ai_component/mcp/mcp_server.h"
 
 
 #ifndef DISABLE_DEPRECATED
@@ -217,10 +219,12 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterTexture);
 	GDREGISTER_CLASS(ResourceImporterTextureAtlas);
 	GDREGISTER_CLASS(ResourceImporterWAV);
-	GDREGISTER_CLASS(DeepSeekAPI);
+	GDREGISTER_CLASS(OpenAIRequestHandler);
 	GDREGISTER_CLASS(AIChatBlock);
 	GDREGISTER_CLASS(AIChatPanel);
 	GDREGISTER_CLASS(AIHistoryButton);
+	GDREGISTER_CLASS(MCPServer);
+	
 
 	// This list is alphabetized, and plugins that depend on Node2D are in their own section below.
 	EditorPlugins::add_by_type<AnimationTreeEditorPlugin>();
@@ -318,6 +322,9 @@ void register_editor_types() {
 	// Required as GDExtensions can register docs at init time way before this
 	// class is actually instantiated.
 	EditorHelp::init_gdext_pointers();
+
+	// Register MCP tools
+	MCPToolRegister::register_all_tools();
 
 	OS::get_singleton()->benchmark_end_measure("Editor", "Register Types");
 }

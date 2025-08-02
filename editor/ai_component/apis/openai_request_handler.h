@@ -1,14 +1,14 @@
 /*
- * @FilePath: \editor\ai_component\apis\deepseek_api.h
+ * @FilePath: \editor\ai_component\apis\openai_request_handler.h
  * @Author: Fantety
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-14 14:32:33
+ * @LastEditTime: 2025-08-02 11:42:43
  */
-// deepseek_api.h
-#ifndef DEEPSEEK_API_H
-#define DEEPSEEK_API_H
+// openai_request_handler.h
+#ifndef OPENAI_REQUEST_HANDLER_H
+#define OPENAI_REQUEST_HANDLER_H
 
 #include "ai_streaming_base.h"
 #include "core/variant/variant.h"
@@ -18,13 +18,13 @@
 #include "core/os/thread.h"
 #include <queue>
 #include <memory>
-class DeepSeekAPI;
+class OpenAIRequestHandler;
 struct ThreadParams {
-    DeepSeekAPI *self;
+    OpenAIRequestHandler *self;
     Array prompt;
 };
-class DeepSeekAPI : public AIStreamingBase {
-    GDCLASS(DeepSeekAPI, Node);
+class OpenAIRequestHandler : public AIStreamingBase {
+    GDCLASS(OpenAIRequestHandler, Node);
     Thread thread;
     SafeFlag exit_flag;
     bool thread_running = false;
@@ -35,21 +35,19 @@ class DeepSeekAPI : public AIStreamingBase {
     
 private:
     static void _thread_func(void *p_userdata);
-    Dictionary merge_delta(Dictionary new_delta);
-    void reset_delta();
 private:
     void _on_request_start();
     void _on_request_complete();
     void _on_timeout();
 public:
 
-    DeepSeekAPI(const String modelName = "deepseek-chat")
+    OpenAIRequestHandler(const String modelName = "deepseek-chat")
         : AIStreamingBase(modelName){
             json.instantiate();
             timeout_timer = memnew(Timer);
             timeout_timer->set_one_shot(true);
             add_child(timeout_timer);
-            this->connect("deepseek_stop_timer", callable_mp(this, &DeepSeekAPI::_on_request_complete));
+            this->connect("openai_stop_timer", callable_mp(this, &OpenAIRequestHandler::_on_request_complete));
         }
     bool send_streaming_request(const Array& prompt) override;
     PackedByteArray construct_body(const Array& prompt) override;
@@ -61,4 +59,4 @@ protected:
     void _notification(int p_what);
 };
 
-#endif
+#endif // OPENAI_REQUEST_HANDLER_H

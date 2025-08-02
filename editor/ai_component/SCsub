@@ -15,3 +15,4 @@ env.add_source_files(env.editor_sources, "*.cpp")
 
 SConscript("apis/SCsub")
 SConscript("tools/SCsub")
+SConscript("mcp/SCsub")

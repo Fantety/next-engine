@@ -48,7 +48,9 @@ private:
     Button* thinking_process_button = nullptr;
 
     AIChatBlock::ChatType chat_type = AIChatBlock::AI_CHAT_TYPE_USER;
-    RichTextLabel *chat_content = nullptr;
+    RichTextLabel *thought_content = nullptr;
+    RichTextLabel *tool_content = nullptr;
+    RichTextLabel *final_answer_content = nullptr;
     RichTextLabel *reason_content = nullptr;
     String mark_text;
     String bbcode_text;
@@ -82,6 +84,10 @@ public:
     void change_panel_color(const Color &new_color);
     int get_block_index();
     void set_block_index(int black_index);
+
+
+    void set_tool_content(const String &p_text);
+    void set_final_reason_content(const String &p_text);
 
 
     AIChatBlock(){};

@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 20:48:06
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-14 12:36:14
+ * @LastEditTime: 2025-08-02 09:08:27
  */
 #ifndef AI_STREAMING_BASE_H
 #define AI_STREAMING_BASE_H
@@ -19,6 +19,7 @@
 #include "core/io/stream_peer_tcp.h"
 #include "core/io/json.h"
 #include "tools_json.h"
+#include "system_prompt.h"
 #include "scene/main/timer.h"
 
 class AIStreamingBase : public Node {
@@ -28,7 +29,8 @@ public:
     {
         DEEPSEEK_CHAT = 0,
         DEEPSEEK_REASONER,
-        OPENAI,
+        GPT_4O_CHAT,
+        O1_PREVIEW_REASONING,
     };
     enum CurrentChatFlag{
         NORMAL_CHAT = 0,
@@ -44,6 +46,8 @@ public:
         : model(modelName){
         AIStringName["deepseek-chat"] = DEEPSEEK_CHAT;
         AIStringName["deepseek-reasoner"] = DEEPSEEK_REASONER;
+        AIStringName["gpt-4o"] = GPT_4O_CHAT;
+        AIStringName["o1-preview"] = O1_PREVIEW_REASONING;
         Ref<JSON> json;
         json.instantiate();
         Error err = json->parse(AITools::TOOLS_JSON_STR);

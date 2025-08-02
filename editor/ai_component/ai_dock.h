@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-06-17 19:18:53
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-14 11:57:18
+ * @LastEditTime: 2025-08-02 11:34:38
  */
 #ifndef AI_DOCK_H
 #define AI_DOCK_H
@@ -16,16 +16,19 @@
 #include "scene/gui/line_edit.h"
 #include "scene/gui/item_list.h"
 #include "scene/gui/button.h"
+#include "scene/gui/check_button.h"
 #include "scene/gui/scroll_container.h"
 #include "scene/gui/panel_container.h"
 #include "core/io/json.h"
-#include "apis/deepseek_api.h"
+#include "apis/openai_request_handler.h"
+#include "apis/ai_stream_processor.h"
 #include "ai_chat_manager.h"
 #include "ai_chat_block.h"
 #include "ai_chat_panel.h"
 #include "ai_accept_dialog.h"
 #include "ai_history_button.h"
-#include "ai_ide_interface.h"
+#include "engine_operator.h"
+#include "mcp/mcp_server.h"
 
 
 class AIDock : public TabContainer {
@@ -39,16 +42,23 @@ private:
     VBoxContainer *chat_list = nullptr;
     AIChatPanel* history_input_panel = nullptr;
     AIChatPanel* chat_input_panel = nullptr;
-    DeepSeekAPI *deepseek_api = nullptr;
+
+    OpenAIRequestHandler *openai_api = nullptr;
+    MCPServer *mcp_server = nullptr;
+    CheckButton *mcp_toggle_button = nullptr;
+    AIStreamProcessor *stream_processor = nullptr;
+
     String current_ai_response;
+    String current_tool_str;
     int current_chat_index = -1;
     int chat_sum = 0;
     AIAcceptDialog* accept_dialog = nullptr;
     Vector<AIChatBlock*> chat_blocks;
+    AIChatBlock* current_chat_block = nullptr;
     Vector<AIHistoryButton*> history_buttons;
     String current_chat_uid;
     AIChatManager chat_manager;
-    AIIDEInterface *ide_interface = nullptr;
+    EngineOperator *engine_operator = nullptr;
     static inline AIDock *singleton = nullptr;
     int retry_chat_type = 0;
     int retry_block_index = 0;
@@ -56,12 +66,13 @@ private:
     bool block_create_flag = true;
     void _send_message();
     void _retry_message();
+    void _toggle_mcp_server(bool p_toggled);
     void _add_message(const String &message, int block_index);
     void _add_reason_message(const String &message, int block_index);
-    void _create_chat_block(AIChatBlock::ChatType chat_type, const String& message);
+    void _create_chat_block(AIChatBlock::ChatType chat_type, const String& thought, const String& tool, const String& final_answer);
 private:
     void delete_all_blocks();
-    void on_streaming_response(Dictionary dict, String finish_reason);
+    void on_streaming_response(String content, String finish_reason);
     void on_data_start();
     void on_request_completed(int chat_flag);
     void on_retry_pressed(int chat_type, int block_index);

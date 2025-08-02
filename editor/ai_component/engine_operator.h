@@ -1,13 +1,13 @@
 /*
- * @FilePath: \editor\ai_component\ai_ide_interface.h
+ * @FilePath: \editor\ai_component\engine_operator.h
  * @Author: Fantety
  * @Descripttion: 
  * @Date: 2025-07-07 18:28:31
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-13 12:56:14
+ * @LastEditTime: 2025-08-02 18:06:38
  */
-#ifndef AI_IDE_INTERFACE
-#define AI_IDE_INTERFACE
+#ifndef ENGINE_OPERATOR
+#define ENGINE_OPERATOR
 
 #include "editor/docks/filesystem_dock.h"
 #include "tools/dir_serializer.h"
@@ -15,17 +15,18 @@
 
 
 #include "scene/main/node.h"
+#include "core/io/json.h"
+#include "core/os/time.h"
 #include <queue>
 typedef struct ToolComponent
 {
     String tool_name;
     Array tool_arguments;
-    String id;
     /* data */
 } ToolComponent;
 
-class AIIDEInterface : public Node {
-    GDCLASS(AIIDEInterface, Node);
+class EngineOperator : public Node {
+    GDCLASS(EngineOperator, Node);
 
     enum ToolsType
     {
@@ -43,8 +44,9 @@ private:
     bool is_arguments_equal(Array arguments);
 
 public:
-    AIIDEInterface();
-    void add_tool(String tool_name, Array tool_arguments, String id);
+    EngineOperator();
+    void add_tool(String tool_name, Array tool_arguments);
+    void add_tool_with_parse(const String& tool_data);
     int get_tool_count();
     Dictionary get_tool_result();
     ToolComponent* get_first();
