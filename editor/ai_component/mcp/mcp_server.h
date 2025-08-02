@@ -17,6 +17,7 @@
 #include "core/templates/hash_map.h"
 #include "scene/main/node.h"
 #include "mcp_protocol.h"
+#include "core/variant/binder_common.h"
 
 class MCPTool;
 
@@ -92,5 +93,7 @@ public:
     // 发送消息
     Error send_message(Ref<StreamPeerTCP> client, const Dictionary& message);
 };
+
+VARIANT_ENUM_CAST(MCPServer::ServerStatus)
 
 #endif // MCP_SERVER_H

@@ -4,10 +4,10 @@
  * @Descripttion: MCP Protocol implementation for Godot Engine
  * @Date: 2025-07-14
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-14
+ * @LastEditTime: 2025-08-02 21:11:06
  */
 #include "mcp_protocol.h"
-#include "core/string/json.h"
+#include "core/io/json.h"
 #include "core/os/os.h"
 
 void MCPProtocol::_bind_methods() {
@@ -174,6 +174,16 @@ String MCPProtocol::get_message_id(const Dictionary& message) {
         }
     }
     return "";
+}
+
+bool MCPProtocol::is_request_message(const Dictionary& message) {
+    // 请求消息必须有id字段且不是通知消息
+    return message.has("id") && !is_notification_message(message);
+}
+
+bool MCPProtocol::is_notification_message(const Dictionary& message) {
+    // 通知消息有method但没有id字段
+    return message.has("method") && !message.has("id");
 }
 
 void MCPProtocol::set_init_message(const Dictionary& p_init_message) {

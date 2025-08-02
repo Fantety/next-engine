@@ -4,7 +4,7 @@
  * @Descripttion: MCP Tool base class implementation for Godot Engine
  * @Date: 2025-07-14
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-14
+ * @LastEditTime: 2025-08-02 21:25:59
  */
 #include "mcp_tool.h"
 
@@ -27,6 +27,10 @@ void MCPTool::_bind_methods() {
 
 MCPTool::MCPTool() {
     input_mode = INPUT_MODE_NONE;
+}
+
+MCPTool::~MCPTool() {
+    // 析构函数实现
 }
 
 String MCPTool::get_name() const {

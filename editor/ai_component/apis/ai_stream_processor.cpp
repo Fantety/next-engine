@@ -1,11 +1,32 @@
+/*
+ * @FilePath: \editor\ai_component\apis\ai_stream_processor.cpp
+ * @Author: Fantety
+ * @Descripttion: 
+ * @Date: 2025-08-02 12:01:38
+ * @LastEditors: Fantety
+ * @LastEditTime: 2025-08-02 21:36:50
+ */
 #include "ai_stream_processor.h"
 #include "core/string/ustring.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/vector.h"
 
+#include <cstring>  // For memcpy
+
 AIStreamProcessor::AIStreamProcessor() {
     xml_parser.instantiate();
     reset();
+}
+
+void AIStreamProcessor::_bind_methods() {
+    // 绑定方法
+    ClassDB::bind_method(D_METHOD("process_stream_data", "new_data"), &AIStreamProcessor::process_stream_data);
+    ClassDB::bind_method(D_METHOD("get_tag_contents_as_dict"), &AIStreamProcessor::get_tag_contents_as_dict);
+    ClassDB::bind_method(D_METHOD("get_tag_content", "tag_name"), &AIStreamProcessor::get_tag_content);
+    ClassDB::bind_method(D_METHOD("get_current_tag_name"), &AIStreamProcessor::get_current_tag_name);
+    ClassDB::bind_method(D_METHOD("get_current_tag_content"), &AIStreamProcessor::get_current_tag_content);
+    ClassDB::bind_method(D_METHOD("get_full_content"), &AIStreamProcessor::get_full_content);
+    ClassDB::bind_method(D_METHOD("reset"), &AIStreamProcessor::reset);
 }
 
 String AIStreamProcessor::process_stream_data(const String& new_data) {
@@ -266,4 +287,12 @@ bool AIStreamProcessor::parse_buffer() {
     buffer_data = buffer_data.substr(closing_tag_pos + closing_tag.length());
     
     return true;
+}
+
+Dictionary AIStreamProcessor::get_tag_contents_as_dict() const {
+	Dictionary dict;
+	for (const KeyValue<String, String> &E : tag_contents) {
+		dict[E.key] = E.value;
+	}
+	return dict;
 }

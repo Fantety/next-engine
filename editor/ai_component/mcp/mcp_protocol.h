@@ -4,7 +4,7 @@
  * @Descripttion: MCP Protocol handler for Godot Engine
  * @Date: 2025-07-14
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-14
+ * @LastEditTime: 2025-08-02 21:16:46
  */
 #ifndef MCP_PROTOCOL_H
 #define MCP_PROTOCOL_H
@@ -41,6 +41,7 @@ public:
     Dictionary create_initialize_message();
     Dictionary create_ping_message();
     Dictionary create_pong_message();
+    Dictionary create_complete_message(const String& request_id);
     Dictionary create_completion_message(const String& completion);
     Dictionary create_error_message(const String& error);
     Dictionary create_notification_message(const String& method, const Dictionary& params);
@@ -48,7 +49,7 @@ public:
     // 工具相关消息
     Dictionary create_tool_list_message(const Array& tools);
     Dictionary create_tool_call_message(const String& tool_name, const Dictionary& arguments, const String& request_id);
-    Dictionary create_tool_result_message(const String& tool_name, const Variant& result, const String& request_id);
+    Dictionary create_tool_result_message(const String& tool_name, const Dictionary& result, const String& request_id);
     
     // 消息验证
     bool is_valid_message(const Dictionary& message);
@@ -59,6 +60,10 @@ public:
     String get_message_method(const Dictionary& message);
     Dictionary get_message_params(const Dictionary& message);
     String get_message_id(const Dictionary& message);
+    
+    // 初始化消息处理
+    void set_init_message(const Dictionary& p_init_message);
+    Dictionary get_init_message() const;
 };
 
 #endif // MCP_PROTOCOL_H

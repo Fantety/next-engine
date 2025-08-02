@@ -87,7 +87,7 @@ public:
 
 
     void set_tool_content(const String &p_text);
-    void set_final_reason_content(const String &p_text);
+    void set_final_answer_content(const String &p_text);
 
 
     AIChatBlock(){};

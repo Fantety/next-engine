@@ -14,6 +14,7 @@
 #include "core/variant/dictionary.h"
 #include "core/variant/array.h"
 #include "core/string/ustring.h"
+#include "core/variant/type_info.h"
 
 class MCPTool : public Object {
     GDCLASS(MCPTool, Object);
@@ -49,7 +50,7 @@ public:
     String get_description() const;
     
     void set_input_schema(const Dictionary& p_schema);
-    Dictionary get_input_schema() const;
+    virtual Dictionary get_input_schema() const;
     
     void set_input_mode(InputMode p_input_mode);
     InputMode get_input_mode() const;
@@ -60,5 +61,7 @@ public:
     // 获取工具描述信息（用于MCP协议）
     Dictionary get_tool_description() const;
 };
+
+VARIANT_ENUM_CAST(MCPTool::InputMode)
 
 #endif // MCP_TOOL_H

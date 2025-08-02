@@ -11,7 +11,7 @@ void AIChatBlock::_notification(int p_what) {
 }
 
 void AIChatBlock::set_clipboard(){
-    DisplayServer::get_singleton()->clipboard_set(chat_content->get_text());
+    DisplayServer::get_singleton()->clipboard_set(thought_content->get_text());
 }
 
 void AIChatBlock::_bind_methods() {
@@ -198,10 +198,10 @@ void AIChatBlock::change_panel_color(const Color &new_color){
 
 
 void AIChatBlock::set_tool_content(const String &p_text){
-    tool_content->set_visible(true)
+    tool_content->set_visible(true);
     tool_content->set_text(p_text);
 }
-void AIChatBlock::set_final_reason_content(const String &p_text){
+void AIChatBlock::set_final_answer_content(const String &p_text){
     final_answer_content->set_visible(true);
     final_answer_content->set_text(p_text);
 }

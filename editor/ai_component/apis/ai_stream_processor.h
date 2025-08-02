@@ -29,6 +29,7 @@ public:
 
 	String process_stream_data(const String& new_data);
 	const HashMap<String, String>& get_tag_contents() const;
+	Dictionary get_tag_contents_as_dict() const;
 	const String& get_tag_content(const String& tag_name) const;
 	const String& get_current_tag_name() const;
 	const String& get_current_tag_content() const;

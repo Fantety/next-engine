@@ -4,9 +4,10 @@
  * @Descripttion: Example MCP Tool implementation for Godot Engine
  * @Date: 2025-07-14
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-14
+ * @LastEditTime: 2025-08-02 21:10:08
  */
 #include "example_tool.h"
+#include "core/io/json.h"
 
 void ExampleTool::_bind_methods() {
     // 这里可以绑定特定于示例工具的方法
