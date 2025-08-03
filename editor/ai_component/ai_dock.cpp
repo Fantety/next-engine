@@ -14,37 +14,48 @@ void AIDock::_notification(int p_what) {
     }
 }
 
-// 在 ai_dock.cpp 中
-void AIDock::send_or_retry_message(bool is_retry) {
-    current_tool_str = "";
+void AIDock::_send_message(MsgSendType send_type) {
     int tab_index = this->get_current_tab();
-    String message = "<question>" + (tab_index==1?chat_input_panel->get_input_text():history_input_panel->get_input_text()) + "</question>";
+    String message = (tab_index==1?chat_input_panel->get_input_text():history_input_panel->get_input_text());
     String selected_model = tab_index==1?chat_input_panel->get_model():history_input_panel->get_model();
     int selected_index = tab_index==1?chat_input_panel->get_model_index():history_input_panel->get_model_index();
-    if (message.strip_edges().is_empty()&&!is_retry) {
-        ERR_PRINT("Message is empty, returning");
-        return;
-    }
-    if (!is_retry && chat_blocks.size()==0 && tab_index==1) {
-        current_chat_uid = generate_uuid();
-        chat_manager.create_new_chat(current_chat_uid, message);
-    } else if (!is_retry && tab_index==0) {
-        current_chat_uid = generate_uuid();
-        chat_manager.create_new_chat(current_chat_uid, message);
-        delete_all_blocks();
-        set_current_tab(1);
-        chat_input_panel->set_model(selected_index);
-        load_historys();
+    switch (send_type)
+    {
+        case AIDock::MSG_SEND_TYPE_NORMAL:{
+            if (message.strip_edges().is_empty()) {
+                ERR_PRINT("Message is empty, returning");
+                return;
+            }
+            if (chat_blocks.size()==0 && tab_index==1) {
+                current_chat_uid = generate_uuid();
+                chat_manager.create_new_chat(current_chat_uid, message);
+            } else if (tab_index==0) {
+                current_chat_uid = generate_uuid();
+                chat_manager.create_new_chat(current_chat_uid, message);
+                delete_all_blocks();
+                set_current_tab(1);
+                chat_input_panel->set_model(selected_index);
+            }
+            _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_USER, message, "", "");
+            chat_manager.add_user_chat(current_chat_uid, "<question>" + message+ "</question>");
+            chat_input_panel->clear_text();
+            history_input_panel->clear_text();
+            break;
+        }
+        case AIDock::MSG_SEND_TYPE_RETRY:{
+            /* code */
+            break;
+        }
+        case AIDock::MSG_SEND_TYPE_TOOL:{
+            /* code */
+            break;
+        }
+        default:
+            break;
     }
     chat_input_panel->set_button_enabled(false);
     history_input_panel->set_button_enabled(false);
     chat_input_panel->set_loading_bar_visible(true);
-    if (!is_retry) {
-        _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_USER, message, "", "");
-        chat_manager.add_user_chat(current_chat_uid, message);
-        chat_input_panel->clear_text();
-        history_input_panel->clear_text();
-    }
     switch ((AIChatBlock::ChatType)AIStreamingBase::AIStringName[selected_model]) {
         case AIStreamingBase::DEEPSEEK_CHAT: {
             String apikey = EditorSettings::get_singleton()->get("deepseek/api_key");
@@ -67,12 +78,8 @@ void AIDock::send_or_retry_message(bool is_retry) {
     }
 }
 
-void AIDock::_send_message() {
-    send_or_retry_message(false);
-}
-
-void AIDock::_retry_message() {
-    send_or_retry_message(true);
+void AIDock::_send_normal_message(){
+    _send_message(AIDock::MSG_SEND_TYPE_NORMAL);
 }
 
 void AIDock::_toggle_mcp_server(bool p_toggled) {
@@ -103,6 +110,9 @@ void AIDock::_create_chat_block(AIChatBlock::ChatType chat_type, const String& t
         block->connect("retry_pressed", callable_mp(this, &AIDock::on_retry_pressed));
         if(chat_type==AIChatBlock::ChatType::AI_CHAT_TYPE_USER){
             block->set_text(thought);
+            block->set_tool_content(tool);
+            block->set_final_answer_content(final_answer);
+            block_create_flag = true;
         }
         else if(chat_type==AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT){
             block->set_text(thought);
@@ -112,15 +122,23 @@ void AIDock::_create_chat_block(AIChatBlock::ChatType chat_type, const String& t
             if(!final_answer.is_empty()){
                 block->set_final_answer_content(final_answer);
             }
+            block_create_flag = false;
         }
         else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_ERROR){
             block->set_text(thought);
+            block_create_flag = true;
+        }
+        else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_TOOL){
+            block->set_text(thought);
+            block_create_flag = true;
         }
         else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_MESSAGE){
             block->set_text(thought);
+            block_create_flag = true;
         }
         else if(chat_type==AIChatBlock::ChatType::AI_CHAT_SYS_WARNING){
             block->set_text(thought);
+            block_create_flag = true;
         }
         chat_sum++;
         current_chat_index++;
@@ -157,26 +175,21 @@ void AIDock::_add_reason_message(const String &message, int block_index){
 }
 
 void AIDock::on_streaming_response(String content, String finish_reason) {
-    if(finish_reason.is_empty()){
+    if(finish_reason.contains("stop")){
         chat_manager.add_assistant_chat(current_chat_uid, stream_processor->get_full_content());
+        String tool = stream_processor->get_tag_content("tool");
+        engine_operator->add_tool_with_parse(tool);
+        stream_processor->reset();
         on_request_completed(AIStreamingBase::NORMAL_CHAT);
-        if(!current_tool_str.is_empty()){
-            engine_operator->add_tool_with_parse(current_tool_str);
-            on_request_completed(AIStreamingBase::TOOL_CHAT);
-        }
     }
     else{
         if (!content.is_empty()) {
             stream_processor->process_stream_data(content);
-            // 获取特定标签的内容
             String thought = stream_processor->get_tag_content("thought");
             String tool = stream_processor->get_tag_content("tool");
             String final_answer = stream_processor->get_tag_content("final_answer");
-            if(!thought.is_empty()){
+            if(!thought.is_empty() || !tool.is_empty() || !final_answer.is_empty()){
                 _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, thought, tool, final_answer);
-            }
-            if(!tool.is_empty()){
-                current_tool_str = tool;
             }
         }
     }
@@ -188,44 +201,40 @@ void AIDock::on_data_start(){
 
 void AIDock::on_request_completed(int chat_flag){
     block_create_flag = true;
-    //print_line("on_request_completed");
     if(chat_flag == AIStreamingBase::NORMAL_CHAT){
-        print_line("on_request_completed: AIStreamingBase::NORMAL_CHAT");
         openai_api->cancel_request();
         chat_input_panel->set_button_enabled(true);
         history_input_panel->set_button_enabled(true);
-        if(current_chat_index<chat_blocks.size()&&current_chat_index!=-1){
-            chat_manager.add_assistant_chat(current_chat_uid, chat_blocks[current_chat_index]->get_text());
-        }
+        chat_input_panel->set_loading_bar_visible(false);
         chat_manager.save_chats();
-        if(!engine_operator->is_empty()){
-            chat_flag = AIStreamingBase::TOOL_CHAT;
+        String tool_name = engine_operator->get_tool_name();
+        String tool_result = engine_operator->get_tool_result();
+        if(tool_result == "null"){
+            return;
+        }else{
+            chat_manager.add_user_chat(current_chat_uid, tool_result);
+            chat_input_panel->set_button_enabled(false);
+            history_input_panel->set_button_enabled(false);
+            chat_input_panel->set_loading_bar_visible(true);
+            _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_TOOL, tool_name + ": Execution completed.", "", "");
+            chat_manager.add_sys_chat(current_chat_uid, tool_name+"Execution completed.", "sys_info");
+            _send_message(AIDock::MSG_SEND_TYPE_TOOL);
         }
     }
-    if(chat_flag == AIStreamingBase::TOOL_CHAT){
-        print_line("on_request_completed: AIStreamingBase::TOOL_CHAT");
-        if(engine_operator->is_empty()) return;
-        else{
-            Dictionary dict = engine_operator->get_tool_result();
-            chat_manager.add_tool_chat(current_chat_uid, dict);
-            openai_api->cancel_request();
-            _retry_message();
-        }
-    }
-    if(chat_flag == AIStreamingBase::ERR_CHAT){
+    else if(chat_flag == AIStreamingBase::ERR_CHAT){
         ERR_PRINT("API Request END ERROR");
         _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_ERROR, "Something unexpected happened.", "", "");
         chat_manager.add_sys_chat(current_chat_uid, "Something unexpected happened.", "sys_error");
         chat_input_panel->set_button_enabled(true);
         history_input_panel->set_button_enabled(true);
     }
-    if(chat_flag == AIStreamingBase::ERR_NETWORK){
+    else if(chat_flag == AIStreamingBase::ERR_NETWORK){
         _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_ERROR, "Please check the network connection!", "", "");
         chat_manager.add_sys_chat(current_chat_uid, "Please check the network connection!", "sys_error");
         chat_input_panel->set_button_enabled(true);
         history_input_panel->set_button_enabled(true);
     }
-    if(chat_flag == AIStreamingBase::ERR_TIMEOUT){
+    else if(chat_flag == AIStreamingBase::ERR_TIMEOUT){
         _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_ERROR, "Request timed out.", "", "");
         chat_manager.add_sys_chat(current_chat_uid, "Request timed out.", "sys_error");
         chat_input_panel->set_button_enabled(true);
@@ -276,7 +285,7 @@ void AIDock::confirm_retry(){
         case AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT:{
             Array prompt = chat_manager.get_chat_before_index(current_chat_uid, retry_block_index);
             delete_blocks_after_index(retry_block_index);
-            _retry_message();
+            _send_message(AIDock::MSG_SEND_TYPE_RETRY);
             break;
         }
         default:
@@ -326,34 +335,19 @@ void AIDock::on_history_button_pressed(String uuid){
         Dictionary temp_dict = temp_array[i];
         String role = temp_dict["role"];
         String content = temp_dict["content"];
-
+        stream_processor->parse_full_xml(content);
         if(role == "user"){
-            _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_USER, content, "", "");
-        }else if(role == "assistant"){
-            if (temp_dict.has("tool_calls") && temp_dict["tool_calls"].get_type() == Variant::ARRAY){
-                Array tool_calls = temp_dict["tool_calls"];
-                String tools_text;
-                for (int i = 0; i < tool_calls.size(); i++) {
-                    if (tool_calls[i].get_type() == Variant::DICTIONARY) {
-                        Dictionary tool = tool_calls[i];
-                        if (tool.has("function") && tool["function"].get_type() == Variant::DICTIONARY) {
-                            Dictionary function = tool["function"];
-                            String name = function.get("name", "");
-                            String arguments = function.get("arguments", "");
-                            String tool_text = "[Tool: " + name + "] [Arguments: " + arguments+"]";
-                            tools_text += tool_text + "\n";
-                        }
-                    }
-                }
-                _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, tools_text, "", "");
-            }else{
-                _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, content, "", "");
+            String question = stream_processor->get_tag_content("question");
+            if(question!=""){
+                _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_USER, question, "", "");
             }
-        }else if(role == "tool"){
-            String call_id = temp_dict["tool_call_id"];
-            String text = "Complete execute: " + call_id;
-            _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_TOOL, text, "", "");
-        }else if(role == "sys_tool"){
+        }
+        else if(role == "assistant"){
+            String thought = stream_processor->get_tag_content("thought");
+            String tool = stream_processor->get_tag_content("tool");
+            String final_answer = stream_processor->get_tag_content("final_answer");
+            _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_ASSISTANT, thought, tool, final_answer);
+        }else if(role == "sys_info"){
             _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_TOOL, content, "", "");
         }else if(role == "sys_error"){
             _create_chat_block(AIChatBlock::ChatType::AI_CHAT_SYS_ERROR, content, "", "");
@@ -367,10 +361,18 @@ void AIDock::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_send_message"), &AIDock::_send_message);
     ClassDB::bind_method(D_METHOD("_add_message", "message", "block_index"), &AIDock::_add_message);  // 修正参数数量
     ClassDB::bind_method(D_METHOD("_toggle_mcp_server", "toggled"), &AIDock::_toggle_mcp_server);
+
+    BIND_ENUM_CONSTANT(MSG_SEND_TYPE_NORMAL);
+    BIND_ENUM_CONSTANT(MSG_SEND_TYPE_TOOL);
+    BIND_ENUM_CONSTANT(MSG_SEND_TYPE_RETRY);
 }
 
 AIDock::AIDock() {
     print_line("AIDock Init Start");
+    chat_input_panel = memnew(AIChatPanel);
+    history_input_panel = memnew(AIChatPanel);
+    chat_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_normal_message));
+    history_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_normal_message));
     
     // 创建MCP开关按钮
     mcp_toggle_button = memnew(CheckButton);

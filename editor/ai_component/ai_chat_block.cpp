@@ -198,10 +198,19 @@ void AIChatBlock::change_panel_color(const Color &new_color){
 
 
 void AIChatBlock::set_tool_content(const String &p_text){
-    tool_content->set_visible(true);
+    if(p_text.length()<1){
+        tool_content->set_visible(false);
+    }else{
+        tool_content->set_visible(true);
+    }
     tool_content->set_text(p_text);
 }
 void AIChatBlock::set_final_answer_content(const String &p_text){
-    final_answer_content->set_visible(true);
+    if(p_text.length()<1){
+        final_answer_content->set_visible(false);
+    }
+    else{
+        final_answer_content->set_visible(true);
+    }
     final_answer_content->set_text(p_text);
 }

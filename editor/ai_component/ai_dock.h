@@ -33,6 +33,11 @@
 
 class AIDock : public TabContainer {
     GDCLASS(AIDock, TabContainer);
+    enum MsgSendType{
+        MSG_SEND_TYPE_NORMAL = 0,
+        MSG_SEND_TYPE_TOOL,
+        MSG_SEND_TYPE_RETRY,
+    };
 private:
 
     VBoxContainer *history_view = nullptr;
@@ -49,7 +54,6 @@ private:
     AIStreamProcessor *stream_processor = nullptr;
 
     String current_ai_response;
-    String current_tool_str;
     int current_chat_index = -1;
     int chat_sum = 0;
     AIAcceptDialog* accept_dialog = nullptr;
@@ -64,8 +68,8 @@ private:
     int retry_block_index = 0;
 
     bool block_create_flag = true;
-    void _send_message();
-    void _retry_message();
+    void _send_message(MsgSendType send_type);
+    void _send_normal_message();
     void _toggle_mcp_server(bool p_toggled);
     void _add_message(const String &message, int block_index);
     void _add_reason_message(const String &message, int block_index);
@@ -77,7 +81,6 @@ private:
     void on_request_completed(int chat_flag);
     void on_retry_pressed(int chat_type, int block_index);
     void on_history_button_pressed(String uuid);
-    void send_or_retry_message(bool is_retry);
 
 
     void confirm_retry();
@@ -93,5 +96,7 @@ public:
     AIDock();
     static AIDock* get_singleton();
 };
+ 
+VARIANT_ENUM_CAST(AIDock::MsgSendType)
 
 #endif // AI_DOCK_H

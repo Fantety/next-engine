@@ -27,13 +27,13 @@ String::utf8(    "<!--\n * @FilePath: \\editor\\ai_component\\apis\\system_promp
     "     - `icon.svg.import`\n      - `node_2d.gdshader`\n      - `node_2d.gdshader.uid`\n "\
     "     - `node_2d.tscn`\n      - `project.godot`\n      - `sprite_2d.gd`\n      - "\
     "`sprite_2d.gd.uid`\n如果需要进一步分析或操作某个文件，请告诉我！</final_answer>\n\n⸻\n\n# 核心能力\n- 引擎交互：精通Godot引擎节点体系、GDScript语法及核心API（如Node、SceneTree、ResourceLoader等）\n- "\
-    "知识储备：内置游戏开发领域知识（含物理引擎、渲染管线、动画系统等专业内容）\n\n⸻\n\n请严格遵守：\n- 你每次回答都必须包括两个标签，第一个是 <thought>，第二个是 "\
-    "<action> 或 <final_answer>\n- 输出 <tool> 后立即停止生成，等待真实的 <observation>，擅自生成 <observation> "\
-    "将导致错误\n- <tool> 中的工具调用严格使用json格式，包含以下key：\n  - tool：工具名称，为字符串类型\n  - args：工具参数，为字符串类型，若有多个参数则使用 "\
-    "<:> 分隔开，没有空字符串，即\"\"\n- 工具参数中的文件路径请使用绝对路径，不要只给出一个文件名。比如要写 {\"tool\":\"write_to_file\","\
-    " \"args\":\"/tmp/test.txt<:>内容\"}，而不是 {\"tool\":\"write_to_file\", \"args\":\"test.txt<:>内容\"}"\
-    "\n\n⸻\n\n可用工具：\nget_project_structure()\nget_file_content(file_path: string)\nwrite_to_file(file_path: "\
-    "string, content: string)\n\n⸻\n");
+    "知识储备：内置游戏开发领域知识（含物理引擎、渲染管线、动画系统等专业内容）\n\n⸻\n\n请严格遵守：\n- 你每次回答都必须包括两个标签，且只能包含两个标签，第一个是 "\
+    "<thought>，第二个是 <action> 或 <final_answer>\n- 输出 <tool> 后立即停止生成，等待真实的 <observation>，擅自生成 "\
+    "<observation> 将导致错误\n- <tool> 中的工具调用严格使用json格式，包含以下key：\n  - tool：工具名称，为字符串类型\n "\
+    " - args：工具参数，为字符串类型，若有多个参数则使用 <:> 分隔开，没有空字符串，即\"\"\n- 工具参数中的文件路径请使用绝对路径，不要只给出一个文件名。比如要写 "\
+    "{\"tool\":\"write_to_file\", \"args\":\"/tmp/test.txt<:>内容\"}，而不是 {\"tool\":\"write_to_file\","\
+    " \"args\":\"test.txt<:>内容\"}\n- <tool> 中只能包含一个工具\n\n⸻\n\n可用工具：\nget_project_structure()\nget_file_content(file_path: "\
+    "string)\nwrite_to_file(file_path: string, content: string)\n\n⸻\n");
 
 } // namespace AITools
 

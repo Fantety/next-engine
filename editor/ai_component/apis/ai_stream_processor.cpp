@@ -1,298 +1,198 @@
-/*
- * @FilePath: \editor\ai_component\apis\ai_stream_processor.cpp
- * @Author: Fantety
- * @Descripttion: 
- * @Date: 2025-08-02 12:01:38
- * @LastEditors: Fantety
- * @LastEditTime: 2025-08-02 21:36:50
- */
 #include "ai_stream_processor.h"
+
 #include "core/string/ustring.h"
 #include "core/templates/hash_map.h"
-#include "core/templates/vector.h"
-
-#include <cstring>  // For memcpy
+#include "core/variant/dictionary.h"
 
 AIStreamProcessor::AIStreamProcessor() {
-    xml_parser.instantiate();
-    reset();
+	tracked_tags.push_back("thought");
+	tracked_tags.push_back("final_answer");
+	tracked_tags.push_back("tool");
+	reset();
 }
 
 void AIStreamProcessor::_bind_methods() {
-    // 绑定方法
-    ClassDB::bind_method(D_METHOD("process_stream_data", "new_data"), &AIStreamProcessor::process_stream_data);
-    ClassDB::bind_method(D_METHOD("get_tag_contents_as_dict"), &AIStreamProcessor::get_tag_contents_as_dict);
-    ClassDB::bind_method(D_METHOD("get_tag_content", "tag_name"), &AIStreamProcessor::get_tag_content);
-    ClassDB::bind_method(D_METHOD("get_current_tag_name"), &AIStreamProcessor::get_current_tag_name);
-    ClassDB::bind_method(D_METHOD("get_current_tag_content"), &AIStreamProcessor::get_current_tag_content);
-    ClassDB::bind_method(D_METHOD("get_full_content"), &AIStreamProcessor::get_full_content);
-    ClassDB::bind_method(D_METHOD("reset"), &AIStreamProcessor::reset);
+	ClassDB::bind_method(D_METHOD("process_stream_data", "new_data"), &AIStreamProcessor::process_stream_data);
+	ClassDB::bind_method(D_METHOD("parse_full_xml", "xml_data"), &AIStreamProcessor::parse_full_xml);
+	ClassDB::bind_method(D_METHOD("get_tag_contents_as_dict"), &AIStreamProcessor::get_tag_contents_as_dict);
+	ClassDB::bind_method(D_METHOD("get_tag_content", "tag_name"), &AIStreamProcessor::get_tag_content);
+	ClassDB::bind_method(D_METHOD("get_current_tag_name"), &AIStreamProcessor::get_current_tag_name);
+	ClassDB::bind_method(D_METHOD("get_current_tag_content"), &AIStreamProcessor::get_current_tag_content);
+	ClassDB::bind_method(D_METHOD("get_full_content"), &AIStreamProcessor::get_full_content);
+	ClassDB::bind_method(D_METHOD("reset"), &AIStreamProcessor::reset);
 }
 
 String AIStreamProcessor::process_stream_data(const String& new_data) {
-    // 将新数据添加到累积内容中
-    accumulated_content += new_data;
-    
-    // 将新数据添加到缓冲区
-    buffer_data += new_data;
-    
-    // 尝试解析缓冲区中的数据
-    parse_buffer();
-    
-    return accumulated_content;
+	// 将新数据添加到累积内容中
+	accumulated_data += new_data;
+	
+	// 处理数据以提取标签内容
+	int pos = 0;
+	
+	while (pos < accumulated_data.length()) {
+		// 查找下一个标签开始位置
+		int tag_start = find_tag_start(accumulated_data, pos);
+		
+		// 如果没有找到标签开始位置，处理剩余内容
+		if (tag_start == -1) {
+			// 如果当前在标签内，将剩余内容添加到当前标签内容中
+			if (!current_open_tag.is_empty()) {
+				String remaining_content = accumulated_data.substr(pos);
+				current_tag_content += remaining_content;
+				update_tag_content(current_open_tag, current_tag_content);
+			}
+			break;
+		}
+		
+		// 处理标签前的文本内容
+		if (tag_start > pos) {
+			String text_content = accumulated_data.substr(pos, tag_start - pos);
+			if (!current_open_tag.is_empty()) {
+				current_tag_content += text_content;
+				update_tag_content(current_open_tag, current_tag_content);
+			}
+		}
+		
+		// 查找标签结束位置
+		int tag_end = find_tag_end(accumulated_data, tag_start);
+		
+		// 如果没有找到标签结束位置，说明标签未完整，等待更多数据
+		if (tag_end == -1) {
+			// 如果当前在标签内，将标签前的内容添加到当前标签内容中
+			if (!current_open_tag.is_empty()) {
+				String partial_content = accumulated_data.substr(pos, tag_start - pos);
+				current_tag_content += partial_content;
+				update_tag_content(current_open_tag, current_tag_content);
+			}
+			break;
+		}
+		
+		// 提取标签内容
+		String tag_content = accumulated_data.substr(tag_start + 1, tag_end - tag_start - 1);
+		
+		// 处理标签
+		if (is_closing_tag(tag_content)) {
+			// 处理闭合标签
+			String tag_name = extract_tag_name(tag_content.substr(1)); // 移除 '/' 字符
+			
+			// 如果是当前打开的标签，则保存内容
+			if (tag_name == current_open_tag) {
+				update_tag_content(current_open_tag, current_tag_content);
+				current_open_tag = "";
+				current_tag_content = "";
+			}
+		} else if (is_self_closing_tag(tag_content)) {
+			// 处理自闭合标签
+			String tag_name = extract_tag_name(tag_content);
+			// 对于自闭合标签，我们将其内容设置为空字符串
+			if (is_tag_tracked(tag_name)) {
+				tag_contents[tag_name] = "";
+			}
+		} else {
+			// 处理开始标签
+			String tag_name = extract_tag_name(tag_content);
+			
+			// 如果是受跟踪的标签
+			if (is_tag_tracked(tag_name)) {
+				// 保存之前标签的内容
+				if (!current_open_tag.is_empty()) {
+					update_tag_content(current_open_tag, current_tag_content);
+				}
+				
+				// 设置新标签
+				current_open_tag = tag_name;
+				current_tag_content = "";
+			}
+		}
+		
+		pos = tag_end + 1;
+	}
+	
+	return accumulated_data;
 }
 
-void AIStreamProcessor::process_tag_open(const String& tag_name) {
-    // 保存当前标签内容到标签内容映射中
-    if (!current_tag.is_empty()) {
-        tag_contents[current_tag] = current_tag_content;
-    }
-    
-    // 设置新标签
-    current_tag = tag_name;
-    current_tag_content = "";
-}
-
-void AIStreamProcessor::process_tag_close() {
-    // 保存当前标签内容到标签内容映射中
-    if (!current_tag.is_empty()) {
-        tag_contents[current_tag] = current_tag_content;
-    }
-    // 重置当前标签
-    current_tag = "";
-    current_tag_content = "";
-}
-
-void AIStreamProcessor::process_content(const String& content) {
-    // 将内容添加到当前标签内容中
-    if (!current_tag.is_empty()) {
-        current_tag_content += content;
-    }
+void AIStreamProcessor::parse_full_xml(const String& xml_data) {
+	// 重置当前状态
+	reset();
+	
+	// 使用现有的流式处理逻辑来解析完整的XML
+	process_stream_data(xml_data);
 }
 
 const HashMap<String, String>& AIStreamProcessor::get_tag_contents() const {
-    return tag_contents;
-}
-
-const String& AIStreamProcessor::get_tag_content(const String& tag_name) const {
-    static const String empty_string = "";
-    HashMap<String, String>::ConstIterator it = tag_contents.find(tag_name);
-    if (it != tag_contents.end()) {
-        return it->value;
-    }
-    return empty_string;
-}
-
-const String& AIStreamProcessor::get_current_tag_name() const {
-    return current_tag;
-}
-
-const String& AIStreamProcessor::get_current_tag_content() const {
-    return current_tag_content;
-}
-
-const String& AIStreamProcessor::get_full_content() const {
-    return accumulated_content;
-}
-
-void AIStreamProcessor::reset() {
-    accumulated_content = "";
-    tag_contents.clear();
-    current_tag = "";
-    current_tag_content = "";
-    buffer_data = "";
-}
-
-bool AIStreamProcessor::parse_buffer() {
-    // 只有当缓冲区数据足够长时才尝试解析
-    if (buffer_data.length() < 5) {  // 至少需要一些字符才能构成有效的标签
-        return false;
-    }
-    
-    // 检查缓冲区是否包含至少一个完整的标签对
-    // 寻找第一个开始标签
-    int first_open_tag_pos = buffer_data.find("<");
-    if (first_open_tag_pos == -1) {
-        // 没有找到开始标签，可能是纯文本内容
-        return false;
-    }
-    
-    // 寻找第一个结束标签
-    int first_close_tag_pos = buffer_data.find(">", first_open_tag_pos);
-    if (first_close_tag_pos == -1) {
-        // 没有找到结束标签，说明标签不完整
-        // 检查是否有部分标签内容可以处理
-        if (first_open_tag_pos + 1 < buffer_data.length()) {
-            String partial_tag = buffer_data.substr(first_open_tag_pos + 1);
-            // 如果部分标签看起来像是我们关心的标签，暂时不处理，等待完整标签
-            if (partial_tag.begins_with("question") || partial_tag.begins_with("thought") || 
-                partial_tag.begins_with("tool") || partial_tag.begins_with("observation") || 
-                partial_tag.begins_with("final_answer")) {
-                // 对于特定标签，即使不完整也要处理其内容
-                // 检查是否有标签内容可以处理
-                String tag_content = buffer_data.substr(first_open_tag_pos + 1 + partial_tag.length());
-                if (!tag_content.is_empty()) {
-                    // 处理部分标签内容
-                    process_tag_open(partial_tag);
-                    process_content(tag_content);
-                }
-                return false;
-            }
-        }
-        // 不是特定标签的部分内容，移除这部分数据
-        buffer_data = buffer_data.substr(first_open_tag_pos + 1);
-        return false;
-    }
-    
-    // 提取标签名
-    String first_tag_content = buffer_data.substr(first_open_tag_pos + 1, first_close_tag_pos - first_open_tag_pos - 1);
-    
-    // 处理标签名中可能包含的属性
-    int first_space_pos = first_tag_content.find(" ");
-    if (first_space_pos != -1) {
-        first_tag_content = first_tag_content.substr(0, first_space_pos);
-    }
-    
-    // 检查是否为自闭合标签
-    if (first_tag_content.ends_with("/")) {
-        first_tag_content = first_tag_content.substr(0, first_tag_content.length() - 1);
-        // 检查是否为特定标签
-        if (first_tag_content != "question" && first_tag_content != "thought" && first_tag_content != "tool" && 
-            first_tag_content != "observation" && first_tag_content != "final_answer") {
-            // 不是特定标签，移除这部分数据并返回
-            buffer_data = buffer_data.substr(first_close_tag_pos + 1);
-            return true;
-        }
-        
-        // 自闭合标签，可以直接处理
-        // 使用XMLParser处理缓冲区数据
-        Vector<uint8_t> buffer;
-        CharString utf8_data = buffer_data.utf8();
-        buffer.resize(utf8_data.length());
-        memcpy(buffer.ptrw(), utf8_data.get_data(), utf8_data.length());
-        
-        // 创建一个新的XMLParser实例来处理这部分数据
-        Ref<XMLParser> parser;
-        parser.instantiate();
-        parser->_open_buffer(buffer.ptr(), buffer.size());
-        
-        // 解析XML数据
-        while (parser->read() == OK) {
-            switch (parser->get_node_type()) {
-                case XMLParser::NODE_ELEMENT: {
-                    String tag_name = parser->get_node_name();
-                    // 检查是否为特定标签
-                    if (tag_name == "question" || tag_name == "thought" || tag_name == "tool" || 
-                        tag_name == "observation" || tag_name == "final_answer") {
-                        process_tag_open(tag_name);
-                    }
-                    break;
-                }
-                case XMLParser::NODE_ELEMENT_END: {
-                    String tag_name = parser->get_node_name();
-                    // 检查是否为特定标签的结束
-                    if (tag_name == "question" || tag_name == "thought" || tag_name == "tool" || 
-                        tag_name == "observation" || tag_name == "final_answer") {
-                        process_tag_close();
-                    }
-                    break;
-                }
-                case XMLParser::NODE_TEXT: {
-                    String text = parser->get_node_data();
-                    process_content(text);
-                    break;
-                }
-                default:
-                    break;
-            }
-        }
-        
-        // 清空缓冲区
-        buffer_data = "";
-        return true;
-    }
-    
-    // 检查是否为特定标签
-    if (first_tag_content != "question" && first_tag_content != "thought" && first_tag_content != "tool" && 
-        first_tag_content != "observation" && first_tag_content != "final_answer") {
-        // 不是特定标签，移除这部分数据并返回
-        buffer_data = buffer_data.substr(first_close_tag_pos + 1);
-        return true;
-    }
-    
-    // 非自闭合标签，需要寻找对应的结束标签
-    String closing_tag = "</" + first_tag_content + ">";
-    int closing_tag_pos = buffer_data.find(closing_tag, first_close_tag_pos);
-    
-    if (closing_tag_pos == -1) {
-        // 没有找到对应的结束标签，说明数据不完整
-        // 检查是否有标签内容可以处理
-        String tag_content = buffer_data.substr(first_close_tag_pos + 1);
-        if (!tag_content.is_empty()) {
-            // 处理部分标签内容
-            process_tag_open(first_tag_content);
-            process_content(tag_content);
-        }
-        // 保留开始标签和内容，但移除已处理的内容
-        buffer_data = buffer_data.substr(0, first_close_tag_pos + 1) + tag_content;
-        return false;
-    }
-    
-    // 找到了完整的标签对，可以处理这部分数据
-    String complete_data = buffer_data.substr(0, closing_tag_pos + closing_tag.length());
-    
-    // 使用XMLParser处理完整数据
-    Vector<uint8_t> buffer;
-    CharString utf8_data = complete_data.utf8();
-    buffer.resize(utf8_data.length());
-    memcpy(buffer.ptrw(), utf8_data.get_data(), utf8_data.length());
-    
-    // 创建一个新的XMLParser实例来处理这部分数据
-    Ref<XMLParser> parser;
-    parser.instantiate();
-    parser->_open_buffer(buffer.ptr(), buffer.size());
-    
-    // 解析XML数据
-    while (parser->read() == OK) {
-        switch (parser->get_node_type()) {
-            case XMLParser::NODE_ELEMENT: {
-                String tag_name = parser->get_node_name();
-                // 检查是否为特定标签
-                if (tag_name == "question" || tag_name == "thought" || tag_name == "tool" || 
-                    tag_name == "observation" || tag_name == "final_answer") {
-                    process_tag_open(tag_name);
-                }
-                break;
-            }
-            case XMLParser::NODE_ELEMENT_END: {
-                String tag_name = parser->get_node_name();
-                // 检查是否为特定标签的结束
-                if (tag_name == "question" || tag_name == "thought" || tag_name == "tool" || 
-                    tag_name == "observation" || tag_name == "final_answer") {
-                    process_tag_close();
-                }
-                break;
-            }
-            case XMLParser::NODE_TEXT: {
-                String text = parser->get_node_data();
-                process_content(text);
-                break;
-            }
-            default:
-                break;
-        }
-    }
-    
-    // 更新缓冲区，保留未处理的数据
-    buffer_data = buffer_data.substr(closing_tag_pos + closing_tag.length());
-    
-    return true;
+	return tag_contents;
 }
 
 Dictionary AIStreamProcessor::get_tag_contents_as_dict() const {
-	Dictionary dict;
+	Dictionary result;
 	for (const KeyValue<String, String> &E : tag_contents) {
-		dict[E.key] = E.value;
+		result[E.key] = E.value;
 	}
-	return dict;
+	return result;
+}
+
+const String& AIStreamProcessor::get_tag_content(const String& tag_name) const {
+	static const String empty_string = "";
+	HashMap<String, String>::ConstIterator it = tag_contents.find(tag_name);
+	if (it != tag_contents.end()) {
+		return it->value;
+	}
+	return empty_string;
+}
+
+const String& AIStreamProcessor::get_current_tag_name() const {
+	return current_open_tag;
+}
+
+const String& AIStreamProcessor::get_current_tag_content() const {
+	return current_tag_content;
+}
+
+const String& AIStreamProcessor::get_full_content() const {
+	return accumulated_data;
+}
+
+void AIStreamProcessor::reset() {
+	accumulated_data = "";
+	tag_contents.clear();
+	current_open_tag = "";
+	current_tag_content = "";
+}
+
+bool AIStreamProcessor::is_tag_tracked(const String& tag_name) const {
+	for (int i = 0; i < tracked_tags.size(); i++) {
+		if (tracked_tags[i] == tag_name) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void AIStreamProcessor::update_tag_content(const String& tag_name, const String& content) {
+	if (is_tag_tracked(tag_name)) {
+		tag_contents[tag_name] = content;
+	}
+}
+
+int AIStreamProcessor::find_tag_start(const String& data, int start_pos) const {
+	return data.find("<", start_pos);
+}
+
+int AIStreamProcessor::find_tag_end(const String& data, int start_pos) const {
+	return data.find(">", start_pos);
+}
+
+String AIStreamProcessor::extract_tag_name(const String& tag_content) const {
+	// 查找第一个空格或结束字符的位置
+	int space_pos = tag_content.find(" ");
+	int end_pos = (space_pos != -1) ? space_pos : tag_content.length();
+	return tag_content.substr(0, end_pos);
+}
+
+bool AIStreamProcessor::is_closing_tag(const String& tag_content) const {
+	return tag_content.begins_with("/");
+}
+
+bool AIStreamProcessor::is_self_closing_tag(const String& tag_content) const {
+	return tag_content.ends_with("/");
 }

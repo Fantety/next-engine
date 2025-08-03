@@ -190,9 +190,6 @@ void OpenAIRequestHandler::_on_timeout() {
 void OpenAIRequestHandler::_bind_methods() {
     ClassDB::bind_method(D_METHOD("send_streaming_request", "prompt"), &OpenAIRequestHandler::send_streaming_request);
     ClassDB::bind_method(D_METHOD("cancel_request"), &OpenAIRequestHandler::cancel_request);
-    ClassDB::bind_method(D_METHOD("set_apikey", "key"), &OpenAIRequestHandler::set_apikey);
-    ClassDB::bind_method(D_METHOD("set_model", "modelName"), &OpenAIRequestHandler::set_model);
-    ClassDB::bind_method(D_METHOD("set_timeout", "seconds"), &OpenAIRequestHandler::set_timeout);
     ADD_SIGNAL(MethodInfo("openai_data_start"));
     ADD_SIGNAL(MethodInfo("openai_request_start"));
     ADD_SIGNAL(MethodInfo("openai_request_end"));

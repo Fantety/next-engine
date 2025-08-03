@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-07-10 18:34:02
  * @LastEditors: Fantety
- * @LastEditTime: 2025-07-14 10:27:47
+ * @LastEditTime: 2025-08-03 16:34:16
  */
 #include "ai_chat_manager.h"
 #include "core/io/json.h"
@@ -91,7 +91,7 @@ Array AIChatManager::get_chat(const String& uid){
     Array temp_data;
     for(int i=0;i<array_data.size();i++){
         Dictionary temp = array_data[i];
-        if(temp["role"]=="user"||temp["role"]=="assistant"||temp["role"]=="tool"){
+        if(temp["role"]=="user"||temp["role"]=="assistant"){
             temp_data.push_back(temp);
         }
     }
@@ -112,7 +112,7 @@ Array AIChatManager::get_chat_before_index(const String& uid, int index){
     }
     d_data["chats"] = temp_array;
     chat_datas[uid] = d_data;
-    return temp_array;
+    return get_chat(uid);
 }
 
 

@@ -4,7 +4,7 @@
  * @Descripttion: 
  * @Date: 2025-07-10 18:34:02
  * @LastEditors: Fantety
- * @LastEditTime: 2025-08-02 21:05:50
+ * @LastEditTime: 2025-08-03 16:02:00
  */
 #include "engine_operator.h"
 #include "editor/ai_component/tools/string_tag_wrapper.h"
@@ -27,6 +27,9 @@ void EngineOperator::add_tool(String tool_name, Array tool_arguments){
 }
 
 void EngineOperator::add_tool_with_parse(const String& tool_data){
+    if(tool_data == ""||tool_data.is_empty()){
+        return;
+    }
     // 解析JSON格式的工具调用字符串
     // 例如: {"tool":"write_to_file", "args":"/tmp/test.txt<:>内容"}
     // 使用JSON解析器解析工具数据
@@ -60,21 +63,12 @@ void EngineOperator::add_tool_with_parse(const String& tool_data){
         if (args_str.contains("<:>")) {
             // 分割参数字符串
             PackedStringArray args_array = args_str.split("<:>");
-            // 如果是write_to_file工具，需要特殊处理参数
-            if (tool_name == "write_to_file" && args_array.size() == 2) {
-                // 创建参数字典
-                Dictionary file_args;
-                file_args["path"] = args_array[0];
-                file_args["content"] = args_array[1];
-                // 添加到参数数组
-                tool_arguments.append(file_args);
-            } else {
-                // 对于其他工具，将参数作为字符串数组处理
-                for (int i = 0; i < args_array.size(); i++) {
-                    tool_arguments.append(args_array[i]);
-                }
+            // 对于其他工具，将参数作为字符串数组处理
+            for (int i = 0; i < args_array.size(); i++) {
+                tool_arguments.append(args_array[i]);
             }
-        } else {
+        } 
+        else {
             // 没有分隔符，将整个参数字符串作为一个参数
             // 对于get_project_structure等不需要参数的工具
             if (args_str == "") {
@@ -100,30 +94,38 @@ bool EngineOperator::is_arguments_equal(Array arguments){
 int EngineOperator::get_tool_count(){
     return tools_list.size();
 }
+String EngineOperator::get_tool_name(){
+    if(tools_list.empty()){
+        return "null";
+    }
+    return tools_list.front()->tool_name;
+}
 
-Dictionary EngineOperator::get_tool_result(){
-    Dictionary temp;
+String EngineOperator::get_tool_result(){
+    String temp;
+    if(tools_list.empty()){
+        temp = "null";
+        return temp;
+    }
     switch ((EngineOperator::ToolsType)ToolsName[tools_list.front()->tool_name])
     {
         case EngineOperator::GET_PROJECT_STRUCTURE:{
             String data_t = dir_serializer.directory_to_json("res://");
-            temp["role"] = "user";
-            temp["content"] = StringTagWrapper::wrap_with_tag(data_t, "observation");
+            temp = StringTagWrapper::wrap_with_tag(data_t, "observation");
             break;
         }
         case EngineOperator::GET_FILE_CONTENT:{
-            temp["role"] = "user";
             if(tools_list.front()->tool_arguments.size() == 0){
-                temp["content"] = StringTagWrapper::wrap_with_tag("Path parameter not passed successfully", "observation");
+                temp = StringTagWrapper::wrap_with_tag("Path parameter not passed successfully", "observation");
                 break;
             }
-            Dictionary dict = tools_list.front()->tool_arguments[0];
-            if(dict.has("path")){
-                String data_t = StringTagWrapper::wrap_with_tag(file_serializer.read_file_to_string(dict["path"]), "observation");
-                temp["content"] = data_t;
+            String path = tools_list.front()->tool_arguments[0];
+            if(!path.is_empty()){
+                String data_t = StringTagWrapper::wrap_with_tag(file_serializer.read_file_to_string(path), "observation");
+                temp = data_t;
             }
             else{
-                temp["content"] = StringTagWrapper::wrap_with_tag("An unknown error occurred", "observation");
+                temp = StringTagWrapper::wrap_with_tag("An unknown error occurred", "observation");
             }
             break;
         }

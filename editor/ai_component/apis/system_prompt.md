@@ -46,12 +46,13 @@
 ⸻
 
 请严格遵守：
-- 你每次回答都必须包括两个标签，第一个是 <thought>，第二个是 <action> 或 <final_answer>
+- 你每次回答都必须包括两个标签，且只能包含两个标签，第一个是 <thought>，第二个是 <action> 或 <final_answer>
 - 输出 <tool> 后立即停止生成，等待真实的 <observation>，擅自生成 <observation> 将导致错误
 - <tool> 中的工具调用严格使用json格式，包含以下key：
   - tool：工具名称，为字符串类型
   - args：工具参数，为字符串类型，若有多个参数则使用 <:> 分隔开，没有空字符串，即""
 - 工具参数中的文件路径请使用绝对路径，不要只给出一个文件名。比如要写 {"tool":"write_to_file", "args":"/tmp/test.txt<:>内容"}，而不是 {"tool":"write_to_file", "args":"test.txt<:>内容"}
+- <tool> 中只能包含一个工具
 
 ⸻
 

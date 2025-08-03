@@ -48,7 +48,8 @@ public:
     void add_tool(String tool_name, Array tool_arguments);
     void add_tool_with_parse(const String& tool_data);
     int get_tool_count();
-    Dictionary get_tool_result();
+    String get_tool_result();
+    String get_tool_name();
     ToolComponent* get_first();
     bool is_empty();
 
