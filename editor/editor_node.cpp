@@ -513,6 +513,11 @@ void EditorNode::_update_from_settings() {
 	Viewport::MSAA msaa = Viewport::MSAA(int(GLOBAL_GET("rendering/anti_aliasing/quality/msaa_2d")));
 	scene_root->set_msaa_2d(msaa);
 
+	// 2D doesn't use a dedicated SubViewport like 3D does, so we apply it on the root viewport instead.
+	bool use_debanding = GLOBAL_GET("rendering/anti_aliasing/quality/use_debanding");
+	scene_root->set_use_debanding(use_debanding);
+	get_viewport()->set_use_debanding(use_debanding);
+
 	bool use_hdr_2d = GLOBAL_GET("rendering/viewport/hdr_2d");
 	scene_root->set_use_hdr_2d(use_hdr_2d);
 	get_viewport()->set_use_hdr_2d(use_hdr_2d);
@@ -4097,6 +4102,7 @@ bool EditorNode::is_addon_plugin_enabled(const String &p_addon) const {
 void EditorNode::_remove_edited_scene(bool p_change_tab) {
 	// When scene gets closed no node is edited anymore, so make sure the editors are notified before nodes are freed.
 	hide_unused_editors(SceneTreeDock::get_singleton());
+	SceneTreeDock::get_singleton()->clear_previous_node_selection();
 
 	int new_index = editor_data.get_edited_scene();
 	int old_index = new_index;
@@ -5622,14 +5628,6 @@ void EditorNode::_editor_file_dialog_unregister(EditorFileDialog *p_dialog) {
 Vector<EditorNodeInitCallback> EditorNode::_init_callbacks;
 
 void EditorNode::_begin_first_scan() {
-	// In headless mode, scan right away.
-	// This allows users to continue using `godot --headless --editor --quit` to prepare a project.
-	if (!DisplayServer::get_singleton()->window_can_draw()) {
-		OS::get_singleton()->benchmark_begin_measure("Editor", "First Scan");
-		EditorFileSystem::get_singleton()->scan();
-		return;
-	}
-
 	if (!waiting_for_first_scan) {
 		return;
 	}

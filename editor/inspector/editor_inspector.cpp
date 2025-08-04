@@ -3977,6 +3977,7 @@ void EditorInspector::update_tree() {
 				name_override = name_override.substr(0, dot);
 			}
 		}
+		name_override = name_override.uri_decode();
 
 		// Don't localize script variables.
 		EditorPropertyNameProcessor::Style name_style = property_name_style;
@@ -4115,7 +4116,7 @@ void EditorInspector::update_tree() {
 			bool is_const = false;
 			bool numbered = false;
 			bool foldable = use_folding;
-			String add_button_text = TTR("Add Element");
+			String add_button_text = TTRC("Add Element");
 			String swap_method;
 			for (int i = (p.type == Variant::NIL ? 1 : 2); i < class_name_components.size(); i++) {
 				if (class_name_components[i].begins_with("page_size") && class_name_components[i].get_slice_count("=") == 2) {
