@@ -82,6 +82,7 @@
 #include "core/markdown/markdown_parser.h"
 #include "core/markdown/markdown_node.h"
 
+
 #ifndef DISABLE_DEPRECATED
 #include "core/io/packed_data_container.h"
 #endif
@@ -206,6 +207,7 @@ void register_core_types() {
 	GDREGISTER_CLASS(StreamPeerGZIP);
 	GDREGISTER_CLASS(StreamPeerTCP);
 	GDREGISTER_CLASS(TCPServer);
+
 
 	GDREGISTER_ABSTRACT_CLASS(PacketPeer);
 	GDREGISTER_CLASS(PacketPeerExtension);

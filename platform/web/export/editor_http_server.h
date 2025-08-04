@@ -61,6 +61,14 @@ private:
 
 	static void _server_thread_poll(void *data);
 
+protected:
+	// 访问私有成员的方法
+	Ref<StreamPeerTCP> _get_tcp() const { return tcp; }
+	const uint8_t* _get_req_buf() const { return req_buf; }
+	int _get_req_pos() const { return req_pos; }
+	
+	static void _bind_methods();
+
 public:
 	EditorHTTPServer();
 	~EditorHTTPServer();
