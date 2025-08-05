@@ -1,27 +1,60 @@
 #include "http_request.h"
-#include "core/variant/json.h"
-#include "core/object/class_db.h"
-#include "core/string/ustring.h"
-#include "core/variant/dictionary.h"
-#include "core/variant/variant.h"
-#include "core/string/print_string.h"
+#include "core/io/json.h"
 
 void HttpRequest::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_body_parsed"), &HttpRequest::get_body_parsed);
-	ClassDB::bind_method(D_METHOD("to_string"), &HttpRequest::to_string);
-
-	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "headers"), "", "headers");
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "body"), "", "body");
-	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "query_match", PROPERTY_HINT_RESOURCE_TYPE, "RegExMatch"), "", "query_match");
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "path"), "", "path");
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "method"), "", "method");
-	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "parameters"), "", "parameters");
-	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "query"), "", "query");
+	ClassDB::bind_method(D_METHOD("get_headers"), &HttpRequest::get_headers);
+	ClassDB::bind_method(D_METHOD("get_body"), &HttpRequest::get_body);
+	ClassDB::bind_method(D_METHOD("get_query_match"), &HttpRequest::get_query_match);
+	ClassDB::bind_method(D_METHOD("get_path"), &HttpRequest::get_path);
+	ClassDB::bind_method(D_METHOD("get_method"), &HttpRequest::get_method);
+	ClassDB::bind_method(D_METHOD("get_parameters"), &HttpRequest::get_parameters);
+	ClassDB::bind_method(D_METHOD("get_query"), &HttpRequest::get_query);
 }
 
 HttpRequest::HttpRequest() {}
 
 HttpRequest::~HttpRequest() {}
+
+Dictionary HttpRequest::get_headers() const {
+	Dictionary result;
+	for (const KeyValue<String, String> &kv : headers) {
+		result[kv.key] = kv.value;
+	}
+	return result;
+}
+
+String HttpRequest::get_body() const {
+	return body;
+}
+
+Ref<RegExMatch> HttpRequest::get_query_match() const {
+	return query_match;
+}
+
+String HttpRequest::get_path() const {
+	return path;
+}
+
+String HttpRequest::get_method() const {
+	return method;
+}
+
+Dictionary HttpRequest::get_parameters() const {
+	Dictionary result;
+	for (const KeyValue<String, String> &kv : parameters) {
+		result[kv.key] = kv.value;
+	}
+	return result;
+}
+
+Dictionary HttpRequest::get_query() const {
+	Dictionary result;
+	for (const KeyValue<String, Variant> &kv : query) {
+		result[kv.key] = kv.value;
+	}
+	return result;
+}
 
 Variant HttpRequest::get_body_parsed() const {
 	String content_type = "";
@@ -38,24 +71,18 @@ Variant HttpRequest::get_body_parsed() const {
 
 	if (content_type == "application/x-www-form-urlencoded") {
 		Dictionary data;
-		Array body_parts = body.split("&");
-		for (int i = 0; i < body_parts.size(); ++i) {
-			Array key_and_value = body_parts[i].split("=");
+
+		Vector<String> body_parts = body.split("&");
+		for (int i = 0; i < body_parts.size(); i++) {
+			Vector<String> key_and_value = body_parts[i].split("=");
 			if (key_and_value.size() == 2) {
 				data[key_and_value[0]] = key_and_value[1];
 			}
 		}
+
 		return data;
 	}
 
 	// Not supported content type parsing... for now
 	return Variant();
-}
-
-String HttpRequest::to_string() const {
-	Dictionary dict;
-	dict["headers"] = headers;
-	dict["method"] = method;
-	dict["path"] = path;
-	return JSON::stringify(dict);
 }

@@ -1,54 +1,39 @@
 #include "http_file_router.h"
-#include "core/object/class_db.h"
-#include "core/string/ustring.h"
-#include "core/variant/dictionary.h"
-#include "core/variant/array.h"
 #include "core/io/file_access.h"
-#include "core/io/http_request.h"
-#include "core/io/http_response.h"
 
 void HttpFileRouter::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("handle_get", "request", "response"), &HttpFileRouter::handle_get);
-
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "path"), "", "path");
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "index_page"), "", "index_page");
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "fallback_page"), "", "fallback_page");
-	ADD_PROPERTY(PropertyInfo(Variant::PACKED_STRING_ARRAY, "extensions"), "", "extensions");
-	ADD_PROPERTY(PropertyInfo(Variant::PACKED_STRING_ARRAY, "exclude_extensions"), "", "exclude_extensions");
 }
 
-HttpFileRouter::HttpFileRouter(const String& p_path, const Dictionary& options) : path(p_path) {
-	index_page = options.get("index_page", "");
+HttpFileRouter::HttpFileRouter(const String &p_path, const Dictionary &options) {
+	path = p_path;
+	index_page = options.get("index_page", "index.html");
 	fallback_page = options.get("fallback_page", "");
 	
 	// Handle extensions array
-	Variant ext_var = options.get("extensions", Array());
-	if (ext_var.get_type() == Variant::PACKED_STRING_ARRAY) {
-		extensions = ext_var;
-	} else if (ext_var.get_type() == Variant::ARRAY) {
-		Array ext_array = ext_var;
+	if (options.has("extensions")) {
+		Array ext_array = options["extensions"];
 		extensions.resize(ext_array.size());
-		for (int i = 0; i < ext_array.size(); ++i) {
-			extensions[i] = ext_array[i];
+		for (int i = 0; i < ext_array.size(); i++) {
+			extensions.set(i, ext_array[i]);
 		}
+	} else {
+		extensions.push_back("html");
 	}
 	
 	// Handle exclude_extensions array
-	Variant exclude_ext_var = options.get("exclude_extensions", Array());
-	if (exclude_ext_var.get_type() == Variant::PACKED_STRING_ARRAY) {
-		exclude_extensions = exclude_ext_var;
-	} else if (exclude_ext_var.get_type() == Variant::ARRAY) {
-		Array exclude_ext_array = exclude_ext_var;
-		exclude_extensions.resize(exclude_ext_array.size());
-		for (int i = 0; i < exclude_ext_array.size(); ++i) {
-			exclude_extensions[i] = exclude_ext_array[i];
+	if (options.has("exclude_extensions")) {
+		Array exclude_array = options["exclude_extensions"];
+		exclude_extensions.resize(exclude_array.size());
+		for (int i = 0; i < exclude_array.size(); i++) {
+			exclude_extensions.set(i, exclude_array[i]);
 		}
 	}
 }
 
 HttpFileRouter::~HttpFileRouter() {}
 
-void HttpFileRouter::handle_get(const Ref<HttpRequest>& request, const Ref<HttpResponse>& response) {
+void HttpFileRouter::handle_get(Ref<HttpRequest> request, Ref<HttpResponse> response) {
 	String serving_path = path + request->path;
 	bool file_exists = _file_exists(serving_path);
 
@@ -59,11 +44,9 @@ void HttpFileRouter::handle_get(const Ref<HttpRequest>& request, const Ref<HttpR
 		}
 	}
 
-	String request_extension = request->path.get_extension();
-	if (request_extension.is_empty() && !file_exists) {
-		for (int i = 0; i < extensions.size(); ++i) {
-			String extension = extensions[i];
-			serving_path = path + request->path + "." + extension;
+	if (request->path.get_extension().is_empty() && !file_exists) {
+		for (int i = 0; i < extensions.size(); i++) {
+			serving_path = path + request->path + "." + extensions[i];
 			file_exists = _file_exists(serving_path);
 			if (file_exists) {
 				break;
@@ -72,21 +55,23 @@ void HttpFileRouter::handle_get(const Ref<HttpRequest>& request, const Ref<HttpR
 	}
 
 	// GDScript must be excluded, unless it is used as a preprocessor (php-like)
-	String serving_extension = serving_path.get_extension();
-	bool is_excluded = serving_extension == "gd";
-	for (int i = 0; i < exclude_extensions.size(); ++i) {
-		if (serving_extension == exclude_extensions[i]) {
+	Vector<String> excluded;
+	excluded.push_back("gd");
+	for (int i = 0; i < exclude_extensions.size(); i++) {
+		excluded.push_back(exclude_extensions[i]);
+	}
+
+	bool is_excluded = false;
+	String extension = serving_path.get_extension();
+	for (int i = 0; i < excluded.size(); i++) {
+		if (extension == excluded[i]) {
 			is_excluded = true;
 			break;
 		}
 	}
 
 	if (file_exists && !is_excluded) {
-		response->send_raw(
-			200,
-			_serve_file(serving_path),
-			_get_mime(serving_extension)
-		);
+		response->send_raw(200, _serve_file(serving_path), _get_mime(serving_path.get_extension()));
 	} else {
 		if (!fallback_page.is_empty()) {
 			serving_path = path + "/" + fallback_page;
@@ -98,32 +83,32 @@ void HttpFileRouter::handle_get(const Ref<HttpRequest>& request, const Ref<HttpR
 	}
 }
 
-Vector<uint8_t> HttpFileRouter::_serve_file(const String& file_path) {
+Vector<uint8_t> HttpFileRouter::_serve_file(const String &file_path) {
 	Vector<uint8_t> content;
 	Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
-	Error error = file->get_open_error();
-	if (error != OK) {
-		String error_msg = "Couldn't serve file, ERROR = " + itos(error);
-		content = error_msg.to_ascii_buffer();
+	
+	if (file.is_valid()) {
+		content.resize(file->get_length());
+		file->get_buffer(content.ptrw(), content.size());
+		file->close();
 	} else {
-		uint64_t length = file->get_length();
-		content.resize(length);
-		file->get_buffer(content.ptrw(), length);
+		String error_msg = "Couldn't serve file, ERROR = " + itos(FileAccess::get_open_error());
+		content = error_msg.to_ascii_buffer();
 	}
+	
 	return content;
 }
 
-bool HttpFileRouter::_file_exists(const String& file_path) {
+bool HttpFileRouter::_file_exists(const String &file_path) {
 	return FileAccess::exists(file_path);
 }
 
-String HttpFileRouter::_get_mime(const String& file_extension) {
+String HttpFileRouter::_get_mime(const String &file_extension) {
 	String type = "application";
 	String subtype = "octet-stream";
 	
-	// Web files
 	if (file_extension == "css" || file_extension == "html" || file_extension == "csv" || 
-		file_extension == "js" || file_extension == "mjs") {
+	    file_extension == "js" || file_extension == "mjs") {
 		type = "text";
 		subtype = (file_extension == "js" || file_extension == "mjs") ? "javascript" : file_extension;
 	} else if (file_extension == "php") {
@@ -131,32 +116,25 @@ String HttpFileRouter::_get_mime(const String& file_extension) {
 	} else if (file_extension == "ttf" || file_extension == "woff" || file_extension == "woff2") {
 		type = "font";
 		subtype = file_extension;
-	}
-	// Image
-	else if (file_extension == "png" || file_extension == "bmp" || file_extension == "gif" || 
-			file_extension == "webp") {
+	} else if (file_extension == "png" || file_extension == "bmp" || file_extension == "gif" ||
+	           file_extension == "webp" || file_extension == "jpeg" || file_extension == "jpg") {
 		type = "image";
-		subtype = file_extension;
-	} else if (file_extension == "jpeg" || file_extension == "jpg") {
-		type = "image";
-		subtype = "jpg";
+		subtype = (file_extension == "jpeg" || file_extension == "jpg") ? "jpeg" : file_extension;
 	} else if (file_extension == "tiff" || file_extension == "tif") {
 		type = "image";
-		subtype = "jpg";
+		subtype = "tiff";
 	} else if (file_extension == "svg") {
 		type = "image";
 		subtype = "svg+xml";
 	} else if (file_extension == "ico") {
 		type = "image";
 		subtype = "vnd.microsoft.icon";
-	}
-	// Documents
-	else if (file_extension == "doc") {
+	} else if (file_extension == "doc") {
 		subtype = "msword";
 	} else if (file_extension == "docx") {
 		subtype = "vnd.openxmlformats-officedocument.wordprocessingml.document";
 	} else if (file_extension == "7z") {
-		subtype = "x-7x-compressed";
+		subtype = "x-7z-compressed";
 	} else if (file_extension == "gz") {
 		subtype = "gzip";
 	} else if (file_extension == "tar") {
@@ -168,22 +146,18 @@ String HttpFileRouter::_get_mime(const String& file_extension) {
 		subtype = "plain";
 	} else if (file_extension == "ppt") {
 		subtype = "vnd.ms-powerpoint";
-	}
-	// Audio
-	else if (file_extension == "midi" || file_extension == "mp3" || file_extension == "wav") {
+	} else if (file_extension == "midi" || file_extension == "mp3" || file_extension == "wav") {
 		type = "audio";
 		subtype = file_extension;
 	} else if (file_extension == "mp4" || file_extension == "mpeg" || file_extension == "webm") {
-		type = "audio";
+		type = "video";
 		subtype = file_extension;
 	} else if (file_extension == "oga" || file_extension == "ogg") {
 		type = "audio";
 		subtype = "ogg";
 	} else if (file_extension == "mpkg") {
 		subtype = "vnd.apple.installer+xml";
-	}
-	// Video
-	else if (file_extension == "ogv") {
+	} else if (file_extension == "ogv") {
 		type = "video";
 		subtype = "ogg";
 	} else if (file_extension == "avi") {

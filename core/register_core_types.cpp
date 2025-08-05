@@ -64,6 +64,12 @@
 #include "core/io/translation_loader_po.h"
 #include "core/io/udp_server.h"
 #include "core/io/xml_parser.h"
+
+#include "core/io/http_file_router.h"
+#include "core/io/http_request.h"
+#include "core/io/http_response.h"
+#include "core/io/http_router.h"
+
 #include "core/math/a_star.h"
 #include "core/math/a_star_grid_2d.h"
 #include "core/math/expression.h"
@@ -215,6 +221,10 @@ void register_core_types() {
 	GDREGISTER_CLASS(PacketPeerUDP);
 	GDREGISTER_CLASS(UDPServer);
 
+	GDREGISTER_VIRTUAL_CLASS(HttpRouter);
+	GDREGISTER_CLASS(HttpRequest);
+	GDREGISTER_CLASS(HttpResponse);
+	GDREGISTER_CLASS(HttpFileRouter);
 	//Markdown
 	GDREGISTER_CLASS(MarkdownParser);
 	GDREGISTER_CLASS(MarkdownNode);
