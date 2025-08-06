@@ -4,7 +4,7 @@
  * @Descripttion: MCP Server implementation for Godot Engine
  * @Date: 2025-07-14
  * @LastEditors: Fantety
- * @LastEditTime: 2025-08-02 11:28:25
+ * @LastEditTime: 2025-08-06 11:06:30
  */
 #include "mcp_server.h"
 #include "mcp_tool.h"

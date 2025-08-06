@@ -1,40 +1,41 @@
 /*
- * @FilePath: \scene\main\http_server.cpp
- * @Author: Fantety
- * @Descripttion: 
- * @Date: 2025-08-05 09:49:09
- * @LastEditors: Fantety
- * @LastEditTime: 2025-08-06 10:10:03
+ * @FilePath: \scene\main\streamable_http_server.cpp
+ * @Author: 
+ * @Descripttion: Streamable HTTP Server for MCP
+ * @Date: 
+ * @LastEditors: 
+ * @LastEditTime: 
  */
-#include "http_server.h"
+#include "streamable_http_server.h"
 #include "core/os/time.h"
 #include "core/string/print_string.h"
 #include "core/io/json.h"
 
 
-void HttpServer::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("register_router", "path", "router"), &HttpServer::register_router);
-	ClassDB::bind_method(D_METHOD("start"), &HttpServer::start);
-	ClassDB::bind_method(D_METHOD("stop"), &HttpServer::stop);
-	ClassDB::bind_method(D_METHOD("enable_cors", "allowed_origins", "access_control_allowed_methods", "access_control_allowed_headers"), &HttpServer::enable_cors, DEFVAL("POST, GET, OPTIONS"), DEFVAL("content-type"));
+void StreamableHttpServer::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("register_router", "path", "router"), &StreamableHttpServer::register_router);
+	ClassDB::bind_method(D_METHOD("start"), &StreamableHttpServer::start);
+	ClassDB::bind_method(D_METHOD("stop"), &StreamableHttpServer::stop);
+	ClassDB::bind_method(D_METHOD("enable_cors", "allowed_origins", "access_control_allowed_methods", "access_control_allowed_headers"), &StreamableHttpServer::enable_cors, DEFVAL("POST, GET, OPTIONS"), DEFVAL("content-type"));
+	ClassDB::bind_method(D_METHOD("send_stream_message", "client", "event", "data"), &StreamableHttpServer::send_stream_message);
 	
-	ClassDB::bind_method(D_METHOD("_process", "delta"), &HttpServer::_process);
+	ClassDB::bind_method(D_METHOD("_process", "delta"), &StreamableHttpServer::_process);
 	
-	ClassDB::bind_method(D_METHOD("get_bind_address"), &HttpServer::get_bind_address);
-	ClassDB::bind_method(D_METHOD("get_port"), &HttpServer::get_port);
-	ClassDB::bind_method(D_METHOD("get_server_identifier"), &HttpServer::get_server_identifier);
-	ClassDB::bind_method(D_METHOD("set_bind_address", "bind_adress"), &HttpServer::set_bind_address);
-	ClassDB::bind_method(D_METHOD("set_port", "port"), &HttpServer::set_port);
-	ClassDB::bind_method(D_METHOD("set_server_identifier", "server_identifier"), &HttpServer::set_server_identifier);
+	ClassDB::bind_method(D_METHOD("get_bind_address"), &StreamableHttpServer::get_bind_address);
+	ClassDB::bind_method(D_METHOD("get_port"), &StreamableHttpServer::get_port);
+	ClassDB::bind_method(D_METHOD("get_server_identifier"), &StreamableHttpServer::get_server_identifier);
+	ClassDB::bind_method(D_METHOD("set_bind_address", "bind_adress"), &StreamableHttpServer::set_bind_address);
+	ClassDB::bind_method(D_METHOD("set_port", "port"), &StreamableHttpServer::set_port);
+	ClassDB::bind_method(D_METHOD("set_server_identifier", "server_identifier"), &StreamableHttpServer::set_server_identifier);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "bind_address"), "set_bind_address", "get_bind_address");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "port"), "set_port", "get_port");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "server_identifier"), "set_server_identifier", "get_server_identifier");
 }
 
-HttpServer::HttpServer() :
+StreamableHttpServer::StreamableHttpServer() :
 		bind_address("*"),
 		port(8080),
-		server_identifier("GodotTPD"),
+		server_identifier("GodotMCP"),
 		_logging(false),
 		_cors_enabled(false) {
 	
@@ -45,40 +46,40 @@ HttpServer::HttpServer() :
 	set_process(false);
 }
 
-String HttpServer::get_bind_address() const {
+String StreamableHttpServer::get_bind_address() const {
 	return bind_address;
 }
 
-int HttpServer::get_port() const {
+int StreamableHttpServer::get_port() const {
 	return port;
 }
 
-String HttpServer::get_server_identifier() const {
+String StreamableHttpServer::get_server_identifier() const {
 	return server_identifier;
 }
 
 
-void HttpServer::set_bind_address(String p_bind_address){
+void StreamableHttpServer::set_bind_address(String p_bind_address){
 	bind_address = p_bind_address;
 }
 
-void HttpServer::set_port(int p_port){
+void StreamableHttpServer::set_port(int p_port){
 	port = p_port;
 }
 
-void HttpServer::set_server_identifier(String p_server_identifier){
+void StreamableHttpServer::set_server_identifier(String p_server_identifier){
 	server_identifier = p_server_identifier;
 }
 
-HttpServer::~HttpServer() {
+StreamableHttpServer::~StreamableHttpServer() {
 	stop();
 }
 
-void HttpServer::_notification(int p_what) {
+void StreamableHttpServer::_notification(int p_what) {
 	Node::_notification(p_what);
 }
 
-void HttpServer::_process(double delta) {
+void StreamableHttpServer::_process(double delta) {
 	if (_server.is_valid()) {
 		while (_server->is_connection_available()) {
 			Ref<StreamPeerTCP> new_client = _server->take_connection();
@@ -110,8 +111,8 @@ void HttpServer::_process(double delta) {
 	}
 }
 
-void HttpServer::register_router(const String &path, const Ref<HttpRouter> &router) {
-	RouterInfo router_info;
+void StreamableHttpServer::register_router(const String &path, const Ref<HttpRouter> &router) {
+	StreamableRouterInfo router_info;
 	router_info.path.instantiate();
 	
 	if (path.length() > 0 && path[0] == '^') {
@@ -138,7 +139,7 @@ void HttpServer::register_router(const String &path, const Ref<HttpRouter> &rout
 	_routers.push_back(router_info);
 }
 
-void HttpServer::start() {
+void StreamableHttpServer::start() {
 	_method_regex.instantiate();
 	_header_regex.instantiate();
 	_method_regex->compile("^(?<method>GET|POST|HEAD|PUT|PATCH|DELETE|OPTIONS) (?<path>[^ ]+) HTTP/1.1$");
@@ -148,14 +149,14 @@ void HttpServer::start() {
 	Error err = _server->listen(port, bind_address);
 	
 	if (err == OK) {
-		_print_debug("HTTP Server listening on http://" + bind_address + ":" + itos(port));
+		_print_debug("Streamable HTTP Server listening on http://" + bind_address + ":" + itos(port));
 	} else {
 		_print_debug("Could not bind to port " + itos(port) + ", error: " + itos(err));
 		stop();
 	}
 }
 
-void HttpServer::stop() {
+void StreamableHttpServer::stop() {
 	for (List<Ref<StreamPeerTCP>>::Element *E = _clients.front(); E; E = E->next()) {
 		Ref<StreamPeerTCP> client = E->get();
 		if (client.is_valid()) {
@@ -172,7 +173,13 @@ void HttpServer::stop() {
 	_print_debug("Server stopped.");
 }
 
-void HttpServer::_print_debug(const String &message) {
+void StreamableHttpServer::send_stream_message(Ref<StreamPeerTCP> client, const String &event, const String &data) {
+	String message = "event: " + event + "\ndata: " + data + "\n\n";
+	PackedByteArray data_array = message.to_utf8_buffer();
+	client->put_data(data_array.ptr(), data_array.size());
+}
+
+void StreamableHttpServer::_print_debug(const String &message) {
 	if (_logging) {
 		Dictionary time_dict = Time::get_singleton()->get_datetime_dict_from_system();
 		String time_return = "";
@@ -185,11 +192,11 @@ void HttpServer::_print_debug(const String &message) {
 			                    time_dict["hour"], time_dict["minute"], time_dict["second"]);
 		}
 		
-		print_line("[SERVER] " + time_return + " >> " + message);
+		print_line("[STREAMABLE SERVER] " + time_return + " >> " + message);
 	}
 }
 
-void HttpServer::_remove_disconnected_clients() {
+void StreamableHttpServer::_remove_disconnected_clients() {
 	List<Ref<StreamPeerTCP>>::Element *E = _clients.front();
 	while (E) {
 		Ref<StreamPeerTCP> client = E->get();
@@ -203,7 +210,7 @@ void HttpServer::_remove_disconnected_clients() {
 	}
 }
 
-void HttpServer::_handle_request(Ref<StreamPeerTCP> client, const String &request_string) {
+void StreamableHttpServer::_handle_request(Ref<StreamPeerTCP> client, const String &request_string) {
 	Ref<HttpRequest> request;
 	request.instantiate();
 	
@@ -239,7 +246,7 @@ void HttpServer::_handle_request(Ref<StreamPeerTCP> client, const String &reques
 	_perform_current_request(client, request);
 }
 
-void HttpServer::_perform_current_request(Ref<StreamPeerTCP> client, Ref<HttpRequest> request) {
+void StreamableHttpServer::_perform_current_request(Ref<StreamPeerTCP> client, Ref<HttpRequest> request) {
 	// Convert HashMap<String, String> to Dictionary for JSON::stringify
 	Dictionary headers_dict;
 	for (const KeyValue<String, String> &kv : request->headers) {
@@ -255,6 +262,17 @@ void HttpServer::_perform_current_request(Ref<StreamPeerTCP> client, Ref<HttpReq
 	String origin = "";
 	response->client = client.ptr();
 	response->server_identifier = server_identifier;
+	
+	// Store server reference in client metadata
+	client->set_meta("server", this);
+	
+	// Check if client accepts event-stream
+	bool is_streaming_request = false;
+	if (request->headers.has("Accept") && request->headers["Accept"].find("text/event-stream") != -1) {
+		is_streaming_request = true;
+	} else if (request->headers.has("accept") && request->headers["accept"].find("text/event-stream") != -1) {
+		is_streaming_request = true;
+	}
 	
 	if (request->headers.has("Sec-Fetch-Mode")) {
 		fetch_mode = request->headers["Sec-Fetch-Mode"];
@@ -282,7 +300,7 @@ void HttpServer::_perform_current_request(Ref<StreamPeerTCP> client, Ref<HttpReq
 	}
 	
 	for (int i = 0; i < _routers.size(); i++) {
-		RouterInfo router_info = _routers[i];
+		StreamableRouterInfo router_info = _routers[i];
 		Ref<RegExMatch> matches = router_info.path->search(request->path);
 		
 		if (matches.is_valid()) {
@@ -339,7 +357,7 @@ void HttpServer::_perform_current_request(Ref<StreamPeerTCP> client, Ref<HttpReq
 	}
 }
 
-Vector<String> HttpServer::_path_to_regexp_params(const String &path) {
+Vector<String> StreamableHttpServer::_path_to_regexp_params(const String &path) {
 	Vector<String> params;
 	Vector<String> fragments = path.split("/");
 	
@@ -355,14 +373,14 @@ Vector<String> HttpServer::_path_to_regexp_params(const String &path) {
 	return params;
 }
 
-void HttpServer::enable_cors(const Vector<String> &allowed_origins, const String &access_control_allowed_methods, const String &access_control_allowed_headers) {
+void StreamableHttpServer::enable_cors(const Vector<String> &allowed_origins, const String &access_control_allowed_methods, const String &access_control_allowed_headers) {
 	_cors_enabled = true;
 	_allowed_origins = allowed_origins;
 	_access_control_allowed_methods = access_control_allowed_methods;
 	_access_control_allowed_headers = access_control_allowed_headers;
 }
 
-HashMap<String, Variant> HttpServer::_extract_query_params(const String &query_string) {
+HashMap<String, Variant> StreamableHttpServer::_extract_query_params(const String &query_string) {
 	HashMap<String, Variant> query;
 	if (query_string.is_empty()) {
 		return query;
