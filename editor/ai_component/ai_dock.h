@@ -9,6 +9,8 @@
 #ifndef AI_DOCK_H
 #define AI_DOCK_H
 
+#include "editor/docks/editor_dock.h"
+
 #include "scene/gui/box_container.h"
 #include "scene/gui/tab_container.h"
 #include "scene/gui/option_button.h"
@@ -31,8 +33,8 @@
 #include "mcp/mcp_server.h"
 
 
-class AIDock : public TabContainer {
-    GDCLASS(AIDock, TabContainer);
+class AIDock : public EditorDock {
+    GDCLASS(AIDock, EditorDock);
     enum MsgSendType{
         MSG_SEND_TYPE_NORMAL = 0,
         MSG_SEND_TYPE_TOOL,
@@ -45,6 +47,7 @@ private:
     ScrollContainer *chat_scroll = nullptr;
     VBoxContainer *chat_view = nullptr;
     VBoxContainer *chat_list = nullptr;
+    TabContainer *tab_container = nullptr;
     AIChatPanel* history_input_panel = nullptr;
     AIChatPanel* chat_input_panel = nullptr;
 

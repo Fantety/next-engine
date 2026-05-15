@@ -6,16 +6,16 @@
 void AIDock::_notification(int p_what) {
     switch (p_what) {
         case NOTIFICATION_READY: {
-            add_child(history_view);
-            add_child(chat_view);
-            set_tab_title(0, "History");
-            set_tab_title(1, "Chat");
+            tab_container->add_child(history_view);
+            tab_container->add_child(chat_view);
+            tab_container->set_tab_title(0, "History");
+            tab_container->set_tab_title(1, "Chat");
         } break;
     }
 }
 
 void AIDock::_send_message(MsgSendType send_type) {
-    int tab_index = this->get_current_tab();
+    int tab_index = tab_container->get_current_tab();
     String message = (tab_index==1?chat_input_panel->get_input_text():history_input_panel->get_input_text());
     String selected_model = tab_index==1?chat_input_panel->get_model():history_input_panel->get_model();
     int selected_index = tab_index==1?chat_input_panel->get_model_index():history_input_panel->get_model_index();
@@ -33,7 +33,7 @@ void AIDock::_send_message(MsgSendType send_type) {
                 current_chat_uid = generate_uuid();
                 chat_manager.create_new_chat(current_chat_uid, message);
                 delete_all_blocks();
-                set_current_tab(1);
+                tab_container->set_current_tab(1);
                 chat_input_panel->set_model(selected_index);
             }
             _create_chat_block(AIChatBlock::ChatType::AI_CHAT_TYPE_USER, message, "", "");
@@ -369,6 +369,17 @@ void AIDock::_bind_methods() {
 
 AIDock::AIDock() {
     print_line("AIDock Init Start");
+    set_name(TTRC("Chat"));
+    set_layout_key("Chat");
+    set_icon_name("Chat");
+    set_dock_shortcut(ED_SHORTCUT_AND_COMMAND("docks/open_chat", TTRC("Open Chat Dock")));
+    set_default_slot(EditorDock::DOCK_SLOT_RIGHT_UL);
+
+    tab_container = memnew(TabContainer);
+    tab_container->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+    tab_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    add_child(tab_container);
+
     chat_input_panel = memnew(AIChatPanel);
     history_input_panel = memnew(AIChatPanel);
     chat_input_panel->connect("send_button_pressed", callable_mp(this, &AIDock::_send_normal_message));

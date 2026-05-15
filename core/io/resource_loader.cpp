@@ -30,11 +30,15 @@
 
 #include "resource_loader.h"
 
+#include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/core_bind.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_importer.h"
+#include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
+#include "core/object/message_queue.h"
 #include "core/object/script_language.h"
 #include "core/os/condition_variable.h"
 #include "core/os/os.h"
@@ -43,7 +47,7 @@
 #include "core/string/translation_server.h"
 #include "core/templates/rb_set.h"
 #include "core/variant/variant_parser.h"
-#include "servers/rendering_server.h"
+#include "servers/rendering/rendering_server.h"
 
 #ifdef DEBUG_LOAD_THREADED
 #define print_lt(m_text) print_line(m_text)
@@ -174,7 +178,7 @@ Ref<Resource> ResourceFormatLoader::load(const String &p_path, const String &p_o
 		}
 	}
 
-	ERR_FAIL_V_MSG(Ref<Resource>(), vformat("Failed to load resource '%s'. ResourceFormatLoader::load was not implemented for this resource type.", p_path));
+	return Ref<Resource>();
 }
 
 void ResourceFormatLoader::get_dependencies(const String &p_path, List<String> *p_dependencies, bool p_add_types) {
@@ -218,26 +222,6 @@ void ResourceFormatLoader::_bind_methods() {
 	GDVIRTUAL_BIND(_load, "path", "original_path", "use_sub_threads", "cache_mode");
 }
 
-///////////////////////////////////
-
-// These are used before and after a wait for a WorkerThreadPool task
-// because that can lead to another load started in the same thread,
-// something we must treat as a different stack for the purposes
-// of tracking nesting.
-
-#define PREPARE_FOR_WTP_WAIT                                                   \
-	int load_nesting_backup = ResourceLoader::load_nesting;                    \
-	Vector<String> load_paths_stack_backup = ResourceLoader::load_paths_stack; \
-	ResourceLoader::load_nesting = 0;                                          \
-	ResourceLoader::load_paths_stack.clear();
-
-#define RESTORE_AFTER_WTP_WAIT                                  \
-	DEV_ASSERT(ResourceLoader::load_nesting == 0);              \
-	DEV_ASSERT(ResourceLoader::load_paths_stack.is_empty());    \
-	ResourceLoader::load_nesting = load_nesting_backup;         \
-	ResourceLoader::load_paths_stack = load_paths_stack_backup; \
-	load_paths_stack_backup.clear();
-
 // This should be robust enough to be called redundantly without issues.
 void ResourceLoader::LoadToken::clear() {
 	WorkerThreadPool::TaskID task_to_await = 0;
@@ -276,9 +260,11 @@ void ResourceLoader::LoadToken::clear() {
 
 	// If task is unused, await it here, locally, now the token data is consistent.
 	if (task_to_await) {
-		PREPARE_FOR_WTP_WAIT
+		int load_nesting_backup = load_nesting;
+		load_nesting = 0;
 		WorkerThreadPool::get_singleton()->wait_for_task_completion(task_to_await);
-		RESTORE_AFTER_WTP_WAIT
+		DEV_ASSERT(load_nesting == 0);
+		load_nesting = load_nesting_backup;
 	}
 }
 
@@ -286,20 +272,9 @@ ResourceLoader::LoadToken::~LoadToken() {
 	clear();
 }
 
-Ref<Resource> ResourceLoader::_load(const String &p_path, const String &p_original_path, const String &p_type_hint, ResourceFormatLoader::CacheMode p_cache_mode, Error *r_error, bool p_use_sub_threads, float *r_progress) {
+Ref<Resource> ResourceLoader::_load(const String &p_path, const String &p_original_path, const String &p_type_hint, CacheMode p_cache_mode, Error *r_error, bool p_use_sub_threads, float *r_progress) {
 	const String &original_path = p_original_path.is_empty() ? p_path : p_original_path;
 	load_nesting++;
-	if (load_paths_stack.size()) {
-		MutexLock thread_load_lock(thread_load_mutex);
-		const String &parent_task_path = load_paths_stack.get(load_paths_stack.size() - 1);
-		HashMap<String, ThreadLoadTask>::Iterator E = thread_load_tasks.find(parent_task_path);
-		// Avoid double-tracking, for progress reporting, resources that boil down to a remapped path containing the real payload (e.g., imported resources).
-		bool is_remapped_load = original_path == parent_task_path;
-		if (E && !is_remapped_load) {
-			E->value.sub_tasks.insert(original_path);
-		}
-	}
-	load_paths_stack.push_back(original_path);
 
 	print_verbose(vformat("Loading resource: %s", p_path));
 
@@ -317,7 +292,6 @@ Ref<Resource> ResourceLoader::_load(const String &p_path, const String &p_origin
 		}
 	}
 
-	load_paths_stack.resize(load_paths_stack.size() - 1);
 	res_ref_overrides.erase(load_nesting);
 	load_nesting--;
 
@@ -363,12 +337,42 @@ Ref<Resource> ResourceLoader::_load(const String &p_path, const String &p_origin
 void ResourceLoader::_run_load_task(void *p_userdata) {
 	ThreadLoadTask &load_task = *(ThreadLoadTask *)p_userdata;
 
+	bool wait = false;
 	{
 		MutexLock thread_load_lock(thread_load_mutex);
 		if (cleaning_tasks) {
 			load_task.status = THREAD_LOAD_FAILED;
 			return;
 		}
+
+		int thread_index = WorkerThreadPool::get_singleton()->get_thread_index();
+
+		if (load_task.started_load && load_task.thread_index != thread_index) {
+			wait = true;
+		} else {
+			load_task.started_load = true;
+			load_task.thread_index = thread_index;
+		}
+	}
+
+	if (wait) {
+		// There are a couple of reasons why we got here:
+		// 1) We re-started the task in _load_complete_inner but we also
+		//    got started via the original task in the WorkerThreadPool
+		// 2) There's a race between multiple threads in _load_complete_inner
+		//    and more than one thread thought they had to restart
+		//
+		// This task was already running, wait for the other thread to complete.
+		ThreadLoadStatus status;
+		do {
+			OS::get_singleton()->delay_usec(1000);
+			thread_load_mutex.lock();
+			status = load_task.status;
+			thread_load_mutex.unlock();
+		} while (status == THREAD_LOAD_IN_PROGRESS);
+
+		load_task.load_token->unreference();
+		return;
 	}
 
 	ThreadLoadTask *curr_load_task_backup = curr_load_task;
@@ -377,7 +381,6 @@ void ResourceLoader::_run_load_task(void *p_userdata) {
 	// Thread-safe either if it's the current thread or a brand new one.
 	CallQueue *own_mq_override = nullptr;
 	if (load_nesting == 0) {
-		DEV_ASSERT(load_paths_stack.is_empty());
 		if (!Thread::is_main_thread()) {
 			// Let the caller thread use its own, for added flexibility. Provide one otherwise.
 			if (MessageQueue::get_singleton() == MessageQueue::get_main_singleton()) {
@@ -415,8 +418,8 @@ void ResourceLoader::_run_load_task(void *p_userdata) {
 	}
 	load_task.need_wait = false;
 
-	bool ignoring = load_task.cache_mode == ResourceFormatLoader::CACHE_MODE_IGNORE || load_task.cache_mode == ResourceFormatLoader::CACHE_MODE_IGNORE_DEEP;
-	bool replacing = load_task.cache_mode == ResourceFormatLoader::CACHE_MODE_REPLACE || load_task.cache_mode == ResourceFormatLoader::CACHE_MODE_REPLACE_DEEP;
+	bool ignoring = load_task.cache_mode == CACHE_MODE_IGNORE || load_task.cache_mode == CACHE_MODE_IGNORE_DEEP;
+	bool replacing = load_task.cache_mode == CACHE_MODE_REPLACE || load_task.cache_mode == CACHE_MODE_REPLACE_DEEP;
 	bool unlock_pending = true;
 	if (load_task.resource.is_valid()) {
 		// From now on, no critical section needed as no one will write to the task anymore.
@@ -496,7 +499,6 @@ void ResourceLoader::_run_load_task(void *p_userdata) {
 			MessageQueue::set_thread_singleton_override(nullptr);
 			memdelete(own_mq_override);
 		}
-		DEV_ASSERT(load_paths_stack.is_empty());
 	}
 
 	curr_load_task = curr_load_task_backup;
@@ -513,7 +515,7 @@ String ResourceLoader::_validate_local_path(const String &p_path) {
 	}
 }
 
-Error ResourceLoader::load_threaded_request(const String &p_path, const String &p_type_hint, bool p_use_sub_threads, ResourceFormatLoader::CacheMode p_cache_mode) {
+Error ResourceLoader::load_threaded_request(const String &p_path, const String &p_type_hint, bool p_use_sub_threads, CacheMode p_cache_mode) {
 	Ref<ResourceLoader::LoadToken> token = _load_start(p_path, p_type_hint, p_use_sub_threads ? LOAD_THREAD_DISTRIBUTE : LOAD_THREAD_SPAWN_SINGLE, p_cache_mode, true);
 	return token.is_valid() ? OK : FAILED;
 }
@@ -538,7 +540,7 @@ void ResourceLoader::_load_threaded_request_setup_user_token(LoadToken *p_token,
 	print_lt("REQUEST: user load tokens: " + itos(user_load_tokens.size()));
 }
 
-Ref<Resource> ResourceLoader::load(const String &p_path, const String &p_type_hint, ResourceFormatLoader::CacheMode p_cache_mode, Error *r_error) {
+Ref<Resource> ResourceLoader::load(const String &p_path, const String &p_type_hint, CacheMode p_cache_mode, Error *r_error) {
 	if (r_error) {
 		*r_error = OK;
 	}
@@ -563,11 +565,11 @@ Ref<Resource> ResourceLoader::load(const String &p_path, const String &p_type_hi
 	return res;
 }
 
-Ref<ResourceLoader::LoadToken> ResourceLoader::_load_start(const String &p_path, const String &p_type_hint, LoadThreadMode p_thread_mode, ResourceFormatLoader::CacheMode p_cache_mode, bool p_for_user) {
+Ref<ResourceLoader::LoadToken> ResourceLoader::_load_start(const String &p_path, const String &p_type_hint, LoadThreadMode p_thread_mode, CacheMode p_cache_mode, bool p_for_user) {
 	String local_path = _validate_local_path(p_path);
 	ERR_FAIL_COND_V(local_path.is_empty(), Ref<ResourceLoader::LoadToken>());
 
-	bool ignoring_cache = p_cache_mode == ResourceFormatLoader::CACHE_MODE_IGNORE || p_cache_mode == ResourceFormatLoader::CACHE_MODE_IGNORE_DEEP;
+	bool ignoring_cache = p_cache_mode == CACHE_MODE_IGNORE || p_cache_mode == CACHE_MODE_IGNORE_DEEP;
 
 	Ref<LoadToken> load_token;
 	bool must_not_register = false;
@@ -613,7 +615,7 @@ Ref<ResourceLoader::LoadToken> ResourceLoader::_load_start(const String &p_path,
 			load_task.type_hint = p_type_hint;
 			load_task.cache_mode = p_cache_mode;
 			load_task.use_sub_threads = p_thread_mode == LOAD_THREAD_DISTRIBUTE;
-			if (p_cache_mode == ResourceFormatLoader::CACHE_MODE_REUSE) {
+			if (p_cache_mode == CACHE_MODE_REUSE) {
 				Ref<Resource> existing = ResourceCache::get_ref(local_path);
 				if (existing.is_valid()) {
 					//referencing is fine
@@ -624,6 +626,12 @@ Ref<ResourceLoader::LoadToken> ResourceLoader::_load_start(const String &p_path,
 					thread_load_tasks[local_path] = load_task;
 					return load_token;
 				}
+			}
+
+			// Task hierarchy
+			if (curr_load_task) {
+				load_task.parent_task = curr_load_task;
+				curr_load_task->sub_tasks.insert(load_task.local_path);
 			}
 
 			// If we want to ignore cache, but there's another task loading it, we can't add this one to the map.
@@ -666,6 +674,14 @@ Ref<ResourceLoader::LoadToken> ResourceLoader::_load_start(const String &p_path,
 float ResourceLoader::_dependency_get_progress(const String &p_path) {
 	if (thread_load_tasks.has(p_path)) {
 		ThreadLoadTask &load_task = thread_load_tasks[p_path];
+		if (load_task.in_progress_check) {
+			// Given the fact that any resource loaded when an outer stack frame is
+			// loading another one is considered a dependency of it, for progress
+			// tracking purposes, a cycle can happen if even if the original resource
+			// graphs involved have none. For instance, preload() can cause this.
+			return load_task.max_reported_progress;
+		}
+		load_task.in_progress_check = true;
 		float current_progress = 0.0;
 		int dep_count = load_task.sub_tasks.size();
 		if (dep_count > 0) {
@@ -679,6 +695,7 @@ float ResourceLoader::_dependency_get_progress(const String &p_path) {
 			current_progress = load_task.progress;
 		}
 		load_task.max_reported_progress = MAX(load_task.max_reported_progress, current_progress);
+		load_task.in_progress_check = false;
 		return load_task.max_reported_progress;
 	} else {
 		return 1.0; //assume finished loading it so it no longer exists
@@ -697,10 +714,17 @@ ResourceLoader::ThreadLoadStatus ResourceLoader::load_threaded_get_status(const 
 		}
 
 		String local_path = _validate_local_path(p_path);
-		ERR_FAIL_COND_V_MSG(!thread_load_tasks.has(local_path), THREAD_LOAD_INVALID_RESOURCE, "Bug in ResourceLoader logic, please report.");
+		LoadToken *load_token = user_load_tokens[p_path];
+		ThreadLoadTask *load_task_ptr;
 
-		ThreadLoadTask &load_task = thread_load_tasks[local_path];
-		status = load_task.status;
+		if (load_token->task_if_unregistered) {
+			load_task_ptr = load_token->task_if_unregistered;
+		} else {
+			ERR_FAIL_COND_V_MSG(!thread_load_tasks.has(local_path), THREAD_LOAD_INVALID_RESOURCE, "Bug in ResourceLoader logic, please report.");
+			load_task_ptr = &thread_load_tasks[local_path];
+		}
+
+		status = load_task_ptr->status;
 		if (r_progress) {
 			*r_progress = _dependency_get_progress(local_path);
 		}
@@ -708,10 +732,10 @@ ResourceLoader::ThreadLoadStatus ResourceLoader::load_threaded_get_status(const 
 		// Support userland polling in a loop on the main thread.
 		if (Thread::is_main_thread() && status == THREAD_LOAD_IN_PROGRESS) {
 			uint64_t frame = Engine::get_singleton()->get_process_frames();
-			if (frame == load_task.last_progress_check_main_thread_frame) {
+			if (frame == load_task_ptr->last_progress_check_main_thread_frame) {
 				ensure_progress = true;
 			} else {
-				load_task.last_progress_check_main_thread_frame = frame;
+				load_task_ptr->last_progress_check_main_thread_frame = frame;
 			}
 		}
 	}
@@ -745,8 +769,23 @@ Ref<Resource> ResourceLoader::load_threaded_get(const String &p_path, Error *r_e
 
 		// Support userland requesting on the main thread before the load is reported to be complete.
 		if (Thread::is_main_thread() && !load_token->local_path.is_empty()) {
-			const ThreadLoadTask &load_task = thread_load_tasks[load_token->local_path];
-			while (load_task.status == THREAD_LOAD_IN_PROGRESS) {
+			ThreadLoadTask *load_task_ptr;
+
+			if (load_token->task_if_unregistered) {
+				load_task_ptr = load_token->task_if_unregistered;
+			} else {
+				if (!thread_load_tasks.has(load_token->local_path)) {
+					print_error("Bug in ResourceLoader logic, please report.");
+					if (r_error) {
+						*r_error = ERR_BUG;
+					}
+					return Ref<Resource>();
+				}
+
+				load_task_ptr = &thread_load_tasks[load_token->local_path];
+			}
+
+			while (load_task_ptr->status == THREAD_LOAD_IN_PROGRESS) {
 				thread_load_lock.temp_unlock();
 				bool exit = !_ensure_load_progress();
 				OS::get_singleton()->delay_usec(1000);
@@ -784,6 +823,22 @@ void ResourceLoader::set_is_import_thread(bool p_import_thread) {
 	import_thread = p_import_thread;
 }
 
+void ResourceLoader::notify_load_error(const String &p_err) {
+	if (err_notify) {
+		MessageQueue::get_main_singleton()->push_callable(callable_mp_static(err_notify).bind(p_err));
+	}
+}
+
+void ResourceLoader::notify_dependency_error(const String &p_path, const String &p_dependency, const String &p_type) {
+	if (dep_err_notify) {
+		if (Thread::get_caller_id() == Thread::get_main_id()) {
+			dep_err_notify(p_path, p_dependency, p_type);
+		} else {
+			MessageQueue::get_main_singleton()->push_callable(callable_mp_static(dep_err_notify).bind(p_path, p_dependency, p_type));
+		}
+	}
+}
+
 Ref<Resource> ResourceLoader::_load_complete_inner(LoadToken &p_load_token, Error *r_error, MutexLock<SafeBinaryMutex<BINARY_MUTEX_TAG>> &p_thread_load_lock) {
 	if (r_error) {
 		*r_error = OK;
@@ -818,14 +873,32 @@ Ref<Resource> ResourceLoader::_load_complete_inner(LoadToken &p_load_token, Erro
 			bool loader_is_wtp = load_task.task_id != 0;
 			if (loader_is_wtp) {
 				// Loading thread is in the worker pool.
+
+				int load_nesting_backup = load_nesting;
+				load_nesting = 0;
+				int thread_index = WorkerThreadPool::get_singleton()->get_thread_index();
+				int task_thread_index = load_task.thread_index;
+
+				bool restart = false;
+				bool running = load_task.started_load;
+
 				p_thread_load_lock.temp_unlock();
 
-				PREPARE_FOR_WTP_WAIT
-				Error wait_err = WorkerThreadPool::get_singleton()->wait_for_task_completion(load_task.task_id);
-				RESTORE_AFTER_WTP_WAIT
+				if (running && task_thread_index != thread_index) {
+					Error wait_err = WorkerThreadPool::get_singleton()->wait_for_task_completion(load_task.task_id);
 
-				DEV_ASSERT(!wait_err || wait_err == ERR_BUSY);
-				if (wait_err == ERR_BUSY) {
+					DEV_ASSERT(!wait_err || wait_err == ERR_BUSY);
+					if (wait_err == ERR_BUSY) {
+						restart = true;
+					}
+				} else {
+					restart = true;
+				}
+
+				DEV_ASSERT(load_nesting == 0);
+				load_nesting = load_nesting_backup;
+
+				if (restart) {
 					// The WorkerThreadPool has reported that the current task wants to await on an older one.
 					// That't not allowed for safety, to avoid deadlocks. Fortunately, though, in the context of
 					// resource loading that means that the task to wait for can be restarted here to break the
@@ -873,21 +946,24 @@ Ref<Resource> ResourceLoader::_load_complete_inner(LoadToken &p_load_token, Erro
 		load_task_ptr = &load_task;
 	}
 
-	p_thread_load_lock.temp_unlock();
-
 	Ref<Resource> resource = load_task_ptr->resource;
 	if (r_error) {
 		*r_error = load_task_ptr->error;
 	}
 
 	if (resource.is_valid()) {
-		if (curr_load_task) {
-			// A task awaiting another => Let the awaiter accumulate the resource changed connections.
-			DEV_ASSERT(curr_load_task != load_task_ptr);
-			for (const ThreadLoadTask::ResourceChangedConnection &rcc : load_task_ptr->resource_changed_connections) {
-				curr_load_task->resource_changed_connections.push_back(rcc);
+		if (load_task_ptr->parent_task) {
+			if (!load_task_ptr->connections_propagated) {
+				// A task awaiting another => Let the awaiter accumulate the resource changed connections.
+				DEV_ASSERT(load_task_ptr->parent_task != load_task_ptr);
+				for (const ThreadLoadTask::ResourceChangedConnection &rcc : load_task_ptr->resource_changed_connections) {
+					load_task_ptr->parent_task->resource_changed_connections.push_back(rcc);
+				}
+				load_task_ptr->connections_propagated = true;
 			}
 		} else {
+			p_thread_load_lock.temp_unlock();
+
 			// A leaf task being awaited => Propagate the resource changed connections.
 			if (Thread::is_main_thread()) {
 				// On the main thread it's safe to migrate the connections to the standard signal mechanism.
@@ -911,10 +987,10 @@ Ref<Resource> ResourceLoader::_load_complete_inner(LoadToken &p_load_token, Erro
 					}
 				}
 			}
+
+			p_thread_load_lock.temp_relock();
 		}
 	}
-
-	p_thread_load_lock.temp_relock();
 
 	return resource;
 }
@@ -1068,20 +1144,6 @@ void ResourceLoader::remove_resource_format_loader(Ref<ResourceFormatLoader> p_f
 	--loader_count;
 }
 
-int ResourceLoader::get_import_order(const String &p_path) {
-	String local_path = _path_remap(_validate_local_path(p_path));
-
-	for (int i = 0; i < loader_count; i++) {
-		if (!loader[i]->recognize_path(local_path)) {
-			continue;
-		}
-
-		return loader[i]->get_import_order(p_path);
-	}
-
-	return 0;
-}
-
 String ResourceLoader::get_import_group_file(const String &p_path) {
 	String local_path = _path_remap(_validate_local_path(p_path));
 
@@ -1189,7 +1251,10 @@ String ResourceLoader::get_resource_script_class(const String &p_path) {
 }
 
 ResourceUID::ID ResourceLoader::get_resource_uid(const String &p_path) {
-	String local_path = _validate_local_path(p_path);
+	const String local_path = _validate_local_path(p_path);
+	if (!Engine::get_singleton()->is_editor_hint()) {
+		return ResourceUID::get_singleton()->get_path_id(local_path);
+	}
 
 	for (int i = 0; i < loader_count; i++) {
 		ResourceUID::ID id = loader[i]->get_resource_uid(local_path);
@@ -1199,21 +1264,6 @@ ResourceUID::ID ResourceLoader::get_resource_uid(const String &p_path) {
 	}
 
 	return ResourceUID::INVALID_ID;
-}
-
-bool ResourceLoader::has_custom_uid_support(const String &p_path) {
-	String local_path = _validate_local_path(p_path);
-
-	for (int i = 0; i < loader_count; i++) {
-		if (!loader[i]->recognize_path(local_path)) {
-			continue;
-		}
-		if (loader[i]->has_custom_uid_support()) {
-			return true;
-		}
-	}
-
-	return false;
 }
 
 bool ResourceLoader::should_create_uid_file(const String &p_path) {
@@ -1465,8 +1515,8 @@ void ResourceLoader::add_custom_loaders() {
 
 	String custom_loader_base_class = ResourceFormatLoader::get_class_static();
 
-	List<StringName> global_classes;
-	ScriptServer::get_global_class_list(&global_classes);
+	LocalVector<StringName> global_classes;
+	ScriptServer::get_global_class_list(global_classes);
 
 	for (const StringName &class_name : global_classes) {
 		StringName base_class = ScriptServer::get_global_class_native_base(class_name);
@@ -1563,7 +1613,6 @@ bool ResourceLoader::timestamp_on_load = false;
 
 thread_local bool ResourceLoader::import_thread = false;
 thread_local int ResourceLoader::load_nesting = 0;
-thread_local Vector<String> ResourceLoader::load_paths_stack;
 thread_local HashMap<int, HashMap<String, Ref<Resource>>> ResourceLoader::res_ref_overrides;
 thread_local ResourceLoader::ThreadLoadTask *ResourceLoader::curr_load_task = nullptr;
 

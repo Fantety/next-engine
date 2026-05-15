@@ -1,7 +1,7 @@
 short_name = "next"
 name = "NEXT Engine"
 major = 4
-minor = 5
+minor = 7
 patch = 0
 status = "beta"
 module_config = ""

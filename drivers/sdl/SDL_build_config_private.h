@@ -47,7 +47,6 @@
 #define SDL_DIALOG_DISABLED 1
 #define SDL_FILESYSTEM_DUMMY 1
 #define SDL_FSOPS_DUMMY 1
-#define SDL_SENSOR_DISABLED 1
 #define SDL_GPU_DISABLED 1
 #define SDL_RENDER_DISABLED 1
 #define SDL_POWER_DISABLED 1
@@ -73,6 +72,7 @@
 #define SDL_THREAD_GENERIC_RWLOCK_SUFFIX 1
 #define SDL_THREAD_WINDOWS 1
 #define SDL_TIMER_WINDOWS 1
+#define SDL_SENSOR_WINDOWS 1
 
 // Linux defines
 #elif defined(SDL_PLATFORM_LINUX)
@@ -81,15 +81,18 @@
 #define SDL_PLATFORM_UNIX 1
 
 #define HAVE_STDIO_H 1
+#define HAVE_LIBC 1
 #define HAVE_LINUX_INPUT_H 1
 #define HAVE_POLL 1
 
 #ifdef __linux__
 #define HAVE_INOTIFY 1
 #define HAVE_INOTIFY_INIT1 1
-#define HAVE_GETENV 1
-#define HAVE_SETENV 1
-#define HAVE_UNSETENV 1
+// Don't add these defines, for some reason they mess with C#'s ability
+// to use environment variables (see GH-109024)
+//#define HAVE_GETENV 1
+//#define HAVE_SETENV 1
+//#define HAVE_UNSETENV 1
 #endif
 
 #ifdef DBUS_ENABLED
@@ -110,10 +113,11 @@
 #define SDL_HAPTIC_LINUX 1
 #define SDL_TIMER_UNIX 1
 #define SDL_JOYSTICK_LINUX 1
+#define SDL_JOYSTICK_HIDAPI 1
 #define SDL_INPUT_LINUXEV 1
 #define SDL_THREAD_PTHREAD 1
 
-// MacOS defines
+// macOS defines
 #elif defined(SDL_PLATFORM_MACOS)
 
 #define SDL_PLATFORM_PRIVATE_NAME "macOS"
@@ -123,8 +127,31 @@
 #define SDL_HAPTIC_IOKIT 1
 #define SDL_JOYSTICK_IOKIT 1
 #define SDL_JOYSTICK_MFI 1
+#define SDL_JOYSTICK_HIDAPI 1
 #define SDL_TIMER_UNIX 1
 #define SDL_THREAD_PTHREAD 1
+#define SDL_THREAD_PTHREAD_RECURSIVE_MUTEX 1
+
+// iOS/visionOS defines
+#elif defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_VISIONOS)
+
+#ifdef SDL_PLATFORM_IOS
+#define SDL_PLATFORM_PRIVATE_NAME "iOS"
+#else
+#define SDL_PLATFORM_PRIVATE_NAME "visionOS"
+#endif
+
+#define SDL_PLATFORM_UNIX 1
+
+#define HAVE_STDIO_H 1
+#define HAVE_LIBC 1
+
+#define SDL_JOYSTICK_MFI 1
+#define SDL_HAPTIC_DUMMY 1
+#define SDL_TIMER_UNIX 1
+#define SDL_THREAD_PTHREAD 1
+
+#define SDL_MAIN_HANDLED 1
 
 // Other platforms are not supported (for now)
 #else
