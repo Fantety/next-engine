@@ -74,12 +74,13 @@ void AIComposer::set_running(bool p_running) {
 
 void AIComposer::reload_models() {
 	model_selector->clear();
+	EditorSettings *settings = EditorSettings::get_singleton();
 	const String deepseek_models[] = { "deepseek-chat", "deepseek-reasoner" };
 	for (int i = 0; i < 2; i++) {
 		String setting_path = "deepseek/models/" + deepseek_models[i];
 		bool enabled = true;
-		if (EditorSettings::get_singleton()->has_setting(setting_path)) {
-			enabled = EditorSettings::get_singleton()->get(setting_path);
+		if (settings && settings->has_setting(setting_path)) {
+			enabled = settings->get(setting_path);
 		}
 		if (enabled) {
 			model_selector->add_item(deepseek_models[i]);

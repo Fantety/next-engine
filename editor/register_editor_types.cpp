@@ -244,7 +244,6 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIFileContextProvider);
 	GDREGISTER_CLASS(AIProjectTreeContextProvider);
 	GDREGISTER_CLASS(AIConversationStore);
-	GDREGISTER_CLASS(AIAgentDock);
 	GDREGISTER_CLASS(AIAgentSettingsDialog);
 	GDREGISTER_CLASS(AIComposer);
 	GDREGISTER_CLASS(AIMessageBubble);

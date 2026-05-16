@@ -25,6 +25,7 @@ class AIAgentDock : public EditorDock {
 	void _message_updated(int p_index, const Dictionary &p_message);
 	void _state_changed(int p_state);
 	void _settings_changed();
+	void _ensure_session();
 	AIProviderConfig _get_provider_config(const String &p_model) const;
 
 protected:
