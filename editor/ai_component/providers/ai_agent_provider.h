@@ -8,6 +8,7 @@
 #include "scene/main/node.h"
 
 #include "editor/ai_component/providers/ai_provider_config.h"
+#include "editor/ai_component/providers/ai_provider_features.h"
 
 class AIAgentProvider : public Node {
 	GDCLASS(AIAgentProvider, Node);
@@ -19,6 +20,7 @@ protected:
 public:
 	void set_config(const AIProviderConfig &p_config);
 	AIProviderConfig get_config() const;
+	virtual AIProviderFeatures get_features() const;
 
 	virtual bool start_chat(const Array &p_messages);
 	virtual void cancel();

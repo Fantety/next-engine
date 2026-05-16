@@ -27,6 +27,13 @@ AIOpenAICompatibleProvider::~AIOpenAICompatibleProvider() {
 	cancel();
 }
 
+AIProviderFeatures AIOpenAICompatibleProvider::get_features() const {
+	AIProviderFeatures features;
+	features.supports_streaming = true;
+	features.supports_tools = false;
+	return features;
+}
+
 bool AIOpenAICompatibleProvider::start_chat(const Array &p_messages) {
 	if (running.is_set()) {
 		cancel();
@@ -216,11 +223,18 @@ String AIOpenAICompatibleProvider::build_request_path(const String &p_base_path)
 	return path + "/chat/completions";
 }
 
-PackedByteArray AIOpenAICompatibleProvider::_build_body(const Array &p_messages, const String &p_model) {
+PackedByteArray AIOpenAICompatibleProvider::build_body_for_test(const Array &p_messages, const String &p_model, const Array &p_tool_schemas) {
+	return _build_body(p_messages, p_model, p_tool_schemas);
+}
+
+PackedByteArray AIOpenAICompatibleProvider::_build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas) {
 	Dictionary body;
 	body["model"] = p_model;
 	body["stream"] = true;
 	body["messages"] = p_messages;
+	if (!p_tool_schemas.is_empty()) {
+		body["tools"] = p_tool_schemas;
+	}
 	return JSON::stringify(body).to_utf8_buffer();
 }
 

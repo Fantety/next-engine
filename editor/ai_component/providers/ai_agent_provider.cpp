@@ -19,6 +19,10 @@ AIProviderConfig AIAgentProvider::get_config() const {
 	return config;
 }
 
+AIProviderFeatures AIAgentProvider::get_features() const {
+	return AIProviderFeatures();
+}
+
 bool AIAgentProvider::start_chat(const Array &p_messages) {
 	ERR_FAIL_V_MSG(false, "AIAgentProvider::start_chat must be implemented by subclasses.");
 }
