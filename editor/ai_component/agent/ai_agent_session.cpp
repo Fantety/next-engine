@@ -12,6 +12,7 @@ void AIAgentSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("send_user_message", "message"), &AIAgentSession::send_user_message);
 	ClassDB::bind_method(D_METHOD("cancel_request"), &AIAgentSession::cancel_request);
 	ClassDB::bind_method(D_METHOD("start_new_session"), &AIAgentSession::start_new_session);
+	ClassDB::bind_method(D_METHOD("load_session", "session_id"), &AIAgentSession::load_session);
 	ClassDB::bind_method(D_METHOD("get_messages_as_array"), &AIAgentSession::get_messages_as_array);
 
 	ADD_SIGNAL(MethodInfo("message_added", PropertyInfo(Variant::DICTIONARY, "message")));
@@ -91,6 +92,25 @@ void AIAgentSession::start_new_session() {
 	_set_state(AI_AGENT_STATE_IDLE);
 }
 
+bool AIAgentSession::load_session(const String &p_session_id) {
+	if (state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
+		cancel_request();
+	}
+
+	String loaded_title;
+	Vector<AIAgentMessage> loaded_messages;
+	if (!store->load_conversation(p_session_id, loaded_title, loaded_messages)) {
+		return false;
+	}
+
+	session_id = p_session_id;
+	title = loaded_title.is_empty() ? String("New Chat") : loaded_title;
+	messages = loaded_messages;
+	active_assistant_index = -1;
+	_set_state(AI_AGENT_STATE_IDLE);
+	return true;
+}
+
 Array AIAgentSession::get_messages_as_array() const {
 	Array array;
 	for (int i = 0; i < messages.size(); i++) {
@@ -103,8 +123,16 @@ String AIAgentSession::get_session_id() const {
 	return session_id;
 }
 
+String AIAgentSession::get_title() const {
+	return title;
+}
+
 AIAgentState AIAgentSession::get_state() const {
 	return state;
+}
+
+Array AIAgentSession::list_sessions() const {
+	return store->list_conversations();
 }
 
 void AIAgentSession::_set_state(AIAgentState p_state) {

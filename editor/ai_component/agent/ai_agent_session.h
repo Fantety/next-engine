@@ -48,7 +48,10 @@ public:
 	void send_user_message(const String &p_message);
 	void cancel_request();
 	void start_new_session();
+	bool load_session(const String &p_session_id);
 	Array get_messages_as_array() const;
 	String get_session_id() const;
+	String get_title() const;
 	AIAgentState get_state() const;
+	Array list_sessions() const;
 };

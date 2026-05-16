@@ -6,13 +6,13 @@
 
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
-#include "editor/settings/editor_settings.h"
+#include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/label.h"
 
 void AIComposer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reload_models"), &AIComposer::reload_models);
-	ADD_SIGNAL(MethodInfo("send_requested", PropertyInfo(Variant::STRING, "message"), PropertyInfo(Variant::STRING, "model")));
+	ADD_SIGNAL(MethodInfo("send_requested", PropertyInfo(Variant::STRING, "message"), PropertyInfo(Variant::STRING, "model_id")));
 	ADD_SIGNAL(MethodInfo("cancel_requested"));
 }
 
@@ -58,9 +58,9 @@ String AIComposer::get_input_text() const {
 
 String AIComposer::get_selected_model() const {
 	if (model_selector->get_item_count() == 0) {
-		return "deepseek-chat";
+		return AIModelSettings::get_model_id("deepseek", "deepseek-chat");
 	}
-	return model_selector->get_item_text(model_selector->get_selected());
+	return String(model_selector->get_item_metadata(model_selector->get_selected()));
 }
 
 void AIComposer::clear_input() {
@@ -74,20 +74,19 @@ void AIComposer::set_running(bool p_running) {
 
 void AIComposer::reload_models() {
 	model_selector->clear();
-	EditorSettings *settings = EditorSettings::get_singleton();
-	const String deepseek_models[] = { "deepseek-chat", "deepseek-reasoner" };
-	for (int i = 0; i < 2; i++) {
-		String setting_path = "deepseek/models/" + deepseek_models[i];
-		bool enabled = true;
-		if (settings && settings->has_setting(setting_path)) {
-			enabled = settings->get(setting_path);
-		}
-		if (enabled) {
-			model_selector->add_item(deepseek_models[i]);
-		}
+
+	Vector<AIModelDescriptor> enabled_models = AIModelSettings::get_enabled_models();
+	for (int i = 0; i < enabled_models.size(); i++) {
+		const AIModelDescriptor &model = enabled_models[i];
+		int item_index = model_selector->get_item_count();
+		model_selector->add_item(model.provider_name + " / " + model.model);
+		model_selector->set_item_metadata(item_index, model.id);
 	}
+
 	if (model_selector->get_item_count() == 0) {
-		model_selector->add_item("deepseek-chat");
+		int item_index = model_selector->get_item_count();
+		model_selector->add_item("DeepSeek / deepseek-chat");
+		model_selector->set_item_metadata(item_index, AIModelSettings::get_model_id("deepseek", "deepseek-chat"));
 	}
 }
 

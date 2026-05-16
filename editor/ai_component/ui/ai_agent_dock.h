@@ -9,10 +9,14 @@
 #include "editor/ai_component/agent/ai_agent_session.h"
 #include "editor/ai_component/ui/ai_composer.h"
 #include "editor/ai_component/ui/ai_message_list.h"
+#include "scene/gui/button.h"
+#include "scene/gui/item_list.h"
 
 class AIAgentDock : public EditorDock {
 	GDCLASS(AIAgentDock, EditorDock);
 
+	ItemList *session_list = nullptr;
+	Button *new_session_button = nullptr;
 	AIMessageList *message_list = nullptr;
 	AIComposer *composer = nullptr;
 	AIAgentSession *session = nullptr;
@@ -25,8 +29,13 @@ class AIAgentDock : public EditorDock {
 	void _message_updated(int p_index, const Dictionary &p_message);
 	void _state_changed(int p_state);
 	void _settings_changed();
+	void _new_session_pressed();
+	void _session_selected(int p_index);
 	void _ensure_session();
-	AIProviderConfig _get_provider_config(const String &p_model) const;
+	void _refresh_session_list();
+	void _select_current_session();
+	void _reload_messages_from_session();
+	AIProviderConfig _get_provider_config(const String &p_model_id) const;
 
 protected:
 	static void _bind_methods();
