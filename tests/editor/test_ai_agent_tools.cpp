@@ -9,6 +9,7 @@
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
+#include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
@@ -160,6 +161,20 @@ TEST_CASE("[Editor][AI] Read-only project tools return bounded textual results")
 	AIToolResult search_result = search_project->execute(search_arguments);
 	CHECK_FALSE(search_result.is_error());
 	CHECK(search_result.content.length() <= 4096);
+}
+
+TEST_CASE("[Editor][AI] Editor context tool exposes safe metadata only") {
+	Ref<AIGetEditorContextTool> editor_context;
+	editor_context.instantiate();
+
+	Dictionary arguments;
+	AIToolResult result = editor_context->execute(arguments);
+
+	CHECK_FALSE(result.is_error());
+	CHECK(result.content.contains("Editor Context"));
+	CHECK_FALSE(result.content.contains("api_key"));
+	CHECK_FALSE(result.content.contains("API Key"));
+	CHECK_FALSE(result.content.contains("Authorization"));
 }
 
 } // namespace TestAIAgentTools
