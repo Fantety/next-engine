@@ -24,10 +24,21 @@ AIMessageBubble::AIMessageBubble() {
 void AIMessageBubble::set_message(const Dictionary &p_message) {
 	String role = p_message.get("role", "assistant");
 	String content = p_message.get("content", "");
+	Dictionary message_metadata;
+	if (p_message.has("metadata") && Variant(p_message["metadata"]).get_type() == Variant::DICTIONARY) {
+		message_metadata = p_message["metadata"];
+	}
 
 	String title;
 	if (role == "user") {
 		title = "You";
+	} else if (role == "tool") {
+		String tool_name = String(message_metadata.get("tool_name", "tool"));
+		String status = String(message_metadata.get("status", ""));
+		title = "Tool: " + tool_name;
+		if (!status.is_empty()) {
+			title += " (" + status + ")";
+		}
 	} else if (role == "error") {
 		title = "Error";
 	} else {

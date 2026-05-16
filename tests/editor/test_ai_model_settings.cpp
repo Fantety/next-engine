@@ -73,4 +73,24 @@ TEST_CASE("[Editor][AI] Message bubbles render labels without BBCode markup") {
 	memdelete(bubble);
 }
 
+TEST_CASE("[Editor][AI] Message bubbles render tool events with metadata") {
+	AIMessageBubble *bubble = memnew(AIMessageBubble);
+	Dictionary message;
+	message["role"] = "tool";
+	message["content"] = "res://player.gd";
+
+	Dictionary metadata;
+	metadata["tool_name"] = "project.read_file";
+	metadata["status"] = "completed";
+	message["metadata"] = metadata;
+
+	bubble->set_message(message);
+
+	RichTextLabel *label = Object::cast_to<RichTextLabel>(bubble->get_child(0));
+	REQUIRE(label != nullptr);
+	CHECK(label->get_parsed_text() == "Tool: project.read_file (completed)\nres://player.gd");
+
+	memdelete(bubble);
+}
+
 } // namespace TestAIModelSettings
