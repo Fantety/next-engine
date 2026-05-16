@@ -9,6 +9,9 @@
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
+#include "editor/ai_component/tools/project/ai_list_project_tool.h"
+#include "editor/ai_component/tools/project/ai_read_file_tool.h"
+#include "editor/ai_component/tools/project/ai_search_project_tool.h"
 
 TEST_FORCE_LINK(test_ai_agent_tools);
 
@@ -115,6 +118,48 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ASK) == "ask");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_DENY) == "deny");
+}
+
+TEST_CASE("[Editor][AI] Read-only project tools enforce project boundaries") {
+	Ref<AIReadFileTool> read_file;
+	read_file.instantiate();
+
+	Dictionary arguments;
+	arguments["path"] = "C:/outside.txt";
+	AIToolResult outside_result = read_file->execute(arguments);
+	CHECK(outside_result.is_error());
+
+	arguments["path"] = "res://../outside.txt";
+	AIToolResult traversal_result = read_file->execute(arguments);
+	CHECK(traversal_result.is_error());
+
+	arguments["path"] = "res://icon.png";
+	AIToolResult extension_result = read_file->execute(arguments);
+	CHECK(extension_result.is_error());
+}
+
+TEST_CASE("[Editor][AI] Read-only project tools return bounded textual results") {
+	Ref<AIListProjectTool> list_project;
+	list_project.instantiate();
+
+	Dictionary list_arguments;
+	list_arguments["path"] = "res://";
+	list_arguments["max_depth"] = 1;
+	list_arguments["max_entries"] = 20;
+	AIToolResult tree_result = list_project->execute(list_arguments);
+	CHECK_FALSE(tree_result.is_error());
+	CHECK(tree_result.content.contains("res://"));
+
+	Ref<AISearchProjectTool> search_project;
+	search_project.instantiate();
+
+	Dictionary search_arguments;
+	search_arguments["path"] = "res://";
+	search_arguments["query"] = "project";
+	search_arguments["max_results"] = 5;
+	AIToolResult search_result = search_project->execute(search_arguments);
+	CHECK_FALSE(search_result.is_error());
+	CHECK(search_result.content.length() <= 4096);
 }
 
 } // namespace TestAIAgentTools
