@@ -138,15 +138,20 @@
 #include "editor/translations/editor_translation_parser.h"
 #include "editor/version_control/editor_vcs_interface.h"
 
-#include "editor/ai_component/apis/ai_streaming_base.h"
-#include "editor/ai_component/apis/openai_request_handler.h"
-#include "editor/ai_component/ai_dock.h"
-#include "editor/ai_component/ai_settings_dialog.h"
-#include "editor/ai_component/ai_chat_panel.h"
-#include "editor/ai_component/ai_chat_block.h"
-#include "editor/ai_component/ai_history_button.h"
-#include "editor/ai_component/mcp/mcp_tool_register.h"
-#include "editor/ai_component/mcp/mcp_http_server.h"
+#include "editor/ai_component/agent/ai_agent_session.h"
+#include "editor/ai_component/context/ai_context_provider.h"
+#include "editor/ai_component/context/ai_editor_context_provider.h"
+#include "editor/ai_component/context/ai_file_context_provider.h"
+#include "editor/ai_component/context/ai_project_tree_context_provider.h"
+#include "editor/ai_component/providers/ai_agent_provider.h"
+#include "editor/ai_component/providers/ai_openai_compatible_provider.h"
+#include "editor/ai_component/providers/ai_sse_parser.h"
+#include "editor/ai_component/storage/ai_conversation_store.h"
+#include "editor/ai_component/ui/ai_agent_dock.h"
+#include "editor/ai_component/ui/ai_agent_settings_dialog.h"
+#include "editor/ai_component/ui/ai_composer.h"
+#include "editor/ai_component/ui/ai_message_bubble.h"
+#include "editor/ai_component/ui/ai_message_list.h"
 
 #include "servers/rendering/rendering_server.h"
 
@@ -230,11 +235,20 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterTexture);
 	GDREGISTER_CLASS(ResourceImporterTextureAtlas);
 	GDREGISTER_CLASS(ResourceImporterWAV);
-	GDREGISTER_CLASS(OpenAIRequestHandler);
-	GDREGISTER_CLASS(AIChatBlock);
-	GDREGISTER_CLASS(AIChatPanel);
-	GDREGISTER_CLASS(AIHistoryButton);
-	GDREGISTER_CLASS(MCPHttpServer);
+	GDREGISTER_CLASS(AIAgentSession);
+	GDREGISTER_CLASS(AIAgentProvider);
+	GDREGISTER_CLASS(AIOpenAICompatibleProvider);
+	GDREGISTER_CLASS(AISSEParser);
+	GDREGISTER_CLASS(AIContextProvider);
+	GDREGISTER_CLASS(AIEditorContextProvider);
+	GDREGISTER_CLASS(AIFileContextProvider);
+	GDREGISTER_CLASS(AIProjectTreeContextProvider);
+	GDREGISTER_CLASS(AIConversationStore);
+	GDREGISTER_CLASS(AIAgentDock);
+	GDREGISTER_CLASS(AIAgentSettingsDialog);
+	GDREGISTER_CLASS(AIComposer);
+	GDREGISTER_CLASS(AIMessageBubble);
+	GDREGISTER_CLASS(AIMessageList);
 	
 
 	// This list is alphabetized, and plugins that depend on Node2D are in their own section below.
@@ -343,9 +357,6 @@ void register_editor_types() {
 	// Required as GDExtensions can register docs at init time way before this
 	// class is actually instantiated.
 	EditorHelp::init_gdext_pointers();
-
-	// Register MCP tools
-	MCPToolRegister::register_all_tools();
 
 	OS::get_singleton()->benchmark_end_measure("Editor", "Register Types");
 }

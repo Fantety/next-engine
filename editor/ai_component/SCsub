@@ -11,8 +11,9 @@ from misc.utility.scons_hints import *
 
 Import("env")
 
-env.add_source_files(env.editor_sources, "*.cpp")
-
-SConscript("apis/SCsub")
-SConscript("tools/SCsub")
-SConscript("mcp/SCsub")
+SConscript("agent/SCsub")
+SConscript("providers/SCsub")
+SConscript("context/SCsub")
+SConscript("storage/SCsub")
+SConscript("prompts/SCsub")
+SConscript("ui/SCsub")

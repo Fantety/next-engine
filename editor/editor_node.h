@@ -97,14 +97,14 @@ class EditorQuickOpenDialog;
 class FBXImporterManager;
 class FileSystemDock;
 class HistoryDock;
-class AIDock;
+class AIAgentDock;
 class OrphanResourcesDialog;
 class ProgressDialog;
 class ProjectExportDialog;
 class ProjectSettingsEditor;
 class SceneImportSettingsDialog;
 class ProjectUpgradeTool;
-class AISettingsDialog;
+class AIAgentSettingsDialog;
 
 #ifdef ANDROID_ENABLED
 class TouchActionsPanel;
@@ -280,7 +280,7 @@ private:
 	EditorSelection *editor_selection = nullptr;
 	EditorSettingsDialog *editor_settings_dialog = nullptr;
 	HistoryDock *history_dock = nullptr;
-	AIDock *ai_dock = nullptr;
+	AIAgentDock *ai_dock = nullptr;
 
 	ProjectExportDialog *project_export = nullptr;
 	ProjectSettingsEditor *project_settings_editor = nullptr;
@@ -393,7 +393,7 @@ private:
 	EditorAbout *about = nullptr;
 	AcceptDialog *warning = nullptr;
 	EditorPlugin *plugin_to_save = nullptr;
-	AISettingsDialog *ai_settings = nullptr;
+	AIAgentSettingsDialog *ai_settings = nullptr;
 
 	bool overridden_default_layout = false;
 	Ref<ConfigFile> default_layout;

@@ -181,8 +181,8 @@
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server.h"
 
-#include "editor/ai_component/ai_settings_dialog.h"
-#include "editor/ai_component/ai_dock.h"
+#include "editor/ai_component/ui/ai_agent_settings_dialog.h"
+#include "editor/ai_component/ui/ai_agent_dock.h"
 
 #ifdef VULKAN_ENABLED
 #include "editor/shader/shader_baker/shader_baker_export_plugin_platform_vulkan.h"
@@ -8923,7 +8923,7 @@ EditorNode::EditorNode() {
 	gui_base->add_child(build_profile_manager);
 
 	about = memnew(EditorAbout);
-	ai_settings = memnew(AISettingsDialog);
+	ai_settings = memnew(AIAgentSettingsDialog);
 	gui_base->add_child(about);
 	gui_base->add_child(ai_settings);
 	feature_profile_manager->connect("current_feature_profile_changed", callable_mp(this, &EditorNode::_feature_profile_changed));
@@ -9202,7 +9202,7 @@ EditorNode::EditorNode() {
 	editor_dock_manager->add_dock(GroupsDock::get_singleton());
 
 	history_dock = memnew(HistoryDock);
-	ai_dock = memnew(AIDock);
+	ai_dock = memnew(AIAgentDock);
 	editor_dock_manager->add_dock(history_dock);
 	editor_dock_manager->add_dock(ai_dock);
 
