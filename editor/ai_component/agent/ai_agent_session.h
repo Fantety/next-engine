@@ -9,6 +9,7 @@
 
 #include "editor/ai_component/agent/ai_agent_runner.h"
 #include "editor/ai_component/agent/ai_agent_runtime.h"
+#include "editor/ai_component/agent/ai_agent_runtime_runner.h"
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
 #include "editor/ai_component/providers/ai_openai_compatible_provider.h"
@@ -26,6 +27,7 @@ class AIAgentSession : public Node {
 
 	Ref<AIAgentRunner> runner;
 	Ref<AIAgentRuntime> runtime;
+	Ref<AIAgentRuntimeRunner> runtime_runner;
 	Ref<AIToolRegistry> tool_registry;
 	AIOpenAICompatibleProvider *provider = nullptr;
 	Ref<AIConversationStore> store;
@@ -54,6 +56,7 @@ public:
 	void set_agent_profile_id(const String &p_profile_id);
 	String get_agent_profile_id() const;
 	Ref<AIAgentRuntime> get_agent_runtime() const;
+	Ref<AIAgentRuntimeRunner> get_agent_runtime_runner() const;
 	Ref<AIToolRegistry> get_tool_registry() const;
 	bool is_tool_runtime_available() const;
 	void send_user_message(const String &p_message);

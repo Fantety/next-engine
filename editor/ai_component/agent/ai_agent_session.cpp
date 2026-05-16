@@ -33,6 +33,7 @@ AIAgentSession::AIAgentSession() {
 	store.instantiate();
 	runner.instantiate();
 	runtime.instantiate();
+	runtime_runner.instantiate();
 	tool_registry.instantiate();
 	project_tree_context.instantiate();
 	editor_context.instantiate();
@@ -73,6 +74,10 @@ String AIAgentSession::get_agent_profile_id() const {
 
 Ref<AIAgentRuntime> AIAgentSession::get_agent_runtime() const {
 	return runtime;
+}
+
+Ref<AIAgentRuntimeRunner> AIAgentSession::get_agent_runtime_runner() const {
+	return runtime_runner;
 }
 
 Ref<AIToolRegistry> AIAgentSession::get_tool_registry() const {
@@ -210,6 +215,7 @@ void AIAgentSession::_configure_tool_runtime() {
 
 	runtime->set_tool_registry(tool_registry);
 	runtime->set_profile(agent_profile);
+	runtime_runner->set_runtime(runtime);
 }
 
 void AIAgentSession::_on_provider_response_started() {

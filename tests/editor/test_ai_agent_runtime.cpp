@@ -304,7 +304,9 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies without enabling
 
 	CHECK(session->get_agent_profile_id() == "plan");
 	REQUIRE(session->get_agent_runtime().is_valid());
+	REQUIRE(session->get_agent_runtime_runner().is_valid());
 	REQUIRE(session->get_tool_registry().is_valid());
+	CHECK(session->get_agent_runtime_runner()->get_runtime() == session->get_agent_runtime());
 	CHECK(session->is_tool_runtime_available() == false);
 
 	session->set_agent_profile_id("build");
