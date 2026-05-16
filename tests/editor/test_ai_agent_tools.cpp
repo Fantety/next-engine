@@ -4,8 +4,10 @@
 
 #include "tests/test_macros.h"
 
+#include "editor/ai_component/agent/ai_agent_profile.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
+#include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 
 TEST_FORCE_LINK(test_ai_agent_tools);
@@ -90,6 +92,29 @@ TEST_CASE("[Editor][AI] Tool calls serialize stable execution state") {
 	CHECK(restored.created_at == 123);
 	CHECK(restored.updated_at == 456);
 	CHECK(String(restored.arguments["path"]) == "res://player.gd");
+}
+
+TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
+	AIAgentProfile plan = AIAgentProfile::get_plan_profile();
+	AIAgentProfile build = AIAgentProfile::get_build_profile();
+
+	Dictionary arguments;
+	CHECK(plan.id == "plan");
+	CHECK(build.id == "build");
+
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.read_file", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.search_text", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "unknown.tool", arguments).decision == AI_TOOL_PERMISSION_DENY);
+
+	CHECK(AIToolPermissionPolicy::evaluate(build, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(build, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
+
+	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
+	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ASK) == "ask");
+	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_DENY) == "deny");
 }
 
 } // namespace TestAIAgentTools
