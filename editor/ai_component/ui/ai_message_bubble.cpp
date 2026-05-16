@@ -17,6 +17,7 @@ AIMessageBubble::AIMessageBubble() {
 	label->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
 	label->set_fit_content(true);
 	label->set_selection_enabled(true);
+	label->set_use_bbcode(false);
 	add_child(label);
 }
 
@@ -24,13 +25,19 @@ void AIMessageBubble::set_message(const Dictionary &p_message) {
 	String role = p_message.get("role", "assistant");
 	String content = p_message.get("content", "");
 
-	String prefix;
+	String title;
 	if (role == "user") {
-		prefix = "[b]You[/b]\n";
+		title = "You";
 	} else if (role == "error") {
-		prefix = "[b]Error[/b]\n";
+		title = "Error";
 	} else {
-		prefix = "[b]Assistant[/b]\n";
+		title = "Assistant";
 	}
-	label->set_text(prefix + content);
+
+	label->clear();
+	label->push_bold();
+	label->add_text(title);
+	label->pop();
+	label->add_text("\n");
+	label->add_text(content);
 }

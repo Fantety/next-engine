@@ -117,11 +117,11 @@ void AIOpenAICompatibleProvider::_thread_func(void *p_userdata) {
 	headers.push_back("Accept: text/event-stream");
 
 	PackedByteArray body = _build_body(messages, request_config.model);
-	String request_path = _build_request_path(base_path);
+	String request_path = build_request_path(base_path);
 	err = client->request(HTTPClient::METHOD_POST, request_path, headers, body.ptr(), body.size());
 	if (err != OK) {
 		self->running.clear();
-		self->call_deferred("emit_signal", SNAME("request_failed"), "Failed to send provider request.");
+		self->call_deferred("emit_signal", SNAME("request_failed"), vformat("Failed to send provider request (%d): %s", err, request_path));
 		return;
 	}
 
@@ -196,21 +196,24 @@ void AIOpenAICompatibleProvider::_thread_func(void *p_userdata) {
 	self->call_deferred("emit_signal", SNAME("response_finished"), "cancelled");
 }
 
-String AIOpenAICompatibleProvider::_build_request_path(const String &p_base_path) {
-	String path = p_base_path;
+String AIOpenAICompatibleProvider::build_request_path(const String &p_base_path) {
+	String path = p_base_path.strip_edges();
 	if (path.is_empty()) {
 		path = "/";
 	}
 	if (!path.begins_with("/")) {
 		path = "/" + path;
 	}
-	if (path.ends_with("/")) {
+	while (path.length() > 1 && path.ends_with("/")) {
 		path = path.substr(0, path.length() - 1);
 	}
 	if (path.ends_with("/chat/completions")) {
 		return path;
 	}
-	return path.path_join("chat/completions");
+	if (path == "/") {
+		return "/chat/completions";
+	}
+	return path + "/chat/completions";
 }
 
 PackedByteArray AIOpenAICompatibleProvider::_build_body(const Array &p_messages, const String &p_model) {
