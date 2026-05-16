@@ -8,12 +8,20 @@
 #include "core/os/os.h"
 #include "core/os/time.h"
 
+#include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
+#include "editor/ai_component/tools/project/ai_list_project_tool.h"
+#include "editor/ai_component/tools/project/ai_read_file_tool.h"
+#include "editor/ai_component/tools/project/ai_search_project_tool.h"
+
 void AIAgentSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("send_user_message", "message"), &AIAgentSession::send_user_message);
 	ClassDB::bind_method(D_METHOD("cancel_request"), &AIAgentSession::cancel_request);
 	ClassDB::bind_method(D_METHOD("start_new_session"), &AIAgentSession::start_new_session);
 	ClassDB::bind_method(D_METHOD("load_session", "session_id"), &AIAgentSession::load_session);
 	ClassDB::bind_method(D_METHOD("get_messages_as_array"), &AIAgentSession::get_messages_as_array);
+	ClassDB::bind_method(D_METHOD("set_agent_profile_id", "profile_id"), &AIAgentSession::set_agent_profile_id);
+	ClassDB::bind_method(D_METHOD("get_agent_profile_id"), &AIAgentSession::get_agent_profile_id);
+	ClassDB::bind_method(D_METHOD("is_tool_runtime_available"), &AIAgentSession::is_tool_runtime_available);
 
 	ADD_SIGNAL(MethodInfo("message_added", PropertyInfo(Variant::DICTIONARY, "message")));
 	ADD_SIGNAL(MethodInfo("message_updated", PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::DICTIONARY, "message")));
@@ -24,12 +32,16 @@ void AIAgentSession::_bind_methods() {
 AIAgentSession::AIAgentSession() {
 	store.instantiate();
 	runner.instantiate();
+	runtime.instantiate();
+	tool_registry.instantiate();
 	project_tree_context.instantiate();
 	editor_context.instantiate();
+	agent_profile = AIAgentProfile::get_plan_profile();
 
 	provider = memnew(AIOpenAICompatibleProvider);
 	add_child(provider);
 	runner->set_provider(provider);
+	_configure_tool_runtime();
 
 	provider->connect("response_started", callable_mp(this, &AIAgentSession::_on_provider_response_started), CONNECT_DEFERRED);
 	provider->connect("response_delta", callable_mp(this, &AIAgentSession::_on_provider_response_delta), CONNECT_DEFERRED);
@@ -41,6 +53,34 @@ AIAgentSession::AIAgentSession() {
 
 void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
 	provider->set_config(p_config);
+}
+
+void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {
+	if (p_profile_id == "build") {
+		agent_profile = AIAgentProfile::get_build_profile();
+	} else {
+		agent_profile = AIAgentProfile::get_plan_profile();
+	}
+
+	if (runtime.is_valid()) {
+		runtime->set_profile(agent_profile);
+	}
+}
+
+String AIAgentSession::get_agent_profile_id() const {
+	return agent_profile.id;
+}
+
+Ref<AIAgentRuntime> AIAgentSession::get_agent_runtime() const {
+	return runtime;
+}
+
+Ref<AIToolRegistry> AIAgentSession::get_tool_registry() const {
+	return tool_registry;
+}
+
+bool AIAgentSession::is_tool_runtime_available() const {
+	return provider != nullptr && provider->get_features().supports_tools && runtime.is_valid() && tool_registry.is_valid();
 }
 
 void AIAgentSession::send_user_message(const String &p_message) {
@@ -149,6 +189,27 @@ Array AIAgentSession::_collect_context() {
 
 void AIAgentSession::_save() {
 	store->save_conversation(session_id, title, messages);
+}
+
+void AIAgentSession::_configure_tool_runtime() {
+	Ref<AIListProjectTool> list_project;
+	list_project.instantiate();
+	tool_registry->register_tool(list_project);
+
+	Ref<AIReadFileTool> read_file;
+	read_file.instantiate();
+	tool_registry->register_tool(read_file);
+
+	Ref<AISearchProjectTool> search_project;
+	search_project.instantiate();
+	tool_registry->register_tool(search_project);
+
+	Ref<AIGetEditorContextTool> editor_context_tool;
+	editor_context_tool.instantiate();
+	tool_registry->register_tool(editor_context_tool);
+
+	runtime->set_tool_registry(tool_registry);
+	runtime->set_profile(agent_profile);
 }
 
 void AIAgentSession::_on_provider_response_started() {

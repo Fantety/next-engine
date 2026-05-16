@@ -5,6 +5,8 @@
 #include "tests/test_macros.h"
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
+#include "editor/ai_component/agent/ai_agent_session.h"
+#include "editor/ai_component/storage/ai_conversation_serializer.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 
@@ -227,6 +229,68 @@ TEST_CASE("[Editor][AI] Agent runtime defaults to bounded provider and tool-call
 
 	CHECK(runtime->get_max_provider_turns() == 6);
 	CHECK(runtime->get_max_tool_calls() == 20);
+}
+
+TEST_CASE("[Editor][AI] Conversation serializer preserves tool messages and metadata") {
+	AIAgentMessage assistant_message;
+	assistant_message.role = AI_AGENT_ROLE_ASSISTANT;
+	assistant_message.metadata["tool_calls"] = Array();
+
+	AIToolCall call;
+	call.id = "call_roundtrip";
+	call.tool_name = "test.echo";
+	call.arguments["value"] = "context";
+	Array tool_calls;
+	tool_calls.push_back(call.to_dict());
+	assistant_message.metadata["tool_calls"] = tool_calls;
+
+	AIAgentMessage tool_message;
+	tool_message.role = AI_AGENT_ROLE_TOOL;
+	tool_message.content = "context";
+	tool_message.metadata["tool_call_id"] = "call_roundtrip";
+	tool_message.metadata["tool_name"] = "test.echo";
+	tool_message.metadata["status"] = "completed";
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(assistant_message);
+	messages.push_back(tool_message);
+
+	Array serialized = AIConversationSerializer::messages_to_array(messages);
+	Vector<AIAgentMessage> restored = AIConversationSerializer::messages_from_array(serialized);
+
+	REQUIRE(restored.size() == 2);
+	CHECK(restored[0].role == AI_AGENT_ROLE_ASSISTANT);
+	CHECK(restored[0].metadata.has("tool_calls"));
+	Array restored_tool_calls = restored[0].metadata["tool_calls"];
+	REQUIRE(restored_tool_calls.size() == 1);
+	Dictionary restored_call = restored_tool_calls[0];
+	CHECK(String(restored_call["id"]) == "call_roundtrip");
+	CHECK(String(restored_call["tool_name"]) == "test.echo");
+
+	CHECK(restored[1].role == AI_AGENT_ROLE_TOOL);
+	CHECK(restored[1].content == "context");
+	CHECK(String(restored[1].metadata["tool_call_id"]) == "call_roundtrip");
+	CHECK(String(restored[1].metadata["tool_name"]) == "test.echo");
+	CHECK(String(restored[1].metadata["status"]) == "completed");
+}
+
+TEST_CASE("[Editor][AI] Agent session owns runtime dependencies without enabling tools by default") {
+	AIAgentSession *session = memnew(AIAgentSession);
+
+	CHECK(session->get_agent_profile_id() == "plan");
+	REQUIRE(session->get_agent_runtime().is_valid());
+	REQUIRE(session->get_tool_registry().is_valid());
+	CHECK(session->is_tool_runtime_available() == false);
+
+	session->set_agent_profile_id("build");
+	CHECK(session->get_agent_profile_id() == "build");
+	CHECK(session->get_agent_runtime()->get_profile().id == "build");
+
+	session->set_agent_profile_id("unknown");
+	CHECK(session->get_agent_profile_id() == "plan");
+	CHECK(session->get_agent_runtime()->get_profile().id == "plan");
+
+	memdelete(session);
 }
 
 TEST_CASE("[Editor][AI] Agent runtime fails closed when tool iteration limit is exceeded") {
