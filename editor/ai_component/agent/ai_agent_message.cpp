@@ -42,6 +42,8 @@ String AIAgentMessage::role_to_string(AIAgentRole p_role) {
 			return "user";
 		case AI_AGENT_ROLE_ASSISTANT:
 			return "assistant";
+		case AI_AGENT_ROLE_TOOL:
+			return "tool";
 		case AI_AGENT_ROLE_CONTEXT:
 			return "context";
 		case AI_AGENT_ROLE_ERROR:
@@ -56,6 +58,9 @@ AIAgentRole AIAgentMessage::string_to_role(const String &p_role) {
 	}
 	if (p_role == "assistant") {
 		return AI_AGENT_ROLE_ASSISTANT;
+	}
+	if (p_role == "tool") {
+		return AI_AGENT_ROLE_TOOL;
 	}
 	if (p_role == "context") {
 		return AI_AGENT_ROLE_CONTEXT;
