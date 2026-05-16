@@ -5,6 +5,7 @@
 #include "tests/test_macros.h"
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
+#include "editor/ai_component/agent/ai_agent_runtime_runner.h"
 #include "editor/ai_component/agent/ai_agent_session.h"
 #include "editor/ai_component/providers/ai_openai_compatible_provider.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
@@ -464,6 +465,45 @@ TEST_CASE("[Editor][AI] Agent runtime fails closed when tool iteration limit is 
 	CHECK(result.error.contains("turn limit"));
 	CHECK(client->request_count == 2);
 	CHECK(echo_tool->execute_count == 2);
+}
+
+TEST_CASE("[Editor][AI] Agent runtime runner executes runtime on a background thread") {
+	Ref<EchoRuntimeTool> echo_tool;
+	echo_tool.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(echo_tool));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Ready.";
+	client->push_response(final_response);
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_profile(_make_test_profile(true));
+
+	Ref<AIAgentRuntimeRunner> runner;
+	runner.instantiate();
+	runner->set_runtime(runtime);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Run in background."));
+
+	CHECK(runner->start(messages));
+	CHECK_FALSE(runner->start(messages));
+	runner->wait_to_finish();
+	CHECK_FALSE(runner->is_running());
+
+	AIAgentRuntimeResult result = runner->get_last_result();
+	CHECK(result.success);
+	REQUIRE(result.messages.size() == 2);
+	CHECK(result.messages[1].content == "Ready.");
 }
 
 } // namespace TestAIAgentRuntime
