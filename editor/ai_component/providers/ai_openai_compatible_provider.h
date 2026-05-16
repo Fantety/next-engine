@@ -13,6 +13,8 @@
 #include "editor/ai_component/providers/ai_agent_provider.h"
 #include "editor/ai_component/providers/ai_sse_parser.h"
 
+struct AIAgentRuntimeResponse;
+
 class AIOpenAICompatibleProvider : public AIAgentProvider {
 	GDCLASS(AIOpenAICompatibleProvider, AIAgentProvider);
 
@@ -28,7 +30,8 @@ class AIOpenAICompatibleProvider : public AIAgentProvider {
 	Ref<JSON> json;
 
 	static void _thread_func(void *p_userdata);
-	static PackedByteArray _build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array());
+	static PackedByteArray _build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array(), bool p_stream = true);
+	static bool _parse_chat_completion(const String &p_response_text, AIAgentRuntimeResponse &r_response, String &r_error);
 	static bool _extract_delta(const String &p_event, String &r_delta, String &r_finish_reason, String &r_error);
 	static bool _is_valid_utf8(const uint8_t *p_data, int p_length);
 
@@ -41,7 +44,8 @@ public:
 	~AIOpenAICompatibleProvider();
 
 	static String build_request_path(const String &p_base_path);
-	static PackedByteArray build_body_for_test(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array());
+	static PackedByteArray build_body_for_test(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array(), bool p_stream = true);
+	static bool parse_chat_completion_for_test(const String &p_response_text, AIAgentRuntimeResponse &r_response, String &r_error);
 
 	virtual AIProviderFeatures get_features() const override;
 	bool start_chat(const Array &p_messages) override;

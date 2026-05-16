@@ -6,6 +6,7 @@
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_session.h"
+#include "editor/ai_component/providers/ai_openai_compatible_provider.h"
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
@@ -291,6 +292,53 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies without enabling
 	CHECK(session->get_agent_runtime()->get_profile().id == "plan");
 
 	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible provider builds non-streaming tool request bodies") {
+	Array messages;
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Read a file.";
+	messages.push_back(user_message);
+
+	Ref<EchoRuntimeTool> echo_tool;
+	echo_tool.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(echo_tool));
+
+	String body_text = String::utf8(reinterpret_cast<const char *>(AIOpenAICompatibleProvider::build_body_for_test(messages, "test-model", registry->get_tool_schemas(), false).ptr()));
+	CHECK(body_text.contains("\"model\":\"test-model\""));
+	CHECK(body_text.contains("\"stream\":false"));
+	CHECK(body_text.contains("\"tools\""));
+	CHECK(body_text.contains("\"test.echo\""));
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible provider parses native tool call responses") {
+	const String response_text = "{\"choices\":[{\"message\":{\"content\":null,\"tool_calls\":[{\"id\":\"call_read\",\"type\":\"function\",\"function\":{\"name\":\"project.read_file\",\"arguments\":\"{\\\"path\\\":\\\"res://player.gd\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}";
+
+	AIAgentRuntimeResponse response;
+	String error;
+	CHECK(AIOpenAICompatibleProvider::parse_chat_completion_for_test(response_text, response, error));
+	CHECK(error.is_empty());
+	CHECK(response.content.is_empty());
+
+	REQUIRE(response.tool_calls.size() == 1);
+	CHECK(response.tool_calls[0].id == "call_read");
+	CHECK(response.tool_calls[0].tool_name == "project.read_file");
+	CHECK(String(response.tool_calls[0].arguments["path"]) == "res://player.gd");
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible provider parses native final assistant responses") {
+	const String response_text = "{\"choices\":[{\"message\":{\"content\":\"Done.\"},\"finish_reason\":\"stop\"}]}";
+
+	AIAgentRuntimeResponse response;
+	String error;
+	CHECK(AIOpenAICompatibleProvider::parse_chat_completion_for_test(response_text, response, error));
+	CHECK(error.is_empty());
+	CHECK(response.content == "Done.");
+	CHECK(response.tool_calls.is_empty());
 }
 
 TEST_CASE("[Editor][AI] Agent runtime fails closed when tool iteration limit is exceeded") {
