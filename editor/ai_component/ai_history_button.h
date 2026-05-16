@@ -9,6 +9,7 @@
 #ifndef AI_HISTORY_BUTTON
 #define AI_HISTORY_BUTTON
 
+#include "core/object/callable_mp.h"
 #include "scene/gui/button.h"
 
 

@@ -4,6 +4,7 @@
 #include "core/io/http_request.h"
 #include "core/io/http_response.h"
 #include "streamable_http_server.h"
+#include "editor/ai_component/mcp/mcp_http_server.h"
 
 class McpRouter : public HttpRouter {
 	GDCLASS(McpRouter, HttpRouter);

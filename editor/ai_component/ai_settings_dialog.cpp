@@ -7,6 +7,8 @@
  * @LastEditTime: 2025-07-11 15:35:20
  */
 #include "ai_settings_dialog.h"
+#include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/gui/label.h"
 #include "scene/gui/separator.h"

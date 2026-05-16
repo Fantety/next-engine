@@ -112,6 +112,7 @@
 #include "scene/main/viewport.h"
 #include "scene/main/window.h"
 #include "scene/main/http_server.h"
+#include "scene/main/streamable_http_server.h"
 #include "scene/resources/animation_library.h"
 #include "scene/resources/atlas_texture.h"
 #include "scene/resources/audio_stream_polyphonic.h"
@@ -465,6 +466,7 @@ void register_scene_types() {
 	GDREGISTER_CLASS(ResourcePreloader);
 	GDREGISTER_CLASS(Window);
 	GDREGISTER_CLASS(HttpServer);
+	GDREGISTER_CLASS(StreamableHttpServer);
 
 	GDREGISTER_CLASS(StatusIndicator);
 

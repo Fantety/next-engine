@@ -1,6 +1,7 @@
 #include "http_response.h"
 #include "core/io/json.h"
 #include "core/io/stream_peer.h"
+#include "core/object/class_db.h"
 
 void HttpResponse::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("send_raw", "status_code", "data", "content_type"), &HttpResponse::send_raw, DEFVAL(Vector<uint8_t>()), DEFVAL("application/octet-stream"));

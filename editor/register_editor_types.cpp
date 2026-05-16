@@ -146,7 +146,7 @@
 #include "editor/ai_component/ai_chat_block.h"
 #include "editor/ai_component/ai_history_button.h"
 #include "editor/ai_component/mcp/mcp_tool_register.h"
-#include "editor/ai_component/mcp/mcp_server.h"
+#include "editor/ai_component/mcp/mcp_http_server.h"
 
 #include "servers/rendering/rendering_server.h"
 
@@ -234,7 +234,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIChatBlock);
 	GDREGISTER_CLASS(AIChatPanel);
 	GDREGISTER_CLASS(AIHistoryButton);
-	GDREGISTER_CLASS(MCPServer);
+	GDREGISTER_CLASS(MCPHttpServer);
 	
 
 	// This list is alphabetized, and plugins that depend on Node2D are in their own section below.

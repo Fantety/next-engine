@@ -22,7 +22,7 @@
 #include "scene/gui/box_container.h"
 #include "scene/resources/style_box_flat.h"
 #include "scene/gui/button.h"
-#include "servers/display_server.h"
+#include "servers/display/display_server.h"
 #include "scene/gui/margin_container.h"
 
 

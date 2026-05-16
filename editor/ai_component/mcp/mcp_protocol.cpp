@@ -29,7 +29,8 @@ void MCPProtocol::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_init_message"), &MCPProtocol::get_init_message);
 }
 
-MCPProtocol::MCPProtocol() {
+MCPProtocol::MCPProtocol() :
+    RefCounted() {
     // 初始化默认的init消息
     _build_init_message();
 }

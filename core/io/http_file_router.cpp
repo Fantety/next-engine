@@ -1,5 +1,6 @@
 #include "http_file_router.h"
 #include "core/io/file_access.h"
+#include "core/object/class_db.h"
 
 void HttpFileRouter::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("handle_get", "request", "response"), &HttpFileRouter::handle_get);

@@ -1,4 +1,6 @@
 #include "ai_chat_panel.h"
+#include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/editor_node.h"
 

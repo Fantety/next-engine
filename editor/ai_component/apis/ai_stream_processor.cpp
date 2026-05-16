@@ -1,5 +1,6 @@
 #include "ai_stream_processor.h"
 
+#include "core/object/class_db.h"
 #include "core/string/ustring.h"
 #include "core/templates/hash_map.h"
 #include "core/variant/dictionary.h"

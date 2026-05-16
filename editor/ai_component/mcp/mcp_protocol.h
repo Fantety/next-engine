@@ -9,7 +9,7 @@
 #ifndef MCP_PROTOCOL_H
 #define MCP_PROTOCOL_H
 
-#include "core/object/object.h"
+#include "core/object/ref_counted.h"
 #include "core/object/class_db.h"
 #include "core/io/stream_peer_tcp.h"
 #include "core/variant/dictionary.h"
@@ -19,8 +19,8 @@
 // MCP工具基类前置声明
 class MCPTool;
 
-class MCPProtocol : public Object {
-    GDCLASS(MCPProtocol, Object);
+class MCPProtocol : public RefCounted {
+    GDCLASS(MCPProtocol, RefCounted);
 
 private:
     // 存储初始化消息

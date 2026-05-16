@@ -8,7 +8,7 @@
  */
 #include "mcp_tool_register.h"
 #include "example_tool.h"
-#include "mcp_server.h"
+#include "mcp_http_server.h"
 
 void MCPToolRegister::register_all_tools() {
     // 注册所有MCP工具
@@ -20,5 +20,5 @@ void MCPToolRegister::register_example_tool() {
     ExampleTool* example_tool = memnew(ExampleTool);
     
     // 通过MCPServer单例注册工具
-    MCPServer::register_tool_static("example_tool", example_tool);
+    MCPHttpServer::register_tool_static("example_tool", example_tool);
 }

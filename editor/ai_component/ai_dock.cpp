@@ -1,4 +1,8 @@
 #include "ai_dock.h"
+#include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
+#include "core/os/os.h"
+#include "editor/settings/editor_command_palette.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/editor_node.h"
 #include "ai_settings_dialog.h"
@@ -84,17 +88,18 @@ void AIDock::_send_normal_message(){
 
 void AIDock::_toggle_mcp_server(bool p_toggled) {
     if (p_toggled) {
-        Error err = mcp_server->start_server(3000);
-        if (err == OK) {
-            mcp_toggle_button->set_text("Stop MCP Server");
-        } else {
-            // 显示错误信息
-            print_line("Failed to start MCP server: " + itos(err));
-            mcp_toggle_button->set_pressed(false);
+        if (!mcp_server) {
+            mcp_server = memnew(MCPHttpServer);
+            mcp_server->set_bind_address("127.0.0.1");
+	        mcp_server->set_port(3000);
+	        mcp_server->set_server_identifier("GodotHttpServer");
+            add_child(mcp_server);
         }
+        mcp_server->start();
     } else {
-        mcp_server->stop_server();
-        mcp_toggle_button->set_text("Start MCP Server");
+        if (mcp_server) {
+            mcp_server->stop();
+        }
     }
 }
 
@@ -326,7 +331,7 @@ void AIDock::delete_blocks_after_index(int index){
 
 void AIDock::on_history_button_pressed(String uuid){
     delete_all_blocks();
-    set_current_tab(1);
+    tab_container->set_current_tab(1);
     Dictionary temp_chat_datas = chat_manager.get_chat_datas();
     Dictionary temp_data = temp_chat_datas[uuid];
     current_chat_uid = uuid;
@@ -441,18 +446,18 @@ AIDock::AIDock() {
         print_line("Failed to create openai_api");
     }
     add_child(openai_api);
-    stream_processor = memnew(AIStreamProcessor());
+    stream_processor.instantiate();
 
     openai_api->connect("openai_data_start", callable_mp(this, &AIDock::on_data_start), CONNECT_DEFERRED);
     openai_api->connect("openai_request_completed", callable_mp(this, &AIDock::on_request_completed), CONNECT_DEFERRED);
     openai_api->connect("openai_streaming_received", callable_mp(this, &AIDock::on_streaming_response), CONNECT_DEFERRED);
     
     // 初始化MCP服务器
-    mcp_server = memnew(MCPServer);
-    if (!mcp_server) {
-        print_line("Failed to create mcp_server");
-    }
-    add_child(mcp_server);
+    // mcp_server = memnew(MCPServer);
+    // if (!mcp_server) {
+    //     print_line("Failed to create mcp_server");
+    // }
+    // add_child(mcp_server);
     
     print_line("AIDock constructor called finished");
 

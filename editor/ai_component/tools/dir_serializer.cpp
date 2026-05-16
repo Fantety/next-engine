@@ -8,6 +8,8 @@
  */
 #include "dir_serializer.h"
 
+#include "core/io/file_access.h"
+
 DirSerializer::DirSerializer() :
         include_files(true),
         include_hidden(false),

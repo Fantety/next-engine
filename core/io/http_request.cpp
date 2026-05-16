@@ -1,5 +1,6 @@
 #include "http_request.h"
 #include "core/io/json.h"
+#include "core/object/class_db.h"
 
 void HttpRequest::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_body_parsed"), &HttpRequest::get_body_parsed);

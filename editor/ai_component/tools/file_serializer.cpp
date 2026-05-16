@@ -23,13 +23,7 @@ String FileSerializer::read_file_to_string(const String &p_file_path) {
         return error_msg;
     }
     // 确保文件正确关闭（利用RAII特性，Ref会自动管理生命周期）
-    String file_content;
-    try {
-        file_content = file_access->get_as_text(false);
-    } catch (...) {
-        ERR_PRINT(vformat("Exception occurred while reading file contents: %s", p_file_path));
-        return "";
-    }
+    String file_content = file_access->get_as_text();
     // 显式关闭文件（可选，Ref析构时会自动关闭）
     file_access->close();
     return file_content;

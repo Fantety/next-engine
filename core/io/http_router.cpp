@@ -1,5 +1,7 @@
 #include "http_router.h"
 
+#include "core/object/class_db.h"
+
 void HttpRouter::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("handle_request", "request", "response"), &HttpRouter::handle_request);
 }

@@ -11,6 +11,7 @@
 #define OPENAI_REQUEST_HANDLER_H
 
 #include "ai_streaming_base.h"
+#include "core/object/callable_mp.h"
 #include "core/variant/variant.h"
 #include "core/variant/dictionary.h"
 #include "core/os/mutex.h"

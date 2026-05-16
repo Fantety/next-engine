@@ -1,5 +1,7 @@
 
 #include "ai_chat_block.h"
+#include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
 #include "editor/themes/editor_scale.h"
 
 void AIChatBlock::_notification(int p_what) {

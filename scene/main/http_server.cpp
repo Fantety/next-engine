@@ -7,6 +7,7 @@
  * @LastEditTime: 2025-08-06 10:10:03
  */
 #include "http_server.h"
+#include "core/object/class_db.h"
 #include "core/os/time.h"
 #include "core/string/print_string.h"
 #include "core/io/json.h"
@@ -142,7 +143,7 @@ void HttpServer::start() {
 	_method_regex.instantiate();
 	_header_regex.instantiate();
 	_method_regex->compile("^(?<method>GET|POST|HEAD|PUT|PATCH|DELETE|OPTIONS) (?<path>[^ ]+) HTTP/1.1$");
-	_header_regex->compile("^(?<key>[\w-]+): (?<value>(.*))$");
+	_header_regex->compile("^(?<key>[\\w-]+): (?<value>(.*))$");
 	set_process(true);
 	_server.instantiate();
 	Error err = _server->listen(port, bind_address);

@@ -30,7 +30,7 @@
 #include "ai_accept_dialog.h"
 #include "ai_history_button.h"
 #include "engine_operator.h"
-#include "mcp/mcp_server.h"
+#include "mcp/mcp_http_server.h"
 
 
 class AIDock : public EditorDock {
@@ -52,9 +52,9 @@ private:
     AIChatPanel* chat_input_panel = nullptr;
 
     OpenAIRequestHandler *openai_api = nullptr;
-    MCPServer *mcp_server = nullptr;
+    MCPHttpServer *mcp_server = nullptr;
     CheckButton *mcp_toggle_button = nullptr;
-    AIStreamProcessor *stream_processor = nullptr;
+    Ref<AIStreamProcessor> stream_processor;
 
     String current_ai_response;
     int current_chat_index = -1;
@@ -66,7 +66,9 @@ private:
     String current_chat_uid;
     AIChatManager chat_manager;
     EngineOperator *engine_operator = nullptr;
+
     static inline AIDock *singleton = nullptr;
+    
     int retry_chat_type = 0;
     int retry_block_index = 0;
 
