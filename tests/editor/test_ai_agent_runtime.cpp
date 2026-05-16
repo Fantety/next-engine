@@ -7,6 +7,7 @@
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_session.h"
 #include "editor/ai_component/providers/ai_openai_compatible_provider.h"
+#include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
@@ -82,6 +83,28 @@ public:
 		AIAgentRuntimeResponse response = responses[0];
 		responses.remove_at(0);
 		return response;
+	}
+};
+
+class FakeOpenAIRuntimeTransport : public AIOpenAIRuntimeTransport {
+	GDCLASS(FakeOpenAIRuntimeTransport, AIOpenAIRuntimeTransport);
+
+public:
+	AIProviderConfig last_config;
+	Array last_messages;
+	Array last_tool_schemas;
+	String response_text;
+	String error;
+	int request_count = 0;
+
+	virtual bool request_chat_completion(const AIProviderConfig &p_config, const Array &p_messages, const Array &p_tool_schemas, String &r_response_text, String &r_error) override {
+		request_count++;
+		last_config = p_config;
+		last_messages = p_messages;
+		last_tool_schemas = p_tool_schemas;
+		r_response_text = response_text;
+		r_error = error;
+		return error.is_empty();
 	}
 };
 
@@ -339,6 +362,69 @@ TEST_CASE("[Editor][AI] OpenAI-compatible provider parses native final assistant
 	CHECK(error.is_empty());
 	CHECK(response.content == "Done.");
 	CHECK(response.tool_calls.is_empty());
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client converts transport responses") {
+	Ref<FakeOpenAIRuntimeTransport> transport;
+	transport.instantiate();
+	transport->response_text = "{\"choices\":[{\"message\":{\"content\":\"Ready.\"},\"finish_reason\":\"stop\"}]}";
+
+	AIProviderConfig config;
+	config.provider_name = "Test";
+	config.model = "test-model";
+	config.base_url = "https://example.test/v1";
+	config.api_key = "test-key";
+
+	Ref<AIOpenAICompatibleRuntimeClient> client;
+	client.instantiate();
+	client->set_config(config);
+	client->set_transport(transport);
+
+	Array messages;
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Hello";
+	messages.push_back(user_message);
+
+	Array tool_schemas;
+	Dictionary schema;
+	schema["type"] = "function";
+	tool_schemas.push_back(schema);
+
+	AIAgentRuntimeResponse response = client->complete(messages, tool_schemas);
+
+	CHECK(response.error.is_empty());
+	CHECK(response.content == "Ready.");
+	CHECK(response.tool_calls.is_empty());
+	CHECK(transport->request_count == 1);
+	CHECK(transport->last_config.model == "test-model");
+	CHECK(transport->last_messages.size() == 1);
+	CHECK(transport->last_tool_schemas.size() == 1);
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client defaults to HTTP transport") {
+	Ref<AIOpenAICompatibleRuntimeClient> client;
+	client.instantiate();
+
+	CHECK(client->get_transport().is_valid());
+	CHECK(Object::cast_to<AIOpenAIHTTPRuntimeTransport>(*client->get_transport()) != nullptr);
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client reports transport failures") {
+	Ref<FakeOpenAIRuntimeTransport> transport;
+	transport.instantiate();
+	transport->error = "network failed";
+
+	Ref<AIOpenAICompatibleRuntimeClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	AIAgentRuntimeResponse response = client->complete(Array(), Array());
+
+	CHECK(response.content.is_empty());
+	CHECK(response.tool_calls.is_empty());
+	CHECK(response.error == "network failed");
+	CHECK(transport->request_count == 1);
 }
 
 TEST_CASE("[Editor][AI] Agent runtime fails closed when tool iteration limit is exceeded") {

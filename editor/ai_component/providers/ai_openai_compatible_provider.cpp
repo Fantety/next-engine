@@ -226,6 +226,10 @@ String AIOpenAICompatibleProvider::build_request_path(const String &p_base_path)
 }
 
 PackedByteArray AIOpenAICompatibleProvider::build_body_for_test(const Array &p_messages, const String &p_model, const Array &p_tool_schemas, bool p_stream) {
+	return build_body(p_messages, p_model, p_tool_schemas, p_stream);
+}
+
+PackedByteArray AIOpenAICompatibleProvider::build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas, bool p_stream) {
 	return _build_body(p_messages, p_model, p_tool_schemas, p_stream);
 }
 
@@ -241,6 +245,10 @@ PackedByteArray AIOpenAICompatibleProvider::_build_body(const Array &p_messages,
 }
 
 bool AIOpenAICompatibleProvider::parse_chat_completion_for_test(const String &p_response_text, AIAgentRuntimeResponse &r_response, String &r_error) {
+	return parse_chat_completion(p_response_text, r_response, r_error);
+}
+
+bool AIOpenAICompatibleProvider::parse_chat_completion(const String &p_response_text, AIAgentRuntimeResponse &r_response, String &r_error) {
 	return _parse_chat_completion(p_response_text, r_response, r_error);
 }
 
