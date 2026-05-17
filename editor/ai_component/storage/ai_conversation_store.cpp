@@ -25,13 +25,27 @@ void AIConversationStore::_bind_methods() {
 }
 
 Error AIConversationStore::_ensure_base_dir() const {
-	Ref<DirAccess> dir = DirAccess::create(DirAccess::ACCESS_USERDATA);
-	ERR_FAIL_COND_V(dir.is_null(), ERR_CANT_CREATE);
-	return dir->make_dir_recursive("ai_agent/conversations");
+	return DirAccess::make_dir_recursive_absolute(base_dir);
 }
 
 String AIConversationStore::_get_session_path(const String &p_session_id) const {
 	return base_dir.path_join(p_session_id + ".json");
+}
+
+String AIConversationStore::_sanitize_scope_key(const String &p_scope_key) {
+	String scope_key = p_scope_key.strip_edges();
+	if (scope_key.is_empty()) {
+		scope_key = "global";
+	}
+	return scope_key.validate_filename();
+}
+
+void AIConversationStore::set_project_scope(const String &p_project_scope_key) {
+	base_dir = String("user://ai_agent/projects").path_join(_sanitize_scope_key(p_project_scope_key)).path_join("conversations");
+}
+
+String AIConversationStore::get_base_dir_for_test() const {
+	return base_dir;
 }
 
 Error AIConversationStore::save_conversation(const String &p_session_id, const String &p_title, const Vector<AIAgentMessage> &p_messages) {
@@ -117,6 +131,17 @@ bool AIConversationStore::delete_conversation(const String &p_session_id) const 
 	}
 
 	return DirAccess::remove_absolute(session_path) == OK;
+}
+
+bool AIConversationStore::get_most_recent_conversation_id(String &r_session_id) const {
+	Array conversations = list_conversations();
+	if (conversations.is_empty() || Variant(conversations[0]).get_type() != Variant::DICTIONARY) {
+		return false;
+	}
+
+	Dictionary item = conversations[0];
+	r_session_id = item.get("id", String());
+	return !r_session_id.is_empty();
 }
 
 Array AIConversationStore::list_conversations() const {

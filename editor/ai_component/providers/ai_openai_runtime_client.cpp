@@ -286,6 +286,9 @@ Array AIOpenAICompatibleRuntimeClient::_build_chat_messages(const Array &p_messa
 
 		if (role == "assistant" && message.has("metadata") && Variant(message["metadata"]).get_type() == Variant::DICTIONARY) {
 			Dictionary metadata = message["metadata"];
+			if (metadata.has("reasoning_content") && Variant(metadata["reasoning_content"]).get_type() != Variant::NIL) {
+				chat_message["reasoning_content"] = String(metadata["reasoning_content"]);
+			}
 			if (metadata.has("tool_calls") && Variant(metadata["tool_calls"]).get_type() == Variant::ARRAY) {
 				Array internal_tool_calls = metadata["tool_calls"];
 				Array openai_tool_calls;

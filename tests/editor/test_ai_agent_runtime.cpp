@@ -333,8 +333,46 @@ TEST_CASE("[Editor][AI] Conversation store deletes saved conversations") {
 	CHECK_FALSE(store->delete_conversation(session_id));
 }
 
+TEST_CASE("[Editor][AI] Conversation store isolates conversations by project scope") {
+	Ref<AIConversationStore> first_store;
+	first_store.instantiate();
+	first_store->set_project_scope("test_project_scope_a");
+
+	Ref<AIConversationStore> second_store;
+	second_store.instantiate();
+	second_store->set_project_scope("test_project_scope_b");
+
+	const String first_session_id = "test_project_scope_a_session";
+	const String second_session_id = "test_project_scope_b_session";
+	Vector<AIAgentMessage> first_messages;
+	first_messages.push_back(_make_user_message("Project A message."));
+	Vector<AIAgentMessage> second_messages;
+	second_messages.push_back(_make_user_message("Project B message."));
+
+	first_store->delete_conversation(first_session_id);
+	first_store->delete_conversation(second_session_id);
+	second_store->delete_conversation(first_session_id);
+	second_store->delete_conversation(second_session_id);
+
+	CHECK(first_store->save_conversation(first_session_id, "Project A", first_messages) == OK);
+	CHECK(second_store->save_conversation(second_session_id, "Project B", second_messages) == OK);
+
+	String title;
+	Vector<AIAgentMessage> loaded_messages;
+	CHECK(first_store->load_conversation(first_session_id, title, loaded_messages));
+	CHECK_FALSE(first_store->load_conversation(second_session_id, title, loaded_messages));
+	CHECK(second_store->load_conversation(second_session_id, title, loaded_messages));
+	CHECK_FALSE(second_store->load_conversation(first_session_id, title, loaded_messages));
+
+	CHECK(first_store->get_base_dir_for_test() != second_store->get_base_dir_for_test());
+
+	first_store->delete_conversation(first_session_id);
+	second_store->delete_conversation(second_session_id);
+}
+
 TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtime enabled") {
 	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_dependencies");
 
 	CHECK(session->get_agent_profile_id() == "plan");
 	REQUIRE(session->get_agent_runtime().is_valid());
@@ -356,6 +394,7 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 
 TEST_CASE("[Editor][AI] Agent session deletes current conversation and starts clean session") {
 	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_delete_current");
 	const String original_session_id = session->get_session_id();
 
 	Vector<AIAgentMessage> messages;
@@ -374,8 +413,60 @@ TEST_CASE("[Editor][AI] Agent session deletes current conversation and starts cl
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI] Agent session loads remaining conversation after deleting current one") {
+	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_delete_current_load_remaining");
+
+	Vector<AIAgentMessage> first_messages;
+	first_messages.push_back(_make_user_message("First conversation."));
+	session->replace_messages_for_test(first_messages, -1);
+	CHECK(session->save_for_test() == OK);
+	const String first_session_id = session->get_session_id();
+
+	session->start_new_session();
+	Vector<AIAgentMessage> second_messages;
+	second_messages.push_back(_make_user_message("Second conversation."));
+	session->replace_messages_for_test(second_messages, -1);
+	CHECK(session->save_for_test() == OK);
+	const String second_session_id = session->get_session_id();
+
+	CHECK(session->delete_session(second_session_id));
+	CHECK(session->get_session_id() == first_session_id);
+	Array messages = session->get_messages_as_array();
+	REQUIRE(messages.size() == 1);
+	Dictionary message = messages[0];
+	CHECK(String(message["content"]) == "First conversation.");
+
+	session->delete_session(first_session_id);
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] Agent session loads the most recent conversation for its project scope") {
+	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_latest");
+	const String saved_session_id = session->get_session_id();
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Restore this message."));
+	session->replace_messages_for_test(messages, -1);
+	CHECK(session->save_for_test() == OK);
+	memdelete(session);
+
+	AIAgentSession *restored_session = memnew(AIAgentSession);
+	restored_session->set_conversation_project_scope_for_test("test_project_scope_latest");
+	CHECK(restored_session->get_session_id() == saved_session_id);
+	Array restored_messages = restored_session->get_messages_as_array();
+	REQUIRE(restored_messages.size() == 1);
+	Dictionary restored_message = restored_messages[0];
+	CHECK(String(restored_message["content"]) == "Restore this message.");
+
+	restored_session->delete_session(saved_session_id);
+	memdelete(restored_session);
+}
+
 TEST_CASE("[Editor][AI] Agent session applies runtime results into message history") {
 	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_apply_result");
 
 	AIAgentMessage user_message;
 	user_message.role = AI_AGENT_ROLE_USER;
@@ -424,11 +515,13 @@ TEST_CASE("[Editor][AI] Agent session applies runtime results into message histo
 	CHECK(String(fourth_message["content"]) == "I read the file.");
 	CHECK(session->get_state() == AI_AGENT_STATE_IDLE);
 
+	session->delete_session(session->get_session_id());
 	memdelete(session);
 }
 
 TEST_CASE("[Editor][AI] Agent session applies runtime failures as error messages") {
 	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_apply_failure");
 
 	AIAgentMessage user_message;
 	user_message.role = AI_AGENT_ROLE_USER;
@@ -455,6 +548,7 @@ TEST_CASE("[Editor][AI] Agent session applies runtime failures as error messages
 	CHECK(String(error_message["content"]) == "tool runtime failed");
 	CHECK(session->get_state() == AI_AGENT_STATE_FAILED);
 
+	session->delete_session(session->get_session_id());
 	memdelete(session);
 }
 
@@ -492,6 +586,19 @@ TEST_CASE("[Editor][AI] OpenAI-compatible provider parses native tool call respo
 	CHECK(response.tool_calls[0].id == "call_read");
 	CHECK(response.tool_calls[0].tool_name == "project.read_file");
 	CHECK(String(response.tool_calls[0].arguments["path"]) == "res://player.gd");
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible provider preserves reasoning content from tool call responses") {
+	const String response_text = "{\"choices\":[{\"message\":{\"content\":null,\"reasoning_content\":\"I should inspect the project first.\",\"tool_calls\":[{\"id\":\"call_read\",\"type\":\"function\",\"function\":{\"name\":\"project.read_file\",\"arguments\":\"{\\\"path\\\":\\\"res://player.gd\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}";
+
+	AIAgentRuntimeResponse response;
+	String error;
+	CHECK(AIOpenAICompatibleProvider::parse_chat_completion_for_test(response_text, response, error));
+	CHECK(error.is_empty());
+
+	CHECK(String(response.metadata["reasoning_content"]) == "I should inspect the project first.");
+	REQUIRE(response.tool_calls.size() == 1);
+	CHECK(response.tool_calls[0].id == "call_read");
 }
 
 TEST_CASE("[Editor][AI] OpenAI-compatible provider parses native final assistant responses") {
@@ -645,6 +752,36 @@ TEST_CASE("[Editor][AI] OpenAI-compatible runtime client converts internal tool 
 	CHECK(String(converted_tool["role"]) == "tool");
 	CHECK(String(converted_tool["tool_call_id"]) == "call_read");
 	CHECK(String(converted_tool["content"]) == "extends Node");
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client passes assistant reasoning content back to provider") {
+	Array messages;
+
+	Dictionary assistant_message;
+	assistant_message["role"] = "assistant";
+	assistant_message["content"] = "";
+
+	Dictionary metadata;
+	metadata["reasoning_content"] = "I should inspect the project first.";
+	Array tool_calls;
+	Dictionary call;
+	call["id"] = "call_read";
+	call["tool_name"] = "project.read_file";
+	Dictionary arguments;
+	arguments["path"] = "res://player.gd";
+	call["arguments"] = arguments;
+	tool_calls.push_back(call);
+	metadata["tool_calls"] = tool_calls;
+	assistant_message["metadata"] = metadata;
+	messages.push_back(assistant_message);
+
+	Array chat_messages = AIOpenAICompatibleRuntimeClient::build_chat_messages_for_test(messages);
+
+	REQUIRE(chat_messages.size() == 1);
+	Dictionary converted_assistant = chat_messages[0];
+	CHECK(String(converted_assistant["role"]) == "assistant");
+	CHECK(String(converted_assistant["reasoning_content"]) == "I should inspect the project first.");
+	REQUIRE(converted_assistant.has("tool_calls"));
 }
 
 TEST_CASE("[Editor][AI] OpenAI-compatible runtime client ignores null message content") {

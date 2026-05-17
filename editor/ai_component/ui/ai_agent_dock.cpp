@@ -93,6 +93,7 @@ AIAgentDock::AIAgentDock() {
 	}
 
 	_ensure_session();
+	_reload_messages_from_session();
 	_refresh_session_list();
 }
 

@@ -38,7 +38,9 @@ class AIAgentSession : public Node {
 
 	int active_assistant_index = -1;
 
+	String _get_project_scope_key() const;
 	void _configure_tool_runtime();
+	void _load_initial_session();
 	void _apply_runtime_result(const AIAgentRuntimeResult &p_result);
 	void _set_state(AIAgentState p_state);
 	Array _collect_context();
@@ -77,5 +79,6 @@ public:
 	void replace_messages_for_test(const Vector<AIAgentMessage> &p_messages, int p_active_assistant_index);
 	void apply_runtime_result_for_test(const AIAgentRuntimeResult &p_result);
 	Error save_for_test();
+	void set_conversation_project_scope_for_test(const String &p_project_scope_key);
 	Ref<AIConversationStore> get_conversation_store_for_test() const;
 };

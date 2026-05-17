@@ -4,6 +4,7 @@
 
 #include "ai_agent_session.h"
 
+#include "core/config/project_settings.h"
 #include "core/object/callable_mp.h"
 #include "core/os/os.h"
 #include "core/os/time.h"
@@ -47,6 +48,7 @@ AIAgentSession::AIAgentSession() {
 	runner->set_provider(provider);
 	runtime->set_client(runtime_client);
 	_configure_tool_runtime();
+	store->set_project_scope(_get_project_scope_key());
 
 	provider->connect("response_started", callable_mp(this, &AIAgentSession::_on_provider_response_started), CONNECT_DEFERRED);
 	provider->connect("response_delta", callable_mp(this, &AIAgentSession::_on_provider_response_delta), CONNECT_DEFERRED);
@@ -54,7 +56,7 @@ AIAgentSession::AIAgentSession() {
 	provider->connect("request_failed", callable_mp(this, &AIAgentSession::_on_provider_request_failed), CONNECT_DEFERRED);
 	runtime_runner->connect("runtime_finished", callable_mp(this, &AIAgentSession::_on_runtime_finished), CONNECT_DEFERRED);
 
-	start_new_session();
+	_load_initial_session();
 }
 
 void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
@@ -212,7 +214,7 @@ bool AIAgentSession::delete_session(const String &p_session_id) {
 
 	print_line(vformat("[AI Agent][Session] Deleted session: %s", p_session_id));
 	if (deleting_current) {
-		start_new_session();
+		_load_initial_session();
 	}
 	return true;
 }
@@ -239,6 +241,29 @@ AIAgentState AIAgentSession::get_state() const {
 
 Array AIAgentSession::list_sessions() const {
 	return store->list_conversations();
+}
+
+String AIAgentSession::_get_project_scope_key() const {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (!project_settings) {
+		return "global";
+	}
+
+	String resource_path = project_settings->get_resource_path();
+	if (resource_path.is_empty()) {
+		return "global";
+	}
+	return resource_path.md5_text();
+}
+
+void AIAgentSession::_load_initial_session() {
+	String latest_session_id;
+	if (store.is_valid() && store->get_most_recent_conversation_id(latest_session_id) && load_session(latest_session_id)) {
+		print_line(vformat("[AI Agent][Session] Loaded most recent project session. session=%s", latest_session_id));
+		return;
+	}
+
+	start_new_session();
 }
 
 void AIAgentSession::_set_state(AIAgentState p_state) {
@@ -384,6 +409,11 @@ void AIAgentSession::apply_runtime_result_for_test(const AIAgentRuntimeResult &p
 Error AIAgentSession::save_for_test() {
 	_save();
 	return OK;
+}
+
+void AIAgentSession::set_conversation_project_scope_for_test(const String &p_project_scope_key) {
+	store->set_project_scope(p_project_scope_key);
+	_load_initial_session();
 }
 
 Ref<AIConversationStore> AIAgentSession::get_conversation_store_for_test() const {

@@ -310,6 +310,9 @@ bool AIOpenAICompatibleProvider::_parse_chat_completion(const String &p_response
 	if (message.has("content") && Variant(message["content"]).get_type() != Variant::NIL) {
 		r_response.content = String(message["content"]);
 	}
+	if (message.has("reasoning_content") && Variant(message["reasoning_content"]).get_type() != Variant::NIL) {
+		r_response.metadata["reasoning_content"] = String(message["reasoning_content"]);
+	}
 	if (choice.has("finish_reason") && Variant(choice["finish_reason"]).get_type() != Variant::NIL) {
 		r_response.metadata["finish_reason"] = String(choice["finish_reason"]);
 	}
