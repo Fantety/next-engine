@@ -4,13 +4,26 @@
 
 #pragma once
 
+#include "scene/gui/box_container.h"
+#include "scene/gui/label.h"
+#include "scene/gui/link_button.h"
 #include "scene/gui/panel_container.h"
 #include "scene/gui/rich_text_label.h"
 
 class AIMessageBubble : public PanelContainer {
 	GDCLASS(AIMessageBubble, PanelContainer);
 
+	VBoxContainer *content_box = nullptr;
+	HBoxContainer *header_box = nullptr;
+	Label *title_label = nullptr;
 	RichTextLabel *label = nullptr;
+	LinkButton *details_button = nullptr;
+	Dictionary current_message;
+	bool details_expanded = false;
+	bool details_available = false;
+
+	void _render_message();
+	void _toggle_details();
 
 protected:
 	static void _bind_methods();

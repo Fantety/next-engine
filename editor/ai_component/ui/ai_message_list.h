@@ -14,6 +14,11 @@ class AIMessageList : public ScrollContainer {
 
 	VBoxContainer *message_box = nullptr;
 	Vector<AIMessageBubble *> bubbles;
+	bool should_scroll_to_bottom = true;
+
+	bool _is_at_bottom() const;
+	void _request_scroll_to_bottom_if_needed();
+	void _scroll_to_bottom();
 
 protected:
 	static void _bind_methods();
