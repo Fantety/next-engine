@@ -10,6 +10,7 @@
 #include "editor/ai_component/providers/ai_openai_compatible_provider.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
+#include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 
@@ -314,6 +315,24 @@ TEST_CASE("[Editor][AI] Conversation serializer ignores null message content") {
 	CHECK_FALSE(restored[0].content == "<null>");
 }
 
+TEST_CASE("[Editor][AI] Conversation store deletes saved conversations") {
+	Ref<AIConversationStore> store;
+	store.instantiate();
+
+	const String session_id = "test_delete_conversation";
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Delete me."));
+
+	CHECK(store->save_conversation(session_id, "Delete me", messages) == OK);
+
+	String title;
+	Vector<AIAgentMessage> loaded_messages;
+	CHECK(store->load_conversation(session_id, title, loaded_messages));
+	CHECK(store->delete_conversation(session_id));
+	CHECK_FALSE(store->load_conversation(session_id, title, loaded_messages));
+	CHECK_FALSE(store->delete_conversation(session_id));
+}
+
 TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtime enabled") {
 	AIAgentSession *session = memnew(AIAgentSession);
 
@@ -331,6 +350,26 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	session->set_agent_profile_id("unknown");
 	CHECK(session->get_agent_profile_id() == "plan");
 	CHECK(session->get_agent_runtime()->get_profile().id == "plan");
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] Agent session deletes current conversation and starts clean session") {
+	AIAgentSession *session = memnew(AIAgentSession);
+	const String original_session_id = session->get_session_id();
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Stored message."));
+	session->replace_messages_for_test(messages, -1);
+	CHECK(session->save_for_test() == OK);
+
+	CHECK(session->delete_session(original_session_id));
+	CHECK(session->get_session_id() != original_session_id);
+	CHECK(session->get_messages_as_array().is_empty());
+
+	String title;
+	Vector<AIAgentMessage> loaded_messages;
+	CHECK_FALSE(session->get_conversation_store_for_test()->load_conversation(original_session_id, title, loaded_messages));
 
 	memdelete(session);
 }

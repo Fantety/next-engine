@@ -18,6 +18,7 @@ void AIAgentSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("cancel_request"), &AIAgentSession::cancel_request);
 	ClassDB::bind_method(D_METHOD("start_new_session"), &AIAgentSession::start_new_session);
 	ClassDB::bind_method(D_METHOD("load_session", "session_id"), &AIAgentSession::load_session);
+	ClassDB::bind_method(D_METHOD("delete_session", "session_id"), &AIAgentSession::delete_session);
 	ClassDB::bind_method(D_METHOD("get_messages_as_array"), &AIAgentSession::get_messages_as_array);
 	ClassDB::bind_method(D_METHOD("set_agent_profile_id", "profile_id"), &AIAgentSession::set_agent_profile_id);
 	ClassDB::bind_method(D_METHOD("get_agent_profile_id"), &AIAgentSession::get_agent_profile_id);
@@ -193,6 +194,29 @@ bool AIAgentSession::load_session(const String &p_session_id) {
 	return true;
 }
 
+bool AIAgentSession::delete_session(const String &p_session_id) {
+	if (state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
+		print_line("[AI Agent][Session] Refused to delete session while request is active.");
+		return false;
+	}
+
+	if (p_session_id.is_empty() || store.is_null()) {
+		return false;
+	}
+
+	const bool deleting_current = p_session_id == session_id;
+	if (!store->delete_conversation(p_session_id)) {
+		print_line(vformat("[AI Agent][Session] Failed to delete session: %s", p_session_id));
+		return false;
+	}
+
+	print_line(vformat("[AI Agent][Session] Deleted session: %s", p_session_id));
+	if (deleting_current) {
+		start_new_session();
+	}
+	return true;
+}
+
 Array AIAgentSession::get_messages_as_array() const {
 	Array array;
 	for (int i = 0; i < messages.size(); i++) {
@@ -350,9 +374,18 @@ void AIAgentSession::_on_runtime_finished() {
 void AIAgentSession::replace_messages_for_test(const Vector<AIAgentMessage> &p_messages, int p_active_assistant_index) {
 	messages = p_messages;
 	active_assistant_index = p_active_assistant_index;
-	_set_state(AI_AGENT_STATE_STREAMING);
+	_set_state(active_assistant_index >= 0 ? AI_AGENT_STATE_STREAMING : AI_AGENT_STATE_IDLE);
 }
 
 void AIAgentSession::apply_runtime_result_for_test(const AIAgentRuntimeResult &p_result) {
 	_apply_runtime_result(p_result);
+}
+
+Error AIAgentSession::save_for_test() {
+	_save();
+	return OK;
+}
+
+Ref<AIConversationStore> AIAgentSession::get_conversation_store_for_test() const {
+	return store;
 }

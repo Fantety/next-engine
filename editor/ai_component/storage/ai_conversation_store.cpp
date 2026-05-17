@@ -21,6 +21,7 @@ static bool _ai_conversation_updated_desc(const Variant &p_a, const Variant &p_b
 
 void AIConversationStore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("list_conversations"), &AIConversationStore::list_conversations);
+	ClassDB::bind_method(D_METHOD("delete_conversation", "session_id"), &AIConversationStore::delete_conversation);
 }
 
 Error AIConversationStore::_ensure_base_dir() const {
@@ -103,6 +104,19 @@ bool AIConversationStore::load_conversation_metadata(const String &p_session_id,
 	Array messages = root.get("messages", Array());
 	r_metadata["message_count"] = messages.size();
 	return true;
+}
+
+bool AIConversationStore::delete_conversation(const String &p_session_id) const {
+	if (p_session_id.is_empty()) {
+		return false;
+	}
+
+	const String session_path = _get_session_path(p_session_id);
+	if (!FileAccess::exists(session_path)) {
+		return false;
+	}
+
+	return DirAccess::remove_absolute(session_path) == OK;
 }
 
 Array AIConversationStore::list_conversations() const {

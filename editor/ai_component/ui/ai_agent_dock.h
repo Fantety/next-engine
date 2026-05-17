@@ -13,15 +13,20 @@
 #include "scene/gui/option_button.h"
 #include "scene/gui/progress_bar.h"
 
+class ConfirmationDialog;
+
 class AIAgentDock : public EditorDock {
 	GDCLASS(AIAgentDock, EditorDock);
 
 	OptionButton *session_selector = nullptr;
 	Button *new_session_button = nullptr;
+	Button *delete_session_button = nullptr;
+	ConfirmationDialog *delete_session_dialog = nullptr;
 	AIMessageList *message_list = nullptr;
 	ProgressBar *request_progress = nullptr;
 	AIComposer *composer = nullptr;
 	AIAgentSession *session = nullptr;
+	String pending_delete_session_id;
 
 	static inline AIAgentDock *singleton = nullptr;
 
@@ -33,8 +38,11 @@ class AIAgentDock : public EditorDock {
 	void _state_changed(int p_state);
 	void _settings_changed();
 	void _new_session_pressed();
+	void _delete_session_pressed();
+	void _confirm_delete_session();
 	void _session_selected(int p_index);
 	void _ensure_session();
+	String _get_selected_session_id() const;
 	void _refresh_session_list();
 	void _select_current_session();
 	void _reload_messages_from_session();

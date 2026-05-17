@@ -24,5 +24,6 @@ public:
 	Error save_conversation(const String &p_session_id, const String &p_title, const Vector<AIAgentMessage> &p_messages);
 	bool load_conversation(const String &p_session_id, String &r_title, Vector<AIAgentMessage> &r_messages) const;
 	bool load_conversation_metadata(const String &p_session_id, Dictionary &r_metadata) const;
+	bool delete_conversation(const String &p_session_id) const;
 	Array list_conversations() const;
 };

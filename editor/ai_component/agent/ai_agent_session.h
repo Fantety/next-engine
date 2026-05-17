@@ -68,6 +68,7 @@ public:
 	void cancel_request();
 	void start_new_session();
 	bool load_session(const String &p_session_id);
+	bool delete_session(const String &p_session_id);
 	Array get_messages_as_array() const;
 	String get_session_id() const;
 	String get_title() const;
@@ -75,4 +76,6 @@ public:
 	Array list_sessions() const;
 	void replace_messages_for_test(const Vector<AIAgentMessage> &p_messages, int p_active_assistant_index);
 	void apply_runtime_result_for_test(const AIAgentRuntimeResult &p_result);
+	Error save_for_test();
+	Ref<AIConversationStore> get_conversation_store_for_test() const;
 };
