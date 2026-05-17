@@ -48,6 +48,7 @@ AIAgentSession::AIAgentSession() {
 	provider->connect("response_delta", callable_mp(this, &AIAgentSession::_on_provider_response_delta), CONNECT_DEFERRED);
 	provider->connect("response_finished", callable_mp(this, &AIAgentSession::_on_provider_response_finished), CONNECT_DEFERRED);
 	provider->connect("request_failed", callable_mp(this, &AIAgentSession::_on_provider_request_failed), CONNECT_DEFERRED);
+	runtime_runner->connect("runtime_finished", callable_mp(this, &AIAgentSession::_on_runtime_finished), CONNECT_DEFERRED);
 
 	start_new_session();
 }
@@ -218,6 +219,27 @@ void AIAgentSession::_configure_tool_runtime() {
 	runtime_runner->set_runtime(runtime);
 }
 
+void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result) {
+	if (!p_result.success) {
+		_on_provider_request_failed(p_result.error.is_empty() ? String("Agent runtime failed.") : p_result.error);
+		return;
+	}
+
+	if (active_assistant_index >= 0 && active_assistant_index < messages.size() && messages[active_assistant_index].content.is_empty()) {
+		messages.remove_at(active_assistant_index);
+	}
+
+	const int base_message_count = messages.size();
+	for (int i = base_message_count; i < p_result.messages.size(); i++) {
+		messages.push_back(p_result.messages[i]);
+		emit_signal(SNAME("message_added"), p_result.messages[i].to_dict());
+	}
+
+	active_assistant_index = -1;
+	_set_state(AI_AGENT_STATE_IDLE);
+	_save();
+}
+
 void AIAgentSession::_on_provider_response_started() {
 }
 
@@ -254,4 +276,18 @@ void AIAgentSession::_on_provider_request_failed(const String &p_message) {
 	emit_signal(SNAME("request_failed"), p_message);
 	_set_state(AI_AGENT_STATE_FAILED);
 	_save();
+}
+
+void AIAgentSession::_on_runtime_finished() {
+	_apply_runtime_result(runtime_runner->get_last_result());
+}
+
+void AIAgentSession::replace_messages_for_test(const Vector<AIAgentMessage> &p_messages, int p_active_assistant_index) {
+	messages = p_messages;
+	active_assistant_index = p_active_assistant_index;
+	_set_state(AI_AGENT_STATE_STREAMING);
+}
+
+void AIAgentSession::apply_runtime_result_for_test(const AIAgentRuntimeResult &p_result) {
+	_apply_runtime_result(p_result);
 }

@@ -320,6 +320,90 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies without enabling
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI] Agent session applies runtime results into message history") {
+	AIAgentSession *session = memnew(AIAgentSession);
+
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = "Read a file.";
+
+	AIAgentMessage assistant_placeholder;
+	assistant_placeholder.role = AI_AGENT_ROLE_ASSISTANT;
+
+	Vector<AIAgentMessage> original_messages;
+	original_messages.push_back(user_message);
+	original_messages.push_back(assistant_placeholder);
+
+	AIAgentMessage assistant_tool_call;
+	assistant_tool_call.role = AI_AGENT_ROLE_ASSISTANT;
+	assistant_tool_call.metadata["tool_calls"] = Array();
+
+	AIAgentMessage tool_message;
+	tool_message.role = AI_AGENT_ROLE_TOOL;
+	tool_message.content = "file contents";
+	tool_message.metadata["tool_name"] = "project.read_file";
+	tool_message.metadata["status"] = "completed";
+
+	AIAgentMessage final_assistant;
+	final_assistant.role = AI_AGENT_ROLE_ASSISTANT;
+	final_assistant.content = "I read the file.";
+
+	AIAgentRuntimeResult runtime_result;
+	runtime_result.success = true;
+	runtime_result.messages.push_back(user_message);
+	runtime_result.messages.push_back(assistant_tool_call);
+	runtime_result.messages.push_back(tool_message);
+	runtime_result.messages.push_back(final_assistant);
+
+	session->replace_messages_for_test(original_messages, 1);
+	session->apply_runtime_result_for_test(runtime_result);
+
+	Array messages = session->get_messages_as_array();
+	REQUIRE(messages.size() == 4);
+	Dictionary second_message = messages[1];
+	Dictionary third_message = messages[2];
+	Dictionary fourth_message = messages[3];
+	CHECK(String(second_message["role"]) == "assistant");
+	CHECK(String(third_message["role"]) == "tool");
+	CHECK(String(third_message["content"]) == "file contents");
+	CHECK(String(fourth_message["role"]) == "assistant");
+	CHECK(String(fourth_message["content"]) == "I read the file.");
+	CHECK(session->get_state() == AI_AGENT_STATE_IDLE);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] Agent session applies runtime failures as error messages") {
+	AIAgentSession *session = memnew(AIAgentSession);
+
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = "Read a file.";
+
+	AIAgentMessage assistant_placeholder;
+	assistant_placeholder.role = AI_AGENT_ROLE_ASSISTANT;
+
+	Vector<AIAgentMessage> original_messages;
+	original_messages.push_back(user_message);
+	original_messages.push_back(assistant_placeholder);
+
+	AIAgentRuntimeResult runtime_result;
+	runtime_result.success = false;
+	runtime_result.error = "tool runtime failed";
+
+	session->replace_messages_for_test(original_messages, 1);
+	session->apply_runtime_result_for_test(runtime_result);
+
+	Array messages = session->get_messages_as_array();
+	REQUIRE(messages.size() == 2);
+	Dictionary error_message = messages[1];
+	CHECK(String(error_message["role"]) == "error");
+	CHECK(String(error_message["content"]) == "tool runtime failed");
+	CHECK(session->get_state() == AI_AGENT_STATE_FAILED);
+
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI] OpenAI-compatible provider builds non-streaming tool request bodies") {
 	Array messages;
 	Dictionary user_message;

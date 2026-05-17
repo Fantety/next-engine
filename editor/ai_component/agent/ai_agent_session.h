@@ -37,6 +37,7 @@ class AIAgentSession : public Node {
 	int active_assistant_index = -1;
 
 	void _configure_tool_runtime();
+	void _apply_runtime_result(const AIAgentRuntimeResult &p_result);
 	void _set_state(AIAgentState p_state);
 	Array _collect_context();
 	void _save();
@@ -45,6 +46,7 @@ class AIAgentSession : public Node {
 	void _on_provider_response_delta(const String &p_delta);
 	void _on_provider_response_finished(const String &p_finish_reason);
 	void _on_provider_request_failed(const String &p_message);
+	void _on_runtime_finished();
 
 protected:
 	static void _bind_methods();
@@ -68,4 +70,6 @@ public:
 	String get_title() const;
 	AIAgentState get_state() const;
 	Array list_sessions() const;
+	void replace_messages_for_test(const Vector<AIAgentMessage> &p_messages, int p_active_assistant_index);
+	void apply_runtime_result_for_test(const AIAgentRuntimeResult &p_result);
 };

@@ -108,6 +108,9 @@ platform/web/node_modules/
 ### IDE and tool specific ###
 #############################
 
+.VSCodeCounter/
+docs/superpowers/
+
 # Automake
 .deps/*
 .dirstamp
