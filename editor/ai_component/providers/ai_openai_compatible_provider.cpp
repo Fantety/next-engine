@@ -248,6 +248,10 @@ bool AIOpenAICompatibleProvider::parse_chat_completion_for_test(const String &p_
 	return parse_chat_completion(p_response_text, r_response, r_error);
 }
 
+bool AIOpenAICompatibleProvider::extract_delta_for_test(const String &p_event, String &r_delta, String &r_finish_reason, String &r_error) {
+	return _extract_delta(p_event, r_delta, r_finish_reason, r_error);
+}
+
 bool AIOpenAICompatibleProvider::parse_chat_completion(const String &p_response_text, AIAgentRuntimeResponse &r_response, String &r_error) {
 	return _parse_chat_completion(p_response_text, r_response, r_error);
 }
@@ -306,7 +310,7 @@ bool AIOpenAICompatibleProvider::_parse_chat_completion(const String &p_response
 	if (message.has("content") && Variant(message["content"]).get_type() != Variant::NIL) {
 		r_response.content = String(message["content"]);
 	}
-	if (choice.has("finish_reason")) {
+	if (choice.has("finish_reason") && Variant(choice["finish_reason"]).get_type() != Variant::NIL) {
 		r_response.metadata["finish_reason"] = String(choice["finish_reason"]);
 	}
 
@@ -392,12 +396,12 @@ bool AIOpenAICompatibleProvider::_extract_delta(const String &p_event, String &r
 	}
 
 	Dictionary choice = choices[0];
-	if (choice.has("finish_reason")) {
+	if (choice.has("finish_reason") && Variant(choice["finish_reason"]).get_type() != Variant::NIL) {
 		r_finish_reason = String(choice["finish_reason"]);
 	}
 	if (choice.has("delta") && Variant(choice["delta"]).get_type() == Variant::DICTIONARY) {
 		Dictionary delta = choice["delta"];
-		if (delta.has("content")) {
+		if (delta.has("content") && Variant(delta["content"]).get_type() != Variant::NIL) {
 			r_delta = String(delta["content"]);
 		}
 	}

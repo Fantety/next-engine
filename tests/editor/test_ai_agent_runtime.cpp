@@ -299,7 +299,22 @@ TEST_CASE("[Editor][AI] Conversation serializer preserves tool messages and meta
 	CHECK(String(restored[1].metadata["status"]) == "completed");
 }
 
-TEST_CASE("[Editor][AI] Agent session owns runtime dependencies without enabling tools by default") {
+TEST_CASE("[Editor][AI] Conversation serializer ignores null message content") {
+	Array serialized;
+	Dictionary message;
+	message["role"] = "assistant";
+	message["content"] = Variant();
+	serialized.push_back(message);
+
+	Vector<AIAgentMessage> restored = AIConversationSerializer::messages_from_array(serialized);
+
+	REQUIRE(restored.size() == 1);
+	CHECK(restored[0].role == AI_AGENT_ROLE_ASSISTANT);
+	CHECK(restored[0].content.is_empty());
+	CHECK_FALSE(restored[0].content == "<null>");
+}
+
+TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtime enabled") {
 	AIAgentSession *session = memnew(AIAgentSession);
 
 	CHECK(session->get_agent_profile_id() == "plan");
@@ -307,7 +322,7 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies without enabling
 	REQUIRE(session->get_agent_runtime_runner().is_valid());
 	REQUIRE(session->get_tool_registry().is_valid());
 	CHECK(session->get_agent_runtime_runner()->get_runtime() == session->get_agent_runtime());
-	CHECK(session->is_tool_runtime_available() == false);
+	CHECK(session->is_tool_runtime_available());
 
 	session->set_agent_profile_id("build");
 	CHECK(session->get_agent_profile_id() == "build");
@@ -451,6 +466,20 @@ TEST_CASE("[Editor][AI] OpenAI-compatible provider parses native final assistant
 	CHECK(response.tool_calls.is_empty());
 }
 
+TEST_CASE("[Editor][AI] OpenAI-compatible provider ignores null stream deltas") {
+	const String event_text = "{\"choices\":[{\"delta\":{\"content\":null},\"finish_reason\":null}]}";
+
+	String delta;
+	String finish_reason;
+	String error;
+	CHECK(AIOpenAICompatibleProvider::extract_delta_for_test(event_text, delta, finish_reason, error));
+	CHECK(error.is_empty());
+	CHECK(delta.is_empty());
+	CHECK_FALSE(delta == "<null>");
+	CHECK(finish_reason.is_empty());
+	CHECK_FALSE(finish_reason == "<null>");
+}
+
 TEST_CASE("[Editor][AI] OpenAI-compatible runtime client converts transport responses") {
 	Ref<FakeOpenAIRuntimeTransport> transport;
 	transport.instantiate();
@@ -487,6 +516,123 @@ TEST_CASE("[Editor][AI] OpenAI-compatible runtime client converts transport resp
 	CHECK(transport->last_config.model == "test-model");
 	CHECK(transport->last_messages.size() == 1);
 	CHECK(transport->last_tool_schemas.size() == 1);
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client maps tool schema names for provider compatibility") {
+	Dictionary function;
+	function["name"] = "project.read_file";
+	function["description"] = "Read a file.";
+	Dictionary parameters;
+	parameters["type"] = "object";
+	function["parameters"] = parameters;
+
+	Dictionary schema;
+	schema["type"] = "function";
+	schema["function"] = function;
+
+	Array tool_schemas;
+	tool_schemas.push_back(schema);
+
+	Dictionary tool_name_map;
+	Array provider_schemas = AIOpenAICompatibleRuntimeClient::build_provider_tool_schemas_for_test(tool_schemas, tool_name_map);
+
+	REQUIRE(provider_schemas.size() == 1);
+	Dictionary provider_schema = provider_schemas[0];
+	Dictionary provider_function = provider_schema["function"];
+	CHECK(String(provider_function["name"]) == "project_read_file");
+	CHECK(String(tool_name_map["project_read_file"]) == "project.read_file");
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client restores provider tool call names") {
+	AIAgentRuntimeResponse response;
+	AIToolCall call;
+	call.id = "call_read";
+	call.tool_name = "project_read_file";
+	response.tool_calls.push_back(call);
+
+	Dictionary tool_name_map;
+	tool_name_map["project_read_file"] = "project.read_file";
+
+	AIOpenAICompatibleRuntimeClient::apply_tool_name_map_for_test(response, tool_name_map);
+
+	REQUIRE(response.tool_calls.size() == 1);
+	CHECK(response.tool_calls[0].tool_name == "project.read_file");
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client converts internal tool messages") {
+	Array messages;
+
+	Dictionary assistant_message;
+	assistant_message["role"] = "assistant";
+	assistant_message["content"] = "";
+
+	Dictionary metadata;
+	Array tool_calls;
+	Dictionary call;
+	call["id"] = "call_read";
+	call["tool_name"] = "project.read_file";
+	Dictionary arguments;
+	arguments["path"] = "res://player.gd";
+	call["arguments"] = arguments;
+	tool_calls.push_back(call);
+	metadata["tool_calls"] = tool_calls;
+	assistant_message["metadata"] = metadata;
+	messages.push_back(assistant_message);
+
+	Dictionary tool_message;
+	tool_message["role"] = "tool";
+	tool_message["content"] = "extends Node";
+	Dictionary tool_metadata;
+	tool_metadata["tool_call_id"] = "call_read";
+	tool_message["metadata"] = tool_metadata;
+	messages.push_back(tool_message);
+
+	Array chat_messages = AIOpenAICompatibleRuntimeClient::build_chat_messages_for_test(messages);
+
+	REQUIRE(chat_messages.size() == 2);
+	Dictionary converted_assistant = chat_messages[0];
+	CHECK(String(converted_assistant["role"]) == "assistant");
+	REQUIRE(converted_assistant.has("tool_calls"));
+	Array converted_tool_calls = converted_assistant["tool_calls"];
+	REQUIRE(converted_tool_calls.size() == 1);
+	Dictionary converted_call = converted_tool_calls[0];
+	CHECK(String(converted_call["id"]) == "call_read");
+	CHECK(String(converted_call["type"]) == "function");
+	Dictionary converted_function = converted_call["function"];
+	CHECK(String(converted_function["name"]) == "project_read_file");
+	CHECK(String(converted_function["arguments"]).contains("res://player.gd"));
+
+	Dictionary converted_tool = chat_messages[1];
+	CHECK(String(converted_tool["role"]) == "tool");
+	CHECK(String(converted_tool["tool_call_id"]) == "call_read");
+	CHECK(String(converted_tool["content"]) == "extends Node");
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client ignores null message content") {
+	Array messages;
+	Dictionary assistant_message;
+	assistant_message["role"] = "assistant";
+	assistant_message["content"] = Variant();
+	messages.push_back(assistant_message);
+
+	Dictionary tool_message;
+	tool_message["role"] = "tool";
+	tool_message["content"] = Variant();
+	Dictionary tool_metadata;
+	tool_metadata["tool_call_id"] = "call_empty";
+	tool_message["metadata"] = tool_metadata;
+	messages.push_back(tool_message);
+
+	Array chat_messages = AIOpenAICompatibleRuntimeClient::build_chat_messages_for_test(messages);
+
+	REQUIRE(chat_messages.size() == 2);
+	Dictionary converted_assistant = chat_messages[0];
+	CHECK(String(converted_assistant["content"]).is_empty());
+	CHECK_FALSE(String(converted_assistant["content"]) == "<null>");
+
+	Dictionary converted_tool = chat_messages[1];
+	CHECK(String(converted_tool["content"]).is_empty());
+	CHECK_FALSE(String(converted_tool["content"]) == "<null>");
 }
 
 TEST_CASE("[Editor][AI] OpenAI-compatible runtime client defaults to HTTP transport") {

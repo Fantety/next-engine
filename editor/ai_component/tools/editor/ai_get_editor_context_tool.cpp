@@ -26,6 +26,8 @@ Dictionary AIGetEditorContextTool::get_parameters_schema() const {
 }
 
 AIToolResult AIGetEditorContextTool::execute(const Dictionary &p_arguments) {
+	(void)p_arguments;
+	print_line("[AI Agent][Tool:editor.get_context] Start.");
 	AIToolResult result;
 	Dictionary context_metadata;
 
@@ -52,5 +54,6 @@ AIToolResult AIGetEditorContextTool::execute(const Dictionary &p_arguments) {
 
 	result.content = content;
 	result.metadata = context_metadata;
+	print_line(vformat("[AI Agent][Tool:editor.get_context] Completed. project=%s path=%s", application_name, resource_path));
 	return result;
 }

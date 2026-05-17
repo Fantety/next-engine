@@ -52,7 +52,7 @@ Vector<AIModelProviderPreset> AIModelSettings::get_provider_presets() {
 	AIModelProviderPreset deepseek;
 	deepseek.id = "deepseek";
 	deepseek.display_name = "DeepSeek";
-	deepseek.default_base_url = "https://api.deepseek.com/v1";
+	deepseek.default_base_url = "https://api.deepseek.com";
 	deepseek.preset_models.push_back("deepseek-v4-flash");
 	deepseek.preset_models.push_back("deepseek-v4-pro");
 	deepseek.preset_models.push_back("deepseek-chat");

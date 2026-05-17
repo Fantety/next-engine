@@ -10,6 +10,7 @@ void AIMessageList::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("clear_messages"), &AIMessageList::clear_messages);
 	ClassDB::bind_method(D_METHOD("add_message", "message"), &AIMessageList::add_message);
 	ClassDB::bind_method(D_METHOD("update_message", "index", "message"), &AIMessageList::update_message);
+	ClassDB::bind_method(D_METHOD("remove_message", "index"), &AIMessageList::remove_message);
 }
 
 AIMessageList::AIMessageList() {
@@ -31,9 +32,9 @@ void AIMessageList::clear_messages() {
 
 void AIMessageList::add_message(const Dictionary &p_message) {
 	AIMessageBubble *bubble = memnew(AIMessageBubble);
-	bubble->set_message(p_message);
 	bubbles.push_back(bubble);
 	message_box->add_child(bubble);
+	bubble->set_message(p_message);
 }
 
 void AIMessageList::update_message(int p_index, const Dictionary &p_message) {
@@ -41,4 +42,14 @@ void AIMessageList::update_message(int p_index, const Dictionary &p_message) {
 		return;
 	}
 	bubbles[p_index]->set_message(p_message);
+}
+
+void AIMessageList::remove_message(int p_index) {
+	if (p_index < 0 || p_index >= bubbles.size()) {
+		return;
+	}
+
+	AIMessageBubble *bubble = bubbles[p_index];
+	bubbles.remove_at(p_index);
+	bubble->queue_free();
 }

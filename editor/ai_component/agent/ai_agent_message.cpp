@@ -20,7 +20,7 @@ AIAgentMessage AIAgentMessage::from_dict(const Dictionary &p_dict) {
 	if (p_dict.has("role")) {
 		message.role = string_to_role(p_dict["role"]);
 	}
-	if (p_dict.has("content")) {
+	if (p_dict.has("content") && Variant(p_dict["content"]).get_type() != Variant::NIL) {
 		message.content = p_dict["content"];
 	}
 	if (p_dict.has("metadata") && Variant(p_dict["metadata"]).get_type() == Variant::DICTIONARY) {

@@ -24,14 +24,18 @@ Ref<AIAgentRuntime> AIAgentRuntimeRunner::get_runtime() const {
 	return runtime;
 }
 
-bool AIAgentRuntimeRunner::start(const Vector<AIAgentMessage> &p_messages) {
-	if (running.is_set() || thread.is_started() || runtime.is_null()) {
+bool AIAgentRuntimeRunner::start(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents) {
+	if (running.is_set() || runtime.is_null()) {
 		return false;
+	}
+	if (thread.is_started()) {
+		thread.wait_to_finish();
 	}
 
 	ThreadParams *params = memnew(ThreadParams);
 	params->runner = Ref<AIAgentRuntimeRunner>(this);
 	params->messages = p_messages;
+	params->context_documents = p_context_documents.duplicate(true);
 
 	running.set();
 	thread.start(_thread_func, params);
@@ -56,11 +60,12 @@ void AIAgentRuntimeRunner::_thread_func(void *p_userdata) {
 	ThreadParams *params = static_cast<ThreadParams *>(p_userdata);
 	Ref<AIAgentRuntimeRunner> runner = params->runner;
 	Vector<AIAgentMessage> messages = params->messages;
+	Array context_documents = params->context_documents;
 	memdelete(params);
 
 	AIAgentRuntimeResult result;
 	if (runner.is_valid() && runner->runtime.is_valid()) {
-		result = runner->runtime->run(messages);
+		result = runner->runtime->run(messages, context_documents);
 	} else {
 		result.error = "Agent runtime is not configured.";
 	}

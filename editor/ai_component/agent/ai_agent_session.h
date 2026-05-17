@@ -13,6 +13,7 @@
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
 #include "editor/ai_component/providers/ai_openai_compatible_provider.h"
+#include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 
@@ -28,6 +29,7 @@ class AIAgentSession : public Node {
 	Ref<AIAgentRunner> runner;
 	Ref<AIAgentRuntime> runtime;
 	Ref<AIAgentRuntimeRunner> runtime_runner;
+	Ref<AIOpenAICompatibleRuntimeClient> runtime_client;
 	Ref<AIToolRegistry> tool_registry;
 	AIOpenAICompatibleProvider *provider = nullptr;
 	Ref<AIConversationStore> store;
@@ -47,6 +49,7 @@ class AIAgentSession : public Node {
 	void _on_provider_response_finished(const String &p_finish_reason);
 	void _on_provider_request_failed(const String &p_message);
 	void _on_runtime_finished();
+	void _remove_message_at(int p_index);
 
 protected:
 	static void _bind_methods();

@@ -11,5 +11,5 @@ struct AIProviderConfig {
 	String base_url = "https://api.deepseek.com";
 	String api_key;
 	String model = "deepseek-chat";
-	int timeout_seconds = 60;
+	int timeout_seconds = 180;
 };

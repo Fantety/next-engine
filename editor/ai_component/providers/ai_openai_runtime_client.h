@@ -36,6 +36,12 @@ class AIOpenAICompatibleRuntimeClient : public AIAgentRuntimeClient {
 	AIProviderConfig config;
 	Ref<AIOpenAIRuntimeTransport> transport;
 
+	static String _to_provider_tool_name(const String &p_internal_tool_name);
+	static String _to_internal_tool_name(const String &p_provider_tool_name, const Dictionary &p_tool_name_map);
+	static Array _build_provider_tool_schemas(const Array &p_tool_schemas, Dictionary &r_tool_name_map);
+	static Array _build_chat_messages(const Array &p_messages, const Dictionary &p_tool_name_map = Dictionary());
+	static void _apply_tool_name_map(AIAgentRuntimeResponse &r_response, const Dictionary &p_tool_name_map);
+
 protected:
 	static void _bind_methods();
 
@@ -47,6 +53,10 @@ public:
 
 	void set_transport(const Ref<AIOpenAIRuntimeTransport> &p_transport);
 	Ref<AIOpenAIRuntimeTransport> get_transport() const;
+
+	static Array build_chat_messages_for_test(const Array &p_messages);
+	static Array build_provider_tool_schemas_for_test(const Array &p_tool_schemas, Dictionary &r_tool_name_map);
+	static void apply_tool_name_map_for_test(AIAgentRuntimeResponse &r_response, const Dictionary &p_tool_name_map);
 
 	virtual AIAgentRuntimeResponse complete(const Array &p_messages, const Array &p_tool_schemas) override;
 };

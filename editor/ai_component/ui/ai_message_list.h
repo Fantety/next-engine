@@ -23,4 +23,5 @@ public:
 	void clear_messages();
 	void add_message(const Dictionary &p_message);
 	void update_message(int p_index, const Dictionary &p_message);
+	void remove_message(int p_index);
 };

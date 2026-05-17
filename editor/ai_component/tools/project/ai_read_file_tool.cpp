@@ -42,26 +42,32 @@ Dictionary AIReadFileTool::get_parameters_schema() const {
 AIToolResult AIReadFileTool::execute(const Dictionary &p_arguments) {
 	AIToolResult result;
 	String path = AIProjectToolUtils::get_path_argument(p_arguments, String());
+	print_line(vformat("[AI Agent][Tool:project.read_file] Start. path=%s", path));
 	if (path.is_empty()) {
 		result.error = "Missing required path.";
+		print_line("[AI Agent][Tool:project.read_file] Failed: missing required path.");
 		return result;
 	}
 	if (!AIProjectToolUtils::is_allowed_path(path)) {
 		result.error = "Only res:// project paths without traversal are allowed.";
+		print_line(vformat("[AI Agent][Tool:project.read_file] Failed: path is outside allowed project boundary. path=%s", path));
 		return result;
 	}
 	if (!AIProjectToolUtils::is_allowed_text_extension(path)) {
 		result.error = "File extension is not in the text allowlist.";
+		print_line(vformat("[AI Agent][Tool:project.read_file] Failed: extension is not allowlisted. path=%s", path));
 		return result;
 	}
 	if (!FileAccess::exists(path)) {
 		result.error = "File does not exist.";
+		print_line(vformat("[AI Agent][Tool:project.read_file] Failed: file does not exist. path=%s", path));
 		return result;
 	}
 
 	Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ);
 	if (file.is_null()) {
 		result.error = "Failed to open file.";
+		print_line(vformat("[AI Agent][Tool:project.read_file] Failed: could not open file. path=%s", path));
 		return result;
 	}
 
@@ -78,5 +84,6 @@ AIToolResult AIReadFileTool::execute(const Dictionary &p_arguments) {
 	result.content = text;
 	result.metadata["path"] = path;
 	result.metadata["bytes"] = (int)MIN(length, (uint64_t)max_bytes);
+	print_line(vformat("[AI Agent][Tool:project.read_file] Completed. path=%s bytes=%d truncated=%s", path, (int)MIN(length, (uint64_t)max_bytes), result.truncated ? "yes" : "no"));
 	return result;
 }

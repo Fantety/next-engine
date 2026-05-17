@@ -15,6 +15,7 @@ class AIAgentRuntimeRunner : public RefCounted {
 	struct ThreadParams {
 		Ref<AIAgentRuntimeRunner> runner;
 		Vector<AIAgentMessage> messages;
+		Array context_documents;
 	};
 
 	Ref<AIAgentRuntime> runtime;
@@ -35,7 +36,7 @@ public:
 	void set_runtime(const Ref<AIAgentRuntime> &p_runtime);
 	Ref<AIAgentRuntime> get_runtime() const;
 
-	bool start(const Vector<AIAgentMessage> &p_messages);
+	bool start(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents = Array());
 	void wait_to_finish();
 	bool is_running() const;
 	AIAgentRuntimeResult get_last_result() const;

@@ -9,6 +9,7 @@
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/label.h"
+#include "servers/text/text_server.h"
 
 void AIComposer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reload_models"), &AIComposer::reload_models);
@@ -21,7 +22,7 @@ AIComposer::AIComposer() {
 	set_v_size_flags(Control::SIZE_SHRINK_END);
 
 	input = memnew(TextEdit);
-	input->set_custom_minimum_size(Size2(0, 96) * EDSCALE);
+	input->set_custom_minimum_size(Size2(0, 80) * EDSCALE);
 	input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	input->set_placeholder(TTR("Ask about this project..."));
 	add_child(input);
@@ -36,6 +37,9 @@ AIComposer::AIComposer() {
 
 	model_selector = memnew(OptionButton);
 	model_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	model_selector->set_custom_minimum_size(Size2(96, 0) * EDSCALE);
+	model_selector->set_fit_to_longest_item(false);
+	model_selector->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	bar->add_child(model_selector);
 
 	cancel_button = memnew(Button);

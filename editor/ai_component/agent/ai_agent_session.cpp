@@ -25,6 +25,7 @@ void AIAgentSession::_bind_methods() {
 
 	ADD_SIGNAL(MethodInfo("message_added", PropertyInfo(Variant::DICTIONARY, "message")));
 	ADD_SIGNAL(MethodInfo("message_updated", PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::DICTIONARY, "message")));
+	ADD_SIGNAL(MethodInfo("message_removed", PropertyInfo(Variant::INT, "index")));
 	ADD_SIGNAL(MethodInfo("state_changed", PropertyInfo(Variant::INT, "state")));
 	ADD_SIGNAL(MethodInfo("request_failed", PropertyInfo(Variant::STRING, "message")));
 }
@@ -34,6 +35,7 @@ AIAgentSession::AIAgentSession() {
 	runner.instantiate();
 	runtime.instantiate();
 	runtime_runner.instantiate();
+	runtime_client.instantiate();
 	tool_registry.instantiate();
 	project_tree_context.instantiate();
 	editor_context.instantiate();
@@ -42,6 +44,7 @@ AIAgentSession::AIAgentSession() {
 	provider = memnew(AIOpenAICompatibleProvider);
 	add_child(provider);
 	runner->set_provider(provider);
+	runtime->set_client(runtime_client);
 	_configure_tool_runtime();
 
 	provider->connect("response_started", callable_mp(this, &AIAgentSession::_on_provider_response_started), CONNECT_DEFERRED);
@@ -55,6 +58,9 @@ AIAgentSession::AIAgentSession() {
 
 void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
 	provider->set_config(p_config);
+	if (runtime_client.is_valid()) {
+		runtime_client->set_config(p_config);
+	}
 }
 
 void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {
@@ -86,17 +92,20 @@ Ref<AIToolRegistry> AIAgentSession::get_tool_registry() const {
 }
 
 bool AIAgentSession::is_tool_runtime_available() const {
-	return provider != nullptr && provider->get_features().supports_tools && runtime.is_valid() && tool_registry.is_valid();
+	return runtime.is_valid() && runtime_client.is_valid() && runtime->get_client().is_valid() && tool_registry.is_valid();
 }
 
 void AIAgentSession::send_user_message(const String &p_message) {
 	String stripped = p_message.strip_edges();
 	if (stripped.is_empty() || state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
+		print_line(vformat("[AI Agent][Session] Ignored send request. empty=%s state=%d", stripped.is_empty() ? "yes" : "no", (int)state));
 		return;
 	}
 
+	print_line(vformat("[AI Agent][Session] User message accepted. chars=%d existing_messages=%d", stripped.length(), messages.size()));
 	if (messages.is_empty()) {
 		title = stripped.substr(0, 80);
+		print_line(vformat("[AI Agent][Session] Session title initialized: %s", title));
 	}
 
 	AIAgentMessage user_message;
@@ -106,6 +115,7 @@ void AIAgentSession::send_user_message(const String &p_message) {
 	messages.push_back(user_message);
 	emit_signal(SNAME("message_added"), user_message.to_dict());
 	_save();
+	print_line(vformat("[AI Agent][Session] User message saved. session=%s messages=%d", session_id, messages.size()));
 
 	AIAgentMessage assistant_message;
 	assistant_message.role = AI_AGENT_ROLE_ASSISTANT;
@@ -113,18 +123,40 @@ void AIAgentSession::send_user_message(const String &p_message) {
 	messages.push_back(assistant_message);
 	active_assistant_index = messages.size() - 1;
 	emit_signal(SNAME("message_added"), assistant_message.to_dict());
+	print_line(vformat("[AI Agent][Session] Assistant placeholder added. index=%d", active_assistant_index));
 
 	_set_state(AI_AGENT_STATE_PREPARING_CONTEXT);
+	print_line("[AI Agent][Session] Collecting editor/project context...");
 	Array context = _collect_context();
+	print_line(vformat("[AI Agent][Session] Context collected. documents=%d", context.size()));
+	Vector<AIAgentMessage> request_messages = messages;
+	if (active_assistant_index >= 0 && active_assistant_index < request_messages.size() && request_messages[active_assistant_index].content.is_empty()) {
+		request_messages.remove_at(active_assistant_index);
+		print_line("[AI Agent][Session] Removed assistant placeholder from provider request messages.");
+	}
 	_set_state(AI_AGENT_STATE_STREAMING);
-	if (!runner->start(messages, context)) {
+	if (is_tool_runtime_available()) {
+		print_line(vformat("[AI Agent][Session] Starting function-calling runtime. request_messages=%d", request_messages.size()));
+		if (!runtime_runner->start(request_messages, context)) {
+			print_line("[AI Agent][Session] Failed to start function-calling runtime.");
+			_on_provider_request_failed("Failed to start AI runtime.");
+		}
+	} else if (!runner->start(request_messages, context)) {
+		print_line("[AI Agent][Session] Failed to start streaming provider fallback.");
 		_on_provider_request_failed("Failed to start AI request.");
+	} else {
+		print_line(vformat("[AI Agent][Session] Started streaming provider fallback. request_messages=%d", request_messages.size()));
 	}
 }
 
 void AIAgentSession::cancel_request() {
 	if (state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
+		print_line(vformat("[AI Agent][Session] Cancelling active request. state=%d", (int)state));
 		runner->cancel();
+		if (runtime_runner.is_valid() && runtime_runner->is_running() && active_assistant_index >= 0 && active_assistant_index < messages.size() && messages[active_assistant_index].content.is_empty()) {
+			_remove_message_at(active_assistant_index);
+			active_assistant_index = -1;
+		}
 		_set_state(AI_AGENT_STATE_CANCELLED);
 		_save();
 	}
@@ -136,16 +168,19 @@ void AIAgentSession::start_new_session() {
 	messages.clear();
 	active_assistant_index = -1;
 	_set_state(AI_AGENT_STATE_IDLE);
+	print_line(vformat("[AI Agent][Session] Started new session. session=%s", session_id));
 }
 
 bool AIAgentSession::load_session(const String &p_session_id) {
 	if (state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
+		print_line("[AI Agent][Session] Loading another session while request is active; cancelling current request.");
 		cancel_request();
 	}
 
 	String loaded_title;
 	Vector<AIAgentMessage> loaded_messages;
 	if (!store->load_conversation(p_session_id, loaded_title, loaded_messages)) {
+		print_line(vformat("[AI Agent][Session] Failed to load session: %s", p_session_id));
 		return false;
 	}
 
@@ -154,6 +189,7 @@ bool AIAgentSession::load_session(const String &p_session_id) {
 	messages = loaded_messages;
 	active_assistant_index = -1;
 	_set_state(AI_AGENT_STATE_IDLE);
+	print_line(vformat("[AI Agent][Session] Loaded session. session=%s title=%s messages=%d", session_id, title, messages.size()));
 	return true;
 }
 
@@ -183,6 +219,7 @@ Array AIAgentSession::list_sessions() const {
 
 void AIAgentSession::_set_state(AIAgentState p_state) {
 	state = p_state;
+	print_line(vformat("[AI Agent][Session] State changed: %d", (int)state));
 	emit_signal(SNAME("state_changed"), (int)state);
 }
 
@@ -197,22 +234,35 @@ void AIAgentSession::_save() {
 	store->save_conversation(session_id, title, messages);
 }
 
+void AIAgentSession::_remove_message_at(int p_index) {
+	if (p_index < 0 || p_index >= messages.size()) {
+		return;
+	}
+
+	messages.remove_at(p_index);
+	emit_signal(SNAME("message_removed"), p_index);
+}
+
 void AIAgentSession::_configure_tool_runtime() {
 	Ref<AIListProjectTool> list_project;
 	list_project.instantiate();
 	tool_registry->register_tool(list_project);
+	print_line("[AI Agent][Session] Registered tool: project.list_tree");
 
 	Ref<AIReadFileTool> read_file;
 	read_file.instantiate();
 	tool_registry->register_tool(read_file);
+	print_line("[AI Agent][Session] Registered tool: project.read_file");
 
 	Ref<AISearchProjectTool> search_project;
 	search_project.instantiate();
 	tool_registry->register_tool(search_project);
+	print_line("[AI Agent][Session] Registered tool: project.search_text");
 
 	Ref<AIGetEditorContextTool> editor_context_tool;
 	editor_context_tool.instantiate();
 	tool_registry->register_tool(editor_context_tool);
+	print_line("[AI Agent][Session] Registered tool: editor.get_context");
 
 	runtime->set_tool_registry(tool_registry);
 	runtime->set_profile(agent_profile);
@@ -221,15 +271,18 @@ void AIAgentSession::_configure_tool_runtime() {
 
 void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result) {
 	if (!p_result.success) {
+		print_line(vformat("[AI Agent][Session] Runtime result failed: %s", p_result.error));
 		_on_provider_request_failed(p_result.error.is_empty() ? String("Agent runtime failed.") : p_result.error);
 		return;
 	}
 
 	if (active_assistant_index >= 0 && active_assistant_index < messages.size() && messages[active_assistant_index].content.is_empty()) {
-		messages.remove_at(active_assistant_index);
+		_remove_message_at(active_assistant_index);
+		print_line("[AI Agent][Session] Removed assistant placeholder before applying runtime messages.");
 	}
 
 	const int base_message_count = messages.size();
+	print_line(vformat("[AI Agent][Session] Applying runtime result. base_messages=%d result_messages=%d tool_calls=%d", base_message_count, p_result.messages.size(), p_result.tool_calls.size()));
 	for (int i = base_message_count; i < p_result.messages.size(); i++) {
 		messages.push_back(p_result.messages[i]);
 		emit_signal(SNAME("message_added"), p_result.messages[i].to_dict());
@@ -238,20 +291,25 @@ void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result)
 	active_assistant_index = -1;
 	_set_state(AI_AGENT_STATE_IDLE);
 	_save();
+	print_line(vformat("[AI Agent][Session] Runtime result applied and saved. session=%s messages=%d", session_id, messages.size()));
 }
 
 void AIAgentSession::_on_provider_response_started() {
+	print_line("[AI Agent][Session] Streaming provider response started.");
 }
 
 void AIAgentSession::_on_provider_response_delta(const String &p_delta) {
 	if (active_assistant_index < 0 || active_assistant_index >= messages.size()) {
+		print_line("[AI Agent][Session] Ignored streaming delta because no assistant placeholder is active.");
 		return;
 	}
 	messages.write[active_assistant_index].content += p_delta;
 	emit_signal(SNAME("message_updated"), active_assistant_index, messages[active_assistant_index].to_dict());
+	print_line(vformat("[AI Agent][Session] Streaming provider delta applied. delta_chars=%d total_chars=%d", p_delta.length(), messages[active_assistant_index].content.length()));
 }
 
 void AIAgentSession::_on_provider_response_finished(const String &p_finish_reason) {
+	print_line(vformat("[AI Agent][Session] Streaming provider response finished. reason=%s", p_finish_reason));
 	if (p_finish_reason == "cancelled") {
 		_set_state(AI_AGENT_STATE_CANCELLED);
 	} else {
@@ -262,9 +320,11 @@ void AIAgentSession::_on_provider_response_finished(const String &p_finish_reaso
 }
 
 void AIAgentSession::_on_provider_request_failed(const String &p_message) {
+	print_line(vformat("[AI Agent][Session] Provider/runtime request failed: %s", p_message));
 	if (active_assistant_index >= 0 && active_assistant_index < messages.size() && messages[active_assistant_index].content.is_empty()) {
-		messages.remove_at(active_assistant_index);
+		_remove_message_at(active_assistant_index);
 		active_assistant_index = -1;
+		print_line("[AI Agent][Session] Removed empty assistant placeholder after failure.");
 	}
 
 	AIAgentMessage error_message;
@@ -279,6 +339,11 @@ void AIAgentSession::_on_provider_request_failed(const String &p_message) {
 }
 
 void AIAgentSession::_on_runtime_finished() {
+	if (state == AI_AGENT_STATE_CANCELLED) {
+		print_line("[AI Agent][Session] Runtime finished after cancellation; result ignored.");
+		return;
+	}
+	print_line("[AI Agent][Session] Runtime runner finished; applying result.");
 	_apply_runtime_result(runtime_runner->get_last_result());
 }
 

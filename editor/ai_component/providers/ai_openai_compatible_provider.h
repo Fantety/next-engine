@@ -48,6 +48,7 @@ public:
 	static bool parse_chat_completion(const String &p_response_text, AIAgentRuntimeResponse &r_response, String &r_error);
 	static PackedByteArray build_body_for_test(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array(), bool p_stream = true);
 	static bool parse_chat_completion_for_test(const String &p_response_text, AIAgentRuntimeResponse &r_response, String &r_error);
+	static bool extract_delta_for_test(const String &p_event, String &r_delta, String &r_finish_reason, String &r_error);
 
 	virtual AIProviderFeatures get_features() const override;
 	bool start_chat(const Array &p_messages) override;

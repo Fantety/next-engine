@@ -23,7 +23,10 @@ AIMessageBubble::AIMessageBubble() {
 
 void AIMessageBubble::set_message(const Dictionary &p_message) {
 	String role = p_message.get("role", "assistant");
-	String content = p_message.get("content", "");
+	String content;
+	if (p_message.has("content") && Variant(p_message["content"]).get_type() != Variant::NIL) {
+		content = String(p_message["content"]);
+	}
 	Dictionary message_metadata;
 	if (p_message.has("metadata") && Variant(p_message["metadata"]).get_type() == Variant::DICTIONARY) {
 		message_metadata = p_message["metadata"];

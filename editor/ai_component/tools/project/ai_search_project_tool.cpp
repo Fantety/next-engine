@@ -48,16 +48,20 @@ Dictionary AISearchProjectTool::get_parameters_schema() const {
 AIToolResult AISearchProjectTool::execute(const Dictionary &p_arguments) {
 	AIToolResult result;
 	query = String(p_arguments.get("query", "")).strip_edges();
+	print_line(vformat("[AI Agent][Tool:project.search_text] Start. query_chars=%d", query.length()));
 	if (query.is_empty()) {
 		result.error = "Missing required query.";
+		print_line("[AI Agent][Tool:project.search_text] Failed: missing required query.");
 		return result;
 	}
 
 	String path = AIProjectToolUtils::get_path_argument(p_arguments);
 	if (!AIProjectToolUtils::is_allowed_path(path)) {
 		result.error = "Only res:// project paths without traversal are allowed.";
+		print_line(vformat("[AI Agent][Tool:project.search_text] Failed: path is outside allowed project boundary. path=%s", path));
 		return result;
 	}
+	print_line(vformat("[AI Agent][Tool:project.search_text] Searching. path=%s max_results=%d", path, AIProjectToolUtils::get_int_argument(p_arguments, "max_results", 50, 1, 200)));
 
 	max_results = AIProjectToolUtils::get_int_argument(p_arguments, "max_results", 50, 1, 200);
 	max_chars = AIProjectToolUtils::get_int_argument(p_arguments, "max_chars", 4096, 1000, 32000);
@@ -78,6 +82,7 @@ AIToolResult AISearchProjectTool::execute(const Dictionary &p_arguments) {
 	result.metadata["path"] = path;
 	result.metadata["query"] = query;
 	result.metadata["result_count"] = result_count;
+	print_line(vformat("[AI Agent][Tool:project.search_text] Completed. path=%s results=%d truncated=%s", path, result_count, result.truncated ? "yes" : "no"));
 	return result;
 }
 

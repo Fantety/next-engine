@@ -44,8 +44,10 @@ Dictionary AIListProjectTool::get_parameters_schema() const {
 AIToolResult AIListProjectTool::execute(const Dictionary &p_arguments) {
 	AIToolResult result;
 	String path = AIProjectToolUtils::get_path_argument(p_arguments);
+	print_line(vformat("[AI Agent][Tool:project.list_tree] Start. path=%s", path));
 	if (!AIProjectToolUtils::is_allowed_path(path)) {
 		result.error = "Only res:// project paths without traversal are allowed.";
+		print_line(vformat("[AI Agent][Tool:project.list_tree] Failed: path is outside allowed project boundary. path=%s", path));
 		return result;
 	}
 
@@ -65,6 +67,7 @@ AIToolResult AIListProjectTool::execute(const Dictionary &p_arguments) {
 	result.truncated = truncated;
 	result.metadata["path"] = path;
 	result.metadata["entry_count"] = entry_count;
+	print_line(vformat("[AI Agent][Tool:project.list_tree] Completed. path=%s entries=%d truncated=%s", path, entry_count, truncated ? "yes" : "no"));
 	return result;
 }
 

@@ -73,6 +73,25 @@ TEST_CASE("[Editor][AI] Message bubbles render labels without BBCode markup") {
 	memdelete(bubble);
 }
 
+TEST_CASE("[Editor][AI] Message bubbles ignore null content") {
+	AIMessageBubble *bubble = memnew(AIMessageBubble);
+	Dictionary message;
+	message["role"] = "assistant";
+	message["content"] = Variant();
+
+	bubble->set_message(message);
+
+	RichTextLabel *label = Object::cast_to<RichTextLabel>(bubble->get_child(0));
+	REQUIRE(label != nullptr);
+	CHECK(label->get_parsed_text() == "Assistant\n");
+
+	message["content"] = "Ready.";
+	bubble->set_message(message);
+	CHECK(label->get_parsed_text() == "Assistant\nReady.");
+
+	memdelete(bubble);
+}
+
 TEST_CASE("[Editor][AI] Message bubbles render tool events with metadata") {
 	AIMessageBubble *bubble = memnew(AIMessageBubble);
 	Dictionary message;

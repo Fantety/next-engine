@@ -50,7 +50,7 @@ class AIAgentRuntime : public RefCounted {
 	int max_provider_turns = 6;
 	int max_tool_calls = 20;
 
-	Array _messages_to_array(const Vector<AIAgentMessage> &p_messages) const;
+	Array _messages_to_array(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents = Array()) const;
 	Array _get_allowed_tool_schemas() const;
 	AIAgentMessage _make_assistant_tool_call_message(const AIAgentRuntimeResponse &p_response) const;
 	AIAgentMessage _make_tool_result_message(const AIToolCall &p_call, const String &p_content, const String &p_status, const Dictionary &p_metadata) const;
@@ -78,5 +78,5 @@ public:
 	void set_max_tool_calls(int p_max_tool_calls);
 	int get_max_tool_calls() const;
 
-	AIAgentRuntimeResult run(const Vector<AIAgentMessage> &p_messages);
+	AIAgentRuntimeResult run(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents = Array());
 };

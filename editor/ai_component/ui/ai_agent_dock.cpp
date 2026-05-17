@@ -7,12 +7,11 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
-#include "editor/settings/editor_command_palette.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
+#include "editor/settings/editor_command_palette.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
-#include "scene/gui/label.h"
-#include "scene/gui/separator.h"
+#include "servers/text/text_server.h"
 
 void AIAgentDock::_bind_methods() {
 }
@@ -26,34 +25,29 @@ AIAgentDock::AIAgentDock() {
 	set_dock_shortcut(ED_SHORTCUT_AND_COMMAND("docks/open_ai_agent", TTRC("Open AI Agent Dock")));
 	set_default_slot(EditorDock::DOCK_SLOT_RIGHT_UL);
 
-	HBoxContainer *root = memnew(HBoxContainer);
+	VBoxContainer *root = memnew(VBoxContainer);
 	root->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	root->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	root->add_theme_constant_override("separation", 8 * EDSCALE);
 	add_child(root);
 
-	VBoxContainer *sidebar = memnew(VBoxContainer);
-	sidebar->set_custom_minimum_size(Size2(180, 0) * EDSCALE);
-	sidebar->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	root->add_child(sidebar);
+	HBoxContainer *session_bar = memnew(HBoxContainer);
+	session_bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	root->add_child(session_bar);
+
+	session_selector = memnew(OptionButton);
+	session_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	session_selector->set_custom_minimum_size(Size2(96, 0) * EDSCALE);
+	session_selector->set_fit_to_longest_item(false);
+	session_selector->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	session_selector->connect(SceneStringName(item_selected), callable_mp(this, &AIAgentDock::_session_selected));
+	session_bar->add_child(session_selector);
 
 	new_session_button = memnew(Button);
-	new_session_button->set_text(TTR("New Chat"));
+	new_session_button->set_text(TTR("New"));
+	new_session_button->set_tooltip_text(TTR("Start a new AI chat session."));
 	new_session_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentDock::_new_session_pressed));
-	sidebar->add_child(new_session_button);
-
-	Label *history_label = memnew(Label);
-	history_label->set_text(TTR("History"));
-	sidebar->add_child(history_label);
-
-	session_list = memnew(ItemList);
-	session_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	session_list->set_select_mode(ItemList::SELECT_SINGLE);
-	session_list->connect(SceneStringName(item_selected), callable_mp(this, &AIAgentDock::_session_selected));
-	sidebar->add_child(session_list);
-
-	VSeparator *separator = memnew(VSeparator);
-	root->add_child(separator);
+	session_bar->add_child(new_session_button);
 
 	VBoxContainer *main = memnew(VBoxContainer);
 	main->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -63,6 +57,14 @@ AIAgentDock::AIAgentDock() {
 
 	message_list = memnew(AIMessageList);
 	main->add_child(message_list);
+
+	request_progress = memnew(ProgressBar);
+	request_progress->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	request_progress->set_custom_minimum_size(Size2(0, 4) * EDSCALE);
+	request_progress->set_show_percentage(false);
+	request_progress->set_indeterminate(true);
+	request_progress->hide();
+	main->add_child(request_progress);
 
 	composer = memnew(AIComposer);
 	main->add_child(composer);
@@ -106,8 +108,16 @@ void AIAgentDock::_message_updated(int p_index, const Dictionary &p_message) {
 	message_list->update_message(p_index, p_message);
 }
 
+void AIAgentDock::_message_removed(int p_index) {
+	message_list->remove_message(p_index);
+}
+
 void AIAgentDock::_state_changed(int p_state) {
-	composer->set_running(p_state == AI_AGENT_STATE_STREAMING || p_state == AI_AGENT_STATE_PREPARING_CONTEXT);
+	const bool running = p_state == AI_AGENT_STATE_STREAMING || p_state == AI_AGENT_STATE_PREPARING_CONTEXT;
+	composer->set_running(running);
+	if (request_progress) {
+		request_progress->set_visible(running);
+	}
 	if (p_state == AI_AGENT_STATE_IDLE || p_state == AI_AGENT_STATE_FAILED || p_state == AI_AGENT_STATE_CANCELLED) {
 		_refresh_session_list();
 	}
@@ -130,11 +140,11 @@ void AIAgentDock::_session_selected(int p_index) {
 	_ensure_session();
 	ERR_FAIL_NULL(session);
 
-	if (!session_list || p_index < 0) {
+	if (!session_selector || p_index < 0) {
 		return;
 	}
 
-	String session_id = session_list->get_item_metadata(p_index);
+	String session_id = session_selector->get_item_metadata(p_index);
 	if (session_id.is_empty() || session_id == session->get_session_id()) {
 		return;
 	}
@@ -154,15 +164,16 @@ void AIAgentDock::_ensure_session() {
 	add_child(session);
 	session->connect("message_added", callable_mp(this, &AIAgentDock::_message_added));
 	session->connect("message_updated", callable_mp(this, &AIAgentDock::_message_updated));
+	session->connect("message_removed", callable_mp(this, &AIAgentDock::_message_removed));
 	session->connect("state_changed", callable_mp(this, &AIAgentDock::_state_changed));
 }
 
 void AIAgentDock::_refresh_session_list() {
-	if (!session_list || !session) {
+	if (!session_selector || !session) {
 		return;
 	}
 
-	session_list->clear();
+	session_selector->clear();
 	Array sessions = session->list_sessions();
 	for (int i = 0; i < sessions.size(); i++) {
 		if (Variant(sessions[i]).get_type() != Variant::DICTIONARY) {
@@ -177,21 +188,22 @@ void AIAgentDock::_refresh_session_list() {
 		if (session_title.length() > 42) {
 			session_title = session_title.substr(0, 39) + "...";
 		}
-		int index = session_list->add_item(session_title);
-		session_list->set_item_metadata(index, session_id);
+		int index = session_selector->get_item_count();
+		session_selector->add_item(session_title);
+		session_selector->set_item_metadata(index, session_id);
 	}
 	_select_current_session();
 }
 
 void AIAgentDock::_select_current_session() {
-	if (!session_list || !session) {
+	if (!session_selector || !session) {
 		return;
 	}
 
 	String current_id = session->get_session_id();
-	for (int i = 0; i < session_list->get_item_count(); i++) {
-		if (String(session_list->get_item_metadata(i)) == current_id) {
-			session_list->select(i);
+	for (int i = 0; i < session_selector->get_item_count(); i++) {
+		if (String(session_selector->get_item_metadata(i)) == current_id) {
+			session_selector->select(i);
 			return;
 		}
 	}
