@@ -4,10 +4,13 @@
 
 #include "ai_message_bubble.h"
 
+#include "ai_markdown_label.h"
+
 #include "core/io/json.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/themes/editor_scale.h"
+#include "scene/gui/rich_text_label.h"
 #include "servers/text/text_server.h"
 
 void AIMessageBubble::_bind_methods() {
@@ -117,13 +120,9 @@ AIMessageBubble::AIMessageBubble() {
 	details_button->hide();
 	header_box->add_child(details_button);
 
-	label = memnew(RichTextLabel);
+	label = memnew(AIMarkdownLabel);
 	label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	label->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
-	label->set_fit_content(true);
-	label->set_selection_enabled(true);
-	label->set_use_bbcode(false);
-	label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	content_box->add_child(label);
 }
 
@@ -202,6 +201,9 @@ void AIMessageBubble::_render_message() {
 		label->add_text(details_expanded ? details : summary);
 		details_button->set_text(details_expanded ? TTR("Hide") : TTR("Details"));
 		details_button->set_visible(details_available);
+	} else if (role == "assistant") {
+		label->set_markdown(content);
+		details_button->hide();
 	} else {
 		label->add_text(content);
 		details_button->hide();

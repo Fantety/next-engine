@@ -150,6 +150,7 @@
 #include "editor/ai_component/ui/ai_agent_dock.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_composer.h"
+#include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/ai_component/ui/ai_message_list.h"
 
@@ -246,6 +247,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIConversationStore);
 	GDREGISTER_CLASS(AIAgentSettingsDialog);
 	GDREGISTER_CLASS(AIComposer);
+	GDREGISTER_CLASS(AIMarkdownLabel);
 	GDREGISTER_CLASS(AIMessageBubble);
 	GDREGISTER_CLASS(AIMessageList);
 	

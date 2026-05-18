@@ -4,8 +4,10 @@
 
 #include "tests/test_macros.h"
 
+#include "core/markdown/markdown_parser.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/providers/ai_openai_compatible_provider.h"
+#include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/gui/label.h"
@@ -97,6 +99,80 @@ TEST_CASE("[Editor][AI] Message bubbles render labels without BBCode markup") {
 	CHECK(label->get_parsed_text() == "hello [b]plain[/b]");
 
 	memdelete(bubble);
+}
+
+TEST_CASE("[Editor][AI] Markdown labels render common AI response markdown") {
+	AIMarkdownLabel *label = memnew(AIMarkdownLabel);
+
+	label->set_markdown("# Plan\n\nUse **bold**, *italic*, and `code`.\n\n- inspect project\n- apply patch\n\n```gdscript\nextends Node\n```");
+
+	const String parsed_text = label->get_parsed_text();
+	CHECK(parsed_text.contains("Plan"));
+	CHECK(parsed_text.contains("Use bold, italic, and code."));
+	CHECK(parsed_text.contains("inspect project"));
+	CHECK(parsed_text.contains("apply patch"));
+	CHECK(parsed_text.contains("extends Node"));
+
+	memdelete(label);
+}
+
+TEST_CASE("[Editor][AI] Markdown parser preserves links code fences and children") {
+	MarkdownParser parser;
+	Ref<MarkdownNode> root = parser.parse_markdown("[Godot](https://godotengine.org)\n\n```gdscript\nextends Node\n```");
+
+	REQUIRE(root.is_valid());
+	Dictionary document = root->to_dictionary();
+	REQUIRE(document.has("children"));
+	Array document_children = document["children"];
+	REQUIRE(document_children.size() == 2);
+
+	Dictionary paragraph = document_children[0];
+	REQUIRE(paragraph.has("children"));
+	Array paragraph_children = paragraph["children"];
+	REQUIRE(paragraph_children.size() == 1);
+	Dictionary link = paragraph_children[0];
+	CHECK(String(link["url"]) == "https://godotengine.org");
+
+	Dictionary code_block = document_children[1];
+	CHECK(String(code_block["fence_info"]) == "gdscript");
+	CHECK(String(code_block["literal"]).contains("extends Node"));
+}
+
+TEST_CASE("[Editor][AI] Markdown labels keep BBCode-looking text as plain text") {
+	AIMarkdownLabel *label = memnew(AIMarkdownLabel);
+
+	label->set_markdown("Do not parse [b]BBCode[/b] from model output.");
+
+	CHECK(label->get_parsed_text().strip_edges() == "Do not parse [b]BBCode[/b] from model output.");
+
+	memdelete(label);
+}
+
+TEST_CASE("[Editor][AI] Assistant message bubbles render markdown while user bubbles stay plain") {
+	AIMessageBubble *assistant_bubble = memnew(AIMessageBubble);
+	Dictionary assistant_message;
+	assistant_message["role"] = "assistant";
+	assistant_message["content"] = "Use **bold** and `code`.";
+
+	assistant_bubble->set_message(assistant_message);
+
+	RichTextLabel *assistant_label = find_child_of_type<RichTextLabel>(assistant_bubble);
+	REQUIRE(assistant_label != nullptr);
+	CHECK(assistant_label->get_parsed_text().strip_edges() == "Use bold and code.");
+
+	AIMessageBubble *user_bubble = memnew(AIMessageBubble);
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Literal **stars**";
+
+	user_bubble->set_message(user_message);
+
+	RichTextLabel *user_label = find_child_of_type<RichTextLabel>(user_bubble);
+	REQUIRE(user_label != nullptr);
+	CHECK(user_label->get_parsed_text().strip_edges() == "Literal **stars**");
+
+	memdelete(assistant_bubble);
+	memdelete(user_bubble);
 }
 
 TEST_CASE("[Editor][AI] Message bubbles ignore null content") {
