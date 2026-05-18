@@ -47,11 +47,14 @@ TEST_CASE("[Editor][AI] Model settings expose editable presets") {
 	Vector<AIModelProviderPreset> providers = AIModelSettings::get_provider_presets();
 	CHECK(providers.size() >= 4);
 
-	AIModelSettings::set_provider_auth("openai", "test-key", "https://example.test/v1");
-	AIModelSettings::set_model_enabled(AIModelSettings::get_model_id("openai", "gpt-5.4"), true);
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
 
-	AIModelDescriptor openai_model = AIModelSettings::get_model(AIModelSettings::get_model_id("openai", "gpt-5.4"));
+	AIModelSettings::clear_model_profiles_for_test();
+	const String profile_id = AIModelSettings::add_model_profile("OpenAI Test", "openai", "gpt-5.4", "test-key", "https://example.test/v1", false);
+
+	AIModelDescriptor openai_model = AIModelSettings::get_model(profile_id);
 	CHECK(openai_model.id != openai_model.model);
+	CHECK(openai_model.display_name == "OpenAI Test");
 	CHECK(openai_model.provider_id == "openai");
 	CHECK(openai_model.model == "gpt-5.4");
 	CHECK(openai_model.api_key == "test-key");
@@ -73,6 +76,47 @@ TEST_CASE("[Editor][AI] Model settings expose editable presets") {
 		}
 	}
 	CHECK(found_openai_model);
+
+	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
+}
+
+TEST_CASE("[Editor][AI] Model profiles allow duplicate provider and model with user names") {
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
+	AIModelSettings::clear_model_profiles_for_test();
+
+	const String primary_id = AIModelSettings::add_model_profile("OpenAI Primary", "openai", "gpt-5.4", "primary-key", "https://primary.example.test/v1", false);
+	const String backup_id = AIModelSettings::add_model_profile("OpenAI Backup", "openai", "gpt-5.4", "backup-key", "https://backup.example.test/v1", false);
+
+	CHECK(!primary_id.is_empty());
+	CHECK(!backup_id.is_empty());
+	CHECK(primary_id != backup_id);
+
+	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles();
+	CHECK(profiles.size() == 2);
+	CHECK(profiles[0].display_name == "OpenAI Primary");
+	CHECK(profiles[1].display_name == "OpenAI Backup");
+	CHECK(profiles[0].provider_id == "openai");
+	CHECK(profiles[1].provider_id == "openai");
+	CHECK(profiles[0].model == "gpt-5.4");
+	CHECK(profiles[1].model == "gpt-5.4");
+
+	AIProviderConfig primary_config = AIModelSettings::get_provider_config(primary_id);
+	AIProviderConfig backup_config = AIModelSettings::get_provider_config(backup_id);
+	CHECK(primary_config.model == "gpt-5.4");
+	CHECK(primary_config.api_key == "primary-key");
+	CHECK(primary_config.base_url == "https://primary.example.test/v1");
+	CHECK(backup_config.model == "gpt-5.4");
+	CHECK(backup_config.api_key == "backup-key");
+	CHECK(backup_config.base_url == "https://backup.example.test/v1");
+
+	CHECK(AIModelSettings::remove_model_profile(primary_id));
+	profiles = AIModelSettings::get_model_profiles();
+	REQUIRE(profiles.size() == 1);
+	CHECK(profiles[0].id == backup_id);
+	CHECK(profiles[0].display_name == "OpenAI Backup");
+	CHECK(profiles[0].model == "gpt-5.4");
+
+	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
 }
 
 TEST_CASE("[Editor][AI] OpenAI compatible provider builds valid request paths") {
@@ -125,9 +169,11 @@ TEST_CASE("[Editor][AI] Preset models are opt-in by default") {
 }
 
 TEST_CASE("[Editor][AI] Settings dialog starts with an empty model table when no models are enabled") {
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
 	Vector<AIModelProviderPreset> providers = AIModelSettings::get_provider_presets();
 	Vector<String> original_custom_models;
 	Vector<Vector<bool>> original_preset_enabled;
+	AIModelSettings::clear_model_profiles_for_test();
 	for (int i = 0; i < providers.size(); i++) {
 		original_custom_models.push_back(AIModelSettings::get_custom_models(providers[i].id));
 		AIModelSettings::set_custom_models(providers[i].id, String());
@@ -147,6 +193,7 @@ TEST_CASE("[Editor][AI] Settings dialog starts with an empty model table when no
 
 	memdelete(dialog);
 
+	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
 	for (int i = 0; i < providers.size(); i++) {
 		AIModelSettings::set_custom_models(providers[i].id, original_custom_models[i]);
 		for (int j = 0; j < providers[i].preset_models.size(); j++) {
@@ -156,49 +203,49 @@ TEST_CASE("[Editor][AI] Settings dialog starts with an empty model table when no
 }
 
 TEST_CASE("[Editor][AI] Settings dialog adds enabled provider and custom models") {
-	const String original_openai_key = AIModelSettings::get_provider_api_key("openai");
-	const String original_openai_url = AIModelSettings::get_provider_base_url("openai");
-	const bool original_openai_enabled = AIModelSettings::is_model_enabled("openai", "gpt-5.4");
-	const String original_compatible_key = AIModelSettings::get_provider_api_key("compatible");
-	const String original_compatible_url = AIModelSettings::get_provider_base_url("compatible");
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
 	const String original_custom_models = AIModelSettings::get_custom_models("compatible");
-	const bool original_custom_enabled = AIModelSettings::is_model_enabled("compatible", "next-test-model");
 
+	AIModelSettings::clear_model_profiles_for_test();
 	AIModelSettings::set_custom_models("compatible", String());
-	AIModelSettings::set_model_enabled("compatible", "next-test-model", false);
 
 	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
 	dialog->build_for_test();
 
 	dialog->add_provider_model_for_test("openai", "gpt-5.4", "settings-test-key");
-	CHECK(AIModelSettings::is_model_enabled("openai", "gpt-5.4"));
-	CHECK(AIModelSettings::get_provider_api_key("openai") == "settings-test-key");
 	CHECK(dialog->get_model_table_row_count_for_test() == 1);
+	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles();
+	REQUIRE(profiles.size() == 1);
+	CHECK(profiles[0].provider_id == "openai");
+	CHECK(profiles[0].model == "gpt-5.4");
+	CHECK(profiles[0].api_key == "settings-test-key");
 
 	dialog->add_custom_model_for_test("next-test-model", "https://example.test/v1", "compatible-test-key");
 	CHECK(dialog->get_model_table_row_count_for_test() == 2);
 	CHECK(dialog->get_custom_model_table_row_count_for_test() == 1);
 	CHECK(AIModelSettings::get_custom_models("compatible").contains("next-test-model"));
-	CHECK(AIModelSettings::is_model_enabled("compatible", "next-test-model"));
+	profiles = AIModelSettings::get_model_profiles();
+	REQUIRE(profiles.size() == 2);
+	CHECK(profiles[1].custom);
+	CHECK(profiles[1].provider_id == "compatible");
+	CHECK(profiles[1].model == "next-test-model");
+	CHECK(profiles[1].api_key == "compatible-test-key");
+	CHECK(profiles[1].base_url == "https://example.test/v1");
 
 	dialog->remove_custom_model_for_test("compatible", "next-test-model");
 	CHECK(dialog->get_custom_model_table_row_count_for_test() == 0);
 	CHECK_FALSE(AIModelSettings::get_custom_models("compatible").contains("next-test-model"));
-	CHECK_FALSE(AIModelSettings::is_model_enabled("compatible", "next-test-model"));
+	CHECK(AIModelSettings::get_model_profiles().size() == 1);
 
 	memdelete(dialog);
 
-	AIModelSettings::set_provider_auth("openai", original_openai_key, original_openai_url);
-	AIModelSettings::set_model_enabled("openai", "gpt-5.4", original_openai_enabled);
-	AIModelSettings::set_provider_auth("compatible", original_compatible_key, original_compatible_url);
+	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
 	AIModelSettings::set_custom_models("compatible", original_custom_models);
-	AIModelSettings::set_model_enabled("compatible", "next-test-model", original_custom_enabled);
 }
 
 TEST_CASE("[Editor][AI] Settings dialog edits added provider model credentials") {
-	const String original_openai_key = AIModelSettings::get_provider_api_key("openai");
-	const String original_openai_url = AIModelSettings::get_provider_base_url("openai");
-	const bool original_openai_enabled = AIModelSettings::is_model_enabled("openai", "gpt-5.4");
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
+	AIModelSettings::clear_model_profiles_for_test();
 
 	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
 	dialog->build_for_test();
@@ -206,26 +253,23 @@ TEST_CASE("[Editor][AI] Settings dialog edits added provider model credentials")
 	dialog->add_provider_model_for_test("openai", "gpt-5.4", "initial-key");
 	dialog->edit_provider_model_for_test("openai", "gpt-5.4", "edited-key");
 
-	CHECK(AIModelSettings::is_model_enabled("openai", "gpt-5.4"));
-	CHECK(AIModelSettings::get_provider_api_key("openai") == "edited-key");
-	CHECK(dialog->get_model_table_row_count_for_test() >= 1);
+	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles();
+	REQUIRE(profiles.size() == 1);
+	CHECK(profiles[0].api_key == "edited-key");
+	CHECK(profiles[0].model == "gpt-5.4");
+	CHECK(dialog->get_model_table_row_count_for_test() == 1);
 
 	memdelete(dialog);
 
-	AIModelSettings::set_provider_auth("openai", original_openai_key, original_openai_url);
-	AIModelSettings::set_model_enabled("openai", "gpt-5.4", original_openai_enabled);
+	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
 }
 
 TEST_CASE("[Editor][AI] Settings dialog edits custom model identity and provider auth") {
-	const String original_compatible_key = AIModelSettings::get_provider_api_key("compatible");
-	const String original_compatible_url = AIModelSettings::get_provider_base_url("compatible");
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
 	const String original_custom_models = AIModelSettings::get_custom_models("compatible");
-	const bool original_old_enabled = AIModelSettings::is_model_enabled("compatible", "next-old-model");
-	const bool original_new_enabled = AIModelSettings::is_model_enabled("compatible", "next-new-model");
 
+	AIModelSettings::clear_model_profiles_for_test();
 	AIModelSettings::set_custom_models("compatible", String());
-	AIModelSettings::set_model_enabled("compatible", "next-old-model", false);
-	AIModelSettings::set_model_enabled("compatible", "next-new-model", false);
 
 	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
 	dialog->build_for_test();
@@ -233,20 +277,19 @@ TEST_CASE("[Editor][AI] Settings dialog edits custom model identity and provider
 	dialog->add_custom_model_for_test("next-old-model", "https://old.example.test/v1", "old-key");
 	dialog->edit_custom_model_for_test("next-old-model", "next-new-model", "https://new.example.test/v1", "new-key");
 
-	CHECK_FALSE(AIModelSettings::get_custom_models("compatible").contains("next-old-model"));
-	CHECK_FALSE(AIModelSettings::is_model_enabled("compatible", "next-old-model"));
 	CHECK(AIModelSettings::get_custom_models("compatible").contains("next-new-model"));
-	CHECK(AIModelSettings::is_model_enabled("compatible", "next-new-model"));
-	CHECK(AIModelSettings::get_provider_base_url("compatible") == "https://new.example.test/v1");
-	CHECK(AIModelSettings::get_provider_api_key("compatible") == "new-key");
+	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles();
+	REQUIRE(profiles.size() == 1);
+	CHECK(profiles[0].custom);
+	CHECK(profiles[0].model == "next-new-model");
+	CHECK(profiles[0].base_url == "https://new.example.test/v1");
+	CHECK(profiles[0].api_key == "new-key");
 	CHECK(dialog->get_custom_model_table_row_count_for_test() == 1);
 
 	memdelete(dialog);
 
-	AIModelSettings::set_provider_auth("compatible", original_compatible_key, original_compatible_url);
+	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
 	AIModelSettings::set_custom_models("compatible", original_custom_models);
-	AIModelSettings::set_model_enabled("compatible", "next-old-model", original_old_enabled);
-	AIModelSettings::set_model_enabled("compatible", "next-new-model", original_new_enabled);
 }
 
 TEST_CASE("[Editor][AI] Message bubbles render labels without BBCode markup") {

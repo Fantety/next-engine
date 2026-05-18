@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "editor/ai_component/providers/ai_model_settings.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/check_button.h"
 #include "scene/gui/dialogs.h"
@@ -25,6 +26,8 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	};
 
 	struct ModelTableRow {
+		String profile_id;
+		String display_name;
 		String provider_id;
 		String model;
 		bool custom = false;
@@ -38,11 +41,13 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	Button *add_model_button = nullptr;
 	ConfirmationDialog *add_model_dialog = nullptr;
 	TabContainer *add_model_tabs = nullptr;
+	LineEdit *provider_model_display_name = nullptr;
 	OptionButton *provider_model_provider = nullptr;
 	OptionButton *provider_model_model = nullptr;
 	LineEdit *provider_model_api_key = nullptr;
 	Button *provider_model_submit_button = nullptr;
 	OptionButton *custom_api_format = nullptr;
+	LineEdit *custom_display_name = nullptr;
 	LineEdit *custom_base_url = nullptr;
 	CheckButton *custom_full_url = nullptr;
 	LineEdit *custom_model_id = nullptr;
@@ -50,8 +55,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	LineEdit *custom_api_key = nullptr;
 	Button *custom_model_submit_button = nullptr;
 	bool editing_model = false;
-	String editing_provider_id;
-	String editing_model_id;
+	String editing_profile_id;
 	bool editing_custom = false;
 
 	static inline AIAgentSettingsDialog *singleton = nullptr;
@@ -65,14 +69,15 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	void _build_custom_add_tab(Control *p_page);
 	void _add_placeholder_page(Control *p_page, const String &p_title);
 	void _refresh_model_table();
-	void _add_model_table_row(const String &p_provider_id, const String &p_provider_name, const String &p_model, bool p_custom);
+	void _add_model_table_row(const AIModelProfile &p_profile);
 	void _navigation_selected(int p_index);
 	void _popup_add_model_dialog();
-	void _edit_model_pressed(const String &p_provider_id, const String &p_model, bool p_custom);
+	void _edit_model_pressed(const String &p_profile_id);
 	void _provider_model_provider_selected(int p_index);
 	void _add_model_confirmed();
-	void _remove_model_pressed(const String &p_provider_id, const String &p_model, bool p_custom);
+	void _remove_model_pressed(const String &p_profile_id);
 	void _append_custom_model(const String &p_provider_id, const String &p_model);
+	void _remove_custom_model_if_unused(const String &p_provider_id, const String &p_model, const String &p_ignored_profile_id = String());
 	void _reset_add_model_dialog();
 	void _save_settings();
 

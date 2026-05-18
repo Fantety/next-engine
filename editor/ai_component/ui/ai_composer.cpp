@@ -61,8 +61,8 @@ String AIComposer::get_input_text() const {
 }
 
 String AIComposer::get_selected_model() const {
-	if (model_selector->get_item_count() == 0) {
-		return AIModelSettings::get_model_id("deepseek", "deepseek-chat");
+	if (!has_model || model_selector->get_item_count() == 0) {
+		return String();
 	}
 	return String(model_selector->get_item_metadata(model_selector->get_selected()));
 }
@@ -72,29 +72,44 @@ void AIComposer::clear_input() {
 }
 
 void AIComposer::set_running(bool p_running) {
-	send_button->set_disabled(p_running);
+	send_button->set_disabled(p_running || !has_model);
 	cancel_button->set_disabled(!p_running);
 }
 
 void AIComposer::reload_models() {
 	model_selector->clear();
+	has_model = false;
 
 	Vector<AIModelDescriptor> enabled_models = AIModelSettings::get_enabled_models();
 	for (int i = 0; i < enabled_models.size(); i++) {
 		const AIModelDescriptor &model = enabled_models[i];
 		int item_index = model_selector->get_item_count();
-		model_selector->add_item(model.provider_name + " / " + model.model);
+		String label = model.display_name;
+		if (label.is_empty()) {
+			label = model.provider_name + " / " + model.model;
+		} else if (!label.contains(model.model)) {
+			label += " / " + model.model;
+		}
+		model_selector->add_item(label);
 		model_selector->set_item_metadata(item_index, model.id);
 	}
 
 	if (model_selector->get_item_count() == 0) {
-		int item_index = model_selector->get_item_count();
-		model_selector->add_item("DeepSeek / deepseek-chat");
-		model_selector->set_item_metadata(item_index, AIModelSettings::get_model_id("deepseek", "deepseek-chat"));
+		model_selector->add_item(TTR("No model configured"));
+		model_selector->set_disabled(true);
+		send_button->set_disabled(true);
+		return;
 	}
+
+	has_model = true;
+	model_selector->set_disabled(false);
+	send_button->set_disabled(false);
 }
 
 void AIComposer::_send_pressed() {
+	if (!has_model) {
+		return;
+	}
 	emit_signal(SNAME("send_requested"), get_input_text(), get_selected_model());
 }
 

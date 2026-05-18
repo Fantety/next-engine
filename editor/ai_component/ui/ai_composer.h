@@ -17,6 +17,7 @@ class AIComposer : public VBoxContainer {
 	OptionButton *model_selector = nullptr;
 	Button *send_button = nullptr;
 	Button *cancel_button = nullptr;
+	bool has_model = false;
 
 	void _send_pressed();
 	void _cancel_pressed();

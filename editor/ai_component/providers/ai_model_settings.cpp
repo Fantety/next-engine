@@ -4,6 +4,8 @@
 
 #include "ai_model_settings.h"
 
+#include "core/math/math_funcs.h"
+#include "core/os/os.h"
 #include "editor/settings/editor_settings.h"
 
 String AIModelSettings::_get_provider_path(const String &p_provider_id, const String &p_property) {
@@ -12,6 +14,10 @@ String AIModelSettings::_get_provider_path(const String &p_provider_id, const St
 
 String AIModelSettings::_get_model_path(const String &p_provider_id, const String &p_model) {
 	return "ai_agent/models/" + get_model_id(p_provider_id, p_model) + "/enabled";
+}
+
+String AIModelSettings::_get_profiles_path() {
+	return "ai_agent/model_profiles";
 }
 
 String AIModelSettings::_get_legacy_deepseek_value(const String &p_property, const String &p_default_value) {
@@ -43,6 +49,145 @@ PackedStringArray AIModelSettings::_split_custom_models(const String &p_models) 
 		}
 	}
 	return models;
+}
+
+bool AIModelSettings::_has_profile_storage() {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	return settings && settings->has_setting(_get_profiles_path());
+}
+
+Array AIModelSettings::_get_profile_storage() {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	if (!settings) {
+		return Array();
+	}
+
+	const String path = _get_profiles_path();
+	if (!settings->has_setting(path)) {
+		Array legacy_profiles = _build_legacy_profile_storage();
+		if (!legacy_profiles.is_empty()) {
+			_set_profile_storage(legacy_profiles);
+		}
+		return legacy_profiles;
+	}
+
+	Variant value = settings->get(path);
+	if (value.get_type() != Variant::ARRAY) {
+		return Array();
+	}
+	return value;
+}
+
+void AIModelSettings::_set_profile_storage(const Array &p_profiles) {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	ERR_FAIL_NULL(settings);
+	settings->set(_get_profiles_path(), p_profiles);
+}
+
+Array AIModelSettings::_build_legacy_profile_storage() {
+	Array profiles;
+	Vector<AIModelProviderPreset> providers = get_provider_presets();
+	for (int i = 0; i < providers.size(); i++) {
+		const AIModelProviderPreset &provider = providers[i];
+		for (int j = 0; j < provider.preset_models.size(); j++) {
+			const String model = provider.preset_models[j];
+			if (!is_model_enabled(provider.id, model)) {
+				continue;
+			}
+
+			AIModelProfile profile;
+			profile.id = _make_profile_id(provider.id, model);
+			profile.display_name = _make_profile_display_name(provider.display_name, model);
+			profile.provider_id = provider.id;
+			profile.provider_name = provider.display_name;
+			profile.model = model;
+			profile.base_url = get_provider_base_url(provider.id);
+			profile.api_key = get_provider_api_key(provider.id);
+			profile.enabled = true;
+			profile.custom = false;
+			profiles.push_back(_profile_to_dictionary(profile));
+		}
+
+		PackedStringArray custom_models = _split_custom_models(get_custom_models(provider.id));
+		for (int j = 0; j < custom_models.size(); j++) {
+			const String model = custom_models[j];
+			if (!is_model_enabled(provider.id, model)) {
+				continue;
+			}
+
+			AIModelProfile profile;
+			profile.id = _make_profile_id(provider.id, model);
+			profile.display_name = _make_profile_display_name(provider.display_name, model);
+			profile.provider_id = provider.id;
+			profile.provider_name = provider.display_name;
+			profile.model = model;
+			profile.base_url = get_provider_base_url(provider.id);
+			profile.api_key = get_provider_api_key(provider.id);
+			profile.enabled = true;
+			profile.custom = true;
+			profiles.push_back(_profile_to_dictionary(profile));
+		}
+	}
+	return profiles;
+}
+
+AIModelProviderPreset AIModelSettings::_get_provider_preset(const String &p_provider_id) {
+	Vector<AIModelProviderPreset> providers = get_provider_presets();
+	for (int i = 0; i < providers.size(); i++) {
+		if (providers[i].id == p_provider_id) {
+			return providers[i];
+		}
+	}
+	return AIModelProviderPreset();
+}
+
+AIModelProfile AIModelSettings::_profile_from_dictionary(const Dictionary &p_profile) {
+	AIModelProfile profile;
+	profile.id = String(p_profile.get("id", String()));
+	profile.display_name = String(p_profile.get("display_name", String()));
+	profile.provider_id = String(p_profile.get("provider_id", String()));
+	profile.model = String(p_profile.get("model", String()));
+	profile.base_url = String(p_profile.get("base_url", String()));
+	profile.api_key = String(p_profile.get("api_key", String()));
+	profile.enabled = bool(p_profile.get("enabled", true));
+	profile.custom = bool(p_profile.get("custom", false));
+
+	AIModelProviderPreset provider = _get_provider_preset(profile.provider_id);
+	profile.provider_name = provider.display_name.is_empty() ? profile.provider_id : provider.display_name;
+	if (profile.base_url.is_empty()) {
+		profile.base_url = get_provider_base_url(profile.provider_id);
+	}
+	if (profile.api_key.is_empty()) {
+		profile.api_key = get_provider_api_key(profile.provider_id);
+	}
+	if (profile.display_name.is_empty()) {
+		profile.display_name = _make_profile_display_name(profile.provider_name, profile.model);
+	}
+	return profile;
+}
+
+Dictionary AIModelSettings::_profile_to_dictionary(const AIModelProfile &p_profile) {
+	Dictionary profile;
+	profile["id"] = p_profile.id;
+	profile["display_name"] = p_profile.display_name;
+	profile["provider_id"] = p_profile.provider_id;
+	profile["model"] = p_profile.model;
+	profile["base_url"] = p_profile.base_url;
+	profile["api_key"] = p_profile.api_key;
+	profile["enabled"] = p_profile.enabled;
+	profile["custom"] = p_profile.custom;
+	return profile;
+}
+
+String AIModelSettings::_make_profile_id(const String &p_provider_id, const String &p_model) {
+	return "profile:" + p_provider_id + ":" + p_model.validate_node_name().replace(" ", "_") + ":" + String::num_uint64(OS::get_singleton()->get_ticks_usec()) + ":" + itos(Math::rand());
+}
+
+String AIModelSettings::_make_profile_display_name(const String &p_provider_name, const String &p_model) {
+	if (!p_provider_name.is_empty()) {
+		return p_provider_name + " / " + p_model;
+	}
+	return p_model;
 }
 
 Vector<AIModelProviderPreset> AIModelSettings::get_provider_presets() {
@@ -98,6 +243,11 @@ String AIModelSettings::get_model_id(const String &p_provider_id, const String &
 }
 
 AIModelDescriptor AIModelSettings::get_model(const String &p_model_id) {
+	AIModelProfile profile = get_model_profile(p_model_id);
+	if (!profile.id.is_empty()) {
+		return profile;
+	}
+
 	Vector<AIModelProviderPreset> providers = get_provider_presets();
 	for (int i = 0; i < providers.size(); i++) {
 		const AIModelProviderPreset &provider = providers[i];
@@ -106,6 +256,7 @@ AIModelDescriptor AIModelSettings::get_model(const String &p_model_id) {
 			if (get_model_id(provider.id, model) == p_model_id) {
 				AIModelDescriptor descriptor;
 				descriptor.id = p_model_id;
+				descriptor.display_name = _make_profile_display_name(provider.display_name, model);
 				descriptor.provider_id = provider.id;
 				descriptor.provider_name = provider.display_name;
 				descriptor.model = model;
@@ -122,6 +273,7 @@ AIModelDescriptor AIModelSettings::get_model(const String &p_model_id) {
 			if (get_model_id(provider.id, model) == p_model_id) {
 				AIModelDescriptor descriptor;
 				descriptor.id = p_model_id;
+				descriptor.display_name = _make_profile_display_name(provider.display_name, model);
 				descriptor.provider_id = provider.id;
 				descriptor.provider_name = provider.display_name;
 				descriptor.model = model;
@@ -138,7 +290,16 @@ AIModelDescriptor AIModelSettings::get_model(const String &p_model_id) {
 }
 
 Vector<AIModelDescriptor> AIModelSettings::get_enabled_models() {
+	const bool has_profile_storage = _has_profile_storage();
 	Vector<AIModelDescriptor> enabled_models;
+	Vector<AIModelProfile> profiles = get_model_profiles(true);
+	for (int i = 0; i < profiles.size(); i++) {
+		enabled_models.push_back(profiles[i]);
+	}
+	if (has_profile_storage || !enabled_models.is_empty()) {
+		return enabled_models;
+	}
+
 	Vector<AIModelProviderPreset> providers = get_provider_presets();
 	for (int i = 0; i < providers.size(); i++) {
 		const AIModelProviderPreset &provider = providers[i];
@@ -171,6 +332,138 @@ AIProviderConfig AIModelSettings::get_provider_config(const String &p_model_id) 
 	config.api_key = descriptor.api_key;
 	config.model = descriptor.model;
 	return config;
+}
+
+String AIModelSettings::add_model_profile(const String &p_display_name, const String &p_provider_id, const String &p_model, const String &p_api_key, const String &p_base_url, bool p_custom) {
+	const String model = p_model.strip_edges();
+	ERR_FAIL_COND_V(model.is_empty(), String());
+
+	AIModelProviderPreset provider = _get_provider_preset(p_provider_id);
+	const String provider_name = provider.display_name.is_empty() ? p_provider_id : provider.display_name;
+
+	AIModelProfile profile;
+	profile.id = _make_profile_id(p_provider_id, model);
+	profile.display_name = p_display_name.strip_edges();
+	if (profile.display_name.is_empty()) {
+		profile.display_name = _make_profile_display_name(provider_name, model);
+	}
+	profile.provider_id = p_provider_id;
+	profile.provider_name = provider_name;
+	profile.model = model;
+	profile.base_url = p_base_url.strip_edges();
+	if (profile.base_url.is_empty()) {
+		profile.base_url = get_provider_base_url(p_provider_id);
+	}
+	profile.api_key = p_api_key.strip_edges();
+	profile.enabled = true;
+	profile.custom = p_custom;
+
+	Array profiles = _get_profile_storage();
+	profiles.push_back(_profile_to_dictionary(profile));
+	_set_profile_storage(profiles);
+	return profile.id;
+}
+
+bool AIModelSettings::update_model_profile(const String &p_profile_id, const String &p_display_name, const String &p_provider_id, const String &p_model, const String &p_api_key, const String &p_base_url, bool p_custom) {
+	const String model = p_model.strip_edges();
+	ERR_FAIL_COND_V(p_profile_id.is_empty() || model.is_empty(), false);
+
+	Array profiles = _get_profile_storage();
+	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		AIModelProfile profile = _profile_from_dictionary(profiles[i]);
+		if (profile.id != p_profile_id) {
+			continue;
+		}
+
+		AIModelProviderPreset provider = _get_provider_preset(p_provider_id);
+		const String provider_name = provider.display_name.is_empty() ? p_provider_id : provider.display_name;
+		profile.display_name = p_display_name.strip_edges();
+		if (profile.display_name.is_empty()) {
+			profile.display_name = _make_profile_display_name(provider_name, model);
+		}
+		profile.provider_id = p_provider_id;
+		profile.provider_name = provider_name;
+		profile.model = model;
+		profile.base_url = p_base_url.strip_edges();
+		if (profile.base_url.is_empty()) {
+			profile.base_url = get_provider_base_url(p_provider_id);
+		}
+		profile.api_key = p_api_key.strip_edges();
+		profile.enabled = true;
+		profile.custom = p_custom;
+		profiles[i] = _profile_to_dictionary(profile);
+		_set_profile_storage(profiles);
+		return true;
+	}
+
+	return false;
+}
+
+bool AIModelSettings::remove_model_profile(const String &p_profile_id) {
+	Array profiles = _get_profile_storage();
+	for (int i = profiles.size() - 1; i >= 0; i--) {
+		if (profiles[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		AIModelProfile profile = _profile_from_dictionary(profiles[i]);
+		if (profile.id == p_profile_id) {
+			profiles.remove_at(i);
+			_set_profile_storage(profiles);
+			return true;
+		}
+	}
+	return false;
+}
+
+AIModelProfile AIModelSettings::get_model_profile(const String &p_profile_id) {
+	Array profiles = _get_profile_storage();
+	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		AIModelProfile profile = _profile_from_dictionary(profiles[i]);
+		if (profile.id == p_profile_id) {
+			return profile;
+		}
+	}
+	return AIModelProfile();
+}
+
+Vector<AIModelProfile> AIModelSettings::get_model_profiles(bool p_enabled_only) {
+	Vector<AIModelProfile> model_profiles;
+	Array profiles = _get_profile_storage();
+	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		AIModelProfile profile = _profile_from_dictionary(profiles[i]);
+		if (profile.id.is_empty() || profile.provider_id.is_empty() || profile.model.is_empty()) {
+			continue;
+		}
+		if (!p_enabled_only || profile.enabled) {
+			model_profiles.push_back(profile);
+		}
+	}
+	return model_profiles;
+}
+
+Array AIModelSettings::get_model_profile_storage_for_test() {
+	return _get_profile_storage();
+}
+
+void AIModelSettings::set_model_profile_storage_for_test(const Array &p_profiles) {
+	_set_profile_storage(p_profiles);
+}
+
+void AIModelSettings::clear_model_profiles_for_test() {
+	_set_profile_storage(Array());
 }
 
 void AIModelSettings::set_provider_auth(const String &p_provider_id, const String &p_api_key, const String &p_base_url) {

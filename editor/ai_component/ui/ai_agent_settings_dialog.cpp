@@ -284,6 +284,15 @@ void AIAgentSettingsDialog::_build_provider_add_tab(Control *p_page) {
 	content->add_theme_constant_override("separation", 10 * EDSCALE);
 	p_page->add_child(content);
 
+	Label *name_label = memnew(Label);
+	name_label->set_text(_ai_ui_text(u8"* \u914d\u7f6e\u540d\u79f0"));
+	content->add_child(name_label);
+
+	provider_model_display_name = memnew(LineEdit);
+	provider_model_display_name->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	provider_model_display_name->set_placeholder(_ai_ui_text(u8"\u4f8b\u5982\uff1aOpenAI \u4e3b\u8d26\u53f7"));
+	content->add_child(provider_model_display_name);
+
 	Label *provider_label = memnew(Label);
 	provider_label->set_text(_ai_ui_text(u8"* \u670d\u52a1\u5546"));
 	content->add_child(provider_label);
@@ -353,6 +362,15 @@ void AIAgentSettingsDialog::_build_custom_add_tab(Control *p_page) {
 	content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	content->add_theme_constant_override("separation", 10 * EDSCALE);
 	p_page->add_child(content);
+
+	Label *name_label = memnew(Label);
+	name_label->set_text(_ai_ui_text(u8"* \u914d\u7f6e\u540d\u79f0"));
+	content->add_child(name_label);
+
+	custom_display_name = memnew(LineEdit);
+	custom_display_name->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	custom_display_name->set_placeholder(_ai_ui_text(u8"\u4f8b\u5982\uff1a\u672c\u5730 Ollama"));
+	content->add_child(custom_display_name);
 
 	Label *format_label = memnew(Label);
 	format_label->set_text(_ai_ui_text(u8"* API \u683c\u5f0f"));
@@ -470,13 +488,17 @@ void AIAgentSettingsDialog::_refresh_model_table() {
 	header->add_theme_constant_override("separation", 8 * EDSCALE);
 	model_table->add_child(header);
 
-	Label *model_header = _make_table_label(_ai_ui_text(u8"\u6a21\u578b"));
-	model_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
-	header->add_child(model_header);
+	Label *name_header = _make_table_label(_ai_ui_text(u8"\u540d\u79f0"));
+	name_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	header->add_child(name_header);
 
 	Label *provider_header = _make_table_label(_ai_ui_text(u8"\u670d\u52a1\u5546"), 170);
 	provider_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(provider_header);
+
+	Label *model_header = _make_table_label(_ai_ui_text(u8"\u6a21\u578b"), 180);
+	model_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	header->add_child(model_header);
 
 	Label *action_header = _make_table_label(_ai_ui_text(u8"\u64cd\u4f5c"), 150);
 	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
@@ -485,24 +507,11 @@ void AIAgentSettingsDialog::_refresh_model_table() {
 	HSeparator *header_separator = memnew(HSeparator);
 	model_table->add_child(header_separator);
 
-	Vector<AIModelProviderPreset> providers = AIModelSettings::get_provider_presets();
+	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(true);
 	int model_count = 0;
-	for (int i = 0; i < providers.size(); i++) {
-		const AIModelProviderPreset &provider = providers[i];
-		for (int j = 0; j < provider.preset_models.size(); j++) {
-			if (AIModelSettings::is_model_enabled(provider.id, provider.preset_models[j])) {
-				_add_model_table_row(provider.id, provider.display_name, provider.preset_models[j], false);
-				model_count++;
-			}
-		}
-
-		Vector<String> custom_models = _split_model_lines(AIModelSettings::get_custom_models(provider.id));
-		for (int j = 0; j < custom_models.size(); j++) {
-			if (AIModelSettings::is_model_enabled(provider.id, custom_models[j])) {
-				_add_model_table_row(provider.id, provider.display_name, custom_models[j], true);
-				model_count++;
-			}
-		}
+	for (int i = 0; i < profiles.size(); i++) {
+		_add_model_table_row(profiles[i]);
+		model_count++;
 	}
 
 	if (model_count == 0) {
@@ -519,13 +528,15 @@ void AIAgentSettingsDialog::_refresh_model_table() {
 	}
 }
 
-void AIAgentSettingsDialog::_add_model_table_row(const String &p_provider_id, const String &p_provider_name, const String &p_model, bool p_custom) {
+void AIAgentSettingsDialog::_add_model_table_row(const AIModelProfile &p_profile) {
 	ERR_FAIL_NULL(model_table);
 
 	ModelTableRow row_data;
-	row_data.provider_id = p_provider_id;
-	row_data.model = p_model;
-	row_data.custom = p_custom;
+	row_data.profile_id = p_profile.id;
+	row_data.display_name = p_profile.display_name;
+	row_data.provider_id = p_profile.provider_id;
+	row_data.model = p_profile.model;
+	row_data.custom = p_profile.custom;
 	model_table_rows.push_back(row_data);
 
 	HBoxContainer *row = memnew(HBoxContainer);
@@ -545,14 +556,17 @@ void AIAgentSettingsDialog::_add_model_table_row(const String &p_provider_id, co
 	icon->set_stretch_mode(TextureRect::STRETCH_KEEP_CENTERED);
 	model_cell->add_child(icon);
 
-	Label *model_label = memnew(Label);
-	model_label->set_text(p_model);
-	model_label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
-	model_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	model_cell->add_child(model_label);
+	Label *name_label = memnew(Label);
+	name_label->set_text(p_profile.display_name);
+	name_label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
+	name_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	model_cell->add_child(name_label);
 
-	Label *provider_label = _make_table_label(p_provider_name, 170);
+	Label *provider_label = _make_table_label(p_profile.provider_name, 170);
 	row->add_child(provider_label);
+
+	Label *model_label = _make_table_label(p_profile.model, 180);
+	row->add_child(model_label);
 
 	HBoxContainer *action_cell = memnew(HBoxContainer);
 	action_cell->set_custom_minimum_size(Size2(150, 0) * EDSCALE);
@@ -561,12 +575,12 @@ void AIAgentSettingsDialog::_add_model_table_row(const String &p_provider_id, co
 
 	Button *edit_button = memnew(Button);
 	edit_button->set_text(_ai_ui_text(u8"\u7f16\u8f91"));
-	edit_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentSettingsDialog::_edit_model_pressed).bind(p_provider_id, p_model, p_custom), CONNECT_DEFERRED);
+	edit_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentSettingsDialog::_edit_model_pressed).bind(p_profile.id), CONNECT_DEFERRED);
 	action_cell->add_child(edit_button);
 
 	Button *remove_button = memnew(Button);
 	remove_button->set_text(_ai_ui_text(u8"\u79fb\u9664"));
-	remove_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentSettingsDialog::_remove_model_pressed).bind(p_provider_id, p_model, p_custom), CONNECT_DEFERRED);
+	remove_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentSettingsDialog::_remove_model_pressed).bind(p_profile.id), CONNECT_DEFERRED);
 	action_cell->add_child(remove_button);
 
 	HSeparator *row_separator = memnew(HSeparator);
@@ -586,18 +600,22 @@ void AIAgentSettingsDialog::_popup_add_model_dialog() {
 	add_model_dialog->popup_centered(Size2(560, 560) * EDSCALE);
 }
 
-void AIAgentSettingsDialog::_edit_model_pressed(const String &p_provider_id, const String &p_model, bool p_custom) {
+void AIAgentSettingsDialog::_edit_model_pressed(const String &p_profile_id) {
 	ERR_FAIL_NULL(add_model_dialog);
 	ERR_FAIL_NULL(add_model_tabs);
 
 	_reset_add_model_dialog();
 
-	editing_model = true;
-	editing_provider_id = p_provider_id;
-	editing_model_id = p_model;
-	editing_custom = p_custom;
+	AIModelProfile profile = AIModelSettings::get_model_profile(p_profile_id);
+	if (profile.id.is_empty()) {
+		return;
+	}
 
-	if (p_custom) {
+	editing_model = true;
+	editing_profile_id = profile.id;
+	editing_custom = profile.custom;
+
+	if (profile.custom) {
 		add_model_dialog->set_title(_ai_ui_text(u8"\u7f16\u8f91\u6a21\u578b"));
 		if (custom_model_submit_button) {
 			custom_model_submit_button->set_text(_ai_ui_text(u8"\u4fdd\u5b58\u6a21\u578b"));
@@ -608,14 +626,17 @@ void AIAgentSettingsDialog::_edit_model_pressed(const String &p_provider_id, con
 		if (custom_api_format && custom_api_format->get_item_count() > 0) {
 			custom_api_format->select(0);
 		}
+		if (custom_display_name) {
+			custom_display_name->set_text(profile.display_name);
+		}
 		if (custom_base_url) {
-			custom_base_url->set_text(AIModelSettings::get_provider_base_url(p_provider_id));
+			custom_base_url->set_text(profile.base_url);
 		}
 		if (custom_model_id) {
-			custom_model_id->set_text(p_model);
+			custom_model_id->set_text(profile.model);
 		}
 		if (custom_api_key) {
-			custom_api_key->set_text(AIModelSettings::get_provider_api_key(p_provider_id));
+			custom_api_key->set_text(profile.api_key);
 		}
 		if (custom_full_url) {
 			custom_full_url->set_pressed(false);
@@ -632,14 +653,17 @@ void AIAgentSettingsDialog::_edit_model_pressed(const String &p_provider_id, con
 			add_model_tabs->set_current_tab(0);
 		}
 		if (provider_model_provider) {
-			_select_option_metadata(provider_model_provider, p_provider_id);
+			_select_option_metadata(provider_model_provider, profile.provider_id);
 			_provider_model_provider_selected(provider_model_provider->get_selected());
 		}
 		if (provider_model_model) {
-			_select_option_metadata(provider_model_model, p_model);
+			_select_option_metadata(provider_model_model, profile.model);
+		}
+		if (provider_model_display_name) {
+			provider_model_display_name->set_text(profile.display_name);
 		}
 		if (provider_model_api_key) {
-			provider_model_api_key->set_text(AIModelSettings::get_provider_api_key(p_provider_id));
+			provider_model_api_key->set_text(profile.api_key);
 		}
 	}
 
@@ -681,61 +705,53 @@ void AIAgentSettingsDialog::_add_model_confirmed() {
 			return;
 		}
 
+		const String display_name = provider_model_display_name ? provider_model_display_name->get_text().strip_edges() : String();
 		const String api_key = provider_model_api_key ? provider_model_api_key->get_text().strip_edges() : String();
-		if (!api_key.is_empty()) {
-			AIModelSettings::set_provider_auth(provider_id, api_key, AIModelSettings::get_provider_base_url(provider_id));
+		const String base_url = AIModelSettings::get_provider_base_url(provider_id);
+		if (editing_model && !editing_custom) {
+			AIModelSettings::update_model_profile(editing_profile_id, display_name, provider_id, model, api_key, base_url, false);
+		} else {
+			AIModelSettings::add_model_profile(display_name, provider_id, model, api_key, base_url, false);
 		}
-		if (editing_model && !editing_custom && (editing_provider_id != provider_id || editing_model_id != model)) {
-			AIModelSettings::set_model_enabled(editing_provider_id, editing_model_id, false);
-		}
-		AIModelSettings::set_model_enabled(provider_id, model, true);
 	} else {
 		const String model = custom_model_id ? custom_model_id->get_text().strip_edges() : String();
 		if (model.is_empty()) {
 			return;
 		}
 
+		const String display_name = custom_display_name ? custom_display_name->get_text().strip_edges() : String();
 		const String base_url = custom_base_url ? custom_base_url->get_text().strip_edges() : String();
 		const String api_key = custom_api_key ? custom_api_key->get_text().strip_edges() : String();
-		const String provider_id = editing_model && editing_custom ? editing_provider_id : String("compatible");
-		if (editing_model && editing_custom && editing_model_id != model) {
-			Vector<String> custom_models = _split_model_lines(AIModelSettings::get_custom_models(provider_id));
-			for (int i = custom_models.size() - 1; i >= 0; i--) {
-				if (custom_models[i] == editing_model_id) {
-					custom_models.remove_at(i);
-				}
+		const String provider_id = "compatible";
+		if (editing_model && editing_custom) {
+			AIModelProfile previous_profile = AIModelSettings::get_model_profile(editing_profile_id);
+			AIModelSettings::update_model_profile(editing_profile_id, display_name, provider_id, model, api_key, base_url, true);
+			if (!previous_profile.id.is_empty() && previous_profile.model != model) {
+				_remove_custom_model_if_unused(previous_profile.provider_id, previous_profile.model, previous_profile.id);
 			}
-			AIModelSettings::set_custom_models(provider_id, String("\n").join(custom_models));
-			AIModelSettings::set_model_enabled(provider_id, editing_model_id, false);
+		} else {
+			AIModelSettings::add_model_profile(display_name, provider_id, model, api_key, base_url, true);
 		}
-		AIModelSettings::set_provider_auth(provider_id, api_key, base_url);
 		_append_custom_model(provider_id, model);
-		AIModelSettings::set_model_enabled(provider_id, model, true);
 	}
 
 	_refresh_model_table();
 	_save_settings();
 	editing_model = false;
-	editing_provider_id.clear();
-	editing_model_id.clear();
+	editing_profile_id.clear();
 	editing_custom = false;
 	if (add_model_dialog) {
 		add_model_dialog->hide();
 	}
 }
 
-void AIAgentSettingsDialog::_remove_model_pressed(const String &p_provider_id, const String &p_model, bool p_custom) {
-	if (p_custom) {
-		Vector<String> custom_models = _split_model_lines(AIModelSettings::get_custom_models(p_provider_id));
-		for (int i = custom_models.size() - 1; i >= 0; i--) {
-			if (custom_models[i] == p_model) {
-				custom_models.remove_at(i);
-			}
-		}
-		AIModelSettings::set_custom_models(p_provider_id, String("\n").join(custom_models));
+void AIAgentSettingsDialog::_remove_model_pressed(const String &p_profile_id) {
+	AIModelProfile profile = AIModelSettings::get_model_profile(p_profile_id);
+	if (profile.custom) {
+		_remove_custom_model_if_unused(profile.provider_id, profile.model, profile.id);
 	}
 
-	AIModelSettings::set_model_enabled(p_provider_id, p_model, false);
+	AIModelSettings::remove_model_profile(p_profile_id);
 	_refresh_model_table();
 	_save_settings();
 }
@@ -748,10 +764,32 @@ void AIAgentSettingsDialog::_append_custom_model(const String &p_provider_id, co
 	AIModelSettings::set_custom_models(p_provider_id, String("\n").join(custom_models));
 }
 
+void AIAgentSettingsDialog::_remove_custom_model_if_unused(const String &p_provider_id, const String &p_model, const String &p_ignored_profile_id) {
+	bool has_other_matching_profile = false;
+	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(false);
+	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].id != p_ignored_profile_id && profiles[i].custom && profiles[i].provider_id == p_provider_id && profiles[i].model == p_model) {
+			has_other_matching_profile = true;
+			break;
+		}
+	}
+
+	if (has_other_matching_profile) {
+		return;
+	}
+
+	Vector<String> custom_models = _split_model_lines(AIModelSettings::get_custom_models(p_provider_id));
+	for (int i = custom_models.size() - 1; i >= 0; i--) {
+		if (custom_models[i] == p_model) {
+			custom_models.remove_at(i);
+		}
+	}
+	AIModelSettings::set_custom_models(p_provider_id, String("\n").join(custom_models));
+}
+
 void AIAgentSettingsDialog::_reset_add_model_dialog() {
 	editing_model = false;
-	editing_provider_id.clear();
-	editing_model_id.clear();
+	editing_profile_id.clear();
 	editing_custom = false;
 	if (add_model_dialog) {
 		add_model_dialog->set_title(_ai_ui_text(u8"\u6dfb\u52a0\u6a21\u578b"));
@@ -771,6 +809,12 @@ void AIAgentSettingsDialog::_reset_add_model_dialog() {
 	}
 	if (provider_model_api_key) {
 		provider_model_api_key->clear();
+	}
+	if (provider_model_display_name) {
+		provider_model_display_name->clear();
+	}
+	if (custom_display_name) {
+		custom_display_name->clear();
 	}
 	if (custom_base_url) {
 		custom_base_url->clear();
@@ -816,45 +860,52 @@ int AIAgentSettingsDialog::get_custom_model_table_row_count_for_test() const {
 }
 
 void AIAgentSettingsDialog::add_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
-	if (!p_api_key.is_empty()) {
-		AIModelSettings::set_provider_auth(p_provider_id, p_api_key, AIModelSettings::get_provider_base_url(p_provider_id));
-	}
-	AIModelSettings::set_model_enabled(p_provider_id, p_model, true);
+	AIModelSettings::add_model_profile(String(), p_provider_id, p_model, p_api_key, AIModelSettings::get_provider_base_url(p_provider_id), false);
 	_refresh_model_table();
 }
 
 void AIAgentSettingsDialog::add_custom_model_for_test(const String &p_model, const String &p_base_url, const String &p_api_key) {
-	AIModelSettings::set_provider_auth("compatible", p_api_key, p_base_url);
 	_append_custom_model("compatible", p_model);
-	AIModelSettings::set_model_enabled("compatible", p_model, true);
+	AIModelSettings::add_model_profile(String(), "compatible", p_model, p_api_key, p_base_url, true);
 	_refresh_model_table();
 }
 
 void AIAgentSettingsDialog::edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
-	AIModelSettings::set_provider_auth(p_provider_id, p_api_key, AIModelSettings::get_provider_base_url(p_provider_id));
-	AIModelSettings::set_model_enabled(p_provider_id, p_model, true);
+	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(false);
+	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].provider_id == p_provider_id && profiles[i].model == p_model && !profiles[i].custom) {
+			AIModelSettings::update_model_profile(profiles[i].id, profiles[i].display_name, p_provider_id, p_model, p_api_key, AIModelSettings::get_provider_base_url(p_provider_id), false);
+			_refresh_model_table();
+			return;
+		}
+	}
+	AIModelSettings::add_model_profile(String(), p_provider_id, p_model, p_api_key, AIModelSettings::get_provider_base_url(p_provider_id), false);
 	_refresh_model_table();
 }
 
 void AIAgentSettingsDialog::edit_custom_model_for_test(const String &p_current_model, const String &p_new_model, const String &p_base_url, const String &p_api_key) {
-	Vector<String> custom_models = _split_model_lines(AIModelSettings::get_custom_models("compatible"));
-	for (int i = custom_models.size() - 1; i >= 0; i--) {
-		if (custom_models[i] == p_current_model) {
-			custom_models.remove_at(i);
+	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(false);
+	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].provider_id == "compatible" && profiles[i].model == p_current_model && profiles[i].custom) {
+			AIModelSettings::update_model_profile(profiles[i].id, profiles[i].display_name, "compatible", p_new_model, p_api_key, p_base_url, true);
+			_append_custom_model("compatible", p_new_model);
+			_refresh_model_table();
+			return;
 		}
 	}
-	if (custom_models.find(p_new_model) == -1) {
-		custom_models.push_back(p_new_model);
-	}
-	AIModelSettings::set_custom_models("compatible", String("\n").join(custom_models));
-	AIModelSettings::set_provider_auth("compatible", p_api_key, p_base_url);
-	AIModelSettings::set_model_enabled("compatible", p_current_model, false);
-	AIModelSettings::set_model_enabled("compatible", p_new_model, true);
+	_append_custom_model("compatible", p_new_model);
+	AIModelSettings::add_model_profile(String(), "compatible", p_new_model, p_api_key, p_base_url, true);
 	_refresh_model_table();
 }
 
 void AIAgentSettingsDialog::remove_custom_model_for_test(const String &p_provider_id, const String &p_model) {
-	_remove_model_pressed(p_provider_id, p_model, true);
+	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(false);
+	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].provider_id == p_provider_id && profiles[i].model == p_model && profiles[i].custom) {
+			_remove_model_pressed(profiles[i].id);
+			return;
+		}
+	}
 }
 
 void AIAgentSettingsDialog::save_settings_for_test() {
