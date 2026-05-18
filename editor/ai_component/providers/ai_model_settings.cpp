@@ -29,7 +29,6 @@ bool AIModelSettings::_is_default_model_enabled(const String &p_provider_id, con
 		if (settings && settings->has_setting(legacy_path)) {
 			return bool(settings->get(legacy_path));
 		}
-		return true;
 	}
 	return false;
 }

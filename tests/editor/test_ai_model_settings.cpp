@@ -7,6 +7,7 @@
 #include "core/markdown/markdown_parser.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/providers/ai_openai_compatible_provider.h"
+#include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/settings/editor_settings.h"
@@ -81,6 +82,171 @@ TEST_CASE("[Editor][AI] OpenAI compatible provider builds valid request paths") 
 	CHECK(AIOpenAICompatibleProvider::build_request_path("v1") == "/v1/chat/completions");
 	CHECK(AIOpenAICompatibleProvider::build_request_path("/v1/") == "/v1/chat/completions");
 	CHECK(AIOpenAICompatibleProvider::build_request_path("/v1/chat/completions") == "/v1/chat/completions");
+}
+
+TEST_CASE("[Editor][AI] Preset models are opt-in by default") {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	REQUIRE(settings != nullptr);
+
+	const String chat_model_path = "ai_agent/models/" + AIModelSettings::get_model_id("deepseek", "deepseek-chat") + "/enabled";
+	const String reasoner_model_path = "ai_agent/models/" + AIModelSettings::get_model_id("deepseek", "deepseek-reasoner") + "/enabled";
+	const String legacy_chat_model_path = "deepseek/models/deepseek-chat";
+	const String legacy_reasoner_model_path = "deepseek/models/deepseek-reasoner";
+
+	const bool had_chat_model = settings->has_setting(chat_model_path);
+	const bool had_reasoner_model = settings->has_setting(reasoner_model_path);
+	const bool had_legacy_chat_model = settings->has_setting(legacy_chat_model_path);
+	const bool had_legacy_reasoner_model = settings->has_setting(legacy_reasoner_model_path);
+	const Variant original_chat_model = had_chat_model ? settings->get(chat_model_path) : Variant();
+	const Variant original_reasoner_model = had_reasoner_model ? settings->get(reasoner_model_path) : Variant();
+	const Variant original_legacy_chat_model = had_legacy_chat_model ? settings->get(legacy_chat_model_path) : Variant();
+	const Variant original_legacy_reasoner_model = had_legacy_reasoner_model ? settings->get(legacy_reasoner_model_path) : Variant();
+
+	settings->erase(chat_model_path);
+	settings->erase(reasoner_model_path);
+	settings->erase(legacy_chat_model_path);
+	settings->erase(legacy_reasoner_model_path);
+
+	CHECK_FALSE(AIModelSettings::is_model_enabled("deepseek", "deepseek-chat"));
+	CHECK_FALSE(AIModelSettings::is_model_enabled("deepseek", "deepseek-reasoner"));
+
+	if (had_chat_model) {
+		settings->set(chat_model_path, original_chat_model);
+	}
+	if (had_reasoner_model) {
+		settings->set(reasoner_model_path, original_reasoner_model);
+	}
+	if (had_legacy_chat_model) {
+		settings->set(legacy_chat_model_path, original_legacy_chat_model);
+	}
+	if (had_legacy_reasoner_model) {
+		settings->set(legacy_reasoner_model_path, original_legacy_reasoner_model);
+	}
+}
+
+TEST_CASE("[Editor][AI] Settings dialog starts with an empty model table when no models are enabled") {
+	Vector<AIModelProviderPreset> providers = AIModelSettings::get_provider_presets();
+	Vector<String> original_custom_models;
+	Vector<Vector<bool>> original_preset_enabled;
+	for (int i = 0; i < providers.size(); i++) {
+		original_custom_models.push_back(AIModelSettings::get_custom_models(providers[i].id));
+		AIModelSettings::set_custom_models(providers[i].id, String());
+		Vector<bool> enabled_states;
+		for (int j = 0; j < providers[i].preset_models.size(); j++) {
+			enabled_states.push_back(AIModelSettings::is_model_enabled(providers[i].id, providers[i].preset_models[j]));
+			AIModelSettings::set_model_enabled(providers[i].id, providers[i].preset_models[j], false);
+		}
+		original_preset_enabled.push_back(enabled_states);
+	}
+
+	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
+	dialog->build_for_test();
+
+	CHECK(dialog->get_model_table_row_count_for_test() == 0);
+	CHECK(dialog->get_custom_model_table_row_count_for_test() == 0);
+
+	memdelete(dialog);
+
+	for (int i = 0; i < providers.size(); i++) {
+		AIModelSettings::set_custom_models(providers[i].id, original_custom_models[i]);
+		for (int j = 0; j < providers[i].preset_models.size(); j++) {
+			AIModelSettings::set_model_enabled(providers[i].id, providers[i].preset_models[j], original_preset_enabled[i][j]);
+		}
+	}
+}
+
+TEST_CASE("[Editor][AI] Settings dialog adds enabled provider and custom models") {
+	const String original_openai_key = AIModelSettings::get_provider_api_key("openai");
+	const String original_openai_url = AIModelSettings::get_provider_base_url("openai");
+	const bool original_openai_enabled = AIModelSettings::is_model_enabled("openai", "gpt-5.4");
+	const String original_compatible_key = AIModelSettings::get_provider_api_key("compatible");
+	const String original_compatible_url = AIModelSettings::get_provider_base_url("compatible");
+	const String original_custom_models = AIModelSettings::get_custom_models("compatible");
+	const bool original_custom_enabled = AIModelSettings::is_model_enabled("compatible", "next-test-model");
+
+	AIModelSettings::set_custom_models("compatible", String());
+	AIModelSettings::set_model_enabled("compatible", "next-test-model", false);
+
+	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
+	dialog->build_for_test();
+
+	dialog->add_provider_model_for_test("openai", "gpt-5.4", "settings-test-key");
+	CHECK(AIModelSettings::is_model_enabled("openai", "gpt-5.4"));
+	CHECK(AIModelSettings::get_provider_api_key("openai") == "settings-test-key");
+	CHECK(dialog->get_model_table_row_count_for_test() == 1);
+
+	dialog->add_custom_model_for_test("next-test-model", "https://example.test/v1", "compatible-test-key");
+	CHECK(dialog->get_model_table_row_count_for_test() == 2);
+	CHECK(dialog->get_custom_model_table_row_count_for_test() == 1);
+	CHECK(AIModelSettings::get_custom_models("compatible").contains("next-test-model"));
+	CHECK(AIModelSettings::is_model_enabled("compatible", "next-test-model"));
+
+	dialog->remove_custom_model_for_test("compatible", "next-test-model");
+	CHECK(dialog->get_custom_model_table_row_count_for_test() == 0);
+	CHECK_FALSE(AIModelSettings::get_custom_models("compatible").contains("next-test-model"));
+	CHECK_FALSE(AIModelSettings::is_model_enabled("compatible", "next-test-model"));
+
+	memdelete(dialog);
+
+	AIModelSettings::set_provider_auth("openai", original_openai_key, original_openai_url);
+	AIModelSettings::set_model_enabled("openai", "gpt-5.4", original_openai_enabled);
+	AIModelSettings::set_provider_auth("compatible", original_compatible_key, original_compatible_url);
+	AIModelSettings::set_custom_models("compatible", original_custom_models);
+	AIModelSettings::set_model_enabled("compatible", "next-test-model", original_custom_enabled);
+}
+
+TEST_CASE("[Editor][AI] Settings dialog edits added provider model credentials") {
+	const String original_openai_key = AIModelSettings::get_provider_api_key("openai");
+	const String original_openai_url = AIModelSettings::get_provider_base_url("openai");
+	const bool original_openai_enabled = AIModelSettings::is_model_enabled("openai", "gpt-5.4");
+
+	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
+	dialog->build_for_test();
+
+	dialog->add_provider_model_for_test("openai", "gpt-5.4", "initial-key");
+	dialog->edit_provider_model_for_test("openai", "gpt-5.4", "edited-key");
+
+	CHECK(AIModelSettings::is_model_enabled("openai", "gpt-5.4"));
+	CHECK(AIModelSettings::get_provider_api_key("openai") == "edited-key");
+	CHECK(dialog->get_model_table_row_count_for_test() >= 1);
+
+	memdelete(dialog);
+
+	AIModelSettings::set_provider_auth("openai", original_openai_key, original_openai_url);
+	AIModelSettings::set_model_enabled("openai", "gpt-5.4", original_openai_enabled);
+}
+
+TEST_CASE("[Editor][AI] Settings dialog edits custom model identity and provider auth") {
+	const String original_compatible_key = AIModelSettings::get_provider_api_key("compatible");
+	const String original_compatible_url = AIModelSettings::get_provider_base_url("compatible");
+	const String original_custom_models = AIModelSettings::get_custom_models("compatible");
+	const bool original_old_enabled = AIModelSettings::is_model_enabled("compatible", "next-old-model");
+	const bool original_new_enabled = AIModelSettings::is_model_enabled("compatible", "next-new-model");
+
+	AIModelSettings::set_custom_models("compatible", String());
+	AIModelSettings::set_model_enabled("compatible", "next-old-model", false);
+	AIModelSettings::set_model_enabled("compatible", "next-new-model", false);
+
+	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
+	dialog->build_for_test();
+
+	dialog->add_custom_model_for_test("next-old-model", "https://old.example.test/v1", "old-key");
+	dialog->edit_custom_model_for_test("next-old-model", "next-new-model", "https://new.example.test/v1", "new-key");
+
+	CHECK_FALSE(AIModelSettings::get_custom_models("compatible").contains("next-old-model"));
+	CHECK_FALSE(AIModelSettings::is_model_enabled("compatible", "next-old-model"));
+	CHECK(AIModelSettings::get_custom_models("compatible").contains("next-new-model"));
+	CHECK(AIModelSettings::is_model_enabled("compatible", "next-new-model"));
+	CHECK(AIModelSettings::get_provider_base_url("compatible") == "https://new.example.test/v1");
+	CHECK(AIModelSettings::get_provider_api_key("compatible") == "new-key");
+	CHECK(dialog->get_custom_model_table_row_count_for_test() == 1);
+
+	memdelete(dialog);
+
+	AIModelSettings::set_provider_auth("compatible", original_compatible_key, original_compatible_url);
+	AIModelSettings::set_custom_models("compatible", original_custom_models);
+	AIModelSettings::set_model_enabled("compatible", "next-old-model", original_old_enabled);
+	AIModelSettings::set_model_enabled("compatible", "next-new-model", original_new_enabled);
 }
 
 TEST_CASE("[Editor][AI] Message bubbles render labels without BBCode markup") {
