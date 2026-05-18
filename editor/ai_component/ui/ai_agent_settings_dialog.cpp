@@ -57,17 +57,26 @@ void AIAgentSettingsDialog::_build_ui() {
 
 void AIAgentSettingsDialog::_build_navigation(HBoxContainer *p_root) {
 	navigation = memnew(ItemList);
-	navigation->set_custom_minimum_size(Size2(150, 0) * EDSCALE);
+	navigation->set_custom_minimum_size(Size2(190, 0) * EDSCALE);
 	navigation->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	navigation->set_select_mode(ItemList::SELECT_SINGLE);
 	navigation->set_auto_height(false);
-	navigation->add_item(TTR("Models"));
+	navigation->set_icon_mode(ItemList::ICON_MODE_LEFT);
+	navigation->set_fixed_icon_size(Size2i(22, 22) * EDSCALE);
+	navigation->set_max_columns(1);
+	navigation->set_same_column_width(true);
+	navigation->add_theme_font_size_override(SceneStringName(font_size), int(15 * EDSCALE));
+	navigation->add_theme_constant_override("h_separation", int(16 * EDSCALE));
+	navigation->add_theme_constant_override("v_separation", int(14 * EDSCALE));
+	navigation->add_theme_constant_override("icon_margin", int(10 * EDSCALE));
+	navigation->add_theme_constant_override("line_separation", int(4 * EDSCALE));
+	navigation->add_item(TTR("Models"), get_editor_theme_icon(SNAME("AIModel")));
 	navigation->set_item_metadata(PAGE_MODELS, PAGE_MODELS);
-	navigation->add_item(TTR("MCP"));
+	navigation->add_item(TTR("MCP"), get_editor_theme_icon(SNAME("AIMCP")));
 	navigation->set_item_metadata(PAGE_MCP, PAGE_MCP);
-	navigation->add_item(TTR("Skills"));
+	navigation->add_item(TTR("Skills"), get_editor_theme_icon(SNAME("AISkill")));
 	navigation->set_item_metadata(PAGE_SKILLS, PAGE_SKILLS);
-	navigation->add_item(TTR("Rules"));
+	navigation->add_item(TTR("Rules"), get_editor_theme_icon(SNAME("AIRules")));
 	navigation->set_item_metadata(PAGE_RULES, PAGE_RULES);
 	navigation->select(PAGE_MODELS);
 	navigation->connect(SceneStringName(item_selected), callable_mp(this, &AIAgentSettingsDialog::_navigation_selected));
