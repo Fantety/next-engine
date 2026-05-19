@@ -148,8 +148,9 @@ Ref<StyleBoxFlat> EditorThemeManager::make_flat_stylebox(Color p_color, float p_
 	Ref<StyleBoxFlat> style(memnew(StyleBoxFlat));
 	style->set_bg_color(p_color);
 	// Adjust level of detail based on the corners' effective sizes.
-	style->set_corner_detail(Math::ceil(0.8 * p_corner_width * EDSCALE*3));
-	style->set_corner_radius_all(p_corner_width * EDSCALE * 3);
+	// 修改原始UI组件的圆角缩放参数（主题修改）
+	style->set_corner_detail(Math::ceil(0.8 * p_corner_width * EDSCALE * 3));
+	style->set_corner_radius_all(p_corner_width * EDSCALE * 2);
 	style->set_content_margin_individual(p_margin_left * EDSCALE, p_margin_top * EDSCALE, p_margin_right * EDSCALE, p_margin_bottom * EDSCALE);
 	return style;
 }

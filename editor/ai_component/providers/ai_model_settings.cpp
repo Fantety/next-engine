@@ -20,6 +20,7 @@ String AIModelSettings::_get_profiles_path() {
 	return "ai_agent/model_profiles";
 }
 
+//为了兼容旧版本的deepseek模型配置
 String AIModelSettings::_get_legacy_deepseek_value(const String &p_property, const String &p_default_value) {
 	EditorSettings *settings = EditorSettings::get_singleton();
 	if (!settings || !settings->has_setting("deepseek/" + p_property)) {
