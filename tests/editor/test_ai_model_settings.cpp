@@ -325,6 +325,20 @@ TEST_CASE("[Editor][AI] Markdown labels render common AI response markdown") {
 	memdelete(label);
 }
 
+TEST_CASE("[Editor][AI] Markdown labels render list items without blank rows") {
+	AIMarkdownLabel *label = memnew(AIMarkdownLabel);
+
+	label->set_markdown("1. First\n2. Second\n3. Third\n\n- Alpha\n- Beta");
+
+	const String parsed_text = label->get_parsed_text();
+	CHECK(parsed_text.contains("First\nSecond\nThird"));
+	CHECK(parsed_text.contains("Alpha\nBeta"));
+	CHECK_FALSE(parsed_text.contains("First\n\nSecond"));
+	CHECK_FALSE(parsed_text.contains("Alpha\n\nBeta"));
+
+	memdelete(label);
+}
+
 TEST_CASE("[Editor][AI] Markdown parser preserves links code fences and children") {
 	MarkdownParser parser;
 	Ref<MarkdownNode> root = parser.parse_markdown("[Godot](https://godotengine.org)\n\n```gdscript\nextends Node\n```");

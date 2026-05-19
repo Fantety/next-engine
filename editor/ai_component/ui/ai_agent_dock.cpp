@@ -302,6 +302,7 @@ void AIAgentDock::_reload_messages_from_session() {
 			message_list->add_message(messages[i]);
 		}
 	}
+	message_list->scroll_to_bottom();
 }
 
 AIProviderConfig AIAgentDock::_get_provider_config(const String &p_model) const {

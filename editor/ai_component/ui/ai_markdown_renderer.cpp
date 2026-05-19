@@ -35,6 +35,7 @@ void AIMarkdownRenderer::render(RichTextLabel *p_label, const Ref<MarkdownNode> 
 
 	p_label->clear();
 	list_depth = 0;
+	in_list_item = false;
 
 	if (p_root.is_null()) {
 		return;
@@ -72,7 +73,11 @@ void AIMarkdownRenderer::_render_block_node(RichTextLabel *p_label, const Ref<Ma
 		} break;
 		case MarkdownNode::NMARK_NODE_PARAGRAPH: {
 			_render_children(p_label, p_node);
-			_append_block_spacing(p_label);
+			if (in_list_item) {
+				_append_line_break_if_needed(p_label);
+			} else {
+				_append_block_spacing(p_label);
+			}
 		} break;
 		case MarkdownNode::NMARK_NODE_HEADING: {
 			const int level = _clamp_heading_level(p_node->get_heading_level());
@@ -101,8 +106,11 @@ void AIMarkdownRenderer::_render_block_node(RichTextLabel *p_label, const Ref<Ma
 			_append_block_spacing(p_label);
 		} break;
 		case MarkdownNode::NMARK_NODE_LIST_ITEM: {
+			const bool was_in_list_item = in_list_item;
+			in_list_item = true;
 			_render_children(p_label, p_node);
-			p_label->add_newline();
+			in_list_item = was_in_list_item;
+			_append_line_break_if_needed(p_label);
 		} break;
 		case MarkdownNode::NMARK_NODE_CODE_BLOCK: {
 			_append_code_block(p_label, p_node);
@@ -182,6 +190,14 @@ void AIMarkdownRenderer::_append_block_spacing(RichTextLabel *p_label) {
 	}
 	if (!parsed_text.ends_with("\n")) {
 		p_label->add_newline();
+	}
+	p_label->add_newline();
+}
+
+void AIMarkdownRenderer::_append_line_break_if_needed(RichTextLabel *p_label) {
+	const String parsed_text = p_label->get_parsed_text();
+	if (parsed_text.is_empty() || parsed_text.ends_with("\n")) {
+		return;
 	}
 	p_label->add_newline();
 }
