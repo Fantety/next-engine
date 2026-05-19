@@ -4,16 +4,12 @@
 
 #pragma once
 
-#include "editor/ai_component/providers/ai_model_settings.h"
-#include "scene/gui/box_container.h"
-#include "scene/gui/check_button.h"
 #include "scene/gui/dialogs.h"
 #include "scene/gui/item_list.h"
-#include "scene/gui/line_edit.h"
 #include "scene/gui/tab_container.h"
 
-class Button;
-class OptionButton;
+class AISettingsModelsPage;
+class HBoxContainer;
 
 class AIAgentSettingsDialog : public ConfirmationDialog {
 	GDCLASS(AIAgentSettingsDialog, ConfirmationDialog);
@@ -25,60 +21,16 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 		PAGE_RULES,
 	};
 
-	struct ModelTableRow {
-		String profile_id;
-		String display_name;
-		String provider_id;
-		String model;
-		bool custom = false;
-	};
-
 	ItemList *navigation = nullptr;
 	TabContainer *pages = nullptr;
-	VBoxContainer *model_table = nullptr;
-	Vector<ModelTableRow> model_table_rows;
-
-	Button *add_model_button = nullptr;
-	ConfirmationDialog *add_model_dialog = nullptr;
-	TabContainer *add_model_tabs = nullptr;
-	LineEdit *provider_model_display_name = nullptr;
-	OptionButton *provider_model_provider = nullptr;
-	OptionButton *provider_model_model = nullptr;
-	LineEdit *provider_model_api_key = nullptr;
-	Button *provider_model_submit_button = nullptr;
-	OptionButton *custom_api_format = nullptr;
-	LineEdit *custom_display_name = nullptr;
-	LineEdit *custom_base_url = nullptr;
-	CheckButton *custom_full_url = nullptr;
-	LineEdit *custom_model_id = nullptr;
-	CheckButton *custom_multimodal = nullptr;
-	LineEdit *custom_api_key = nullptr;
-	Button *custom_model_submit_button = nullptr;
-	bool editing_model = false;
-	String editing_profile_id;
-	bool editing_custom = false;
+	AISettingsModelsPage *models_page = nullptr;
 
 	static inline AIAgentSettingsDialog *singleton = nullptr;
 
 	void _build_ui();
 	void _build_navigation(HBoxContainer *p_root);
 	void _build_pages(HBoxContainer *p_root);
-	void _build_models_page(Control *p_page);
-	void _build_add_model_dialog();
-	void _build_provider_add_tab(Control *p_page);
-	void _build_custom_add_tab(Control *p_page);
-	void _add_placeholder_page(Control *p_page, const String &p_title);
-	void _refresh_model_table();
-	void _add_model_table_row(const AIModelProfile &p_profile);
 	void _navigation_selected(int p_index);
-	void _popup_add_model_dialog();
-	void _edit_model_pressed(const String &p_profile_id);
-	void _provider_model_provider_selected(int p_index);
-	void _add_model_confirmed();
-	void _remove_model_pressed(const String &p_profile_id);
-	void _append_custom_model(const String &p_provider_id, const String &p_model);
-	void _remove_custom_model_if_unused(const String &p_provider_id, const String &p_model, const String &p_ignored_profile_id = String());
-	void _reset_add_model_dialog();
 	void _save_settings();
 
 protected:
