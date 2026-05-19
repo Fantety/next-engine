@@ -34,7 +34,6 @@ void AIAgentSession::_bind_methods() {
 
 AIAgentSession::AIAgentSession() {
 	store.instantiate();
-	runner.instantiate();
 	runtime.instantiate();
 	runtime_runner.instantiate();
 	runtime_client.instantiate();
@@ -43,24 +42,16 @@ AIAgentSession::AIAgentSession() {
 	editor_context.instantiate();
 	agent_profile = AIAgentProfile::get_plan_profile();
 
-	provider = memnew(AIOpenAICompatibleProvider);
-	add_child(provider);
-	runner->set_provider(provider);
 	runtime->set_client(runtime_client);
 	_configure_tool_runtime();
 	store->set_project_scope(_get_project_scope_key());
 
-	provider->connect("response_started", callable_mp(this, &AIAgentSession::_on_provider_response_started), CONNECT_DEFERRED);
-	provider->connect("response_delta", callable_mp(this, &AIAgentSession::_on_provider_response_delta), CONNECT_DEFERRED);
-	provider->connect("response_finished", callable_mp(this, &AIAgentSession::_on_provider_response_finished), CONNECT_DEFERRED);
-	provider->connect("request_failed", callable_mp(this, &AIAgentSession::_on_provider_request_failed), CONNECT_DEFERRED);
 	runtime_runner->connect("runtime_finished", callable_mp(this, &AIAgentSession::_on_runtime_finished), CONNECT_DEFERRED);
 
 	_load_initial_session();
 }
 
 void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
-	provider->set_config(p_config);
 	if (runtime_client.is_valid()) {
 		runtime_client->set_config(p_config);
 	}
@@ -144,18 +135,15 @@ void AIAgentSession::send_user_message(const String &p_message) {
 			print_line("[AI Agent][Session] Failed to start function-calling runtime.");
 			_on_provider_request_failed("Failed to start AI runtime.");
 		}
-	} else if (!runner->start(request_messages, context)) {
-		print_line("[AI Agent][Session] Failed to start streaming provider fallback.");
-		_on_provider_request_failed("Failed to start AI request.");
 	} else {
-		print_line(vformat("[AI Agent][Session] Started streaming provider fallback. request_messages=%d", request_messages.size()));
+		print_line("[AI Agent][Session] Failed before runtime start: tool runtime is not available.");
+		_on_provider_request_failed("AI runtime is not configured.");
 	}
 }
 
 void AIAgentSession::cancel_request() {
 	if (state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
 		print_line(vformat("[AI Agent][Session] Cancelling active request. state=%d", (int)state));
-		runner->cancel();
 		if (runtime_runner.is_valid() && runtime_runner->is_running() && active_assistant_index >= 0 && active_assistant_index < messages.size() && messages[active_assistant_index].content.is_empty()) {
 			_remove_message_at(active_assistant_index);
 			active_assistant_index = -1;
@@ -341,31 +329,6 @@ void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result)
 	_set_state(AI_AGENT_STATE_IDLE);
 	_save();
 	print_line(vformat("[AI Agent][Session] Runtime result applied and saved. session=%s messages=%d", session_id, messages.size()));
-}
-
-void AIAgentSession::_on_provider_response_started() {
-	print_line("[AI Agent][Session] Streaming provider response started.");
-}
-
-void AIAgentSession::_on_provider_response_delta(const String &p_delta) {
-	if (active_assistant_index < 0 || active_assistant_index >= messages.size()) {
-		print_line("[AI Agent][Session] Ignored streaming delta because no assistant placeholder is active.");
-		return;
-	}
-	messages.write[active_assistant_index].content += p_delta;
-	emit_signal(SNAME("message_updated"), active_assistant_index, messages[active_assistant_index].to_dict());
-	print_line(vformat("[AI Agent][Session] Streaming provider delta applied. delta_chars=%d total_chars=%d", p_delta.length(), messages[active_assistant_index].content.length()));
-}
-
-void AIAgentSession::_on_provider_response_finished(const String &p_finish_reason) {
-	print_line(vformat("[AI Agent][Session] Streaming provider response finished. reason=%s", p_finish_reason));
-	if (p_finish_reason == "cancelled") {
-		_set_state(AI_AGENT_STATE_CANCELLED);
-	} else {
-		_set_state(AI_AGENT_STATE_IDLE);
-	}
-	active_assistant_index = -1;
-	_save();
 }
 
 void AIAgentSession::_on_provider_request_failed(const String &p_message) {

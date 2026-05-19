@@ -6,7 +6,7 @@
 
 #include "core/markdown/markdown_parser.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
-#include "editor/ai_component/providers/ai_openai_compatible_provider.h"
+#include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
@@ -120,12 +120,12 @@ TEST_CASE("[Editor][AI] Model profiles allow duplicate provider and model with u
 }
 
 TEST_CASE("[Editor][AI] OpenAI compatible provider builds valid request paths") {
-	CHECK(AIOpenAICompatibleProvider::build_request_path("") == "/chat/completions");
-	CHECK(AIOpenAICompatibleProvider::build_request_path("/") == "/chat/completions");
-	CHECK(AIOpenAICompatibleProvider::build_request_path("/v1") == "/v1/chat/completions");
-	CHECK(AIOpenAICompatibleProvider::build_request_path("v1") == "/v1/chat/completions");
-	CHECK(AIOpenAICompatibleProvider::build_request_path("/v1/") == "/v1/chat/completions");
-	CHECK(AIOpenAICompatibleProvider::build_request_path("/v1/chat/completions") == "/v1/chat/completions");
+	CHECK(AIOpenAICompatibleCodec::build_request_path("") == "/chat/completions");
+	CHECK(AIOpenAICompatibleCodec::build_request_path("/") == "/chat/completions");
+	CHECK(AIOpenAICompatibleCodec::build_request_path("/v1") == "/v1/chat/completions");
+	CHECK(AIOpenAICompatibleCodec::build_request_path("v1") == "/v1/chat/completions");
+	CHECK(AIOpenAICompatibleCodec::build_request_path("/v1/") == "/v1/chat/completions");
+	CHECK(AIOpenAICompatibleCodec::build_request_path("/v1/chat/completions") == "/v1/chat/completions");
 }
 
 TEST_CASE("[Editor][AI] Preset models are opt-in by default") {

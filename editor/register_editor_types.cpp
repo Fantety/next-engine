@@ -139,13 +139,11 @@
 #include "editor/version_control/editor_vcs_interface.h"
 
 #include "editor/ai_component/agent/ai_agent_session.h"
+#include "editor/ai_component/agent/ai_context_manager.h"
 #include "editor/ai_component/context/ai_context_provider.h"
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_file_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
-#include "editor/ai_component/providers/ai_agent_provider.h"
-#include "editor/ai_component/providers/ai_openai_compatible_provider.h"
-#include "editor/ai_component/providers/ai_sse_parser.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/ui/ai_agent_dock.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
@@ -240,9 +238,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterTextureAtlas);
 	GDREGISTER_CLASS(ResourceImporterWAV);
 	GDREGISTER_CLASS(AIAgentSession);
-	GDREGISTER_CLASS(AIAgentProvider);
-	GDREGISTER_CLASS(AIOpenAICompatibleProvider);
-	GDREGISTER_CLASS(AISSEParser);
+	GDREGISTER_CLASS(AIContextManager);
 	GDREGISTER_CLASS(AIContextProvider);
 	GDREGISTER_CLASS(AIEditorContextProvider);
 	GDREGISTER_CLASS(AIFileContextProvider);

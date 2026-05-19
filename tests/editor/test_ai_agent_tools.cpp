@@ -5,8 +5,7 @@
 #include "tests/test_macros.h"
 
 #include "editor/ai_component/agent/ai_agent_profile.h"
-#include "editor/ai_component/providers/ai_openai_compatible_provider.h"
-#include "editor/ai_component/providers/ai_provider_features.h"
+#include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
@@ -179,7 +178,7 @@ TEST_CASE("[Editor][AI] Editor context tool exposes safe metadata only") {
 	CHECK_FALSE(result.content.contains("Authorization"));
 }
 
-TEST_CASE("[Editor][AI] OpenAI-compatible provider serializes optional tool schemas") {
+TEST_CASE("[Editor][AI] OpenAI-compatible codec serializes optional tool schemas") {
 	Array messages;
 	Dictionary user_message;
 	user_message["role"] = "user";
@@ -193,15 +192,10 @@ TEST_CASE("[Editor][AI] OpenAI-compatible provider serializes optional tool sche
 	list_project.instantiate();
 	CHECK(registry->register_tool(list_project));
 
-	String body_text = String::utf8(reinterpret_cast<const char *>(AIOpenAICompatibleProvider::build_body_for_test(messages, "test-model", registry->get_tool_schemas()).ptr()));
+	String body_text = String::utf8(reinterpret_cast<const char *>(AIOpenAICompatibleCodec::build_body(messages, "test-model", registry->get_tool_schemas()).ptr()));
 	CHECK(body_text.contains("\"model\":\"test-model\""));
 	CHECK(body_text.contains("\"tools\""));
 	CHECK(body_text.contains("\"project.list_tree\""));
-
-	AIOpenAICompatibleProvider provider;
-	AIProviderFeatures features = provider.get_features();
-	CHECK(features.supports_streaming);
-	CHECK_FALSE(features.supports_tools);
 }
 
 } // namespace TestAIAgentTools

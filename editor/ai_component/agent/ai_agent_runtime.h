@@ -10,6 +10,7 @@
 #include "core/variant/dictionary.h"
 
 #include "editor/ai_component/agent/ai_agent_message.h"
+#include "editor/ai_component/agent/ai_context_manager.h"
 #include "editor/ai_component/agent/ai_agent_profile.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
@@ -46,11 +47,11 @@ class AIAgentRuntime : public RefCounted {
 
 	Ref<AIAgentRuntimeClient> client;
 	Ref<AIToolRegistry> tool_registry;
+	Ref<AIContextManager> context_manager;
 	AIAgentProfile profile;
 	int max_provider_turns = 6;
 	int max_tool_calls = 20;
 
-	Array _messages_to_array(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents = Array()) const;
 	Array _get_allowed_tool_schemas() const;
 	AIAgentMessage _make_assistant_tool_call_message(const AIAgentRuntimeResponse &p_response) const;
 	AIAgentMessage _make_tool_result_message(const AIToolCall &p_call, const String &p_content, const String &p_status, const Dictionary &p_metadata) const;
@@ -68,6 +69,9 @@ public:
 
 	void set_tool_registry(const Ref<AIToolRegistry> &p_registry);
 	Ref<AIToolRegistry> get_tool_registry() const;
+
+	void set_context_manager(const Ref<AIContextManager> &p_context_manager);
+	Ref<AIContextManager> get_context_manager() const;
 
 	void set_profile(const AIAgentProfile &p_profile);
 	AIAgentProfile get_profile() const;

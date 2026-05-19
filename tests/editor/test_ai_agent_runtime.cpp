@@ -4,10 +4,11 @@
 
 #include "tests/test_macros.h"
 
+#include "editor/ai_component/agent/ai_context_manager.h"
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
 #include "editor/ai_component/agent/ai_agent_session.h"
-#include "editor/ai_component/providers/ai_openai_compatible_provider.h"
+#include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
@@ -125,6 +126,166 @@ static AIAgentMessage _make_user_message(const String &p_content) {
 	message.role = AI_AGENT_ROLE_USER;
 	message.content = p_content;
 	return message;
+}
+
+static AIAgentMessage _make_message(AIAgentRole p_role, const String &p_content) {
+	AIAgentMessage message;
+	message.role = p_role;
+	message.content = p_content;
+	return message;
+}
+
+static AIAgentMessage _make_assistant_tool_call_message(const String &p_id, const String &p_tool_name) {
+	AIAgentMessage message;
+	message.role = AI_AGENT_ROLE_ASSISTANT;
+
+	Dictionary call;
+	call["id"] = p_id;
+	call["tool_name"] = p_tool_name;
+	call["arguments"] = Dictionary();
+
+	Array tool_calls;
+	tool_calls.push_back(call);
+	message.metadata["tool_calls"] = tool_calls;
+	return message;
+}
+
+static AIAgentMessage _make_tool_result_message(const String &p_id, const String &p_content) {
+	AIAgentMessage message;
+	message.role = AI_AGENT_ROLE_TOOL;
+	message.content = p_content;
+	message.metadata["tool_call_id"] = p_id;
+	message.metadata["tool_name"] = "project.read_file";
+	return message;
+}
+
+TEST_CASE("[Editor][AI] Context manager trims history and tool output within budget") {
+	Ref<AIContextManager> context_manager;
+	context_manager.instantiate();
+	context_manager->set_max_input_chars(900);
+	context_manager->set_max_context_chars(160);
+	context_manager->set_max_history_chars(420);
+	context_manager->set_max_tool_result_chars(80);
+	context_manager->set_min_recent_messages(2);
+
+	Array context_documents;
+	Dictionary project_tree;
+	project_tree["title"] = "Project Tree";
+	project_tree["source"] = "res://";
+	project_tree["content"] = String("tree-entry\n").repeat(80);
+	context_documents.push_back(project_tree);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_message(AI_AGENT_ROLE_USER, "old user " + String("x").repeat(260)));
+	messages.push_back(_make_message(AI_AGENT_ROLE_ASSISTANT, "old assistant " + String("y").repeat(260)));
+	messages.push_back(_make_assistant_tool_call_message("call_context", "project.read_file"));
+	messages.push_back(_make_tool_result_message("call_context", "tool result " + String("z").repeat(260)));
+	messages.push_back(_make_message(AI_AGENT_ROLE_USER, "latest question"));
+
+	AIContextBuildResult result = context_manager->build_messages("system prompt", messages, context_documents);
+
+	CHECK((int)result.metadata.get("estimated_input_chars", 0) <= 900);
+	CHECK((int)result.metadata.get("omitted_history_messages", 0) >= 2);
+	CHECK((int)result.metadata.get("truncated_tool_results", 0) == 1);
+	CHECK((int)result.metadata.get("truncated_context_documents", 0) == 1);
+
+	bool saw_latest_user = false;
+	bool saw_old_user = false;
+	bool saw_tool_call = false;
+	bool saw_tool_result = false;
+	for (int i = 0; i < result.messages.size(); i++) {
+		Dictionary message = result.messages[i];
+		const String role = String(message.get("role", ""));
+		const String content = String(message.get("content", ""));
+		if (role == "user" && content.contains("latest question")) {
+			saw_latest_user = true;
+		}
+		if (content.contains("old user")) {
+			saw_old_user = true;
+		}
+		if (role == "assistant" && message.has("metadata") && Variant(message["metadata"]).get_type() == Variant::DICTIONARY) {
+			Dictionary metadata = message["metadata"];
+			if (metadata.has("tool_calls")) {
+				saw_tool_call = true;
+			}
+		}
+		if (role == "tool") {
+			saw_tool_result = true;
+			CHECK(content.length() <= 120);
+			CHECK(content.contains("[truncated]"));
+			REQUIRE(message.has("metadata"));
+			Dictionary metadata = message["metadata"];
+			CHECK(String(metadata.get("tool_call_id", "")) == "call_context");
+			CHECK(bool(metadata.get("context_truncated", false)));
+		}
+	}
+
+	CHECK(saw_latest_user);
+	CHECK_FALSE(saw_old_user);
+	CHECK(saw_tool_call);
+	CHECK(saw_tool_result);
+}
+
+TEST_CASE("[Editor][AI] Agent runtime sends budgeted context to the provider client") {
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Ready.";
+	client->push_response(final_response);
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<AIContextManager> context_manager;
+	context_manager.instantiate();
+	context_manager->set_max_input_chars(700);
+	context_manager->set_max_context_chars(128);
+	context_manager->set_max_history_chars(260);
+	context_manager->set_min_recent_messages(1);
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_context_manager(context_manager);
+	runtime->set_profile(_make_test_profile(false));
+
+	Array context_documents;
+	Dictionary project_tree;
+	project_tree["title"] = "Project Tree";
+	project_tree["source"] = "res://";
+	project_tree["content"] = String("tree-entry\n").repeat(40);
+	context_documents.push_back(project_tree);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_message(AI_AGENT_ROLE_USER, "old request " + String("x").repeat(240)));
+	messages.push_back(_make_message(AI_AGENT_ROLE_ASSISTANT, "old answer " + String("y").repeat(240)));
+	messages.push_back(_make_message(AI_AGENT_ROLE_USER, "current request"));
+
+	AIAgentRuntimeResult result = runtime->run(messages, context_documents);
+
+	CHECK(result.success);
+	CHECK(client->request_count == 1);
+	REQUIRE(result.metadata.has("last_context"));
+	Dictionary context_metadata = result.metadata["last_context"];
+	CHECK((int)context_metadata.get("omitted_history_messages", 0) >= 2);
+
+	bool saw_old_request = false;
+	bool saw_current_request = false;
+	for (int i = 0; i < client->last_messages.size(); i++) {
+		Dictionary message = client->last_messages[i];
+		const String content = String(message.get("content", ""));
+		if (content.contains("old request")) {
+			saw_old_request = true;
+		}
+		if (content.contains("current request")) {
+			saw_current_request = true;
+		}
+	}
+
+	CHECK_FALSE(saw_old_request);
+	CHECK(saw_current_request);
 }
 
 TEST_CASE("[Editor][AI] Agent runtime executes allowed tool calls and continues the turn") {
@@ -552,7 +713,7 @@ TEST_CASE("[Editor][AI] Agent session applies runtime failures as error messages
 	memdelete(session);
 }
 
-TEST_CASE("[Editor][AI] OpenAI-compatible provider builds non-streaming tool request bodies") {
+TEST_CASE("[Editor][AI] OpenAI-compatible codec builds non-streaming tool request bodies") {
 	Array messages;
 	Dictionary user_message;
 	user_message["role"] = "user";
@@ -566,19 +727,19 @@ TEST_CASE("[Editor][AI] OpenAI-compatible provider builds non-streaming tool req
 	registry.instantiate();
 	CHECK(registry->register_tool(echo_tool));
 
-	String body_text = String::utf8(reinterpret_cast<const char *>(AIOpenAICompatibleProvider::build_body_for_test(messages, "test-model", registry->get_tool_schemas(), false).ptr()));
+	String body_text = String::utf8(reinterpret_cast<const char *>(AIOpenAICompatibleCodec::build_body(messages, "test-model", registry->get_tool_schemas(), false).ptr()));
 	CHECK(body_text.contains("\"model\":\"test-model\""));
 	CHECK(body_text.contains("\"stream\":false"));
 	CHECK(body_text.contains("\"tools\""));
 	CHECK(body_text.contains("\"test.echo\""));
 }
 
-TEST_CASE("[Editor][AI] OpenAI-compatible provider parses native tool call responses") {
+TEST_CASE("[Editor][AI] OpenAI-compatible codec parses native tool call responses") {
 	const String response_text = "{\"choices\":[{\"message\":{\"content\":null,\"tool_calls\":[{\"id\":\"call_read\",\"type\":\"function\",\"function\":{\"name\":\"project.read_file\",\"arguments\":\"{\\\"path\\\":\\\"res://player.gd\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}";
 
 	AIAgentRuntimeResponse response;
 	String error;
-	CHECK(AIOpenAICompatibleProvider::parse_chat_completion_for_test(response_text, response, error));
+	CHECK(AIOpenAICompatibleCodec::parse_chat_completion(response_text, response, error));
 	CHECK(error.is_empty());
 	CHECK(response.content.is_empty());
 
@@ -588,12 +749,12 @@ TEST_CASE("[Editor][AI] OpenAI-compatible provider parses native tool call respo
 	CHECK(String(response.tool_calls[0].arguments["path"]) == "res://player.gd");
 }
 
-TEST_CASE("[Editor][AI] OpenAI-compatible provider preserves reasoning content from tool call responses") {
+TEST_CASE("[Editor][AI] OpenAI-compatible codec preserves reasoning content from tool call responses") {
 	const String response_text = "{\"choices\":[{\"message\":{\"content\":null,\"reasoning_content\":\"I should inspect the project first.\",\"tool_calls\":[{\"id\":\"call_read\",\"type\":\"function\",\"function\":{\"name\":\"project.read_file\",\"arguments\":\"{\\\"path\\\":\\\"res://player.gd\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}";
 
 	AIAgentRuntimeResponse response;
 	String error;
-	CHECK(AIOpenAICompatibleProvider::parse_chat_completion_for_test(response_text, response, error));
+	CHECK(AIOpenAICompatibleCodec::parse_chat_completion(response_text, response, error));
 	CHECK(error.is_empty());
 
 	CHECK(String(response.metadata["reasoning_content"]) == "I should inspect the project first.");
@@ -601,24 +762,24 @@ TEST_CASE("[Editor][AI] OpenAI-compatible provider preserves reasoning content f
 	CHECK(response.tool_calls[0].id == "call_read");
 }
 
-TEST_CASE("[Editor][AI] OpenAI-compatible provider parses native final assistant responses") {
+TEST_CASE("[Editor][AI] OpenAI-compatible codec parses native final assistant responses") {
 	const String response_text = "{\"choices\":[{\"message\":{\"content\":\"Done.\"},\"finish_reason\":\"stop\"}]}";
 
 	AIAgentRuntimeResponse response;
 	String error;
-	CHECK(AIOpenAICompatibleProvider::parse_chat_completion_for_test(response_text, response, error));
+	CHECK(AIOpenAICompatibleCodec::parse_chat_completion(response_text, response, error));
 	CHECK(error.is_empty());
 	CHECK(response.content == "Done.");
 	CHECK(response.tool_calls.is_empty());
 }
 
-TEST_CASE("[Editor][AI] OpenAI-compatible provider ignores null stream deltas") {
+TEST_CASE("[Editor][AI] OpenAI-compatible codec ignores null stream deltas") {
 	const String event_text = "{\"choices\":[{\"delta\":{\"content\":null},\"finish_reason\":null}]}";
 
 	String delta;
 	String finish_reason;
 	String error;
-	CHECK(AIOpenAICompatibleProvider::extract_delta_for_test(event_text, delta, finish_reason, error));
+	CHECK(AIOpenAICompatibleCodec::extract_delta(event_text, delta, finish_reason, error));
 	CHECK(error.is_empty());
 	CHECK(delta.is_empty());
 	CHECK_FALSE(delta == "<null>");

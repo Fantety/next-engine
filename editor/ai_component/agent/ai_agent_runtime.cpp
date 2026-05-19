@@ -31,6 +31,7 @@ void AIAgentRuntime::_bind_methods() {
 
 AIAgentRuntime::AIAgentRuntime() {
 	profile = AIAgentProfile::get_plan_profile();
+	context_manager.instantiate();
 }
 
 void AIAgentRuntime::set_client(const Ref<AIAgentRuntimeClient> &p_client) {
@@ -47,6 +48,14 @@ void AIAgentRuntime::set_tool_registry(const Ref<AIToolRegistry> &p_registry) {
 
 Ref<AIToolRegistry> AIAgentRuntime::get_tool_registry() const {
 	return tool_registry;
+}
+
+void AIAgentRuntime::set_context_manager(const Ref<AIContextManager> &p_context_manager) {
+	context_manager = p_context_manager;
+}
+
+Ref<AIContextManager> AIAgentRuntime::get_context_manager() const {
+	return context_manager;
 }
 
 void AIAgentRuntime::set_profile(const AIAgentProfile &p_profile) {
@@ -71,37 +80,6 @@ void AIAgentRuntime::set_max_tool_calls(int p_max_tool_calls) {
 
 int AIAgentRuntime::get_max_tool_calls() const {
 	return max_tool_calls;
-}
-
-Array AIAgentRuntime::_messages_to_array(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents) const {
-	Array messages;
-
-	Dictionary system_message;
-	system_message["role"] = "system";
-	system_message["content"] = String(AIAgentPrompts::SYSTEM_PROMPT);
-	messages.push_back(system_message);
-
-	if (!p_context_documents.is_empty()) {
-		String context_text = "Read-only project context:\n";
-		for (int i = 0; i < p_context_documents.size(); i++) {
-			if (Variant(p_context_documents[i]).get_type() != Variant::DICTIONARY) {
-				continue;
-			}
-			Dictionary doc = p_context_documents[i];
-			context_text += "\n## " + String(doc.get("title", "Context")) + "\n";
-			context_text += "Source: " + String(doc.get("source", "")) + "\n";
-			context_text += String(doc.get("content", "")) + "\n";
-		}
-		Dictionary context_message;
-		context_message["role"] = "system";
-		context_message["content"] = context_text;
-		messages.push_back(context_message);
-	}
-
-	for (int i = 0; i < p_messages.size(); i++) {
-		messages.push_back(p_messages[i].to_dict());
-	}
-	return messages;
 }
 
 Array AIAgentRuntime::_get_allowed_tool_schemas() const {
@@ -174,14 +152,28 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 		print_line("[AI Agent][Runtime] Failed before provider turn: tool registry is not configured.");
 		return result;
 	}
+	if (context_manager.is_null()) {
+		result.error = "Agent context manager is not configured.";
+		print_line("[AI Agent][Runtime] Failed before provider turn: context manager is not configured.");
+		return result;
+	}
 
 	int executed_tool_calls = 0;
 	const Array tool_schemas = _get_allowed_tool_schemas();
 	print_line(vformat("[AI Agent][Runtime] Allowed tool schemas prepared. count=%d max_provider_turns=%d max_tool_calls=%d", tool_schemas.size(), max_provider_turns, max_tool_calls));
 
 	for (int turn = 0; turn < max_provider_turns; turn++) {
-		Array provider_messages = _messages_to_array(result.messages, p_context_documents);
-		print_line(vformat("[AI Agent][Runtime] Provider turn started. turn=%d provider_messages=%d executed_tools=%d", turn + 1, provider_messages.size(), executed_tool_calls));
+		AIContextBuildResult context_result = context_manager->build_messages(String(AIAgentPrompts::SYSTEM_PROMPT), result.messages, p_context_documents);
+		Array provider_messages = context_result.messages;
+		result.metadata["last_context"] = context_result.metadata;
+		print_line(vformat("[AI Agent][Runtime] Provider turn started. turn=%d provider_messages=%d estimated_chars=%d omitted_history=%d truncated_tools=%d truncated_context=%d executed_tools=%d",
+				turn + 1,
+				provider_messages.size(),
+				(int)context_result.metadata.get("estimated_input_chars", 0),
+				(int)context_result.metadata.get("omitted_history_messages", 0),
+				(int)context_result.metadata.get("truncated_tool_results", 0),
+				(int)context_result.metadata.get("truncated_context_documents", 0),
+				executed_tool_calls));
 		AIAgentRuntimeResponse response = client->complete(provider_messages, tool_schemas);
 
 		if (!response.error.is_empty()) {

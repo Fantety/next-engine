@@ -9,7 +9,7 @@
 #include "core/os/os.h"
 #include "core/variant/variant.h"
 
-#include "editor/ai_component/providers/ai_openai_compatible_provider.h"
+#include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 
 void AIOpenAIRuntimeTransport::_bind_methods() {
 }
@@ -59,7 +59,7 @@ bool AIOpenAIHTTPRuntimeTransport::request_chat_completion(const AIProviderConfi
 	if (port == 0) {
 		port = use_tls ? 443 : 80;
 	}
-	String request_path = AIOpenAICompatibleProvider::build_request_path(base_path);
+	String request_path = AIOpenAICompatibleCodec::build_request_path(base_path);
 	print_line(vformat("[AI Agent][HTTP] Parsed endpoint. scheme=%s host=%s port=%d path=%s tls=%s", scheme, host, port, request_path, use_tls ? "yes" : "no"));
 
 	Ref<HTTPClient> client = HTTPClient::create();
@@ -97,7 +97,7 @@ bool AIOpenAIHTTPRuntimeTransport::request_chat_completion(const AIProviderConfi
 	headers.push_back("Content-Type: application/json");
 	headers.push_back("Accept: application/json");
 
-	PackedByteArray body = AIOpenAICompatibleProvider::build_body(p_messages, p_config.model, p_tool_schemas, false);
+	PackedByteArray body = AIOpenAICompatibleCodec::build_body(p_messages, p_config.model, p_tool_schemas, false);
 	print_line(vformat("[AI Agent][HTTP] Sending POST %s body_bytes=%d", request_path, (int)body.size()));
 	err = client->request(HTTPClient::METHOD_POST, request_path, headers, body.ptr(), body.size());
 	if (err != OK) {
@@ -373,7 +373,7 @@ AIAgentRuntimeResponse AIOpenAICompatibleRuntimeClient::complete(const Array &p_
 
 	print_line(vformat("[AI Agent][RuntimeClient] Parsing provider response. response_chars=%d", response_text.length()));
 	String parse_error;
-	if (!AIOpenAICompatibleProvider::parse_chat_completion(response_text, response, parse_error)) {
+	if (!AIOpenAICompatibleCodec::parse_chat_completion(response_text, response, parse_error)) {
 		response.error = parse_error.is_empty() ? String("Failed to parse provider response.") : parse_error;
 		print_line(vformat("[AI Agent][RuntimeClient] Provider response parse failed: %s", response.error));
 	} else {

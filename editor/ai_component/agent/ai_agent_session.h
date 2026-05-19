@@ -7,12 +7,10 @@
 #include "core/object/class_db.h"
 #include "scene/main/node.h"
 
-#include "editor/ai_component/agent/ai_agent_runner.h"
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
-#include "editor/ai_component/providers/ai_openai_compatible_provider.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
@@ -26,12 +24,10 @@ class AIAgentSession : public Node {
 	AIAgentState state = AI_AGENT_STATE_IDLE;
 	AIAgentProfile agent_profile;
 
-	Ref<AIAgentRunner> runner;
 	Ref<AIAgentRuntime> runtime;
 	Ref<AIAgentRuntimeRunner> runtime_runner;
 	Ref<AIOpenAICompatibleRuntimeClient> runtime_client;
 	Ref<AIToolRegistry> tool_registry;
-	AIOpenAICompatibleProvider *provider = nullptr;
 	Ref<AIConversationStore> store;
 	Ref<AIProjectTreeContextProvider> project_tree_context;
 	Ref<AIEditorContextProvider> editor_context;
@@ -46,9 +42,6 @@ class AIAgentSession : public Node {
 	Array _collect_context();
 	void _save();
 
-	void _on_provider_response_started();
-	void _on_provider_response_delta(const String &p_delta);
-	void _on_provider_response_finished(const String &p_finish_reason);
 	void _on_provider_request_failed(const String &p_message);
 	void _on_runtime_finished();
 	void _remove_message_at(int p_index);
