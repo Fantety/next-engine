@@ -339,6 +339,25 @@ TEST_CASE("[Editor][AI] Markdown labels render list items without blank rows") {
 	memdelete(label);
 }
 
+TEST_CASE("[Editor][AI] Markdown labels render pipe tables") {
+	AIMarkdownLabel *label = memnew(AIMarkdownLabel);
+
+	label->set_markdown("Before\n\n| Name | Value |\n| --- | --- |\n| **HP** | `100` |\n| MP | 50 |\n\nAfter");
+
+	const String parsed_text = label->get_parsed_text();
+	CHECK(parsed_text.contains("Before"));
+	CHECK(parsed_text.contains("Name"));
+	CHECK(parsed_text.contains("Value"));
+	CHECK(parsed_text.contains("HP"));
+	CHECK(parsed_text.contains("100"));
+	CHECK(parsed_text.contains("MP"));
+	CHECK(parsed_text.contains("50"));
+	CHECK(parsed_text.contains("After"));
+	CHECK_FALSE(parsed_text.contains("---"));
+
+	memdelete(label);
+}
+
 TEST_CASE("[Editor][AI] Markdown parser preserves links code fences and children") {
 	MarkdownParser parser;
 	Ref<MarkdownNode> root = parser.parse_markdown("[Godot](https://godotengine.org)\n\n```gdscript\nextends Node\n```");

@@ -4,6 +4,7 @@
 
 #include "ai_markdown_renderer.h"
 
+#include "core/markdown/markdown_parser.h"
 #include "core/error/error_macros.h"
 #include "core/string/string_name.h"
 #include "scene/gui/rich_text_label.h"
@@ -41,7 +42,42 @@ void AIMarkdownRenderer::render(RichTextLabel *p_label, const Ref<MarkdownNode> 
 		return;
 	}
 
+	render_append(p_label, p_root);
+}
+
+void AIMarkdownRenderer::render_append(RichTextLabel *p_label, const Ref<MarkdownNode> &p_root) {
+	ERR_FAIL_NULL(p_label);
+
+	if (p_root.is_null()) {
+		return;
+	}
+
 	_render_children(p_label, p_root);
+}
+
+void AIMarkdownRenderer::render_inline_markdown(RichTextLabel *p_label, const String &p_markdown) {
+	ERR_FAIL_NULL(p_label);
+
+	if (p_markdown.is_empty()) {
+		return;
+	}
+
+	MarkdownParser parser;
+	Ref<MarkdownNode> root = parser.parse_markdown(p_markdown);
+	if (root.is_null()) {
+		p_label->add_text(p_markdown);
+		return;
+	}
+
+	Array children = root->get_children();
+	for (int i = 0; i < children.size(); i++) {
+		Ref<MarkdownNode> child = children[i];
+		if (child.is_valid() && child->get_type() == MarkdownNode::NMARK_NODE_PARAGRAPH) {
+			_render_children(p_label, child);
+		} else if (child.is_valid()) {
+			_render_node(p_label, child);
+		}
+	}
 }
 
 void AIMarkdownRenderer::_render_children(RichTextLabel *p_label, const Ref<MarkdownNode> &p_node) {

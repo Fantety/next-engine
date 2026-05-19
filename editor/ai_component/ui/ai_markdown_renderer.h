@@ -30,4 +30,6 @@ class AIMarkdownRenderer {
 public:
 	void set_heading_base_size(int p_size);
 	void render(RichTextLabel *p_label, const Ref<MarkdownNode> &p_root);
+	void render_append(RichTextLabel *p_label, const Ref<MarkdownNode> &p_root);
+	void render_inline_markdown(RichTextLabel *p_label, const String &p_markdown);
 };
