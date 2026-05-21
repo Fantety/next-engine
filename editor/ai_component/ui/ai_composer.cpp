@@ -13,7 +13,7 @@
 
 void AIComposer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reload_models"), &AIComposer::reload_models);
-	ADD_SIGNAL(MethodInfo("send_requested", PropertyInfo(Variant::STRING, "message"), PropertyInfo(Variant::STRING, "model_id")));
+	ADD_SIGNAL(MethodInfo("send_requested", PropertyInfo(Variant::STRING, "message"), PropertyInfo(Variant::STRING, "model_id"), PropertyInfo(Variant::STRING, "agent_profile_id")));
 	ADD_SIGNAL(MethodInfo("cancel_requested"));
 }
 
@@ -30,6 +30,19 @@ AIComposer::AIComposer() {
 	HBoxContainer *bar = memnew(HBoxContainer);
 	bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	add_child(bar);
+
+	Label *mode_label = memnew(Label);
+	mode_label->set_text(TTR("Mode:"));
+	bar->add_child(mode_label);
+
+	mode_selector = memnew(OptionButton);
+	mode_selector->set_custom_minimum_size(Size2(80, 0) * EDSCALE);
+	mode_selector->add_item(TTR("Ask"));
+	mode_selector->set_item_metadata(0, "plan");
+	mode_selector->add_item(TTR("Write"));
+	mode_selector->set_item_metadata(1, "write");
+	mode_selector->select(0);
+	bar->add_child(mode_selector);
 
 	Label *model_label = memnew(Label);
 	model_label->set_text(TTR("Model:"));
@@ -67,6 +80,13 @@ String AIComposer::get_selected_model() const {
 	return String(model_selector->get_item_metadata(model_selector->get_selected()));
 }
 
+String AIComposer::get_selected_agent_profile_id() const {
+	if (!mode_selector || mode_selector->get_item_count() == 0 || mode_selector->get_selected() < 0) {
+		return "plan";
+	}
+	return String(mode_selector->get_item_metadata(mode_selector->get_selected()));
+}
+
 void AIComposer::clear_input() {
 	input->clear();
 }
@@ -74,6 +94,12 @@ void AIComposer::clear_input() {
 void AIComposer::set_running(bool p_running) {
 	send_button->set_disabled(p_running || !has_model);
 	cancel_button->set_disabled(!p_running);
+	if (mode_selector) {
+		mode_selector->set_disabled(p_running);
+	}
+	if (model_selector) {
+		model_selector->set_disabled(p_running || !has_model);
+	}
 }
 
 void AIComposer::reload_models() {
@@ -110,7 +136,7 @@ void AIComposer::_send_pressed() {
 	if (!has_model) {
 		return;
 	}
-	emit_signal(SNAME("send_requested"), get_input_text(), get_selected_model());
+	emit_signal(SNAME("send_requested"), get_input_text(), get_selected_model(), get_selected_agent_profile_id());
 }
 
 void AIComposer::_cancel_pressed() {

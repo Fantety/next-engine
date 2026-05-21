@@ -10,6 +10,9 @@
 #include "core/os/time.h"
 
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
@@ -60,7 +63,9 @@ void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
 }
 
 void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {
-	if (p_profile_id == "build") {
+	if (p_profile_id == "write") {
+		agent_profile = AIAgentProfile::get_write_profile();
+	} else if (p_profile_id == "build") {
 		agent_profile = AIAgentProfile::get_build_profile();
 	} else {
 		agent_profile = AIAgentProfile::get_plan_profile();
@@ -69,6 +74,7 @@ void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {
 	if (runtime.is_valid()) {
 		runtime->set_profile(agent_profile);
 	}
+	print_line(vformat("[AI Agent][Session] Agent profile set: %s", agent_profile.id));
 }
 
 String AIAgentSession::get_agent_profile_id() const {
@@ -357,6 +363,21 @@ void AIAgentSession::_configure_tool_runtime() {
 	editor_context_tool.instantiate();
 	tool_registry->register_tool(editor_context_tool);
 	print_line("[AI Agent][Session] Registered tool: editor.get_context");
+
+	Ref<AISceneCreateSceneTool> create_scene_tool;
+	create_scene_tool.instantiate();
+	tool_registry->register_tool(create_scene_tool);
+	print_line("[AI Agent][Session] Registered tool: scene.create_scene");
+
+	Ref<AISceneAddNodeTool> add_node_tool;
+	add_node_tool.instantiate();
+	tool_registry->register_tool(add_node_tool);
+	print_line("[AI Agent][Session] Registered tool: scene.add_node");
+
+	Ref<AISceneDeleteNodeTool> delete_node_tool;
+	delete_node_tool.instantiate();
+	tool_registry->register_tool(delete_node_tool);
+	print_line("[AI Agent][Session] Registered tool: scene.delete_node");
 
 	runtime->set_tool_registry(tool_registry);
 	runtime->set_profile(agent_profile);

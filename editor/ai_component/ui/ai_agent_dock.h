@@ -32,7 +32,7 @@ class AIAgentDock : public EditorDock {
 
 	static inline AIAgentDock *singleton = nullptr;
 
-	void _send_requested(const String &p_message, const String &p_model);
+	void _send_requested(const String &p_message, const String &p_model, const String &p_agent_profile_id);
 	void _cancel_requested();
 	void _message_added(const Dictionary &p_message);
 	void _message_updated(int p_index, const Dictionary &p_message);

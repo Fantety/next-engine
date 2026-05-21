@@ -11,6 +11,12 @@ static void _add_read_only_tools(AIAgentProfile &r_profile) {
 	r_profile.allowed_tools.insert("editor.get_context");
 }
 
+static void _add_scene_write_tools(AIAgentProfile &r_profile) {
+	r_profile.allowed_tools.insert("scene.create_scene");
+	r_profile.allowed_tools.insert("scene.add_node");
+	r_profile.allowed_tools.insert("scene.delete_node");
+}
+
 bool AIAgentProfile::allows_tool(const String &p_tool_name) const {
 	return allowed_tools.has(p_tool_name);
 }
@@ -20,6 +26,15 @@ AIAgentProfile AIAgentProfile::get_plan_profile() {
 	profile.id = "plan";
 	profile.display_name = "Plan";
 	_add_read_only_tools(profile);
+	return profile;
+}
+
+AIAgentProfile AIAgentProfile::get_write_profile() {
+	AIAgentProfile profile;
+	profile.id = "write";
+	profile.display_name = "Write";
+	_add_read_only_tools(profile);
+	_add_scene_write_tools(profile);
 	return profile;
 }
 

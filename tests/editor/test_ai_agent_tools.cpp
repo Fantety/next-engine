@@ -11,6 +11,9 @@
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
@@ -102,24 +105,79 @@ TEST_CASE("[Editor][AI] Tool calls serialize stable execution state") {
 TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	AIAgentProfile plan = AIAgentProfile::get_plan_profile();
 	AIAgentProfile build = AIAgentProfile::get_build_profile();
+	AIAgentProfile write = AIAgentProfile::get_write_profile();
 
 	Dictionary arguments;
 	CHECK(plan.id == "plan");
 	CHECK(build.id == "build");
+	CHECK(write.id == "write");
 
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.read_file", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.search_text", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.create_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.add_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.delete_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "unknown.tool", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
 	CHECK(AIToolPermissionPolicy::evaluate(build, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(build, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
+	CHECK(AIToolPermissionPolicy::evaluate(write, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.create_scene", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.add_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.delete_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
+
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ASK) == "ask");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_DENY) == "deny");
+}
+
+TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
+	Ref<AISceneCreateSceneTool> create_scene;
+	create_scene.instantiate();
+	CHECK(create_scene->get_name() == "scene.create_scene");
+	Dictionary create_schema = create_scene->get_parameters_schema();
+	Dictionary create_properties = create_schema["properties"];
+	CHECK(create_properties.has("root_type"));
+	CHECK(create_properties.has("root_name"));
+
+	Ref<AISceneAddNodeTool> add_node;
+	add_node.instantiate();
+	CHECK(add_node->get_name() == "scene.add_node");
+	Dictionary add_schema = add_node->get_parameters_schema();
+	Dictionary add_properties = add_schema["properties"];
+	CHECK(add_properties.has("parent_path"));
+	CHECK(add_properties.has("type"));
+	CHECK(add_properties.has("name"));
+
+	Ref<AISceneDeleteNodeTool> delete_node;
+	delete_node.instantiate();
+	CHECK(delete_node->get_name() == "scene.delete_node");
+	Dictionary delete_schema = delete_node->get_parameters_schema();
+	Dictionary delete_properties = delete_schema["properties"];
+	CHECK(delete_properties.has("node_path"));
+}
+
+TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before touching editor state") {
+	Ref<AISceneCreateSceneTool> create_scene;
+	create_scene.instantiate();
+	Dictionary create_arguments;
+	CHECK(create_scene->execute(create_arguments).is_error());
+
+	Ref<AISceneAddNodeTool> add_node;
+	add_node.instantiate();
+	Dictionary add_arguments;
+	CHECK(add_node->execute(add_arguments).is_error());
+
+	Ref<AISceneDeleteNodeTool> delete_node;
+	delete_node.instantiate();
+	Dictionary delete_arguments;
+	CHECK(delete_node->execute(delete_arguments).is_error());
 }
 
 TEST_CASE("[Editor][AI] Read-only project tools enforce project boundaries") {

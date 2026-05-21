@@ -108,11 +108,12 @@ AIAgentDock *AIAgentDock::get_singleton() {
 	return singleton;
 }
 
-void AIAgentDock::_send_requested(const String &p_message, const String &p_model) {
+void AIAgentDock::_send_requested(const String &p_message, const String &p_model, const String &p_agent_profile_id) {
 	_ensure_session();
 	ERR_FAIL_NULL(session);
 
 	session->configure_provider(_get_provider_config(p_model));
+	session->set_agent_profile_id(p_agent_profile_id);
 	session->send_user_message(p_message);
 	composer->clear_input();
 }
