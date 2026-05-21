@@ -12,9 +12,10 @@
 #include "scene/gui/button.h"
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
-#include "scene/gui/progress_bar.h"
 
 class ConfirmationDialog;
+class HBoxContainer;
+class ColorRect;
 
 class AIAgentDock : public EditorDock {
 	GDCLASS(AIAgentDock, EditorDock);
@@ -24,7 +25,8 @@ class AIAgentDock : public EditorDock {
 	Button *delete_session_button = nullptr;
 	ConfirmationDialog *delete_session_dialog = nullptr;
 	AIMessageList *message_list = nullptr;
-	ProgressBar *request_progress = nullptr;
+	HBoxContainer *request_status_row = nullptr;
+	ColorRect *request_progress = nullptr;
 	Label *token_usage_label = nullptr;
 	AIComposer *composer = nullptr;
 	AIAgentSession *session = nullptr;

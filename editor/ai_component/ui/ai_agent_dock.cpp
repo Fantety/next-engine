@@ -13,7 +13,10 @@
 #include "editor/settings/editor_command_palette.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
+#include "scene/gui/color_rect.h"
 #include "scene/gui/dialogs.h"
+#include "scene/resources/material.h"
+#include "scene/resources/shader.h"
 #include "servers/text/text_server.h"
 
 void AIAgentDock::_bind_methods() {
@@ -74,13 +77,55 @@ AIAgentDock::AIAgentDock() {
 	message_list = memnew(AIMessageList);
 	main->add_child(message_list);
 
-	request_progress = memnew(ProgressBar);
-	request_progress->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	request_status_row = memnew(HBoxContainer);
+	request_status_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	request_status_row->set_custom_minimum_size(Size2(0, 6) * EDSCALE);
+	request_status_row->add_theme_constant_override("separation", 0);
+	request_status_row->hide();
+	main->add_child(request_status_row);
+
+	Ref<Shader> request_progress_shader;
+	request_progress_shader.instantiate();
+	request_progress_shader->set_code(R"(
+shader_type canvas_item;
+render_mode unshaded;
+
+uniform vec4 color_a : source_color = vec4(0.09, 0.68, 1.0, 1.0);
+uniform vec4 color_b : source_color = vec4(0.53, 0.36, 1.0, 1.0);
+uniform vec4 color_c : source_color = vec4(1.0, 0.33, 0.67, 1.0);
+uniform vec4 color_d : source_color = vec4(0.18, 0.92, 0.78, 1.0);
+uniform float speed = 0.95;
+
+vec3 palette(float t) {
+	vec3 a = color_a.rgb;
+	vec3 b = color_b.rgb;
+	vec3 c = color_c.rgb;
+	vec3 d = color_d.rgb;
+	return a + b * cos(TAU * (c * t + d));
+}
+
+void fragment() {
+	float phase = TIME * speed;
+	float wave = UV.x * 2.4 - phase;
+	vec3 color = palette(wave);
+	color += 0.08 * palette(wave + 0.17);
+	color += 0.05 * palette(wave + 0.41);
+	float edge = smoothstep(0.0, 0.08, min(UV.y, 1.0 - UV.y));
+	COLOR = vec4(clamp(color, 0.0, 1.0), edge);
+}
+)");
+
+	Ref<ShaderMaterial> request_progress_material;
+	request_progress_material.instantiate();
+	request_progress_material->set_shader(request_progress_shader);
+
+	request_progress = memnew(ColorRect);
+	request_progress->set_color(Color(1, 1, 1, 1));
+	request_progress->set_material(request_progress_material);
 	request_progress->set_custom_minimum_size(Size2(0, 4) * EDSCALE);
-	request_progress->set_show_percentage(false);
-	request_progress->set_indeterminate(true);
-	request_progress->hide();
-	main->add_child(request_progress);
+	request_progress->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	request_progress->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+	request_status_row->add_child(request_progress);
 
 	token_usage_label = memnew(Label);
 	token_usage_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -151,6 +196,9 @@ void AIAgentDock::_state_changed(int p_state) {
 	}
 	if (request_progress) {
 		request_progress->set_visible(running);
+	}
+	if (request_status_row) {
+		request_status_row->set_visible(running);
 	}
 	if (p_state == AI_AGENT_STATE_IDLE || p_state == AI_AGENT_STATE_FAILED || p_state == AI_AGENT_STATE_CANCELLED) {
 		_refresh_session_list();
