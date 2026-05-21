@@ -15,7 +15,7 @@ String AISceneAddNodeTool::get_name() const {
 }
 
 String AISceneAddNodeTool::get_description() const {
-	return "Adds a node under the current edited scene using Godot editor APIs and undo/redo.";
+	return "Adds a node under the current edited scene using Godot editor APIs and undo/redo, then saves the scene.";
 }
 
 Dictionary AISceneAddNodeTool::get_parameters_schema() const {

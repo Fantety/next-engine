@@ -25,6 +25,8 @@ class AIAgentRuntimeRunner : public RefCounted {
 
 	static void _thread_func(void *p_userdata);
 	void _set_last_result(const AIAgentRuntimeResult &p_result);
+	void _on_runtime_message_added(const Dictionary &p_message);
+	void _on_runtime_message_updated(int p_index, const Dictionary &p_message);
 
 protected:
 	static void _bind_methods();

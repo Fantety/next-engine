@@ -5,6 +5,10 @@
 #include "ai_scene_editing_service.h"
 
 #include "core/config/project_settings.h"
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
+#include "core/io/resource.h"
+#include "core/io/resource_saver.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/object/message_queue.h"
@@ -16,8 +20,12 @@
 #include "editor/editor_data.h"
 #include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
+#include "editor/file_system/editor_file_system.h"
 #include "editor/scene/scene_tree_editor.h"
+#include "editor/scene/editor_scene_tabs.h"
+#include "editor/settings/editor_settings.h"
 #include "scene/main/node.h"
+#include "scene/resources/packed_scene.h"
 
 void AISceneEditingService::_bind_methods() {
 }
@@ -65,7 +73,7 @@ void AISceneEditingService::_execute_request_ptr(MainThreadRequest *p_request) {
 
 	switch (p_request->operation) {
 		case MainThreadRequest::OP_CREATE_SCENE:
-			p_request->result = _create_scene_main_thread(p_request->root_type, p_request->root_name);
+			p_request->result = _create_scene_main_thread(p_request->root_type, p_request->root_name, p_request->scene_path);
 			break;
 		case MainThreadRequest::OP_ADD_NODE:
 			p_request->result = _add_node_main_thread(p_request->parent_path, p_request->node_type, p_request->node_name);
@@ -182,6 +190,155 @@ String AISceneEditingService::_normalize_node_name(Node *p_parent, Node *p_node,
 	return name;
 }
 
+bool AISceneEditingService::_normalize_scene_save_path(const String &p_path, String &r_path, String &r_error) const {
+	String path = p_path.strip_edges().replace_char('\\', '/').simplify_path();
+	if (path.is_empty()) {
+		r_error = "Scene save path is required.";
+		return false;
+	}
+	if (!path.begins_with("res://")) {
+		r_error = "Scene save path must be inside the project and begin with res://.";
+		return false;
+	}
+	if (path.contains("..")) {
+		r_error = "Scene save path cannot contain parent directory traversal.";
+		return false;
+	}
+
+	const String extension = path.get_extension().to_lower();
+	if (extension != "tscn" && extension != "scn") {
+		r_error = "Scene save path must end with .tscn or .scn.";
+		return false;
+	}
+	if (path.get_file().is_empty()) {
+		r_error = "Scene save path must include a file name.";
+		return false;
+	}
+
+	r_path = path;
+	return true;
+}
+
+bool AISceneEditingService::_get_current_scene_save_path_main_thread(Node *p_scene, String &r_path, String &r_error) const {
+	ERR_FAIL_NULL_V(p_scene, false);
+
+	String scene_path = p_scene->get_scene_file_path().strip_edges();
+	if (scene_path.is_empty()) {
+		r_error = "Current scene has no save path. Create or save the scene first.";
+		return false;
+	}
+	scene_path = ProjectSettings::get_singleton()->localize_path(scene_path);
+	return _normalize_scene_save_path(scene_path, r_path, r_error);
+}
+
+bool AISceneEditingService::_ensure_scene_save_directory(const String &p_path, String &r_error) const {
+	const String base_dir = p_path.get_base_dir();
+	if (base_dir.is_empty() || base_dir == "res://") {
+		return true;
+	}
+
+	const String absolute_dir = ProjectSettings::get_singleton()->globalize_path(base_dir);
+	Error err = DirAccess::make_dir_recursive_absolute(absolute_dir);
+	if (err != OK) {
+		r_error = vformat("Failed to create scene directory `%s` (error %d).", base_dir, err);
+		return false;
+	}
+	return true;
+}
+
+bool AISceneEditingService::_save_scene_main_thread(Node *p_scene, const String &p_path, String &r_saved_path, String &r_error) const {
+	ERR_FAIL_NULL_V(p_scene, false);
+
+	String scene_path;
+	if (!_normalize_scene_save_path(p_path, scene_path, r_error)) {
+		return false;
+	}
+	if (!_ensure_scene_save_directory(scene_path, r_error)) {
+		return false;
+	}
+
+	EditorNode *editor = EditorNode::get_singleton();
+	if (!editor) {
+		r_error = "EditorNode is not available.";
+		return false;
+	}
+
+	int scene_index = EditorNode::get_editor_data().get_edited_scene();
+	if (scene_index < 0) {
+		r_error = "No edited scene index is available.";
+		return false;
+	}
+
+	for (int i = 0; i < EditorNode::get_editor_data().get_edited_scene_count(); i++) {
+		if (i != scene_index && EditorNode::get_editor_data().get_scene_path(i) == scene_path) {
+			r_error = "Cannot overwrite a scene that is already open in another editor tab.";
+			return false;
+		}
+	}
+
+	p_scene->propagate_notification(Node::NOTIFICATION_EDITOR_PRE_SAVE);
+	EditorNode::get_editor_data().apply_changes_in_editors();
+	editor->save_default_environment();
+
+	Ref<PackedScene> packed_scene;
+	if (ResourceCache::has(scene_path)) {
+		packed_scene = ResourceCache::get_ref(scene_path);
+		if (packed_scene.is_valid()) {
+			packed_scene->recreate_state();
+		} else {
+			packed_scene.instantiate();
+		}
+	} else {
+		packed_scene.instantiate();
+	}
+
+	Error err = packed_scene->pack(p_scene);
+	if (err != OK) {
+		p_scene->propagate_notification(Node::NOTIFICATION_EDITOR_POST_SAVE);
+		r_error = vformat("Failed to pack scene before saving (error %d).", err);
+		return false;
+	}
+
+	uint32_t flags = ResourceSaver::FLAG_REPLACE_SUBRESOURCE_PATHS;
+	if (EDITOR_GET("filesystem/on_save/compress_binary_resources")) {
+		flags |= ResourceSaver::FLAG_COMPRESS;
+	}
+
+	err = ResourceSaver::save(packed_scene, scene_path, flags);
+	if (err != OK) {
+		p_scene->propagate_notification(Node::NOTIFICATION_EDITOR_POST_SAVE);
+		r_error = vformat("Failed to save scene `%s` (error %d).", scene_path, err);
+		return false;
+	}
+
+	editor->emit_signal(SNAME("scene_saved"), scene_path);
+	EditorNode::get_editor_data().notify_scene_saved(scene_path);
+	EditorNode::get_editor_data().set_scene_path(scene_index, scene_path);
+	EditorNode::get_editor_data().set_scene_as_saved(scene_index);
+	EditorNode::get_editor_data().set_scene_modified_time(scene_index, FileAccess::get_modified_time(scene_path));
+
+	if (EditorFileSystem::get_singleton()) {
+		EditorFileSystem::get_singleton()->update_file(scene_path);
+	}
+	if (EditorSceneTabs::get_singleton()) {
+		EditorSceneTabs::get_singleton()->update_scene_tabs();
+	}
+
+	p_scene->propagate_notification(Node::NOTIFICATION_EDITOR_POST_SAVE);
+	r_saved_path = scene_path;
+	return true;
+}
+
+bool AISceneEditingService::_save_current_scene_main_thread(Node *p_scene, String &r_saved_path, String &r_error) const {
+	ERR_FAIL_NULL_V(p_scene, false);
+
+	String scene_path;
+	if (!_get_current_scene_save_path_main_thread(p_scene, scene_path, r_error)) {
+		return false;
+	}
+	return _save_scene_main_thread(p_scene, scene_path, r_saved_path, r_error);
+}
+
 void AISceneEditingService::_select_node(Node *p_node) const {
 	SceneTreeDock *dock = SceneTreeDock::get_singleton();
 	if (!dock) {
@@ -203,16 +360,30 @@ void AISceneEditingService::_update_scene_tree() const {
 	}
 }
 
-AISceneEditingResult AISceneEditingService::_create_scene_main_thread(const String &p_root_type, const String &p_root_name) {
+AISceneEditingResult AISceneEditingService::_create_scene_main_thread(const String &p_root_type, const String &p_root_name, const String &p_path) {
 	AISceneEditingResult result;
 	String error;
+	String scene_path;
+	if (!_normalize_scene_save_path(p_path, scene_path, error)) {
+		result.error = error;
+		return result;
+	}
+	if (FileAccess::exists(scene_path)) {
+		result.error = vformat("Scene file `%s` already exists.", scene_path);
+		return result;
+	}
+	if (!_ensure_scene_save_directory(scene_path, error)) {
+		result.error = error;
+		return result;
+	}
+
 	Node *root = _instantiate_node(p_root_type, error);
 	if (!root) {
 		result.error = error;
 		return result;
 	}
 
-	_normalize_node_name(nullptr, root, p_root_name);
+	const String normalized_root_name = _normalize_node_name(nullptr, root, p_root_name);
 
 	EditorNode *editor = EditorNode::get_singleton();
 	SceneTreeDock *dock = SceneTreeDock::get_singleton();
@@ -227,11 +398,21 @@ AISceneEditingResult AISceneEditingService::_create_scene_main_thread(const Stri
 	_select_node(root);
 	_update_scene_tree();
 
+	String saved_path;
+	if (!_save_scene_main_thread(root, scene_path, saved_path, error)) {
+		result.error = error;
+		result.metadata["saved"] = false;
+		result.metadata["scene_path"] = scene_path;
+		return result;
+	}
+
 	result.success = true;
-	result.message = vformat("Created scene with root `%s` (%s).", root->get_name(), root->get_class());
+	result.message = vformat("Created and saved scene `%s` with root `%s` (%s).", saved_path, normalized_root_name, root->get_class());
 	result.metadata["root_type"] = root->get_class();
-	result.metadata["root_name"] = String(root->get_name());
+	result.metadata["root_name"] = normalized_root_name;
 	result.metadata["root_path"] = ".";
+	result.metadata["scene_path"] = saved_path;
+	result.metadata["saved"] = true;
 	return result;
 }
 
@@ -240,6 +421,11 @@ AISceneEditingResult AISceneEditingService::_add_node_main_thread(const String &
 	String error;
 	Node *scene = _get_edited_scene(error);
 	if (!scene) {
+		result.error = error;
+		return result;
+	}
+	String current_scene_path;
+	if (!_get_current_scene_save_path_main_thread(scene, current_scene_path, error)) {
 		result.error = error;
 		return result;
 	}
@@ -283,12 +469,27 @@ AISceneEditingResult AISceneEditingService::_add_node_main_thread(const String &
 	_select_node(child);
 	_update_scene_tree();
 
+	String saved_path;
+	if (!_save_current_scene_main_thread(scene, saved_path, error)) {
+		undo_redo->undo();
+		_update_scene_tree();
+		result.error = error;
+		result.metadata["saved"] = false;
+		result.metadata["parent_path"] = p_parent_path;
+		result.metadata["node_type"] = child->get_class();
+		result.metadata["node_name"] = String(child->get_name());
+		result.metadata["node_path"] = String(scene->get_path_to(child));
+		return result;
+	}
+
 	result.success = true;
-	result.message = vformat("Added `%s` (%s) under `%s`.", child->get_name(), child->get_class(), p_parent_path);
+	result.message = vformat("Added `%s` (%s) under `%s` and saved `%s`.", child->get_name(), child->get_class(), p_parent_path, saved_path);
 	result.metadata["parent_path"] = p_parent_path;
 	result.metadata["node_type"] = child->get_class();
 	result.metadata["node_name"] = String(child->get_name());
 	result.metadata["node_path"] = String(scene->get_path_to(child));
+	result.metadata["scene_path"] = saved_path;
+	result.metadata["saved"] = true;
 	return result;
 }
 
@@ -297,6 +498,11 @@ AISceneEditingResult AISceneEditingService::_delete_node_main_thread(const Strin
 	String error;
 	Node *scene = _get_edited_scene(error);
 	if (!scene) {
+		result.error = error;
+		return result;
+	}
+	String current_scene_path;
+	if (!_get_current_scene_save_path_main_thread(scene, current_scene_path, error)) {
 		result.error = error;
 		return result;
 	}
@@ -359,20 +565,37 @@ AISceneEditingResult AISceneEditingService::_delete_node_main_thread(const Strin
 	_select_node(parent);
 	_update_scene_tree();
 
+	String saved_path;
+	if (!_save_current_scene_main_thread(scene, saved_path, error)) {
+		undo_redo->undo();
+		_select_node(node);
+		_update_scene_tree();
+		result.error = error;
+		result.metadata["saved"] = false;
+		result.metadata["node_path"] = p_node_path;
+		result.metadata["node_name"] = node_name;
+		result.metadata["node_type"] = node_type;
+		result.metadata["parent_path"] = String(parent_path);
+		return result;
+	}
+
 	result.success = true;
-	result.message = vformat("Deleted node `%s`.", p_node_path);
+	result.message = vformat("Deleted node `%s` and saved `%s`.", p_node_path, saved_path);
 	result.metadata["node_path"] = p_node_path;
 	result.metadata["node_name"] = node_name;
 	result.metadata["node_type"] = node_type;
 	result.metadata["parent_path"] = String(parent_path);
+	result.metadata["scene_path"] = saved_path;
+	result.metadata["saved"] = true;
 	return result;
 }
 
-AISceneEditingResult AISceneEditingService::create_scene(const String &p_root_type, const String &p_root_name) {
+AISceneEditingResult AISceneEditingService::create_scene(const String &p_root_type, const String &p_root_name, const String &p_path) {
 	MainThreadRequest request;
 	request.operation = MainThreadRequest::OP_CREATE_SCENE;
 	request.root_type = p_root_type;
 	request.root_name = p_root_name;
+	request.scene_path = p_path;
 	return _dispatch_to_main_thread(request);
 }
 

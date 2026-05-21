@@ -325,7 +325,8 @@ metadata["tool_call_id"] = "call_xxx"
 
 这次修复的重点之一是避免 JSON `null` 被 Godot `String(Variant())` 转成字面量 `"<null>"`。因此流式 `_extract_delta()` 和非流式 `parse_chat_completion()` 都做了 `Variant::NIL` 检查。
 
-旧的 `AIOpenAICompatibleProvider::start_chat()` 和 `AIAgentRunner` fallback 已移除。当前 AI Dock 只有 runtime function calling 主路径，避免旧 streaming provider 与新 Agent runtime 同时存在造成职责混乱。
+旧的 `AIOpenAICompatibleProvider::
+()` 和 `AIAgentRunner` fallback 已移除。当前 AI Dock 只有 runtime function calling 主路径，避免旧 streaming provider 与新 Agent runtime 同时存在造成职责混乱。
 
 ## 5. 当前内置工具
 

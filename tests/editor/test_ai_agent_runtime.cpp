@@ -111,6 +111,24 @@ public:
 	}
 };
 
+class RuntimeProgressRecorder : public RefCounted {
+	GDCLASS(RuntimeProgressRecorder, RefCounted);
+
+public:
+	Array added_messages;
+	Array updated_messages;
+	Array updated_indices;
+
+	void record_added(const Dictionary &p_message) {
+		added_messages.push_back(p_message);
+	}
+
+	void record_updated(int p_index, const Dictionary &p_message) {
+		updated_indices.push_back(p_index);
+		updated_messages.push_back(p_message);
+	}
+};
+
 static AIAgentProfile _make_test_profile(bool p_allow_echo) {
 	AIAgentProfile profile;
 	profile.id = "test";
@@ -355,6 +373,78 @@ TEST_CASE("[Editor][AI] Agent runtime executes allowed tool calls and continues 
 	Dictionary schema = client->last_tool_schemas[0];
 	Dictionary function_schema = schema["function"];
 	CHECK(String(function_schema["name"]) == "test.echo");
+}
+
+TEST_CASE("[Editor][AI] Agent runtime reports tool progress before the final result") {
+	Ref<EchoRuntimeTool> echo_tool;
+	echo_tool.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(echo_tool));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse tool_response;
+	AIToolCall call;
+	call.id = "call_progress";
+	call.tool_name = "test.echo";
+	call.arguments["value"] = "progress context";
+	tool_response.tool_calls.push_back(call);
+	client->push_response(tool_response);
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Progress complete.";
+	client->push_response(final_response);
+
+	Ref<RuntimeProgressRecorder> recorder;
+	recorder.instantiate();
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_profile(_make_test_profile(true));
+	runtime->set_progress_callbacks(callable_mp(recorder.ptr(), &RuntimeProgressRecorder::record_added), callable_mp(recorder.ptr(), &RuntimeProgressRecorder::record_updated));
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Inspect progress."));
+
+	AIAgentRuntimeResult result = runtime->run(messages);
+
+	CHECK(result.success);
+	REQUIRE(recorder->added_messages.size() == 3);
+	Dictionary first_added = recorder->added_messages[0];
+	CHECK(String(first_added["role"]) == "assistant");
+	REQUIRE(first_added.has("metadata"));
+	Dictionary first_metadata = first_added["metadata"];
+	REQUIRE(first_metadata.has("tool_calls"));
+	Array first_tool_calls = first_metadata["tool_calls"];
+	REQUIRE(first_tool_calls.size() == 1);
+	Dictionary first_call = first_tool_calls[0];
+	CHECK(String(first_call["status"]) == "pending");
+
+	REQUIRE(recorder->updated_messages.size() >= 2);
+	Dictionary running_update = recorder->updated_messages[0];
+	Dictionary running_metadata = running_update["metadata"];
+	Array running_tool_calls = running_metadata["tool_calls"];
+	Dictionary running_call = running_tool_calls[0];
+	CHECK(String(running_call["status"]) == "running");
+	CHECK((int)recorder->updated_indices[0] == 1);
+
+	Dictionary final_update = recorder->updated_messages[recorder->updated_messages.size() - 1];
+	Dictionary final_metadata = final_update["metadata"];
+	Array final_tool_calls = final_metadata["tool_calls"];
+	Dictionary final_call = final_tool_calls[0];
+	CHECK(String(final_call["status"]) == "completed");
+
+	Dictionary second_added = recorder->added_messages[1];
+	CHECK(String(second_added["role"]) == "tool");
+	CHECK(String(second_added["content"]) == "progress context");
+	Dictionary third_added = recorder->added_messages[2];
+	CHECK(String(third_added["role"]) == "assistant");
+	CHECK(String(third_added["content"]) == "Progress complete.");
 }
 
 TEST_CASE("[Editor][AI] Agent runtime aggregates provider token usage") {

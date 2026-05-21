@@ -34,6 +34,8 @@ class AIAgentSession : public Node {
 	Ref<AIEditorContextProvider> editor_context;
 
 	int active_assistant_index = -1;
+	int runtime_base_message_count = 0;
+	int runtime_progress_message_count = 0;
 
 	String _get_project_scope_key() const;
 	void _configure_tool_runtime();
@@ -46,6 +48,8 @@ class AIAgentSession : public Node {
 
 	void _on_provider_request_failed(const String &p_message);
 	void _on_runtime_finished();
+	void _on_runtime_message_added(const Dictionary &p_message);
+	void _on_runtime_message_updated(int p_index, const Dictionary &p_message);
 	void _remove_message_at(int p_index);
 
 protected:

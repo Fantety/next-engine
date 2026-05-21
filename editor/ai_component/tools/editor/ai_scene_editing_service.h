@@ -32,6 +32,7 @@ class AISceneEditingService : public RefCounted {
 		Operation operation = OP_CREATE_SCENE;
 		String root_type;
 		String root_name;
+		String scene_path;
 		String parent_path;
 		String node_type;
 		String node_name;
@@ -51,7 +52,12 @@ class AISceneEditingService : public RefCounted {
 	Node *_resolve_node_path(Node *p_scene_root, const String &p_path, bool p_allow_root, String &r_error) const;
 	Node *_instantiate_node(const String &p_type, String &r_error) const;
 	String _normalize_node_name(Node *p_parent, Node *p_node, const String &p_requested_name) const;
-	AISceneEditingResult _create_scene_main_thread(const String &p_root_type, const String &p_root_name);
+	bool _normalize_scene_save_path(const String &p_path, String &r_path, String &r_error) const;
+	bool _get_current_scene_save_path_main_thread(Node *p_scene, String &r_path, String &r_error) const;
+	bool _ensure_scene_save_directory(const String &p_path, String &r_error) const;
+	bool _save_scene_main_thread(Node *p_scene, const String &p_path, String &r_saved_path, String &r_error) const;
+	bool _save_current_scene_main_thread(Node *p_scene, String &r_saved_path, String &r_error) const;
+	AISceneEditingResult _create_scene_main_thread(const String &p_root_type, const String &p_root_name, const String &p_path);
 	AISceneEditingResult _add_node_main_thread(const String &p_parent_path, const String &p_type, const String &p_name);
 	AISceneEditingResult _delete_node_main_thread(const String &p_node_path);
 	void _select_node(Node *p_node) const;
@@ -61,7 +67,7 @@ protected:
 	static void _bind_methods();
 
 public:
-	AISceneEditingResult create_scene(const String &p_root_type, const String &p_root_name);
+	AISceneEditingResult create_scene(const String &p_root_type, const String &p_root_name, const String &p_path);
 	AISceneEditingResult add_node(const String &p_parent_path, const String &p_type, const String &p_name);
 	AISceneEditingResult delete_node(const String &p_node_path);
 };

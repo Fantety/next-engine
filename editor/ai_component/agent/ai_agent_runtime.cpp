@@ -118,6 +118,16 @@ int AIAgentRuntime::get_max_tool_calls() const {
 	return max_tool_calls;
 }
 
+void AIAgentRuntime::set_progress_callbacks(const Callable &p_message_added_callback, const Callable &p_message_updated_callback) {
+	message_added_callback = p_message_added_callback;
+	message_updated_callback = p_message_updated_callback;
+}
+
+void AIAgentRuntime::clear_progress_callbacks() {
+	message_added_callback = Callable();
+	message_updated_callback = Callable();
+}
+
 Array AIAgentRuntime::_get_allowed_tool_schemas() const {
 	Array schemas;
 	if (tool_registry.is_null()) {
@@ -170,6 +180,18 @@ String AIAgentRuntime::_make_tool_denied_message(const String &p_tool_name, cons
 String AIAgentRuntime::_make_tool_failure_message(const String &p_tool_name, const String &p_reason) const {
 	String reason = p_reason.is_empty() ? String("unknown error") : p_reason;
 	return "Tool call failed for `" + p_tool_name + "`: " + reason;
+}
+
+void AIAgentRuntime::_emit_message_added(const AIAgentMessage &p_message) const {
+	if (message_added_callback.is_valid()) {
+		message_added_callback.call(p_message.to_dict());
+	}
+}
+
+void AIAgentRuntime::_emit_message_updated(int p_index, const AIAgentMessage &p_message) const {
+	if (message_updated_callback.is_valid()) {
+		message_updated_callback.call(p_index, p_message.to_dict());
+	}
 }
 
 AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents) {
@@ -242,6 +264,7 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 				assistant_message.metadata = response.metadata;
 				assistant_message.created_at = Time::get_singleton()->get_unix_time_from_system();
 				result.messages.push_back(assistant_message);
+				_emit_message_added(assistant_message);
 				print_line(vformat("[AI Agent][Runtime] Final assistant message appended. chars=%d", response.content.length()));
 			}
 			result.success = true;
@@ -249,7 +272,10 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			return result;
 		}
 
-		result.messages.push_back(_make_assistant_tool_call_message(response));
+		AIAgentMessage assistant_tool_call_message = _make_assistant_tool_call_message(response);
+		const int assistant_tool_call_message_index = result.messages.size();
+		result.messages.push_back(assistant_tool_call_message);
+		_emit_message_added(assistant_tool_call_message);
 		print_line(vformat("[AI Agent][Runtime] Assistant tool-call message appended. tool_calls=%d", response.tool_calls.size()));
 
 		for (int i = 0; i < response.tool_calls.size(); i++) {
@@ -267,14 +293,34 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			}
 			call.updated_at = now;
 			call.status = AI_TOOL_CALL_STATUS_RUNNING;
+			if (assistant_tool_call_message.metadata.has("tool_calls") && Variant(assistant_tool_call_message.metadata["tool_calls"]).get_type() == Variant::ARRAY) {
+				Array running_tool_calls = assistant_tool_call_message.metadata["tool_calls"];
+				if (i < running_tool_calls.size()) {
+					running_tool_calls[i] = call.to_dict();
+					assistant_tool_call_message.metadata["tool_calls"] = running_tool_calls;
+					result.messages.write[assistant_tool_call_message_index] = assistant_tool_call_message;
+					_emit_message_updated(assistant_tool_call_message_index, assistant_tool_call_message);
+				}
+			}
 
 			Dictionary result_metadata;
 			AIToolPermissionResult permission = AIToolPermissionPolicy::evaluate(profile, call.tool_name, call.arguments);
 			if (permission.decision != AI_TOOL_PERMISSION_ALLOW) {
 				call.status = AI_TOOL_CALL_STATUS_DENIED;
 				call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+				if (assistant_tool_call_message.metadata.has("tool_calls") && Variant(assistant_tool_call_message.metadata["tool_calls"]).get_type() == Variant::ARRAY) {
+					Array denied_tool_calls = assistant_tool_call_message.metadata["tool_calls"];
+					if (i < denied_tool_calls.size()) {
+						denied_tool_calls[i] = call.to_dict();
+						assistant_tool_call_message.metadata["tool_calls"] = denied_tool_calls;
+						result.messages.write[assistant_tool_call_message_index] = assistant_tool_call_message;
+						_emit_message_updated(assistant_tool_call_message_index, assistant_tool_call_message);
+					}
+				}
 				result.tool_calls.push_back(call);
-				result.messages.push_back(_make_tool_result_message(call, _make_tool_denied_message(call.tool_name, permission.reason), AIToolCall::status_to_string(call.status), result_metadata));
+				AIAgentMessage tool_message = _make_tool_result_message(call, _make_tool_denied_message(call.tool_name, permission.reason), AIToolCall::status_to_string(call.status), result_metadata);
+				result.messages.push_back(tool_message);
+				_emit_message_added(tool_message);
 				executed_tool_calls++;
 				print_line(vformat("[AI Agent][Runtime] Tool call denied. name=%s reason=%s executed_tools=%d", call.tool_name, permission.reason, executed_tool_calls));
 				continue;
@@ -285,8 +331,19 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			if (tool.is_null()) {
 				call.status = AI_TOOL_CALL_STATUS_FAILED;
 				call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+				if (assistant_tool_call_message.metadata.has("tool_calls") && Variant(assistant_tool_call_message.metadata["tool_calls"]).get_type() == Variant::ARRAY) {
+					Array failed_tool_calls = assistant_tool_call_message.metadata["tool_calls"];
+					if (i < failed_tool_calls.size()) {
+						failed_tool_calls[i] = call.to_dict();
+						assistant_tool_call_message.metadata["tool_calls"] = failed_tool_calls;
+						result.messages.write[assistant_tool_call_message_index] = assistant_tool_call_message;
+						_emit_message_updated(assistant_tool_call_message_index, assistant_tool_call_message);
+					}
+				}
 				result.tool_calls.push_back(call);
-				result.messages.push_back(_make_tool_result_message(call, _make_tool_failure_message(call.tool_name, "tool is not registered"), AIToolCall::status_to_string(call.status), result_metadata));
+				AIAgentMessage tool_message = _make_tool_result_message(call, _make_tool_failure_message(call.tool_name, "tool is not registered"), AIToolCall::status_to_string(call.status), result_metadata);
+				result.messages.push_back(tool_message);
+				_emit_message_added(tool_message);
 				executed_tool_calls++;
 				print_line(vformat("[AI Agent][Runtime] Tool call failed: tool is not registered. name=%s executed_tools=%d", call.tool_name, executed_tool_calls));
 				continue;
@@ -309,8 +366,19 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			}
 
 			call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+			if (assistant_tool_call_message.metadata.has("tool_calls") && Variant(assistant_tool_call_message.metadata["tool_calls"]).get_type() == Variant::ARRAY) {
+				Array finished_tool_calls = assistant_tool_call_message.metadata["tool_calls"];
+				if (i < finished_tool_calls.size()) {
+					finished_tool_calls[i] = call.to_dict();
+					assistant_tool_call_message.metadata["tool_calls"] = finished_tool_calls;
+					result.messages.write[assistant_tool_call_message_index] = assistant_tool_call_message;
+					_emit_message_updated(assistant_tool_call_message_index, assistant_tool_call_message);
+				}
+			}
 			result.tool_calls.push_back(call);
-			result.messages.push_back(_make_tool_result_message(call, content, AIToolCall::status_to_string(call.status), result_metadata));
+			AIAgentMessage tool_message = _make_tool_result_message(call, content, AIToolCall::status_to_string(call.status), result_metadata);
+			result.messages.push_back(tool_message);
+			_emit_message_added(tool_message);
 			executed_tool_calls++;
 			print_line(vformat("[AI Agent][Runtime] Tool result message appended. name=%s status=%s executed_tools=%d", call.tool_name, AIToolCall::status_to_string(call.status), executed_tool_calls));
 		}

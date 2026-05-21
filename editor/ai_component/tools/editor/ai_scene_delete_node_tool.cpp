@@ -15,7 +15,7 @@ String AISceneDeleteNodeTool::get_name() const {
 }
 
 String AISceneDeleteNodeTool::get_description() const {
-	return "Deletes a non-root node from the current edited scene using Godot editor APIs and undo/redo.";
+	return "Deletes a non-root node from the current edited scene using Godot editor APIs and undo/redo, then saves the scene.";
 }
 
 Dictionary AISceneDeleteNodeTool::get_parameters_schema() const {

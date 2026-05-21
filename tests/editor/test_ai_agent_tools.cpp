@@ -145,6 +145,10 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	Dictionary create_properties = create_schema["properties"];
 	CHECK(create_properties.has("root_type"));
 	CHECK(create_properties.has("root_name"));
+	CHECK(create_properties.has("path"));
+	Array create_required = create_schema["required"];
+	CHECK(create_required.has("root_type"));
+	CHECK(create_required.has("path"));
 
 	Ref<AISceneAddNodeTool> add_node;
 	add_node.instantiate();
@@ -167,6 +171,8 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	Ref<AISceneCreateSceneTool> create_scene;
 	create_scene.instantiate();
 	Dictionary create_arguments;
+	CHECK(create_scene->execute(create_arguments).is_error());
+	create_arguments["root_type"] = "Node2D";
 	CHECK(create_scene->execute(create_arguments).is_error());
 
 	Ref<AISceneAddNodeTool> add_node;

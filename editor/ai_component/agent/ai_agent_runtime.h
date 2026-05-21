@@ -7,6 +7,7 @@
 #include "core/object/ref_counted.h"
 #include "core/templates/vector.h"
 #include "core/variant/array.h"
+#include "core/variant/callable.h"
 #include "core/variant/dictionary.h"
 
 #include "editor/ai_component/agent/ai_agent_message.h"
@@ -49,6 +50,8 @@ class AIAgentRuntime : public RefCounted {
 	Ref<AIToolRegistry> tool_registry;
 	Ref<AIContextManager> context_manager;
 	AIAgentProfile profile;
+	Callable message_added_callback;
+	Callable message_updated_callback;
 	int max_provider_turns = 6;
 	int max_tool_calls = 20;
 
@@ -57,6 +60,8 @@ class AIAgentRuntime : public RefCounted {
 	AIAgentMessage _make_tool_result_message(const AIToolCall &p_call, const String &p_content, const String &p_status, const Dictionary &p_metadata) const;
 	String _make_tool_denied_message(const String &p_tool_name, const String &p_reason) const;
 	String _make_tool_failure_message(const String &p_tool_name, const String &p_reason) const;
+	void _emit_message_added(const AIAgentMessage &p_message) const;
+	void _emit_message_updated(int p_index, const AIAgentMessage &p_message) const;
 
 protected:
 	static void _bind_methods();
@@ -81,6 +86,9 @@ public:
 
 	void set_max_tool_calls(int p_max_tool_calls);
 	int get_max_tool_calls() const;
+
+	void set_progress_callbacks(const Callable &p_message_added_callback, const Callable &p_message_updated_callback);
+	void clear_progress_callbacks();
 
 	AIAgentRuntimeResult run(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents = Array());
 };

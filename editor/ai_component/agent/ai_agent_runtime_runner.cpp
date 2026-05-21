@@ -4,8 +4,12 @@
 
 #include "ai_agent_runtime_runner.h"
 
+#include "core/object/callable_mp.h"
+
 void AIAgentRuntimeRunner::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("runtime_finished"));
+	ADD_SIGNAL(MethodInfo("runtime_message_added", PropertyInfo(Variant::DICTIONARY, "message")));
+	ADD_SIGNAL(MethodInfo("runtime_message_updated", PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::DICTIONARY, "message")));
 }
 
 AIAgentRuntimeRunner::AIAgentRuntimeRunner() {
@@ -65,7 +69,9 @@ void AIAgentRuntimeRunner::_thread_func(void *p_userdata) {
 
 	AIAgentRuntimeResult result;
 	if (runner.is_valid() && runner->runtime.is_valid()) {
+		runner->runtime->set_progress_callbacks(callable_mp(runner.ptr(), &AIAgentRuntimeRunner::_on_runtime_message_added), callable_mp(runner.ptr(), &AIAgentRuntimeRunner::_on_runtime_message_updated));
 		result = runner->runtime->run(messages, context_documents);
+		runner->runtime->clear_progress_callbacks();
 	} else {
 		result.error = "Agent runtime is not configured.";
 	}
@@ -79,4 +85,12 @@ void AIAgentRuntimeRunner::_thread_func(void *p_userdata) {
 
 void AIAgentRuntimeRunner::_set_last_result(const AIAgentRuntimeResult &p_result) {
 	last_result = p_result;
+}
+
+void AIAgentRuntimeRunner::_on_runtime_message_added(const Dictionary &p_message) {
+	call_deferred("emit_signal", SNAME("runtime_message_added"), p_message.duplicate(true));
+}
+
+void AIAgentRuntimeRunner::_on_runtime_message_updated(int p_index, const Dictionary &p_message) {
+	call_deferred("emit_signal", SNAME("runtime_message_updated"), p_index, p_message.duplicate(true));
 }

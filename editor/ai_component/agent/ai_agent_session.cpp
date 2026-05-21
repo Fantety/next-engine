@@ -52,6 +52,8 @@ AIAgentSession::AIAgentSession() {
 	store->set_project_scope(_get_project_scope_key());
 
 	runtime_runner->connect("runtime_finished", callable_mp(this, &AIAgentSession::_on_runtime_finished), CONNECT_DEFERRED);
+	runtime_runner->connect("runtime_message_added", callable_mp(this, &AIAgentSession::_on_runtime_message_added), CONNECT_DEFERRED);
+	runtime_runner->connect("runtime_message_updated", callable_mp(this, &AIAgentSession::_on_runtime_message_updated), CONNECT_DEFERRED);
 
 	_load_initial_session();
 }
@@ -139,6 +141,8 @@ void AIAgentSession::send_user_message(const String &p_message) {
 	_set_state(AI_AGENT_STATE_STREAMING);
 	if (is_tool_runtime_available()) {
 		print_line(vformat("[AI Agent][Session] Starting function-calling runtime. request_messages=%d", request_messages.size()));
+		runtime_base_message_count = request_messages.size();
+		runtime_progress_message_count = 0;
 		if (!runtime_runner->start(request_messages, context)) {
 			print_line("[AI Agent][Session] Failed to start function-calling runtime.");
 			_on_provider_request_failed("Failed to start AI runtime.");
@@ -166,6 +170,8 @@ void AIAgentSession::start_new_session() {
 	title = "New Chat";
 	messages.clear();
 	active_assistant_index = -1;
+	runtime_base_message_count = 0;
+	runtime_progress_message_count = 0;
 	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
 	print_line(vformat("[AI Agent][Session] Started new session. session=%s", session_id));
@@ -188,6 +194,8 @@ bool AIAgentSession::load_session(const String &p_session_id) {
 	title = loaded_title.is_empty() ? String("New Chat") : loaded_title;
 	messages = loaded_messages;
 	active_assistant_index = -1;
+	runtime_base_message_count = messages.size();
+	runtime_progress_message_count = 0;
 	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
 	print_line(vformat("[AI Agent][Session] Loaded session. session=%s title=%s messages=%d", session_id, title, messages.size()));
@@ -396,14 +404,17 @@ void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result)
 		print_line("[AI Agent][Session] Removed assistant placeholder before applying runtime messages.");
 	}
 
-	const int base_message_count = messages.size();
-	print_line(vformat("[AI Agent][Session] Applying runtime result. base_messages=%d result_messages=%d tool_calls=%d", base_message_count, p_result.messages.size(), p_result.tool_calls.size()));
-	for (int i = base_message_count; i < p_result.messages.size(); i++) {
+	const int base_message_count = MAX(runtime_base_message_count, messages.size() - runtime_progress_message_count);
+	const int applied_message_count = base_message_count + runtime_progress_message_count;
+	print_line(vformat("[AI Agent][Session] Applying runtime result. base_messages=%d applied_messages=%d result_messages=%d tool_calls=%d", base_message_count, applied_message_count, p_result.messages.size(), p_result.tool_calls.size()));
+	for (int i = applied_message_count; i < p_result.messages.size(); i++) {
 		messages.push_back(p_result.messages[i]);
 		emit_signal(SNAME("message_added"), p_result.messages[i].to_dict());
 	}
 
 	active_assistant_index = -1;
+	runtime_base_message_count = messages.size();
+	runtime_progress_message_count = 0;
 	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
 	_save();
@@ -427,6 +438,8 @@ void AIAgentSession::_on_provider_request_failed(const String &p_message) {
 	emit_signal(SNAME("request_failed"), p_message);
 	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_FAILED);
+	runtime_base_message_count = messages.size();
+	runtime_progress_message_count = 0;
 	_save();
 }
 
@@ -439,9 +452,50 @@ void AIAgentSession::_on_runtime_finished() {
 	_apply_runtime_result(runtime_runner->get_last_result());
 }
 
+void AIAgentSession::_on_runtime_message_added(const Dictionary &p_message) {
+	if (state == AI_AGENT_STATE_CANCELLED) {
+		return;
+	}
+
+	AIAgentMessage message = AIAgentMessage::from_dict(p_message);
+	if (active_assistant_index >= 0 && active_assistant_index < messages.size() && messages[active_assistant_index].content.is_empty() && message.role == AI_AGENT_ROLE_ASSISTANT) {
+		const int replaced_index = active_assistant_index;
+		messages.write[active_assistant_index] = message;
+		emit_signal(SNAME("message_updated"), active_assistant_index, message.to_dict());
+		active_assistant_index = -1;
+		runtime_progress_message_count++;
+		print_line(vformat("[AI Agent][Session] Runtime progress updated assistant placeholder. index=%d role=%s", replaced_index, AIAgentMessage::role_to_string(message.role)));
+		return;
+	}
+
+	messages.push_back(message);
+	emit_signal(SNAME("message_added"), message.to_dict());
+	runtime_progress_message_count++;
+	print_line(vformat("[AI Agent][Session] Runtime progress message added. index=%d role=%s", messages.size() - 1, AIAgentMessage::role_to_string(message.role)));
+}
+
+void AIAgentSession::_on_runtime_message_updated(int p_index, const Dictionary &p_message) {
+	if (state == AI_AGENT_STATE_CANCELLED) {
+		return;
+	}
+
+	const int local_index = p_index;
+	if (local_index < 0 || local_index >= messages.size()) {
+		print_line(vformat("[AI Agent][Session] Ignored runtime progress update outside local range. runtime_index=%d local_index=%d messages=%d", p_index, local_index, messages.size()));
+		return;
+	}
+
+	AIAgentMessage message = AIAgentMessage::from_dict(p_message);
+	messages.write[local_index] = message;
+	emit_signal(SNAME("message_updated"), local_index, message.to_dict());
+	print_line(vformat("[AI Agent][Session] Runtime progress message updated. runtime_index=%d local_index=%d role=%s", p_index, local_index, AIAgentMessage::role_to_string(message.role)));
+}
+
 void AIAgentSession::replace_messages_for_test(const Vector<AIAgentMessage> &p_messages, int p_active_assistant_index) {
 	messages = p_messages;
 	active_assistant_index = p_active_assistant_index;
+	runtime_base_message_count = active_assistant_index >= 0 ? active_assistant_index : messages.size();
+	runtime_progress_message_count = 0;
 	_recalculate_token_usage();
 	_set_state(active_assistant_index >= 0 ? AI_AGENT_STATE_STREAMING : AI_AGENT_STATE_IDLE);
 }
