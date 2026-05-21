@@ -10,6 +10,42 @@
 #include "editor/ai_component/prompts/agent_system_prompt.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 
+namespace {
+
+int _estimate_tokens_from_chars(int p_chars) {
+	if (p_chars <= 0) {
+		return 0;
+	}
+	return (p_chars + 3) / 4;
+}
+
+Dictionary _make_estimated_context_usage(const Dictionary &p_context_metadata) {
+	Dictionary usage;
+	const int estimated_input_chars = (int)p_context_metadata.get("estimated_input_chars", 0);
+	usage["estimated_input_chars"] = estimated_input_chars;
+	usage["estimated_input_tokens"] = _estimate_tokens_from_chars(estimated_input_chars);
+	usage["max_input_chars"] = (int)p_context_metadata.get("max_input_chars", 0);
+	usage["omitted_history_messages"] = (int)p_context_metadata.get("omitted_history_messages", 0);
+	usage["truncated_tool_results"] = (int)p_context_metadata.get("truncated_tool_results", 0);
+	usage["truncated_context_documents"] = (int)p_context_metadata.get("truncated_context_documents", 0);
+	usage["source"] = "context_estimate";
+	return usage;
+}
+
+void _add_provider_usage(Dictionary &r_total, const Dictionary &p_metadata) {
+	if (!p_metadata.has("usage") || Variant(p_metadata["usage"]).get_type() != Variant::DICTIONARY) {
+		return;
+	}
+
+	Dictionary usage = p_metadata["usage"];
+	r_total["prompt_tokens"] = (int)r_total.get("prompt_tokens", 0) + (int)usage.get("prompt_tokens", 0);
+	r_total["completion_tokens"] = (int)r_total.get("completion_tokens", 0) + (int)usage.get("completion_tokens", 0);
+	r_total["total_tokens"] = (int)r_total.get("total_tokens", 0) + (int)usage.get("total_tokens", 0);
+	r_total["source"] = "provider";
+}
+
+} // namespace
+
 bool AIAgentRuntimeResponse::has_tool_calls() const {
 	return !tool_calls.is_empty();
 }
@@ -159,6 +195,7 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 	}
 
 	int executed_tool_calls = 0;
+	Dictionary token_usage;
 	const Array tool_schemas = _get_allowed_tool_schemas();
 	print_line(vformat("[AI Agent][Runtime] Allowed tool schemas prepared. count=%d max_provider_turns=%d max_tool_calls=%d", tool_schemas.size(), max_provider_turns, max_tool_calls));
 
@@ -180,6 +217,20 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			result.error = response.error;
 			print_line(vformat("[AI Agent][Runtime] Provider turn failed. turn=%d error=%s", turn + 1, result.error));
 			return result;
+		}
+		response.metadata["estimated_context_usage"] = _make_estimated_context_usage(context_result.metadata);
+		_add_provider_usage(token_usage, response.metadata);
+		if (!token_usage.is_empty()) {
+			result.metadata["token_usage"] = token_usage;
+		}
+		if (response.metadata.has("usage") && Variant(response.metadata["usage"]).get_type() == Variant::DICTIONARY) {
+			Dictionary usage = response.metadata["usage"];
+			print_line(vformat("[AI Agent][Runtime] Provider token usage. turn=%d prompt=%d completion=%d total=%d cumulative_total=%d",
+					turn + 1,
+					(int)usage.get("prompt_tokens", 0),
+					(int)usage.get("completion_tokens", 0),
+					(int)usage.get("total_tokens", 0),
+					(int)token_usage.get("total_tokens", 0)));
 		}
 		print_line(vformat("[AI Agent][Runtime] Provider turn completed. turn=%d content_chars=%d tool_calls=%d", turn + 1, response.content.length(), response.tool_calls.size()));
 

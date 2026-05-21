@@ -80,6 +80,16 @@ bool AIOpenAICompatibleCodec::_parse_chat_completion(const String &p_response_te
 		return false;
 	}
 
+	if (dict.has("usage") && Variant(dict["usage"]).get_type() == Variant::DICTIONARY) {
+		Dictionary provider_usage = dict["usage"];
+		Dictionary usage;
+		usage["prompt_tokens"] = (int)provider_usage.get("prompt_tokens", provider_usage.get("input_tokens", 0));
+		usage["completion_tokens"] = (int)provider_usage.get("completion_tokens", provider_usage.get("output_tokens", 0));
+		usage["total_tokens"] = (int)provider_usage.get("total_tokens", (int)usage["prompt_tokens"] + (int)usage["completion_tokens"]);
+		usage["source"] = "provider";
+		r_response.metadata["usage"] = usage;
+	}
+
 	if (!dict.has("choices") || Variant(dict["choices"]).get_type() != Variant::ARRAY) {
 		r_error = "Provider response did not contain choices.";
 		return false;

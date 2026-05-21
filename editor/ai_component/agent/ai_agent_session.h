@@ -23,6 +23,7 @@ class AIAgentSession : public Node {
 	Vector<AIAgentMessage> messages;
 	AIAgentState state = AI_AGENT_STATE_IDLE;
 	AIAgentProfile agent_profile;
+	Dictionary token_usage;
 
 	Ref<AIAgentRuntime> runtime;
 	Ref<AIAgentRuntimeRunner> runtime_runner;
@@ -41,6 +42,7 @@ class AIAgentSession : public Node {
 	void _set_state(AIAgentState p_state);
 	Array _collect_context();
 	void _save();
+	void _recalculate_token_usage();
 
 	void _on_provider_request_failed(const String &p_message);
 	void _on_runtime_finished();
@@ -68,6 +70,7 @@ public:
 	String get_session_id() const;
 	String get_title() const;
 	AIAgentState get_state() const;
+	Dictionary get_token_usage() const;
 	Array list_sessions() const;
 	void replace_messages_for_test(const Vector<AIAgentMessage> &p_messages, int p_active_assistant_index);
 	void apply_runtime_result_for_test(const AIAgentRuntimeResult &p_result);

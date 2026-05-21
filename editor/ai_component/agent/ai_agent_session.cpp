@@ -23,12 +23,14 @@ void AIAgentSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_messages_as_array"), &AIAgentSession::get_messages_as_array);
 	ClassDB::bind_method(D_METHOD("set_agent_profile_id", "profile_id"), &AIAgentSession::set_agent_profile_id);
 	ClassDB::bind_method(D_METHOD("get_agent_profile_id"), &AIAgentSession::get_agent_profile_id);
+	ClassDB::bind_method(D_METHOD("get_token_usage"), &AIAgentSession::get_token_usage);
 	ClassDB::bind_method(D_METHOD("is_tool_runtime_available"), &AIAgentSession::is_tool_runtime_available);
 
 	ADD_SIGNAL(MethodInfo("message_added", PropertyInfo(Variant::DICTIONARY, "message")));
 	ADD_SIGNAL(MethodInfo("message_updated", PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::DICTIONARY, "message")));
 	ADD_SIGNAL(MethodInfo("message_removed", PropertyInfo(Variant::INT, "index")));
 	ADD_SIGNAL(MethodInfo("state_changed", PropertyInfo(Variant::INT, "state")));
+	ADD_SIGNAL(MethodInfo("token_usage_changed", PropertyInfo(Variant::DICTIONARY, "usage")));
 	ADD_SIGNAL(MethodInfo("request_failed", PropertyInfo(Variant::STRING, "message")));
 }
 
@@ -158,6 +160,7 @@ void AIAgentSession::start_new_session() {
 	title = "New Chat";
 	messages.clear();
 	active_assistant_index = -1;
+	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
 	print_line(vformat("[AI Agent][Session] Started new session. session=%s", session_id));
 }
@@ -179,6 +182,7 @@ bool AIAgentSession::load_session(const String &p_session_id) {
 	title = loaded_title.is_empty() ? String("New Chat") : loaded_title;
 	messages = loaded_messages;
 	active_assistant_index = -1;
+	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
 	print_line(vformat("[AI Agent][Session] Loaded session. session=%s title=%s messages=%d", session_id, title, messages.size()));
 	return true;
@@ -227,6 +231,10 @@ AIAgentState AIAgentSession::get_state() const {
 	return state;
 }
 
+Dictionary AIAgentSession::get_token_usage() const {
+	return token_usage.duplicate(true);
+}
+
 Array AIAgentSession::list_sessions() const {
 	return store->list_conversations();
 }
@@ -271,6 +279,54 @@ void AIAgentSession::_save() {
 	store->save_conversation(session_id, title, messages);
 }
 
+void AIAgentSession::_recalculate_token_usage() {
+	Dictionary usage;
+	int message_count = 0;
+	int estimated_input_tokens = 0;
+	int estimated_input_chars = 0;
+	for (int i = 0; i < messages.size(); i++) {
+		const AIAgentMessage &message = messages[i];
+		if (message.metadata.is_empty()) {
+			continue;
+		}
+
+		if (message.metadata.has("usage") && Variant(message.metadata["usage"]).get_type() == Variant::DICTIONARY) {
+			Dictionary message_usage = message.metadata["usage"];
+			usage["prompt_tokens"] = (int)usage.get("prompt_tokens", 0) + (int)message_usage.get("prompt_tokens", 0);
+			usage["completion_tokens"] = (int)usage.get("completion_tokens", 0) + (int)message_usage.get("completion_tokens", 0);
+			usage["total_tokens"] = (int)usage.get("total_tokens", 0) + (int)message_usage.get("total_tokens", 0);
+			message_count++;
+		}
+
+		if (message.metadata.has("estimated_context_usage") && Variant(message.metadata["estimated_context_usage"]).get_type() == Variant::DICTIONARY) {
+			Dictionary estimate = message.metadata["estimated_context_usage"];
+			estimated_input_tokens += (int)estimate.get("estimated_input_tokens", 0);
+			estimated_input_chars += (int)estimate.get("estimated_input_chars", 0);
+		}
+	}
+
+	usage["message_count"] = message_count;
+	usage["estimated_input_tokens"] = estimated_input_tokens;
+	usage["estimated_input_chars"] = estimated_input_chars;
+	if (!usage.has("prompt_tokens")) {
+		usage["prompt_tokens"] = 0;
+	}
+	if (!usage.has("completion_tokens")) {
+		usage["completion_tokens"] = 0;
+	}
+	if (!usage.has("total_tokens")) {
+		usage["total_tokens"] = 0;
+	}
+	token_usage = usage;
+	emit_signal(SNAME("token_usage_changed"), token_usage);
+	print_line(vformat("[AI Agent][Session] Token usage recalculated. prompt=%d completion=%d total=%d estimated_input=%d messages=%d",
+			(int)token_usage.get("prompt_tokens", 0),
+			(int)token_usage.get("completion_tokens", 0),
+			(int)token_usage.get("total_tokens", 0),
+			(int)token_usage.get("estimated_input_tokens", 0),
+			(int)token_usage.get("message_count", 0)));
+}
+
 void AIAgentSession::_remove_message_at(int p_index) {
 	if (p_index < 0 || p_index >= messages.size()) {
 		return;
@@ -278,6 +334,7 @@ void AIAgentSession::_remove_message_at(int p_index) {
 
 	messages.remove_at(p_index);
 	emit_signal(SNAME("message_removed"), p_index);
+	_recalculate_token_usage();
 }
 
 void AIAgentSession::_configure_tool_runtime() {
@@ -326,6 +383,7 @@ void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result)
 	}
 
 	active_assistant_index = -1;
+	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
 	_save();
 	print_line(vformat("[AI Agent][Session] Runtime result applied and saved. session=%s messages=%d", session_id, messages.size()));
@@ -346,6 +404,7 @@ void AIAgentSession::_on_provider_request_failed(const String &p_message) {
 	messages.push_back(error_message);
 	emit_signal(SNAME("message_added"), error_message.to_dict());
 	emit_signal(SNAME("request_failed"), p_message);
+	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_FAILED);
 	_save();
 }
@@ -362,6 +421,7 @@ void AIAgentSession::_on_runtime_finished() {
 void AIAgentSession::replace_messages_for_test(const Vector<AIAgentMessage> &p_messages, int p_active_assistant_index) {
 	messages = p_messages;
 	active_assistant_index = p_active_assistant_index;
+	_recalculate_token_usage();
 	_set_state(active_assistant_index >= 0 ? AI_AGENT_STATE_STREAMING : AI_AGENT_STATE_IDLE);
 }
 

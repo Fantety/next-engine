@@ -82,6 +82,13 @@ AIAgentDock::AIAgentDock() {
 	request_progress->hide();
 	main->add_child(request_progress);
 
+	token_usage_label = memnew(Label);
+	token_usage_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	token_usage_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	token_usage_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+	token_usage_label->set_tooltip_text(TTR("Current AI chat token usage. Provider tokens come from the model API; context tokens are estimated from prompt characters."));
+	main->add_child(token_usage_label);
+
 	composer = memnew(AIComposer);
 	main->add_child(composer);
 
@@ -118,15 +125,18 @@ void AIAgentDock::_cancel_requested() {
 
 void AIAgentDock::_message_added(const Dictionary &p_message) {
 	message_list->add_message(p_message);
+	_refresh_token_usage();
 	_refresh_session_list();
 }
 
 void AIAgentDock::_message_updated(int p_index, const Dictionary &p_message) {
 	message_list->update_message(p_index, p_message);
+	_refresh_token_usage();
 }
 
 void AIAgentDock::_message_removed(int p_index) {
 	message_list->remove_message(p_index);
+	_refresh_token_usage();
 }
 
 void AIAgentDock::_state_changed(int p_state) {
@@ -144,6 +154,12 @@ void AIAgentDock::_state_changed(int p_state) {
 	if (p_state == AI_AGENT_STATE_IDLE || p_state == AI_AGENT_STATE_FAILED || p_state == AI_AGENT_STATE_CANCELLED) {
 		_refresh_session_list();
 	}
+	_refresh_token_usage();
+}
+
+void AIAgentDock::_token_usage_changed(const Dictionary &p_usage) {
+	(void)p_usage;
+	_refresh_token_usage();
 }
 
 void AIAgentDock::_settings_changed() {
@@ -156,6 +172,7 @@ void AIAgentDock::_new_session_pressed() {
 
 	session->start_new_session();
 	message_list->clear_messages();
+	_refresh_token_usage();
 	_refresh_session_list();
 }
 
@@ -234,6 +251,7 @@ void AIAgentDock::_ensure_session() {
 	session->connect("message_updated", callable_mp(this, &AIAgentDock::_message_updated));
 	session->connect("message_removed", callable_mp(this, &AIAgentDock::_message_removed));
 	session->connect("state_changed", callable_mp(this, &AIAgentDock::_state_changed));
+	session->connect("token_usage_changed", callable_mp(this, &AIAgentDock::_token_usage_changed));
 }
 
 String AIAgentDock::_get_selected_session_id() const {
@@ -303,6 +321,35 @@ void AIAgentDock::_reload_messages_from_session() {
 		}
 	}
 	message_list->scroll_to_bottom();
+	_refresh_token_usage();
+}
+
+void AIAgentDock::_refresh_token_usage() {
+	if (!token_usage_label || !session) {
+		return;
+	}
+
+	Dictionary usage = session->get_token_usage();
+	const int prompt_tokens = (int)usage.get("prompt_tokens", 0);
+	const int completion_tokens = (int)usage.get("completion_tokens", 0);
+	const int total_tokens = (int)usage.get("total_tokens", 0);
+	const int estimated_input_tokens = (int)usage.get("estimated_input_tokens", 0);
+
+	String text = vformat(TTR("Tokens  In %s  Out %s  Total %s"), _format_token_count(prompt_tokens), _format_token_count(completion_tokens), _format_token_count(total_tokens));
+	if (estimated_input_tokens > 0) {
+		text += vformat(TTR("  Context ~%s"), _format_token_count(estimated_input_tokens));
+	}
+	token_usage_label->set_text(text);
+}
+
+String AIAgentDock::_format_token_count(int p_tokens) const {
+	if (p_tokens >= 1000000) {
+		return rtos((double)p_tokens / 1000000.0).pad_decimals(1) + "M";
+	}
+	if (p_tokens >= 1000) {
+		return rtos((double)p_tokens / 1000.0).pad_decimals(1) + "k";
+	}
+	return itos(MAX(0, p_tokens));
 }
 
 AIProviderConfig AIAgentDock::_get_provider_config(const String &p_model) const {

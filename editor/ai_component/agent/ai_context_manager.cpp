@@ -213,6 +213,8 @@ Dictionary AIContextManager::_message_to_provider_dict(const AIAgentMessage &p_m
 	message["content"] = content;
 
 	Dictionary metadata = p_message.metadata.duplicate(true);
+	metadata.erase("usage");
+	metadata.erase("estimated_context_usage");
 	if (content_truncated) {
 		metadata["context_truncated"] = true;
 		metadata["original_chars"] = p_message.content.length();

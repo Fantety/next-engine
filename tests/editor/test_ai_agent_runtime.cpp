@@ -357,6 +357,64 @@ TEST_CASE("[Editor][AI] Agent runtime executes allowed tool calls and continues 
 	CHECK(String(function_schema["name"]) == "test.echo");
 }
 
+TEST_CASE("[Editor][AI] Agent runtime aggregates provider token usage") {
+	Ref<EchoRuntimeTool> echo_tool;
+	echo_tool.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(echo_tool));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse tool_response;
+	AIToolCall call;
+	call.id = "call_usage";
+	call.tool_name = "test.echo";
+	call.arguments["value"] = "usage context";
+	tool_response.tool_calls.push_back(call);
+	Dictionary first_usage;
+	first_usage["prompt_tokens"] = 10;
+	first_usage["completion_tokens"] = 2;
+	first_usage["total_tokens"] = 12;
+	tool_response.metadata["usage"] = first_usage;
+	client->push_response(tool_response);
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Usage recorded.";
+	Dictionary second_usage;
+	second_usage["prompt_tokens"] = 20;
+	second_usage["completion_tokens"] = 5;
+	second_usage["total_tokens"] = 25;
+	final_response.metadata["usage"] = second_usage;
+	client->push_response(final_response);
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_profile(_make_test_profile(true));
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Inspect usage."));
+
+	AIAgentRuntimeResult result = runtime->run(messages);
+
+	CHECK(result.success);
+	REQUIRE(result.metadata.has("token_usage"));
+	Dictionary usage = result.metadata["token_usage"];
+	CHECK((int)usage.get("prompt_tokens", 0) == 30);
+	CHECK((int)usage.get("completion_tokens", 0) == 7);
+	CHECK((int)usage.get("total_tokens", 0) == 37);
+
+	REQUIRE(result.messages.size() == 4);
+	REQUIRE(result.messages[1].metadata.has("usage"));
+	REQUIRE(result.messages[1].metadata.has("estimated_context_usage"));
+	CHECK(result.messages[3].metadata.has("usage"));
+	CHECK(result.messages[3].metadata.has("estimated_context_usage"));
+}
+
 TEST_CASE("[Editor][AI] Agent runtime denies disallowed tool calls without executing them") {
 	Ref<EchoRuntimeTool> echo_tool;
 	echo_tool.instantiate();
@@ -550,6 +608,48 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	CHECK(session->get_agent_profile_id() == "plan");
 	CHECK(session->get_agent_runtime()->get_profile().id == "plan");
 
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] Agent session recalculates token usage from message metadata") {
+	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_token_usage");
+
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = "Hello";
+
+	AIAgentMessage first_assistant;
+	first_assistant.role = AI_AGENT_ROLE_ASSISTANT;
+	first_assistant.content = "Hi";
+	Dictionary first_usage;
+	first_usage["prompt_tokens"] = 11;
+	first_usage["completion_tokens"] = 3;
+	first_usage["total_tokens"] = 14;
+	first_assistant.metadata["usage"] = first_usage;
+
+	AIAgentMessage second_assistant;
+	second_assistant.role = AI_AGENT_ROLE_ASSISTANT;
+	second_assistant.content = "Done";
+	Dictionary second_usage;
+	second_usage["prompt_tokens"] = 21;
+	second_usage["completion_tokens"] = 4;
+	second_usage["total_tokens"] = 25;
+	second_assistant.metadata["usage"] = second_usage;
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(user_message);
+	messages.push_back(first_assistant);
+	messages.push_back(second_assistant);
+	session->replace_messages_for_test(messages, -1);
+
+	Dictionary usage = session->get_token_usage();
+	CHECK((int)usage.get("prompt_tokens", 0) == 32);
+	CHECK((int)usage.get("completion_tokens", 0) == 7);
+	CHECK((int)usage.get("total_tokens", 0) == 39);
+	CHECK((int)usage.get("message_count", 0) == 2);
+
+	session->delete_session(session->get_session_id());
 	memdelete(session);
 }
 
@@ -771,6 +871,21 @@ TEST_CASE("[Editor][AI] OpenAI-compatible codec parses native final assistant re
 	CHECK(error.is_empty());
 	CHECK(response.content == "Done.");
 	CHECK(response.tool_calls.is_empty());
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible codec parses provider token usage") {
+	const String response_text = "{\"choices\":[{\"message\":{\"content\":\"Done.\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":30,\"total_tokens\":150}}";
+
+	AIAgentRuntimeResponse response;
+	String error;
+	CHECK(AIOpenAICompatibleCodec::parse_chat_completion(response_text, response, error));
+	CHECK(error.is_empty());
+	REQUIRE(response.metadata.has("usage"));
+	Dictionary usage = response.metadata["usage"];
+	CHECK((int)usage.get("prompt_tokens", 0) == 120);
+	CHECK((int)usage.get("completion_tokens", 0) == 30);
+	CHECK((int)usage.get("total_tokens", 0) == 150);
+	CHECK(String(usage.get("source", "")) == "provider");
 }
 
 TEST_CASE("[Editor][AI] OpenAI-compatible codec ignores null stream deltas") {
