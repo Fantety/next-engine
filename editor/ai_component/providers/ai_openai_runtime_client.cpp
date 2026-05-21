@@ -6,6 +6,7 @@
 
 #include "core/io/json.h"
 #include "core/io/http_client.h"
+#include "core/object/callable_mp.h"
 #include "core/os/os.h"
 #include "core/variant/variant.h"
 

@@ -506,6 +506,39 @@ TEST_CASE("[Editor][AI] Message bubbles render assistant tool call requests") {
 	memdelete(bubble);
 }
 
+TEST_CASE("[Editor][AI] Message bubbles keep streamed assistant text when tool calls arrive") {
+	AIMessageBubble *bubble = memnew(AIMessageBubble);
+	Dictionary message;
+	message["role"] = "assistant";
+	message["content"] = "I will inspect the project before editing.";
+
+	Dictionary metadata;
+	Array tool_calls;
+	Dictionary call;
+	call["id"] = "call_read";
+	call["tool_name"] = "project.read_file";
+	Dictionary arguments;
+	arguments["path"] = "res://player.gd";
+	call["arguments"] = arguments;
+	tool_calls.push_back(call);
+	metadata["tool_calls"] = tool_calls;
+	message["metadata"] = metadata;
+
+	bubble->set_message(message);
+
+	RichTextLabel *label = find_child_of_type<RichTextLabel>(bubble);
+	Label *title_label = find_child_of_type<Label>(bubble);
+	REQUIRE(label != nullptr);
+	REQUIRE(title_label != nullptr);
+	const String parsed_text = label->get_parsed_text();
+	CHECK(title_label->get_text() == "Assistant");
+	CHECK(parsed_text.contains("I will inspect the project before editing."));
+	CHECK(parsed_text.contains("project.read_file"));
+	CHECK(parsed_text.contains("res://player.gd"));
+
+	memdelete(bubble);
+}
+
 TEST_CASE("[Editor][AI] Message bubbles collapse long tool results") {
 	AIMessageBubble *bubble = memnew(AIMessageBubble);
 	Dictionary message;

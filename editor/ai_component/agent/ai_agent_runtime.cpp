@@ -4,6 +4,7 @@
 
 #include "ai_agent_runtime.h"
 
+#include "core/object/callable_mp.h"
 #include "core/os/time.h"
 #include "core/variant/variant.h"
 

@@ -151,7 +151,7 @@ void AIMessageBubble::_render_message() {
 	String title;
 	if (role == "user") {
 		title = "You";
-	} else if (role == "assistant" && !tool_calls.is_empty()) {
+	} else if (role == "assistant" && content.strip_edges().is_empty() && !tool_calls.is_empty()) {
 		title = "Tool Call";
 	} else if (role == "tool") {
 		String tool_name = String(message_metadata.get("tool_name", "tool"));
@@ -166,7 +166,9 @@ void AIMessageBubble::_render_message() {
 		title = "Assistant";
 	}
 
-	const bool is_tool_bubble = (role == "tool") || (role == "assistant" && !tool_calls.is_empty());
+	const bool is_pure_assistant_tool_call = role == "assistant" && content.strip_edges().is_empty() && !tool_calls.is_empty();
+	const bool is_assistant_with_tool_calls = role == "assistant" && !content.strip_edges().is_empty() && !tool_calls.is_empty();
+	const bool is_tool_bubble = (role == "tool") || is_pure_assistant_tool_call;
 	set_h_size_flags(is_tool_bubble && !details_expanded ? Control::SIZE_SHRINK_BEGIN : Control::SIZE_EXPAND_FILL);
 	label->set_autowrap_mode(is_tool_bubble && !details_expanded ? TextServer::AUTOWRAP_OFF : TextServer::AUTOWRAP_WORD_SMART);
 	title_label->remove_theme_font_size_override(SceneStringName(font_size));
@@ -183,7 +185,7 @@ void AIMessageBubble::_render_message() {
 	String summary = content;
 	String details = content;
 	int tool_call_count = 0;
-	if (role == "assistant" && !tool_calls.is_empty()) {
+	if (is_pure_assistant_tool_call) {
 		tool_call_count = tool_calls.size();
 		summary = _build_tool_call_summary(tool_calls);
 		details = _build_tool_call_details(tool_calls);
@@ -202,7 +204,12 @@ void AIMessageBubble::_render_message() {
 		details_button->set_text(details_expanded ? TTR("Hide") : TTR("Details"));
 		details_button->set_visible(details_available);
 	} else if (role == "assistant") {
-		label->set_markdown(content);
+		if (is_assistant_with_tool_calls) {
+			const String tool_summary = _build_tool_call_summary(tool_calls);
+			label->set_markdown(content + "\n\n`" + tool_summary + "`");
+		} else {
+			label->set_markdown(content);
+		}
 		details_button->hide();
 	} else {
 		label->add_text(content);
