@@ -6,6 +6,7 @@
 
 #include "core/object/ref_counted.h"
 #include "core/variant/array.h"
+#include "core/variant/callable.h"
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/providers/ai_provider_config.h"
@@ -18,6 +19,7 @@ protected:
 
 public:
 	virtual bool request_chat_completion(const AIProviderConfig &p_config, const Array &p_messages, const Array &p_tool_schemas, String &r_response_text, String &r_error);
+	virtual bool request_chat_completion_stream(const AIProviderConfig &p_config, const Array &p_messages, const Array &p_tool_schemas, const Callable &p_stream_event_callback, String &r_error);
 };
 
 class AIOpenAIHTTPRuntimeTransport : public AIOpenAIRuntimeTransport {
@@ -28,6 +30,7 @@ protected:
 
 public:
 	virtual bool request_chat_completion(const AIProviderConfig &p_config, const Array &p_messages, const Array &p_tool_schemas, String &r_response_text, String &r_error) override;
+	virtual bool request_chat_completion_stream(const AIProviderConfig &p_config, const Array &p_messages, const Array &p_tool_schemas, const Callable &p_stream_event_callback, String &r_error) override;
 };
 
 class AIOpenAICompatibleRuntimeClient : public AIAgentRuntimeClient {
@@ -41,6 +44,7 @@ class AIOpenAICompatibleRuntimeClient : public AIAgentRuntimeClient {
 	static Array _build_provider_tool_schemas(const Array &p_tool_schemas, Dictionary &r_tool_name_map);
 	static Array _build_chat_messages(const Array &p_messages, const Dictionary &p_tool_name_map = Dictionary());
 	static void _apply_tool_name_map(AIAgentRuntimeResponse &r_response, const Dictionary &p_tool_name_map);
+	AIAgentRuntimeResponse _complete_internal(const Array &p_messages, const Array &p_tool_schemas, const Callable &p_partial_response_callback, bool p_stream);
 
 protected:
 	static void _bind_methods();
@@ -59,4 +63,5 @@ public:
 	static void apply_tool_name_map_for_test(AIAgentRuntimeResponse &r_response, const Dictionary &p_tool_name_map);
 
 	virtual AIAgentRuntimeResponse complete(const Array &p_messages, const Array &p_tool_schemas) override;
+	virtual AIAgentRuntimeResponse complete_streaming(const Array &p_messages, const Array &p_tool_schemas, const Callable &p_partial_response_callback) override;
 };

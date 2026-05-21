@@ -5,10 +5,39 @@
 #pragma once
 
 #include "core/string/ustring.h"
+#include "core/templates/vector.h"
 #include "core/variant/variant.h"
 #include "core/variant/array.h"
+#include "core/variant/dictionary.h"
 
-struct AIAgentRuntimeResponse;
+#include "editor/ai_component/agent/ai_agent_runtime.h"
+
+struct AIOpenAIStreamToolCallState {
+	String id;
+	String tool_name;
+	String arguments_json;
+};
+
+struct AIOpenAIStreamParseResult {
+	bool has_delta = false;
+	bool done = false;
+	String error;
+	AIAgentRuntimeResponse response;
+};
+
+class AIOpenAICompatibleStreamAccumulator {
+	String content;
+	String reasoning_content;
+	String finish_reason;
+	Dictionary metadata;
+	Vector<AIOpenAIStreamToolCallState> tool_calls;
+
+	void _ensure_tool_call_index(int p_index);
+
+public:
+	bool apply_event(const String &p_event, AIOpenAIStreamParseResult &r_result);
+	AIAgentRuntimeResponse get_response(String &r_error) const;
+};
 
 class AIOpenAICompatibleCodec {
 	static PackedByteArray _build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array(), bool p_stream = false);

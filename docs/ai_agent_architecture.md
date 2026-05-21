@@ -229,14 +229,17 @@ Tool call denied for `xxx`: Tool is not allowed by the active agent profile.
 - `editor/ai_component/providers/ai_openai_runtime_client.cpp`
 - `editor/ai_component/providers/ai_openai_runtime_client.h`
 
-`AIOpenAICompatibleRuntimeClient::complete()` 负责 function calling 请求：
+`AIOpenAICompatibleRuntimeClient::complete_streaming()` 是当前 Agent runtime 的默认 provider 入口，负责带 function calling 的流式请求：
 
 1. 调用 `_build_chat_messages()`，把内部消息转换成 OpenAI-compatible Chat Completions 格式。
 2. 调用 `_build_provider_tool_schemas()`，把内部工具名转换成 provider-safe function name，并记录映射表。
-3. 调用 `AIOpenAIHTTPRuntimeTransport::request_chat_completion()` 发送 HTTP 请求。
-4. 调用 `AIOpenAICompatibleCodec::parse_chat_completion()` 解析响应。
-5. 调用 `_apply_tool_name_map()`，把 provider-safe 工具名恢复成内部工具名。
-6. 返回 `AIAgentRuntimeResponse`。
+3. 调用 `AIOpenAIHTTPRuntimeTransport::request_chat_completion_stream()` 发送 `stream=true` 的 HTTP 请求。
+4. 每收到一个 SSE `data:` 事件，交给 `AIOpenAICompatibleStreamAccumulator` 累积 content、reasoning_content、usage 和 tool_calls 分片。
+5. 如果事件里有 assistant content delta，`AIOpenAIStreamEventHandler` 会通过 partial callback 通知 `AIAgentRuntime`，runtime 再用 `message_added/message_updated` 推到 Session/UI。
+6. 流结束后调用 `_apply_tool_name_map()`，把 provider-safe 工具名恢复成内部工具名。
+7. 返回完整 `AIAgentRuntimeResponse`，由 runtime 决定是否执行工具或结束本轮。
+
+`complete()` 和 `request_chat_completion()` 仍保留为非流式路径，主要用于测试、兼容不支持 streaming 的 transport，以及将来必要时做 fallback。
 
 内部消息到 OpenAI-compatible 消息的关键转换：
 
@@ -288,7 +291,7 @@ metadata["tool_call_id"] = "call_xxx"
 
 - `editor/ai_component/providers/ai_openai_runtime_client.cpp`
 
-`AIOpenAIHTTPRuntimeTransport::request_chat_completion()` 使用 Godot `HTTPClient`：
+`AIOpenAIHTTPRuntimeTransport::request_chat_completion_stream()` 使用 Godot `HTTPClient`：
 
 1. 校验 `api_key` 和 `base_url`。
 2. `base_url.parse_url()` 得到 scheme/host/port/base_path。
@@ -296,12 +299,14 @@ metadata["tool_call_id"] = "call_xxx"
 4. 组装请求头：
    - `Authorization: Bearer <api_key>`
    - `Content-Type: application/json`
-   - `Accept: application/json`
-5. 调用 `AIOpenAICompatibleCodec::build_body(..., stream=false)` 构造 body。
+   - `Accept: text/event-stream`
+   - `Cache-Control: no-cache`
+5. 调用 `AIOpenAICompatibleCodec::build_body(..., stream=true)` 构造 body。
 6. 请求路径由 `build_request_path()` 统一补成 `/chat/completions`。
-7. 读取完整响应 body。
+7. 按 SSE 空行边界读取 `data:` 事件。内部使用字节缓冲，只有切出完整事件后才做 UTF-8 转换，避免中文等多字节字符被 HTTP chunk 截断时乱码。
+8. 每个事件都会打印终端日志，包括 chunk 大小、事件序号、是否 `[DONE]`、HTTP 状态码和错误预览。
 
-当前 function calling 路径是非流式，因此等待期间 UI 显示 loading，响应完成后统一更新消息。默认请求超时时间为 180 秒，用来覆盖慢模型和工具调用多轮请求的常见延迟；后续如果在设置页暴露 timeout，应继续写入 `AIProviderConfig::timeout_seconds`。
+当前 function calling 路径已经支持 assistant 文本流式显示。工具调用仍必须等当前 provider turn 完成并拿到完整 `tool_calls[].function.arguments` 后才能执行，因为 OpenAI-compatible function calling 的参数通常是分片 JSON，未结束前不能安全解析。默认请求超时时间为 180 秒，用来覆盖慢模型和工具调用多轮请求的常见延迟；后续如果在设置页暴露 timeout，应继续写入 `AIProviderConfig::timeout_seconds`。
 
 ### 4.3 Codec 与 `<null>` 防护
 
@@ -315,7 +320,9 @@ metadata["tool_call_id"] = "call_xxx"
 - `build_request_path()` 把 `base_url` path 统一补成 `/chat/completions`。
 - `build_body()` 构造请求 JSON body。
 - `parse_chat_completion()` 解析非流式响应。
-- `extract_delta()` 保留为流式 delta 解析工具，后续如果重新做 streaming runtime 可复用。
+- `AIOpenAICompatibleStreamAccumulator::apply_event()` 解析并累积流式 SSE event。
+- `AIOpenAICompatibleStreamAccumulator::get_response()` 在流结束后生成完整 `AIAgentRuntimeResponse`。
+- `extract_delta()` 保留为旧的简单流式 delta 测试工具。
 
 `parse_chat_completion()` 解析非流式响应：
 
@@ -323,7 +330,7 @@ metadata["tool_call_id"] = "call_xxx"
 - `choices[0].message.tool_calls` 会转换成内部 `AIToolCall`。
 - `finish_reason` 非 null 时才写入 metadata。
 
-这次修复的重点之一是避免 JSON `null` 被 Godot `String(Variant())` 转成字面量 `"<null>"`。因此流式 `_extract_delta()` 和非流式 `parse_chat_completion()` 都做了 `Variant::NIL` 检查。
+这次修复的重点之一是避免 JSON `null` 被 Godot `String(Variant())` 转成字面量 `"<null>"`。因此流式 accumulator、旧的 `_extract_delta()` 和非流式 `parse_chat_completion()` 都做了 `Variant::NIL` 检查。
 
 旧的 `AIOpenAICompatibleProvider::
 ()` 和 `AIAgentRunner` fallback 已移除。当前 AI Dock 只有 runtime function calling 主路径，避免旧 streaming provider 与新 Agent runtime 同时存在造成职责混乱。

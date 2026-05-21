@@ -62,6 +62,11 @@ AIAgentRuntimeResponse AIAgentRuntimeClient::complete(const Array &p_messages, c
 	return response;
 }
 
+AIAgentRuntimeResponse AIAgentRuntimeClient::complete_streaming(const Array &p_messages, const Array &p_tool_schemas, const Callable &p_partial_response_callback) {
+	(void)p_partial_response_callback;
+	return complete(p_messages, p_tool_schemas);
+}
+
 void AIAgentRuntime::_bind_methods() {
 }
 
@@ -194,6 +199,48 @@ void AIAgentRuntime::_emit_message_updated(int p_index, const AIAgentMessage &p_
 	}
 }
 
+void AIAgentRuntime::_on_provider_partial_response(const Dictionary &p_response) {
+	if (!streaming_result) {
+		return;
+	}
+
+	AIAgentRuntimeResponse partial_response;
+	if (p_response.has("content") && Variant(p_response["content"]).get_type() != Variant::NIL) {
+		partial_response.content = p_response["content"];
+	}
+	if (p_response.has("metadata") && Variant(p_response["metadata"]).get_type() == Variant::DICTIONARY) {
+		partial_response.metadata = p_response["metadata"];
+	}
+
+	if (streaming_assistant_message_index < 0) {
+		if (partial_response.content.is_empty()) {
+			return;
+		}
+
+		AIAgentMessage assistant_message;
+		assistant_message.role = AI_AGENT_ROLE_ASSISTANT;
+		assistant_message.content = partial_response.content;
+		assistant_message.metadata = partial_response.metadata;
+		assistant_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+		streaming_assistant_message_index = streaming_result->messages.size();
+		streaming_result->messages.push_back(assistant_message);
+		_emit_message_added(assistant_message);
+		print_line(vformat("[AI Agent][Runtime] Streaming assistant message started. index=%d chars=%d", streaming_assistant_message_index, partial_response.content.length()));
+		return;
+	}
+
+	if (streaming_assistant_message_index >= streaming_result->messages.size()) {
+		return;
+	}
+
+	AIAgentMessage assistant_message = streaming_result->messages[streaming_assistant_message_index];
+	assistant_message.content = partial_response.content;
+	assistant_message.metadata = partial_response.metadata;
+	streaming_result->messages.write[streaming_assistant_message_index] = assistant_message;
+	_emit_message_updated(streaming_assistant_message_index, assistant_message);
+	print_line(vformat("[AI Agent][Runtime] Streaming assistant message updated. index=%d chars=%d", streaming_assistant_message_index, partial_response.content.length()));
+}
+
 AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents) {
 	AIAgentRuntimeResult result;
 	result.messages = p_messages;
@@ -233,9 +280,13 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 				(int)context_result.metadata.get("truncated_tool_results", 0),
 				(int)context_result.metadata.get("truncated_context_documents", 0),
 				executed_tool_calls));
-		AIAgentRuntimeResponse response = client->complete(provider_messages, tool_schemas);
+		streaming_result = &result;
+		streaming_assistant_message_index = -1;
+		AIAgentRuntimeResponse response = client->complete_streaming(provider_messages, tool_schemas, callable_mp(this, &AIAgentRuntime::_on_provider_partial_response));
+		streaming_result = nullptr;
 
 		if (!response.error.is_empty()) {
+			streaming_assistant_message_index = -1;
 			result.error = response.error;
 			print_line(vformat("[AI Agent][Runtime] Provider turn failed. turn=%d error=%s", turn + 1, result.error));
 			return result;
@@ -257,7 +308,15 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 		print_line(vformat("[AI Agent][Runtime] Provider turn completed. turn=%d content_chars=%d tool_calls=%d", turn + 1, response.content.length(), response.tool_calls.size()));
 
 		if (!response.has_tool_calls()) {
-			if (!response.content.is_empty()) {
+			if (streaming_assistant_message_index >= 0 && streaming_assistant_message_index < result.messages.size()) {
+				AIAgentMessage assistant_message = result.messages[streaming_assistant_message_index];
+				assistant_message.content = response.content;
+				assistant_message.metadata = response.metadata;
+				result.messages.write[streaming_assistant_message_index] = assistant_message;
+				_emit_message_updated(streaming_assistant_message_index, assistant_message);
+				print_line(vformat("[AI Agent][Runtime] Final streaming assistant message committed. chars=%d", response.content.length()));
+				streaming_assistant_message_index = -1;
+			} else if (!response.content.is_empty()) {
 				AIAgentMessage assistant_message;
 				assistant_message.role = AI_AGENT_ROLE_ASSISTANT;
 				assistant_message.content = response.content;
@@ -273,9 +332,16 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 		}
 
 		AIAgentMessage assistant_tool_call_message = _make_assistant_tool_call_message(response);
-		const int assistant_tool_call_message_index = result.messages.size();
-		result.messages.push_back(assistant_tool_call_message);
-		_emit_message_added(assistant_tool_call_message);
+		int assistant_tool_call_message_index = result.messages.size();
+		if (streaming_assistant_message_index >= 0 && streaming_assistant_message_index < result.messages.size()) {
+			assistant_tool_call_message_index = streaming_assistant_message_index;
+			result.messages.write[assistant_tool_call_message_index] = assistant_tool_call_message;
+			_emit_message_updated(assistant_tool_call_message_index, assistant_tool_call_message);
+			streaming_assistant_message_index = -1;
+		} else {
+			result.messages.push_back(assistant_tool_call_message);
+			_emit_message_added(assistant_tool_call_message);
+		}
 		print_line(vformat("[AI Agent][Runtime] Assistant tool-call message appended. tool_calls=%d", response.tool_calls.size()));
 
 		for (int i = 0; i < response.tool_calls.size(); i++) {

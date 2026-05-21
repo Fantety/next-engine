@@ -41,6 +41,7 @@ protected:
 
 public:
 	virtual AIAgentRuntimeResponse complete(const Array &p_messages, const Array &p_tool_schemas);
+	virtual AIAgentRuntimeResponse complete_streaming(const Array &p_messages, const Array &p_tool_schemas, const Callable &p_partial_response_callback);
 };
 
 class AIAgentRuntime : public RefCounted {
@@ -52,6 +53,8 @@ class AIAgentRuntime : public RefCounted {
 	AIAgentProfile profile;
 	Callable message_added_callback;
 	Callable message_updated_callback;
+	AIAgentRuntimeResult *streaming_result = nullptr;
+	int streaming_assistant_message_index = -1;
 	int max_provider_turns = 6;
 	int max_tool_calls = 20;
 
@@ -62,6 +65,7 @@ class AIAgentRuntime : public RefCounted {
 	String _make_tool_failure_message(const String &p_tool_name, const String &p_reason) const;
 	void _emit_message_added(const AIAgentMessage &p_message) const;
 	void _emit_message_updated(int p_index, const AIAgentMessage &p_message) const;
+	void _on_provider_partial_response(const Dictionary &p_response);
 
 protected:
 	static void _bind_methods();

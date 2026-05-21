@@ -62,6 +62,7 @@ class ScriptedRuntimeClient : public AIAgentRuntimeClient {
 	GDCLASS(ScriptedRuntimeClient, AIAgentRuntimeClient);
 
 	Vector<AIAgentRuntimeResponse> responses;
+	Vector<AIAgentRuntimeResponse> partial_responses;
 
 public:
 	int request_count = 0;
@@ -72,10 +73,38 @@ public:
 		responses.push_back(p_response);
 	}
 
+	void push_partial_response(const AIAgentRuntimeResponse &p_response) {
+		partial_responses.push_back(p_response);
+	}
+
 	virtual AIAgentRuntimeResponse complete(const Array &p_messages, const Array &p_tool_schemas) override {
 		request_count++;
 		last_messages = p_messages;
 		last_tool_schemas = p_tool_schemas;
+
+		if (responses.is_empty()) {
+			AIAgentRuntimeResponse response;
+			response.error = "No scripted runtime response.";
+			return response;
+		}
+
+		AIAgentRuntimeResponse response = responses[0];
+		responses.remove_at(0);
+		return response;
+	}
+
+	virtual AIAgentRuntimeResponse complete_streaming(const Array &p_messages, const Array &p_tool_schemas, const Callable &p_partial_response_callback) override {
+		request_count++;
+		last_messages = p_messages;
+		last_tool_schemas = p_tool_schemas;
+
+		for (int i = 0; i < partial_responses.size(); i++) {
+			Dictionary partial;
+			partial["content"] = partial_responses[i].content;
+			partial["metadata"] = partial_responses[i].metadata;
+			p_partial_response_callback.call(partial);
+		}
+		partial_responses.clear();
 
 		if (responses.is_empty()) {
 			AIAgentRuntimeResponse response;
@@ -99,6 +128,8 @@ public:
 	String response_text;
 	String error;
 	int request_count = 0;
+	Vector<String> stream_events;
+	bool stream_supported = false;
 
 	virtual bool request_chat_completion(const AIProviderConfig &p_config, const Array &p_messages, const Array &p_tool_schemas, String &r_response_text, String &r_error) override {
 		request_count++;
@@ -109,6 +140,26 @@ public:
 		r_error = error;
 		return error.is_empty();
 	}
+
+	virtual bool request_chat_completion_stream(const AIProviderConfig &p_config, const Array &p_messages, const Array &p_tool_schemas, const Callable &p_stream_event_callback, String &r_error) override {
+		request_count++;
+		last_config = p_config;
+		last_messages = p_messages;
+		last_tool_schemas = p_tool_schemas;
+		if (!stream_supported) {
+			r_error = "OpenAI streaming runtime transport is not implemented.";
+			return false;
+		}
+		if (!error.is_empty()) {
+			r_error = error;
+			return false;
+		}
+		for (int i = 0; i < stream_events.size(); i++) {
+			p_stream_event_callback.call(stream_events[i]);
+		}
+		r_error = String();
+		return true;
+	}
 };
 
 class RuntimeProgressRecorder : public RefCounted {
@@ -118,6 +169,7 @@ public:
 	Array added_messages;
 	Array updated_messages;
 	Array updated_indices;
+	Array partial_responses;
 
 	void record_added(const Dictionary &p_message) {
 		added_messages.push_back(p_message);
@@ -126,6 +178,10 @@ public:
 	void record_updated(int p_index, const Dictionary &p_message) {
 		updated_indices.push_back(p_index);
 		updated_messages.push_back(p_message);
+	}
+
+	void record_partial(const Dictionary &p_response) {
+		partial_responses.push_back(p_response);
 	}
 };
 
@@ -445,6 +501,55 @@ TEST_CASE("[Editor][AI] Agent runtime reports tool progress before the final res
 	Dictionary third_added = recorder->added_messages[2];
 	CHECK(String(third_added["role"]) == "assistant");
 	CHECK(String(third_added["content"]) == "Progress complete.");
+}
+
+TEST_CASE("[Editor][AI] Agent runtime streams assistant message updates before final result") {
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse first_partial;
+	first_partial.content = "Hel";
+	client->push_partial_response(first_partial);
+
+	AIAgentRuntimeResponse second_partial;
+	second_partial.content = "Hello";
+	client->push_partial_response(second_partial);
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Hello world.";
+	client->push_response(final_response);
+
+	Ref<RuntimeProgressRecorder> recorder;
+	recorder.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_profile(_make_test_profile(false));
+	runtime->set_progress_callbacks(callable_mp(recorder.ptr(), &RuntimeProgressRecorder::record_added), callable_mp(recorder.ptr(), &RuntimeProgressRecorder::record_updated));
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Stream a reply."));
+
+	AIAgentRuntimeResult result = runtime->run(messages);
+
+	CHECK(result.success);
+	REQUIRE(result.messages.size() == 2);
+	CHECK(result.messages[1].content == "Hello world.");
+	REQUIRE(recorder->added_messages.size() == 1);
+	Dictionary added = recorder->added_messages[0];
+	CHECK(String(added["role"]) == "assistant");
+	CHECK(String(added["content"]) == "Hel");
+
+	REQUIRE(recorder->updated_messages.size() >= 2);
+	Dictionary first_update = recorder->updated_messages[0];
+	CHECK(String(first_update["content"]) == "Hello");
+	Dictionary final_update = recorder->updated_messages[recorder->updated_messages.size() - 1];
+	CHECK(String(final_update["content"]) == "Hello world.");
 }
 
 TEST_CASE("[Editor][AI] Agent runtime aggregates provider token usage") {
@@ -996,6 +1101,27 @@ TEST_CASE("[Editor][AI] OpenAI-compatible codec ignores null stream deltas") {
 	CHECK_FALSE(finish_reason == "<null>");
 }
 
+TEST_CASE("[Editor][AI] OpenAI-compatible stream accumulator assembles content and tool calls") {
+	AIOpenAICompatibleStreamAccumulator accumulator;
+	AIOpenAIStreamParseResult result;
+
+	CHECK(accumulator.apply_event("{\"choices\":[{\"delta\":{\"content\":\"Hel\"},\"finish_reason\":null}]}", result));
+	CHECK(result.has_delta);
+	CHECK(result.response.content == "Hel");
+
+	CHECK(accumulator.apply_event("{\"choices\":[{\"delta\":{\"content\":\"lo\"},\"finish_reason\":null}]}", result));
+	CHECK(result.response.content == "Hello");
+
+	CHECK(accumulator.apply_event("{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_read\",\"type\":\"function\",\"function\":{\"name\":\"project_read_file\",\"arguments\":\"{\\\"path\\\":\"}}]},\"finish_reason\":null}]}", result));
+	CHECK(accumulator.apply_event("{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"res://player.gd\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}", result));
+	CHECK(result.done);
+	CHECK(result.response.content == "Hello");
+	REQUIRE(result.response.tool_calls.size() == 1);
+	CHECK(result.response.tool_calls[0].id == "call_read");
+	CHECK(result.response.tool_calls[0].tool_name == "project_read_file");
+	CHECK(String(result.response.tool_calls[0].arguments["path"]) == "res://player.gd");
+}
+
 TEST_CASE("[Editor][AI] OpenAI-compatible runtime client converts transport responses") {
 	Ref<FakeOpenAIRuntimeTransport> transport;
 	transport.instantiate();
@@ -1032,6 +1158,82 @@ TEST_CASE("[Editor][AI] OpenAI-compatible runtime client converts transport resp
 	CHECK(transport->last_config.model == "test-model");
 	CHECK(transport->last_messages.size() == 1);
 	CHECK(transport->last_tool_schemas.size() == 1);
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client streams provider deltas") {
+	Ref<FakeOpenAIRuntimeTransport> transport;
+	transport.instantiate();
+	transport->stream_supported = true;
+	transport->stream_events.push_back("{\"choices\":[{\"delta\":{\"content\":\"Hel\"},\"finish_reason\":null}]}");
+	transport->stream_events.push_back("{\"choices\":[{\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":2,\"total_tokens\":9}}");
+	transport->stream_events.push_back("[DONE]");
+
+	AIProviderConfig config;
+	config.provider_name = "Test";
+	config.model = "test-model";
+	config.base_url = "https://example.test/v1";
+	config.api_key = "test-key";
+
+	Ref<AIOpenAICompatibleRuntimeClient> client;
+	client.instantiate();
+	client->set_config(config);
+	client->set_transport(transport);
+
+	Ref<RuntimeProgressRecorder> recorder;
+	recorder.instantiate();
+
+	AIAgentRuntimeResponse response = client->complete_streaming(Array(), Array(), callable_mp(recorder.ptr(), &RuntimeProgressRecorder::record_partial));
+
+	CHECK(response.error.is_empty());
+	CHECK(response.content == "Hello");
+	CHECK(transport->request_count == 1);
+	REQUIRE(recorder->partial_responses.size() == 2);
+	Dictionary first_partial = recorder->partial_responses[0];
+	CHECK(String(first_partial["content"]) == "Hel");
+	Dictionary second_partial = recorder->partial_responses[1];
+	CHECK(String(second_partial["content"]) == "Hello");
+	REQUIRE(response.metadata.has("usage"));
+	Dictionary usage = response.metadata["usage"];
+	CHECK((int)usage.get("total_tokens", 0) == 9);
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client maps streamed tool calls") {
+	Ref<FakeOpenAIRuntimeTransport> transport;
+	transport.instantiate();
+	transport->stream_supported = true;
+	transport->stream_events.push_back("{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_read\",\"type\":\"function\",\"function\":{\"name\":\"project_read_file\",\"arguments\":\"{\\\"path\\\":\"}}]},\"finish_reason\":null}]}");
+	transport->stream_events.push_back("{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"res://player.gd\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}");
+	transport->stream_events.push_back("[DONE]");
+
+	AIProviderConfig config;
+	config.provider_name = "Test";
+	config.model = "test-model";
+	config.base_url = "https://example.test/v1";
+	config.api_key = "test-key";
+
+	Ref<AIOpenAICompatibleRuntimeClient> client;
+	client.instantiate();
+	client->set_config(config);
+	client->set_transport(transport);
+
+	Dictionary function;
+	function["name"] = "project.read_file";
+	Dictionary parameters;
+	parameters["type"] = "object";
+	function["parameters"] = parameters;
+	Dictionary schema;
+	schema["type"] = "function";
+	schema["function"] = function;
+	Array tool_schemas;
+	tool_schemas.push_back(schema);
+
+	AIAgentRuntimeResponse response = client->complete_streaming(Array(), tool_schemas, Callable());
+
+	CHECK(response.error.is_empty());
+	REQUIRE(response.tool_calls.size() == 1);
+	CHECK(response.tool_calls[0].id == "call_read");
+	CHECK(response.tool_calls[0].tool_name == "project.read_file");
+	CHECK(String(response.tool_calls[0].arguments["path"]) == "res://player.gd");
 }
 
 TEST_CASE("[Editor][AI] OpenAI-compatible runtime client maps tool schema names for provider compatibility") {
