@@ -667,8 +667,8 @@ TEST_CASE("[Editor][AI] Agent runtime defaults to bounded provider and tool-call
 	Ref<AIAgentRuntime> runtime;
 	runtime.instantiate();
 
-	CHECK(runtime->get_max_provider_turns() == 6);
-	CHECK(runtime->get_max_tool_calls() == 20);
+	CHECK(runtime->get_max_provider_turns() == 12);
+	CHECK(runtime->get_max_tool_calls() == 60);
 }
 
 TEST_CASE("[Editor][AI] Conversation serializer preserves tool messages and metadata") {

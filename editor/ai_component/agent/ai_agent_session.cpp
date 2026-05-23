@@ -13,7 +13,14 @@
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_list_properties_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_move_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_open_scene_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_rename_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_save_current_scene_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_set_property_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
+#include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
 
@@ -362,6 +369,11 @@ void AIAgentSession::_configure_tool_runtime() {
 	tool_registry->register_tool(read_file);
 	print_line("[AI Agent][Session] Registered tool: project.read_file");
 
+	Ref<AICreateFolderTool> create_folder;
+	create_folder.instantiate();
+	tool_registry->register_tool(create_folder);
+	print_line("[AI Agent][Session] Registered tool: project.create_folder");
+
 	Ref<AISearchProjectTool> search_project;
 	search_project.instantiate();
 	tool_registry->register_tool(search_project);
@@ -386,6 +398,36 @@ void AIAgentSession::_configure_tool_runtime() {
 	delete_node_tool.instantiate();
 	tool_registry->register_tool(delete_node_tool);
 	print_line("[AI Agent][Session] Registered tool: scene.delete_node");
+
+	Ref<AISceneListPropertiesTool> list_properties_tool;
+	list_properties_tool.instantiate();
+	tool_registry->register_tool(list_properties_tool);
+	print_line("[AI Agent][Session] Registered tool: scene.list_properties");
+
+	Ref<AISceneRenameNodeTool> rename_node_tool;
+	rename_node_tool.instantiate();
+	tool_registry->register_tool(rename_node_tool);
+	print_line("[AI Agent][Session] Registered tool: scene.rename_node");
+
+	Ref<AISceneMoveNodeTool> move_node_tool;
+	move_node_tool.instantiate();
+	tool_registry->register_tool(move_node_tool);
+	print_line("[AI Agent][Session] Registered tool: scene.move_node");
+
+	Ref<AISceneSetPropertyTool> set_property_tool;
+	set_property_tool.instantiate();
+	tool_registry->register_tool(set_property_tool);
+	print_line("[AI Agent][Session] Registered tool: scene.set_property");
+
+	Ref<AISceneSaveCurrentSceneTool> save_current_scene_tool;
+	save_current_scene_tool.instantiate();
+	tool_registry->register_tool(save_current_scene_tool);
+	print_line("[AI Agent][Session] Registered tool: scene.save_current_scene");
+
+	Ref<AISceneOpenSceneTool> open_scene_tool;
+	open_scene_tool.instantiate();
+	tool_registry->register_tool(open_scene_tool);
+	print_line("[AI Agent][Session] Registered tool: scene.open_scene");
 
 	runtime->set_tool_registry(tool_registry);
 	runtime->set_profile(agent_profile);

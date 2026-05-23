@@ -14,6 +14,13 @@
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_list_properties_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_move_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_open_scene_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_rename_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_save_current_scene_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_set_property_tool.h"
+#include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
@@ -115,10 +122,17 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.read_file", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.search_text", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.create_folder", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.create_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.add_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.delete_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.list_properties", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.rename_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.move_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.set_property", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.save_current_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.open_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "unknown.tool", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
@@ -126,10 +140,17 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::evaluate(build, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
 	CHECK(AIToolPermissionPolicy::evaluate(write, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "project.create_folder", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.create_scene", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.add_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.delete_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.list_properties", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.rename_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.move_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.set_property", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.save_current_scene", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.open_scene", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
@@ -165,6 +186,64 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	Dictionary delete_schema = delete_node->get_parameters_schema();
 	Dictionary delete_properties = delete_schema["properties"];
 	CHECK(delete_properties.has("node_path"));
+
+	Ref<AISceneListPropertiesTool> list_properties;
+	list_properties.instantiate();
+	CHECK(list_properties->get_name() == "scene.list_properties");
+	Dictionary list_properties_schema = list_properties->get_parameters_schema();
+	Dictionary list_properties_properties = list_properties_schema["properties"];
+	CHECK(list_properties_properties.has("node_path"));
+	CHECK(list_properties_properties.has("filter"));
+	CHECK(list_properties_properties.has("max_properties"));
+	CHECK(list_properties_properties.has("include_read_only"));
+	CHECK(list_properties_properties.has("include_current_values"));
+
+	Ref<AISceneRenameNodeTool> rename_node;
+	rename_node.instantiate();
+	CHECK(rename_node->get_name() == "scene.rename_node");
+	Dictionary rename_schema = rename_node->get_parameters_schema();
+	Dictionary rename_properties = rename_schema["properties"];
+	CHECK(rename_properties.has("node_path"));
+	CHECK(rename_properties.has("new_name"));
+	Array rename_required = rename_schema["required"];
+	CHECK(rename_required.has("node_path"));
+	CHECK(rename_required.has("new_name"));
+
+	Ref<AISceneMoveNodeTool> move_node;
+	move_node.instantiate();
+	CHECK(move_node->get_name() == "scene.move_node");
+	Dictionary move_schema = move_node->get_parameters_schema();
+	Dictionary move_properties = move_schema["properties"];
+	CHECK(move_properties.has("node_path"));
+	CHECK(move_properties.has("new_parent_path"));
+	CHECK(move_properties.has("position"));
+
+	Ref<AISceneSetPropertyTool> set_property;
+	set_property.instantiate();
+	CHECK(set_property->get_name() == "scene.set_property");
+	Dictionary set_schema = set_property->get_parameters_schema();
+	Dictionary set_properties = set_schema["properties"];
+	CHECK(set_properties.has("node_path"));
+	CHECK(set_properties.has("property_path"));
+	CHECK(set_properties.has("value"));
+
+	Ref<AISceneSaveCurrentSceneTool> save_current_scene;
+	save_current_scene.instantiate();
+	CHECK(save_current_scene->get_name() == "scene.save_current_scene");
+
+	Ref<AISceneOpenSceneTool> open_scene;
+	open_scene.instantiate();
+	CHECK(open_scene->get_name() == "scene.open_scene");
+	Dictionary open_schema = open_scene->get_parameters_schema();
+	Dictionary open_properties = open_schema["properties"];
+	CHECK(open_properties.has("path"));
+
+	Ref<AICreateFolderTool> create_folder;
+	create_folder.instantiate();
+	CHECK(create_folder->get_name() == "project.create_folder");
+	Dictionary folder_schema = create_folder->get_parameters_schema();
+	Dictionary folder_properties = folder_schema["properties"];
+	CHECK(folder_properties.has("path"));
 }
 
 TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before touching editor state") {
@@ -184,6 +263,48 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	delete_node.instantiate();
 	Dictionary delete_arguments;
 	CHECK(delete_node->execute(delete_arguments).is_error());
+
+	Ref<AISceneListPropertiesTool> list_properties;
+	list_properties.instantiate();
+	Dictionary list_properties_arguments;
+	CHECK(list_properties->execute(list_properties_arguments).is_error());
+
+	Ref<AISceneRenameNodeTool> rename_node;
+	rename_node.instantiate();
+	Dictionary rename_arguments;
+	CHECK(rename_node->execute(rename_arguments).is_error());
+	rename_arguments["node_path"] = "Player";
+	CHECK(rename_node->execute(rename_arguments).is_error());
+
+	Ref<AISceneMoveNodeTool> move_node;
+	move_node.instantiate();
+	Dictionary move_arguments;
+	CHECK(move_node->execute(move_arguments).is_error());
+	move_arguments["node_path"] = "Player";
+	CHECK(move_node->execute(move_arguments).is_error());
+
+	Ref<AISceneSetPropertyTool> set_property;
+	set_property.instantiate();
+	Dictionary property_arguments;
+	CHECK(set_property->execute(property_arguments).is_error());
+	property_arguments["node_path"] = "Player";
+	CHECK(set_property->execute(property_arguments).is_error());
+	property_arguments["property_path"] = "position";
+	CHECK(set_property->execute(property_arguments).is_error());
+
+	Ref<AISceneOpenSceneTool> open_scene;
+	open_scene.instantiate();
+	Dictionary open_arguments;
+	CHECK(open_scene->execute(open_arguments).is_error());
+
+	Ref<AICreateFolderTool> create_folder;
+	create_folder.instantiate();
+	Dictionary folder_arguments;
+	CHECK(create_folder->execute(folder_arguments).is_error());
+	folder_arguments["path"] = "C:/outside";
+	CHECK(create_folder->execute(folder_arguments).is_error());
+	folder_arguments["path"] = "res://";
+	CHECK(create_folder->execute(folder_arguments).is_error());
 }
 
 TEST_CASE("[Editor][AI] Read-only project tools enforce project boundaries") {

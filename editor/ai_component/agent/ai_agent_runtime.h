@@ -55,8 +55,8 @@ class AIAgentRuntime : public RefCounted {
 	Callable message_updated_callback;
 	AIAgentRuntimeResult *streaming_result = nullptr;
 	int streaming_assistant_message_index = -1;
-	int max_provider_turns = 6;
-	int max_tool_calls = 20;
+	int max_provider_turns = 255;
+	int max_tool_calls = 60;
 
 	Array _get_allowed_tool_schemas() const;
 	AIAgentMessage _make_assistant_tool_call_message(const AIAgentRuntimeResponse &p_response) const;
