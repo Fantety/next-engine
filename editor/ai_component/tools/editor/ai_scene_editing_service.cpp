@@ -36,6 +36,7 @@
 #include "scene/resources/packed_scene.h"
 
 void AISceneEditingService::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("_update_scene_tree"), &AISceneEditingService::_update_scene_tree);
 }
 
 AISceneEditingService *AISceneEditingService::get_dispatcher_singleton() {
@@ -1550,8 +1551,8 @@ AISceneEditingResult AISceneEditingService::_set_property_main_thread(const Stri
 	undo_redo->create_action_for_history(TTR("AI Set Property"), EditorNode::get_editor_data().get_current_edited_scene_history_id(), UndoRedo::MERGE_ENDS, false, true);
 	undo_redo->add_do_method(node, "set_indexed", property_path, converted_value);
 	undo_redo->add_undo_method(node, "set_indexed", property_path, current_value);
-	undo_redo->add_do_method(callable_mp(this, &AISceneEditingService::_update_scene_tree));
-	undo_redo->add_undo_method(callable_mp(this, &AISceneEditingService::_update_scene_tree));
+	undo_redo->add_do_method(this, "_update_scene_tree");
+	undo_redo->add_undo_method(this, "_update_scene_tree");
 	undo_redo->commit_action();
 
 	String saved_path;
