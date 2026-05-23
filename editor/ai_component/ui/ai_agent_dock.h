@@ -7,6 +7,7 @@
 #include "editor/docks/editor_dock.h"
 
 #include "editor/ai_component/agent/ai_agent_session.h"
+#include "editor/ai_component/ui/ai_change_review_panel.h"
 #include "editor/ai_component/ui/ai_composer.h"
 #include "editor/ai_component/ui/ai_message_list.h"
 #include "scene/gui/button.h"
@@ -25,6 +26,7 @@ class AIAgentDock : public EditorDock {
 	Button *delete_session_button = nullptr;
 	ConfirmationDialog *delete_session_dialog = nullptr;
 	ConfirmationDialog *tool_approval_dialog = nullptr;
+	AIChangeReviewPanel *change_review_panel = nullptr;
 	AIMessageList *message_list = nullptr;
 	HBoxContainer *request_status_row = nullptr;
 	ColorRect *request_progress = nullptr;

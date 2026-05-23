@@ -6,6 +6,8 @@
 
 #include "editor/ai_component/agent/ai_agent_profile.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
+#include "editor/ai_component/review/ai_change_set_store.h"
+#include "editor/ai_component/review/ai_diff_service.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
@@ -120,11 +122,13 @@ TEST_CASE("[Editor][AI] Tool calls serialize stable execution state") {
 TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	AIAgentProfile plan = AIAgentProfile::get_plan_profile();
 	AIAgentProfile build = AIAgentProfile::get_build_profile();
+	AIAgentProfile review = AIAgentProfile::get_review_profile();
 	AIAgentProfile write = AIAgentProfile::get_write_profile();
 
 	Dictionary arguments;
 	CHECK(plan.id == "plan");
 	CHECK(build.id == "build");
+	CHECK(review.id == "review");
 	CHECK(write.id == "write");
 
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
@@ -155,6 +159,13 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::evaluate(build, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(build, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
+	CHECK(AIToolPermissionPolicy::evaluate(review, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(review, "project.create_folder", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(review, "script.write", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(review, "script.delete", arguments).decision == AI_TOOL_PERMISSION_ASK);
+	CHECK(AIToolPermissionPolicy::evaluate(review, "shader.apply_to_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(review, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
+
 	CHECK(AIToolPermissionPolicy::evaluate(write, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "project.create_folder", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
@@ -180,6 +191,118 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ASK) == "ask");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_DENY) == "deny");
+}
+
+TEST_CASE("[Editor][AI] Diff service creates reviewable text change metadata") {
+	Dictionary change = AIDiffService::build_text_change("res://scripts/player.gd", "modify", "extends Node\n", "extends Node\n\nfunc _ready():\n\tpass\n", "gdscript");
+
+	CHECK(String(change["path"]) == "res://scripts/player.gd");
+	CHECK(String(change["type"]) == "modify");
+	CHECK(String(change["language"]) == "gdscript");
+	CHECK(String(change["old_text"]) == "extends Node\n");
+	CHECK(String(change["new_text"]).contains("func _ready"));
+	CHECK((int)change["added_lines"] > 0);
+	CHECK(String(change["diff"]).contains("--- res://scripts/player.gd"));
+	CHECK(String(change["diff"]).contains("+++ res://scripts/player.gd"));
+}
+
+TEST_CASE("[Editor][AI] Change set store keeps pending review changes in memory") {
+	Ref<AIChangeSetStore> store = AIChangeSetStore::get_singleton();
+	store->clear_for_test();
+
+	Array changes;
+	changes.push_back(AIDiffService::build_text_change("res://scripts/player.gd", "modify", "old\n", "new\n", "gdscript"));
+	String change_set_id = store->add_change_set("Update player script", "session-1", "tool-call-1", changes);
+
+	CHECK_FALSE(change_set_id.is_empty());
+	CHECK(store->get_pending_count() == 1);
+
+	Dictionary change_set = store->get_change_set(change_set_id);
+	CHECK(String(change_set["status"]) == "pending");
+	CHECK(String(change_set["session_id"]) == "session-1");
+	CHECK(String(change_set["tool_call_id"]) == "tool-call-1");
+	CHECK((int)change_set["added_lines"] == 1);
+	CHECK((int)change_set["removed_lines"] == 1);
+
+	String error;
+	CHECK(store->keep_change_set(change_set_id, error));
+	CHECK(store->get_pending_count() == 0);
+	CHECK(String(store->get_change_set(change_set_id)["status"]) == "kept");
+
+	store->clear_for_test();
+}
+
+TEST_CASE("[Editor][AI] Change set store merges repeated file edits in one session") {
+	Ref<AIChangeSetStore> store = AIChangeSetStore::get_singleton();
+	store->clear_for_test();
+
+	Array first_changes;
+	first_changes.push_back(AIDiffService::build_text_change("res://scripts/player.gd", "modify", "old\n", "middle\n", "gdscript"));
+	String first_id = store->add_change_set("First edit", "session-merge", "tool-call-1", first_changes);
+
+	Array second_changes;
+	second_changes.push_back(AIDiffService::build_text_change("res://scripts/player.gd", "modify", "middle\n", "final\n", "gdscript"));
+	String second_id = store->add_change_set("Second edit", "session-merge", "tool-call-2", second_changes);
+
+	CHECK(first_id == second_id);
+	CHECK(store->get_pending_count() == 1);
+
+	Dictionary change_set = store->get_change_set(first_id);
+	CHECK(String(change_set["title"]) == "First edit");
+	CHECK(String(change_set["tool_call_id"]) == "tool-call-2");
+	Dictionary merged_metadata = change_set.get("metadata", Dictionary());
+	CHECK(bool(merged_metadata.get("merged_review_change", false)));
+	CHECK(String(merged_metadata.get("last_title", String())) == "Second edit");
+	CHECK(String(merged_metadata.get("last_tool_call_id", String())) == "tool-call-2");
+
+	Array changes = change_set["changes"];
+	REQUIRE(changes.size() == 1);
+	Dictionary merged_change = changes[0];
+	CHECK(String(merged_change["path"]) == "res://scripts/player.gd");
+	CHECK(String(merged_change["type"]) == "modify");
+	CHECK(String(merged_change["old_text"]) == "old\n");
+	CHECK(String(merged_change["new_text"]) == "final\n");
+	CHECK(String(merged_change["diff"]).contains("-old"));
+	CHECK(String(merged_change["diff"]).contains("+final"));
+	CHECK_FALSE(String(merged_change["diff"]).contains("middle"));
+
+	store->clear_for_test();
+}
+
+TEST_CASE("[Editor][AI] Change set store drops pending review when final text returns to original") {
+	Ref<AIChangeSetStore> store = AIChangeSetStore::get_singleton();
+	store->clear_for_test();
+
+	Array first_changes;
+	first_changes.push_back(AIDiffService::build_text_change("res://scripts/player.gd", "modify", "original\n", "changed\n", "gdscript"));
+	String change_set_id = store->add_change_set("Edit script", "session-noop", "tool-call-1", first_changes);
+
+	Array second_changes;
+	second_changes.push_back(AIDiffService::build_text_change("res://scripts/player.gd", "modify", "changed\n", "original\n", "gdscript"));
+	CHECK(store->add_change_set("Restore script", "session-noop", "tool-call-2", second_changes).is_empty());
+
+	CHECK(store->get_pending_count() == 0);
+	CHECK(String(store->get_change_set(change_set_id)["status"]) == "kept");
+
+	store->clear_for_test();
+}
+
+TEST_CASE("[Editor][AI] Change set store drops create-then-delete review changes") {
+	Ref<AIChangeSetStore> store = AIChangeSetStore::get_singleton();
+	store->clear_for_test();
+
+	Array create_changes;
+	create_changes.push_back(AIDiffService::build_text_change("res://scripts/temp.gd", "create", "", "extends Node\n", "gdscript"));
+	String change_set_id = store->add_change_set("Create temp script", "session-create-delete", "tool-call-1", create_changes);
+
+	Array delete_changes;
+	delete_changes.push_back(AIDiffService::build_text_change("res://scripts/temp.gd", "delete", "extends Node\n", "", "gdscript"));
+	CHECK(store->add_change_set("Delete temp script", "session-create-delete", "tool-call-2", delete_changes).is_empty());
+
+	CHECK(store->get_pending_count() == 0);
+	CHECK(String(store->get_change_set(change_set_id)["status"]) == "kept");
+
+	store->clear_for_test();
 }
 
 TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {

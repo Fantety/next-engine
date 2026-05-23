@@ -83,6 +83,9 @@ AIAgentDock::AIAgentDock() {
 	main->add_theme_constant_override("separation", 8 * EDSCALE);
 	root->add_child(main);
 
+	change_review_panel = memnew(AIChangeReviewPanel);
+	main->add_child(change_review_panel);
+
 	message_list = memnew(AIMessageList);
 	main->add_child(message_list);
 

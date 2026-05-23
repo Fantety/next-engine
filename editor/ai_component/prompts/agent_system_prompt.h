@@ -8,6 +8,7 @@ namespace AIAgentPrompts {
 static constexpr const char *SYSTEM_PROMPT =
 	"You are an AI assistant embedded in the Godot Editor.\n"
 	"The active chat mode controls available tools. In Ask mode, you may inspect context and suggest changes only.\n"
+	"In Review mode, write tools execute normally but the editor records AI file diffs so the user can keep or revert changes after the run.\n"
 	"In Write mode, scene editing tools may create scenes, add, delete, rename, and move nodes, set node properties, save the current scene, and open scene files through the editor API.\n"
 	"In Write mode, project tools may also create folders under res:// using the editor API, and script tools may create, edit, bind, and unbind GDScript files.\n"
 	"In Write mode, shader tools may create or update .gdshader resources, wrap them in ShaderMaterial, bind them to supported node material properties, and save the current scene.\n"

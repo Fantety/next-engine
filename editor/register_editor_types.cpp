@@ -144,9 +144,15 @@
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_file_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
+#include "editor/ai_component/review/ai_change_set_store.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
+#include "editor/ai_component/tools/editor/ai_scene_editing_service.h"
+#include "editor/ai_component/tools/editor/ai_script_editing_service.h"
+#include "editor/ai_component/tools/editor/ai_shader_editing_service.h"
 #include "editor/ai_component/ui/ai_agent_dock.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
+#include "editor/ai_component/ui/ai_change_review_panel.h"
 #include "editor/ai_component/ui/ai_composer.h"
 #include "editor/ai_component/ui/ai_model_profile_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
@@ -243,8 +249,14 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIEditorContextProvider);
 	GDREGISTER_CLASS(AIFileContextProvider);
 	GDREGISTER_CLASS(AIProjectTreeContextProvider);
+	GDREGISTER_CLASS(AIChangeSetStore);
 	GDREGISTER_CLASS(AIConversationStore);
+	GDREGISTER_CLASS(AIToolExecutionContext);
+	GDREGISTER_CLASS(AISceneEditingService);
+	GDREGISTER_CLASS(AIScriptEditingService);
+	GDREGISTER_CLASS(AIShaderEditingService);
 	GDREGISTER_CLASS(AIAgentSettingsDialog);
+	GDREGISTER_CLASS(AIChangeReviewPanel);
 	GDREGISTER_CLASS(AIComposer);
 	GDREGISTER_CLASS(AIModelProfileDialog);
 	GDREGISTER_CLASS(AIMarkdownLabel);

@@ -86,6 +86,8 @@ void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
 void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {
 	if (p_profile_id == "write") {
 		agent_profile = AIAgentProfile::get_write_profile();
+	} else if (p_profile_id == "review") {
+		agent_profile = AIAgentProfile::get_review_profile();
 	} else if (p_profile_id == "build") {
 		agent_profile = AIAgentProfile::get_build_profile();
 	} else {
@@ -491,6 +493,7 @@ bool AIAgentSession::_start_runtime_turn() {
 	print_line(vformat("[AI Agent][Session] Starting function-calling runtime. request_messages=%d", request_messages.size()));
 	runtime_base_message_count = request_messages.size();
 	runtime_progress_message_count = 0;
+	runtime->set_session_id(session_id);
 	if (!runtime_runner->start(request_messages, context)) {
 		print_line("[AI Agent][Session] Failed to start function-calling runtime.");
 		_on_provider_request_failed("Failed to start AI runtime.");

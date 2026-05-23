@@ -9,6 +9,7 @@
 #include "core/variant/variant.h"
 
 #include "editor/ai_component/prompts/agent_system_prompt.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 
 namespace {
@@ -106,6 +107,14 @@ void AIAgentRuntime::set_profile(const AIAgentProfile &p_profile) {
 
 AIAgentProfile AIAgentRuntime::get_profile() const {
 	return profile;
+}
+
+void AIAgentRuntime::set_session_id(const String &p_session_id) {
+	session_id = p_session_id;
+}
+
+String AIAgentRuntime::get_session_id() const {
+	return session_id;
 }
 
 void AIAgentRuntime::set_max_provider_turns(int p_max_provider_turns) {
@@ -444,7 +453,14 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			}
 
 			print_line(vformat("[AI Agent][Runtime] Executing tool. name=%s", call.tool_name));
+			Ref<AIToolExecutionContext> tool_context;
+			tool_context.instantiate();
+			tool_context->set_agent_profile_id(profile.id);
+			tool_context->set_session_id(session_id);
+			tool_context->set_tool_call_id(call.id);
+			AIToolExecutionContext::set_current(tool_context);
 			AIToolResult tool_result = tool->execute(call.arguments);
+			AIToolExecutionContext::clear_current();
 			result_metadata = tool_result.metadata;
 			result_metadata["truncated"] = tool_result.truncated;
 

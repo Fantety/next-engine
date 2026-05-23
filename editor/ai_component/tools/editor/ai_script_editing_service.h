@@ -9,6 +9,7 @@
 #include "core/os/semaphore.h"
 #include "core/string/ustring.h"
 #include "core/variant/dictionary.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 
 class Node;
 
@@ -41,6 +42,7 @@ class AIScriptEditingService : public RefCounted {
 		bool create_if_missing = false;
 		String node_path;
 		String script_path;
+		Ref<AIToolExecutionContext> execution_context;
 		AIScriptEditingResult result;
 		Semaphore done;
 	};

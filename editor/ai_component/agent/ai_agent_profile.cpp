@@ -65,6 +65,13 @@ AIAgentProfile AIAgentProfile::get_write_profile() {
 	return profile;
 }
 
+AIAgentProfile AIAgentProfile::get_review_profile() {
+	AIAgentProfile profile = get_write_profile();
+	profile.id = "review";
+	profile.display_name = "Review";
+	return profile;
+}
+
 AIAgentProfile AIAgentProfile::get_build_profile() {
 	AIAgentProfile profile;
 	profile.id = "build";

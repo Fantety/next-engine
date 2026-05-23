@@ -16,6 +16,8 @@
 #include "core/os/thread.h"
 #include "core/variant/variant.h"
 
+#include "editor/ai_component/review/ai_change_set_store.h"
+#include "editor/ai_component/review/ai_diff_service.h"
 #include "editor/ai_component/tools/project/ai_project_tool_utils.h"
 #include "editor/docks/inspector_dock.h"
 #include "editor/docks/scene_tree_dock.h"
@@ -39,6 +41,26 @@ static String _ai_indent_function_source(const String &p_source) {
 	return String("\n").join(lines).strip_edges();
 }
 
+static void _ai_register_script_review_change(const String &p_title, const String &p_path, const String &p_change_type, const String &p_old_text, const String &p_new_text, Dictionary &r_metadata) {
+	Ref<AIToolExecutionContext> context = AIToolExecutionContext::get_current();
+	if (context.is_null() || !context->is_review_mode()) {
+		return;
+	}
+
+	Array changes;
+	changes.push_back(AIDiffService::build_text_change(p_path, p_change_type, p_old_text, p_new_text, "gdscript"));
+	Ref<AIChangeSetStore> store = AIChangeSetStore::get_singleton();
+	const String change_set_id = store->add_change_set(p_title, context->get_session_id(), context->get_tool_call_id(), changes);
+	if (change_set_id.is_empty()) {
+		print_line(vformat("[AI Agent][Review] Skipped script change. path=%s type=%s", p_path, p_change_type));
+		return;
+	}
+	r_metadata["review_change_set_id"] = change_set_id;
+	r_metadata["review_status"] = "pending";
+	r_metadata["review_mode"] = true;
+	print_line(vformat("[AI Agent][Review] Recorded script change. id=%s path=%s type=%s", change_set_id, p_path, p_change_type));
+}
+
 void AIScriptEditingService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_update_scene_tree"), &AIScriptEditingService::_update_scene_tree);
 }
@@ -52,6 +74,7 @@ AIScriptEditingService *AIScriptEditingService::get_dispatcher_singleton() {
 }
 
 AIScriptEditingResult AIScriptEditingService::_dispatch_to_main_thread(MainThreadRequest &r_request) {
+	r_request.execution_context = AIToolExecutionContext::get_current();
 	if (Thread::is_main_thread()) {
 		_execute_request_ptr(&r_request);
 		return r_request.result;
@@ -84,6 +107,11 @@ void AIScriptEditingService::_execute_request(uint64_t p_request_ptr) {
 void AIScriptEditingService::_execute_request_ptr(MainThreadRequest *p_request) {
 	ERR_FAIL_NULL(p_request);
 
+	Ref<AIToolExecutionContext> previous_context = AIToolExecutionContext::get_current();
+	if (p_request->execution_context.is_valid()) {
+		AIToolExecutionContext::set_current(p_request->execution_context);
+	}
+
 	switch (p_request->operation) {
 		case MainThreadRequest::OP_CREATE_SCRIPT:
 			p_request->result = _create_script_main_thread(p_request->path, p_request->extends_type, p_request->source, p_request->overwrite);
@@ -103,6 +131,12 @@ void AIScriptEditingService::_execute_request_ptr(MainThreadRequest *p_request) 
 		case MainThreadRequest::OP_UNBIND_FROM_NODE:
 			p_request->result = _unbind_from_node_main_thread(p_request->node_path);
 			break;
+	}
+
+	if (previous_context.is_valid()) {
+		AIToolExecutionContext::set_current(previous_context);
+	} else {
+		AIToolExecutionContext::clear_current();
 	}
 
 	p_request->done.post();
@@ -567,6 +601,11 @@ AIScriptEditingResult AIScriptEditingService::_create_script_main_thread(const S
 		return result;
 	}
 	const bool existed_before = FileAccess::exists(p_path);
+	String old_source;
+	if (existed_before && !_read_text_file(p_path, old_source, error)) {
+		result.error = error;
+		return result;
+	}
 	if (existed_before && !p_overwrite) {
 		result.error = vformat("Script `%s` already exists. Set overwrite=true to replace it.", p_path);
 		return result;
@@ -593,6 +632,7 @@ AIScriptEditingResult AIScriptEditingService::_create_script_main_thread(const S
 	result.metadata["path"] = p_path;
 	result.metadata["created"] = !existed_before;
 	result.metadata["overwritten"] = existed_before && p_overwrite;
+	_ai_register_script_review_change(result.message, p_path, existed_before ? String("modify") : String("create"), old_source, source, result.metadata);
 	return result;
 }
 
@@ -608,6 +648,11 @@ AIScriptEditingResult AIScriptEditingService::_write_script_main_thread(const St
 		return result;
 	}
 	const bool existed_before = FileAccess::exists(p_path);
+	String old_source;
+	if (existed_before && !_read_text_file(p_path, old_source, error)) {
+		result.error = error;
+		return result;
+	}
 	if (existed_before && !p_overwrite) {
 		result.error = vformat("Script `%s` already exists. Set overwrite=true to replace it.", p_path);
 		return result;
@@ -630,6 +675,7 @@ AIScriptEditingResult AIScriptEditingService::_write_script_main_thread(const St
 	result.metadata["path"] = p_path;
 	result.metadata["created"] = !existed_before;
 	result.metadata["overwritten"] = existed_before;
+	_ai_register_script_review_change(result.message, p_path, existed_before ? String("modify") : String("create"), old_source, source, result.metadata);
 	return result;
 }
 
@@ -670,6 +716,7 @@ AIScriptEditingResult AIScriptEditingService::_patch_function_main_thread(const 
 	result.metadata["path"] = p_path;
 	result.metadata["function_name"] = p_function_name;
 	result.metadata["patch"] = patch_metadata;
+	_ai_register_script_review_change(result.message, p_path, "modify", source, new_source, result.metadata);
 	return result;
 }
 
@@ -684,6 +731,11 @@ AIScriptEditingResult AIScriptEditingService::_delete_script_main_thread(const S
 		result.error = vformat("Script `%s` does not exist.", p_path);
 		return result;
 	}
+	String old_source;
+	if (!_read_text_file(p_path, old_source, error)) {
+		result.error = error;
+		return result;
+	}
 
 	Error err = DirAccess::remove_absolute(ProjectSettings::get_singleton()->globalize_path(p_path));
 	if (err != OK) {
@@ -696,6 +748,7 @@ AIScriptEditingResult AIScriptEditingService::_delete_script_main_thread(const S
 	result.message = vformat("Deleted script `%s`.", p_path);
 	result.metadata["path"] = p_path;
 	result.metadata["deleted"] = true;
+	_ai_register_script_review_change(result.message, p_path, "delete", old_source, String(), result.metadata);
 	return result;
 }
 

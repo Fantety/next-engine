@@ -39,8 +39,10 @@ AIComposer::AIComposer() {
 	mode_selector->set_custom_minimum_size(Size2(80, 0) * EDSCALE);
 	mode_selector->add_item(TTR("Ask"));
 	mode_selector->set_item_metadata(0, "plan");
+	mode_selector->add_item(TTR("Review"));
+	mode_selector->set_item_metadata(1, "review");
 	mode_selector->add_item(TTR("Write"));
-	mode_selector->set_item_metadata(1, "write");
+	mode_selector->set_item_metadata(2, "write");
 	mode_selector->select(0);
 	bar->add_child(mode_selector);
 

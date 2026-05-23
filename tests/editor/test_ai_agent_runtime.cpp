@@ -1000,6 +1000,10 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	CHECK(session->get_agent_profile_id() == "write");
 	CHECK(session->get_agent_runtime()->get_profile().id == "write");
 
+	session->set_agent_profile_id("review");
+	CHECK(session->get_agent_profile_id() == "review");
+	CHECK(session->get_agent_runtime()->get_profile().id == "review");
+
 	session->set_agent_profile_id("unknown");
 	CHECK(session->get_agent_profile_id() == "plan");
 	CHECK(session->get_agent_runtime()->get_profile().id == "plan");

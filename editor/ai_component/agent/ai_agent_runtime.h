@@ -52,6 +52,7 @@ class AIAgentRuntime : public RefCounted {
 	Ref<AIToolRegistry> tool_registry;
 	Ref<AIContextManager> context_manager;
 	AIAgentProfile profile;
+	String session_id;
 	Callable message_added_callback;
 	Callable message_updated_callback;
 	AIAgentRuntimeResult *streaming_result = nullptr;
@@ -85,6 +86,9 @@ public:
 
 	void set_profile(const AIAgentProfile &p_profile);
 	AIAgentProfile get_profile() const;
+
+	void set_session_id(const String &p_session_id);
+	String get_session_id() const;
 
 	void set_max_provider_turns(int p_max_provider_turns);
 	int get_max_provider_turns() const;

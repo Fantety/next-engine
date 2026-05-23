@@ -10,6 +10,7 @@
 #include "core/os/semaphore.h"
 #include "core/string/ustring.h"
 #include "core/variant/dictionary.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 
 class Node;
 class Shader;
@@ -36,6 +37,7 @@ class AIShaderEditingService : public RefCounted {
 		String material_property;
 		Dictionary shader_parameters;
 		bool overwrite_shader = false;
+		Ref<AIToolExecutionContext> execution_context;
 		AIShaderEditingResult result;
 		Semaphore done;
 	};

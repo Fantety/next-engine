@@ -6,6 +6,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
+#include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
 #include "core/object/callable_mp.h"
@@ -14,6 +15,8 @@
 #include "core/os/thread.h"
 #include "core/variant/variant.h"
 
+#include "editor/ai_component/review/ai_change_set_store.h"
+#include "editor/ai_component/review/ai_diff_service.h"
 #include "editor/ai_component/tools/project/ai_project_tool_utils.h"
 #include "editor/docks/scene_tree_dock.h"
 #include "editor/editor_data.h"
@@ -49,6 +52,40 @@ bool _get_property_names_for_assignment(Object *p_object, const String &p_proper
 	return !r_names.is_empty();
 }
 
+bool _read_shader_text(const String &p_path, String &r_text, String &r_error) {
+	Error err = OK;
+	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::READ, &err);
+	if (file.is_null() || err != OK) {
+		r_error = vformat("Failed to read shader `%s` (error %d).", p_path, err);
+		return false;
+	}
+	r_text = file->get_as_text();
+	return true;
+}
+
+void _register_shader_review_change(const String &p_title, const String &p_path, const String &p_change_type, const String &p_old_text, const String &p_new_text, Dictionary &r_metadata) {
+	Ref<AIToolExecutionContext> context = AIToolExecutionContext::get_current();
+	if (context.is_null() || !context->is_review_mode()) {
+		return;
+	}
+
+	Array changes;
+	Dictionary metadata;
+	metadata["scene_binding_not_reverted"] = true;
+	changes.push_back(AIDiffService::build_text_change(p_path, p_change_type, p_old_text, p_new_text, "gdshader", metadata));
+	Ref<AIChangeSetStore> store = AIChangeSetStore::get_singleton();
+	const String change_set_id = store->add_change_set(p_title, context->get_session_id(), context->get_tool_call_id(), changes, metadata);
+	if (change_set_id.is_empty()) {
+		print_line(vformat("[AI Agent][Review] Skipped shader change. path=%s type=%s", p_path, p_change_type));
+		return;
+	}
+	r_metadata["review_change_set_id"] = change_set_id;
+	r_metadata["review_status"] = "pending";
+	r_metadata["review_mode"] = true;
+	r_metadata["review_note"] = "Reverting this review change restores the shader file. Scene material binding is not reverted in the first review implementation.";
+	print_line(vformat("[AI Agent][Review] Recorded shader change. id=%s path=%s type=%s", change_set_id, p_path, p_change_type));
+}
+
 } // namespace
 
 void AIShaderEditingService::_bind_methods() {
@@ -64,6 +101,7 @@ AIShaderEditingService *AIShaderEditingService::get_dispatcher_singleton() {
 }
 
 AIShaderEditingResult AIShaderEditingService::_dispatch_to_main_thread(MainThreadRequest &r_request) {
+	r_request.execution_context = AIToolExecutionContext::get_current();
 	if (Thread::is_main_thread()) {
 		_execute_request_ptr(&r_request);
 		return r_request.result;
@@ -96,10 +134,21 @@ void AIShaderEditingService::_execute_request(uint64_t p_request_ptr) {
 void AIShaderEditingService::_execute_request_ptr(MainThreadRequest *p_request) {
 	ERR_FAIL_NULL(p_request);
 
+	Ref<AIToolExecutionContext> previous_context = AIToolExecutionContext::get_current();
+	if (p_request->execution_context.is_valid()) {
+		AIToolExecutionContext::set_current(p_request->execution_context);
+	}
+
 	switch (p_request->operation) {
 		case MainThreadRequest::OP_APPLY_TO_NODE:
 			p_request->result = _apply_to_node_main_thread(p_request->node_path, p_request->shader_path, p_request->shader_code, p_request->material_property, p_request->shader_parameters, p_request->overwrite_shader);
 			break;
+	}
+
+	if (previous_context.is_valid()) {
+		AIToolExecutionContext::set_current(previous_context);
+	} else {
+		AIToolExecutionContext::clear_current();
 	}
 
 	p_request->done.post();
@@ -386,6 +435,11 @@ AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const S
 	}
 
 	bool existed_before = false;
+	String old_shader_code;
+	if (ResourceLoader::exists(shader_path) && !_read_shader_text(shader_path, old_shader_code, error)) {
+		result.error = error;
+		return result;
+	}
 	Ref<Shader> shader;
 	if (!_save_shader_resource(shader_path, shader_code, p_overwrite_shader, existed_before, shader, error)) {
 		result.error = error;
@@ -433,6 +487,7 @@ AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const S
 	result.metadata["shader_parameter_count"] = p_shader_parameters.size();
 	result.metadata["scene_path"] = saved_path;
 	result.metadata["saved"] = true;
+	_register_shader_review_change(result.message, shader_path, existed_before ? String("modify") : String("create"), old_shader_code, shader_code.strip_edges() + "\n", result.metadata);
 	return result;
 }
 
