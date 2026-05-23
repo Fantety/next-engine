@@ -27,6 +27,7 @@
 #include "editor/ai_component/tools/editor/ai_script_patch_function_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_write_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_apply_to_node_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
@@ -147,6 +148,7 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.bind_to_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.unbind_from_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.delete", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "shader.apply_to_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "unknown.tool", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
@@ -172,6 +174,7 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::evaluate(write, "script.bind_to_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "script.unbind_from_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "script.delete", arguments).decision == AI_TOOL_PERMISSION_ASK);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "shader.apply_to_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
@@ -315,6 +318,22 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	CHECK(script_delete->get_name() == "script.delete");
 	Dictionary delete_script_properties = script_delete->get_parameters_schema()["properties"];
 	CHECK(delete_script_properties.has("path"));
+
+	Ref<AIShaderApplyToNodeTool> shader_apply;
+	shader_apply.instantiate();
+	CHECK(shader_apply->get_name() == "shader.apply_to_node");
+	Dictionary shader_schema = shader_apply->get_parameters_schema();
+	Dictionary shader_properties = shader_schema["properties"];
+	CHECK(shader_properties.has("node_path"));
+	CHECK(shader_properties.has("shader_path"));
+	CHECK(shader_properties.has("shader_code"));
+	CHECK(shader_properties.has("material_property"));
+	CHECK(shader_properties.has("overwrite_shader"));
+	CHECK(shader_properties.has("shader_parameters"));
+	Array shader_required = shader_schema["required"];
+	CHECK(shader_required.has("node_path"));
+	CHECK(shader_required.has("shader_path"));
+	CHECK(shader_required.has("shader_code"));
 }
 
 TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before touching editor state") {
@@ -419,6 +438,18 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	script_delete.instantiate();
 	Dictionary delete_script_arguments;
 	CHECK(script_delete->execute(delete_script_arguments).is_error());
+
+	Ref<AIShaderApplyToNodeTool> shader_apply;
+	shader_apply.instantiate();
+	Dictionary shader_arguments;
+	CHECK(shader_apply->execute(shader_arguments).is_error());
+	shader_arguments["node_path"] = "Player";
+	CHECK(shader_apply->execute(shader_arguments).is_error());
+	shader_arguments["shader_path"] = "res://shaders/player_flash.gdshader";
+	CHECK(shader_apply->execute(shader_arguments).is_error());
+	shader_arguments["shader_code"] = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(1.0); }\n";
+	shader_arguments["shader_parameters"] = "not an object";
+	CHECK(shader_apply->execute(shader_arguments).is_error());
 }
 
 TEST_CASE("[Editor][AI] Read-only project tools enforce project boundaries") {

@@ -10,6 +10,7 @@ static constexpr const char *SYSTEM_PROMPT =
 	"The active chat mode controls available tools. In Ask mode, you may inspect context and suggest changes only.\n"
 	"In Write mode, scene editing tools may create scenes, add, delete, rename, and move nodes, set node properties, save the current scene, and open scene files through the editor API.\n"
 	"In Write mode, project tools may also create folders under res:// using the editor API, and script tools may create, edit, bind, and unbind GDScript files.\n"
+	"In Write mode, shader tools may create or update .gdshader resources, wrap them in ShaderMaterial, bind them to supported node material properties, and save the current scene.\n"
 	"Never edit .tscn files directly for scene tree changes; use scene editing tools when they are available.\n"
 	"Scene editing tools save the current scene after successful mutations. scene.create_scene requires a res:// save path.\n"
 	"Node paths for scene tools are relative to the current edited scene root. Use . for the root when adding children.\n"
@@ -20,6 +21,7 @@ static constexpr const char *SYSTEM_PROMPT =
 	"Before modifying an existing GDScript file, use script.inspect to get function names and line ranges. Prefer script.patch_function for local function-level edits instead of rewriting whole files.\n"
 	"script.create and script.write validate GDScript syntax before writing. script.bind_to_node and script.unbind_from_node save the current scene after successful mutations.\n"
 	"script.delete always requires explicit user approval. Do not ask to delete scripts unless deletion is clearly necessary.\n"
+	"Use shader.apply_to_node for node shader work instead of manually editing scene files. Include a complete shader_type declaration in shader_code. Leave material_property empty for CanvasItem or GeometryInstance3D defaults, or pass an exact ShaderMaterial-compatible property path when needed.\n"
 	"Do not claim that you modified files, created nodes, changed scenes, ran commands, or performed editor actions unless a tool result confirms it.\n"
 	"When project context is provided, use it carefully and mention uncertainty when context is incomplete.\n";
 }

@@ -33,6 +33,10 @@ static void _add_script_write_tools(AIAgentProfile &r_profile) {
 	r_profile.ask_tools.insert("script.delete");
 }
 
+static void _add_shader_write_tools(AIAgentProfile &r_profile) {
+	r_profile.allowed_tools.insert("shader.apply_to_node");
+}
+
 bool AIAgentProfile::allows_tool(const String &p_tool_name) const {
 	return allowed_tools.has(p_tool_name);
 }
@@ -56,6 +60,7 @@ AIAgentProfile AIAgentProfile::get_write_profile() {
 	_add_read_only_tools(profile);
 	_add_scene_write_tools(profile);
 	_add_script_write_tools(profile);
+	_add_shader_write_tools(profile);
 	profile.allowed_tools.insert("project.create_folder");
 	return profile;
 }

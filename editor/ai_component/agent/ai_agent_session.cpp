@@ -26,6 +26,7 @@
 #include "editor/ai_component/tools/editor/ai_script_patch_function_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_write_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_apply_to_node_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
@@ -607,6 +608,11 @@ void AIAgentSession::_configure_tool_runtime() {
 	script_delete_tool.instantiate();
 	tool_registry->register_tool(script_delete_tool);
 	print_line("[AI Agent][Session] Registered tool: script.delete");
+
+	Ref<AIShaderApplyToNodeTool> shader_apply_to_node_tool;
+	shader_apply_to_node_tool.instantiate();
+	tool_registry->register_tool(shader_apply_to_node_tool);
+	print_line("[AI Agent][Session] Registered tool: shader.apply_to_node");
 
 	runtime->set_tool_registry(tool_registry);
 	runtime->set_profile(agent_profile);

@@ -58,6 +58,36 @@ public:
 	}
 };
 
+class FailingRuntimeTool : public AITool {
+	GDCLASS(FailingRuntimeTool, AITool);
+
+public:
+	int execute_count = 0;
+
+	virtual String get_name() const override {
+		return "test.fail";
+	}
+
+	virtual String get_description() const override {
+		return "Always returns a test failure.";
+	}
+
+	virtual Dictionary get_parameters_schema() const override {
+		Dictionary schema;
+		schema["type"] = "object";
+		return schema;
+	}
+
+	virtual AIToolResult execute(const Dictionary &p_arguments) override {
+		(void)p_arguments;
+		execute_count++;
+
+		AIToolResult result;
+		result.error = "simulated missing scene";
+		return result;
+	}
+};
+
 class ScriptedRuntimeClient : public AIAgentRuntimeClient {
 	GDCLASS(ScriptedRuntimeClient, AIAgentRuntimeClient);
 
@@ -437,6 +467,80 @@ TEST_CASE("[Editor][AI] Agent runtime executes allowed tool calls and continues 
 	Dictionary schema = client->last_tool_schemas[0];
 	Dictionary function_schema = schema["function"];
 	CHECK(String(function_schema["name"]) == "test.echo");
+}
+
+TEST_CASE("[Editor][AI] Agent runtime passes tool failures back to the provider") {
+	Ref<FailingRuntimeTool> failing_tool;
+	failing_tool.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(failing_tool));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse tool_response;
+	AIToolCall call;
+	call.id = "call_fail";
+	call.tool_name = "test.fail";
+	tool_response.tool_calls.push_back(call);
+	client->push_response(tool_response);
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "I saw the failure.";
+	client->push_response(final_response);
+
+	AIAgentProfile profile;
+	profile.id = "test";
+	profile.display_name = "Test";
+	profile.allowed_tools.insert("test.fail");
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_profile(profile);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Try the failing tool."));
+
+	AIAgentRuntimeResult result = runtime->run(messages);
+
+	CHECK(result.success);
+	CHECK(result.error.is_empty());
+	CHECK(client->request_count == 2);
+	CHECK(failing_tool->execute_count == 1);
+
+	REQUIRE(result.tool_calls.size() == 1);
+	CHECK(result.tool_calls[0].status == AI_TOOL_CALL_STATUS_FAILED);
+	REQUIRE(result.messages.size() == 4);
+	CHECK(result.messages[2].role == AI_AGENT_ROLE_TOOL);
+	CHECK(result.messages[2].content.contains("Tool call failed for `test.fail`"));
+	CHECK(result.messages[2].content.contains("simulated missing scene"));
+	CHECK(String(result.messages[2].metadata["tool_call_id"]) == "call_fail");
+	CHECK(String(result.messages[2].metadata["status"]) == "failed");
+
+	bool saw_failure_tool_message = false;
+	for (int i = 0; i < client->last_messages.size(); i++) {
+		Dictionary message = client->last_messages[i];
+		if (String(message.get("role", "")) != "tool") {
+			continue;
+		}
+
+		const String content = String(message.get("content", ""));
+		if (content.contains("simulated missing scene")) {
+			saw_failure_tool_message = true;
+			REQUIRE(message.has("metadata"));
+			Dictionary metadata = message["metadata"];
+			CHECK(String(metadata.get("tool_call_id", "")) == "call_fail");
+			CHECK(String(metadata.get("status", "")) == "failed");
+		}
+	}
+
+	CHECK(saw_failure_tool_message);
+	CHECK(result.messages[3].role == AI_AGENT_ROLE_ASSISTANT);
+	CHECK(result.messages[3].content == "I saw the failure.");
 }
 
 TEST_CASE("[Editor][AI] Agent runtime pauses when a tool requires approval") {
@@ -886,6 +990,7 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	REQUIRE(session->get_tool_registry().is_valid());
 	CHECK(session->get_agent_runtime_runner()->get_runtime() == session->get_agent_runtime());
 	CHECK(session->is_tool_runtime_available());
+	CHECK(session->get_tool_registry()->has_tool("shader.apply_to_node"));
 
 	session->set_agent_profile_id("build");
 	CHECK(session->get_agent_profile_id() == "build");
