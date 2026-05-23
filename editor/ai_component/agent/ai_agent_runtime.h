@@ -31,6 +31,7 @@ struct AIAgentRuntimeResult {
 	Vector<AIAgentMessage> messages;
 	Vector<AIToolCall> tool_calls;
 	Dictionary metadata;
+	Dictionary pending_approval;
 };
 
 class AIAgentRuntimeClient : public RefCounted {

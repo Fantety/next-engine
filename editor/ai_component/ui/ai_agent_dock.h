@@ -24,6 +24,7 @@ class AIAgentDock : public EditorDock {
 	Button *new_session_button = nullptr;
 	Button *delete_session_button = nullptr;
 	ConfirmationDialog *delete_session_dialog = nullptr;
+	ConfirmationDialog *tool_approval_dialog = nullptr;
 	AIMessageList *message_list = nullptr;
 	HBoxContainer *request_status_row = nullptr;
 	ColorRect *request_progress = nullptr;
@@ -31,6 +32,7 @@ class AIAgentDock : public EditorDock {
 	AIComposer *composer = nullptr;
 	AIAgentSession *session = nullptr;
 	String pending_delete_session_id;
+	Dictionary pending_tool_approval;
 
 	static inline AIAgentDock *singleton = nullptr;
 
@@ -41,10 +43,13 @@ class AIAgentDock : public EditorDock {
 	void _message_removed(int p_index);
 	void _state_changed(int p_state);
 	void _token_usage_changed(const Dictionary &p_usage);
+	void _tool_approval_requested(const Dictionary &p_approval);
 	void _settings_changed();
 	void _new_session_pressed();
 	void _delete_session_pressed();
 	void _confirm_delete_session();
+	void _confirm_tool_approval();
+	void _reject_tool_approval();
 	void _session_selected(int p_index);
 	void _ensure_session();
 	String _get_selected_session_id() const;

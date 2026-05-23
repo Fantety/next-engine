@@ -195,6 +195,14 @@ static AIAgentProfile _make_test_profile(bool p_allow_echo) {
 	return profile;
 }
 
+static AIAgentProfile _make_test_profile_with_ask_tool(const String &p_tool_name) {
+	AIAgentProfile profile;
+	profile.id = "test";
+	profile.display_name = "Test";
+	profile.ask_tools.insert(p_tool_name);
+	return profile;
+}
+
 static AIAgentMessage _make_user_message(const String &p_content) {
 	AIAgentMessage message;
 	message.role = AI_AGENT_ROLE_USER;
@@ -429,6 +437,90 @@ TEST_CASE("[Editor][AI] Agent runtime executes allowed tool calls and continues 
 	Dictionary schema = client->last_tool_schemas[0];
 	Dictionary function_schema = schema["function"];
 	CHECK(String(function_schema["name"]) == "test.echo");
+}
+
+TEST_CASE("[Editor][AI] Agent runtime pauses when a tool requires approval") {
+	Ref<EchoRuntimeTool> echo_tool;
+	echo_tool.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(echo_tool));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse tool_response;
+	AIToolCall call;
+	call.id = "call_approval";
+	call.tool_name = "test.echo";
+	call.arguments["value"] = "delete request";
+	tool_response.tool_calls.push_back(call);
+	client->push_response(tool_response);
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_profile(_make_test_profile_with_ask_tool("test.echo"));
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Delete this script."));
+
+	AIAgentRuntimeResult result = runtime->run(messages);
+
+	CHECK(result.success);
+	CHECK(result.error.is_empty());
+	CHECK(echo_tool->execute_count == 0);
+	REQUIRE(!result.pending_approval.is_empty());
+	CHECK(String(result.pending_approval.get("id", "")) == "call_approval");
+	CHECK(String(result.pending_approval.get("tool_name", "")) == "test.echo");
+	CHECK(String(result.pending_approval.get("reason", "")).contains("approval"));
+	REQUIRE(result.messages.size() == 2);
+	CHECK(result.messages[1].role == AI_AGENT_ROLE_ASSISTANT);
+	REQUIRE(result.messages[1].metadata.has("tool_calls"));
+	Array tool_calls = result.messages[1].metadata["tool_calls"];
+	REQUIRE(tool_calls.size() == 1);
+	Dictionary pending_call = tool_calls[0];
+	CHECK(String(pending_call.get("status", "")) == "pending");
+
+	REQUIRE(client->last_tool_schemas.size() == 1);
+	Dictionary schema = client->last_tool_schemas[0];
+	Dictionary function_schema = schema["function"];
+	CHECK(String(function_schema["name"]) == "test.echo");
+}
+
+TEST_CASE("[Editor][AI] Agent runtime exposes ask-gated tool schemas to the provider") {
+	Ref<EchoRuntimeTool> echo_tool;
+	echo_tool.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(echo_tool));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Ready.";
+	client->push_response(final_response);
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_profile(_make_test_profile_with_ask_tool("test.echo"));
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("May need approval."));
+
+	AIAgentRuntimeResult result = runtime->run(messages);
+
+	CHECK(result.success);
+	REQUIRE(client->last_tool_schemas.size() == 1);
+	Dictionary schema = client->last_tool_schemas[0];
+	Dictionary function_schema = schema["function"];
+	CHECK(String(function_schema["name"]) == "test.echo");
+	CHECK(echo_tool->execute_count == 0);
 }
 
 TEST_CASE("[Editor][AI] Agent runtime reports tool progress before the final result") {

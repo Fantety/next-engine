@@ -13,6 +13,7 @@
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
+#include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 
 class AIAgentSession : public Node {
@@ -24,6 +25,7 @@ class AIAgentSession : public Node {
 	AIAgentState state = AI_AGENT_STATE_IDLE;
 	AIAgentProfile agent_profile;
 	Dictionary token_usage;
+	Dictionary pending_tool_approval;
 
 	Ref<AIAgentRuntime> runtime;
 	Ref<AIAgentRuntimeRunner> runtime_runner;
@@ -45,6 +47,10 @@ class AIAgentSession : public Node {
 	Array _collect_context();
 	void _save();
 	void _recalculate_token_usage();
+	void _append_tool_result_message(const AIToolCall &p_call, const AIToolResult &p_tool_result);
+	bool _update_tool_call_status(const AIToolCall &p_call);
+	bool _start_runtime_turn();
+	bool _is_busy() const;
 
 	void _on_provider_request_failed(const String &p_message);
 	void _on_runtime_finished();
@@ -70,6 +76,9 @@ public:
 	void start_new_session();
 	bool load_session(const String &p_session_id);
 	bool delete_session(const String &p_session_id);
+	bool approve_pending_tool();
+	bool reject_pending_tool();
+	Dictionary get_pending_tool_approval() const;
 	Array get_messages_as_array() const;
 	String get_session_id() const;
 	String get_title() const;

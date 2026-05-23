@@ -6,6 +6,11 @@
 
 AIToolPermissionResult AIToolPermissionPolicy::evaluate(const AIAgentProfile &p_profile, const String &p_tool_name, const Dictionary &p_arguments) {
 	AIToolPermissionResult result;
+	if (p_profile.asks_for_tool(p_tool_name)) {
+		result.decision = AI_TOOL_PERMISSION_ASK;
+		result.reason = "Tool requires explicit user approval.";
+		return result;
+	}
 	if (p_profile.allows_tool(p_tool_name)) {
 		result.decision = AI_TOOL_PERMISSION_ALLOW;
 		return result;

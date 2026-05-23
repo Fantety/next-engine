@@ -146,6 +146,15 @@ Array AIAgentRuntime::_get_allowed_tool_schemas() const {
 			schemas.push_back(tool->get_openai_schema());
 		}
 	}
+	for (HashSet<String>::Iterator it = profile.ask_tools.begin(); it; ++it) {
+		if (profile.allowed_tools.has(*it)) {
+			continue;
+		}
+		Ref<AITool> tool = tool_registry->get_tool(*it);
+		if (tool.is_valid()) {
+			schemas.push_back(tool->get_openai_schema());
+		}
+	}
 
 	return schemas;
 }
@@ -372,6 +381,24 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 
 			Dictionary result_metadata;
 			AIToolPermissionResult permission = AIToolPermissionPolicy::evaluate(profile, call.tool_name, call.arguments);
+			if (permission.decision == AI_TOOL_PERMISSION_ASK) {
+				call.status = AI_TOOL_CALL_STATUS_PENDING;
+				call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+				if (assistant_tool_call_message.metadata.has("tool_calls") && Variant(assistant_tool_call_message.metadata["tool_calls"]).get_type() == Variant::ARRAY) {
+					Array pending_tool_calls = assistant_tool_call_message.metadata["tool_calls"];
+					if (i < pending_tool_calls.size()) {
+						pending_tool_calls[i] = call.to_dict();
+						assistant_tool_call_message.metadata["tool_calls"] = pending_tool_calls;
+						result.messages.write[assistant_tool_call_message_index] = assistant_tool_call_message;
+						_emit_message_updated(assistant_tool_call_message_index, assistant_tool_call_message);
+					}
+				}
+				result.pending_approval = call.to_dict();
+				result.pending_approval["reason"] = permission.reason;
+				result.success = true;
+				print_line(vformat("[AI Agent][Runtime] Tool call requires approval. name=%s reason=%s", call.tool_name, permission.reason));
+				return result;
+			}
 			if (permission.decision != AI_TOOL_PERMISSION_ALLOW) {
 				call.status = AI_TOOL_CALL_STATUS_DENIED;
 				call.updated_at = Time::get_singleton()->get_unix_time_from_system();

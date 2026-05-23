@@ -22,6 +22,8 @@ enum AIAgentState {
 	AI_AGENT_STATE_PREPARING_CONTEXT,
 	//流式响应阶段代理正在生成AI回复内容，并且以流式的方式逐步返回响应数据。
 	AI_AGENT_STATE_STREAMING,
+	//等待用户确认某个高风险工具调用，例如删除脚本文件。
+	AI_AGENT_STATE_WAITING_TOOL_APPROVAL,
 	//已取消状态代理的当前任务被主动终止，比如用户手动取消任务、系统触发了强制取消逻辑，任务提前结束。
 	AI_AGENT_STATE_CANCELLED,
 	//失败状态代理在执行任务的过程中发生了错误，任务执行失败，比如模型API调用失败、上下文加载失败、内容生成异常等问题。

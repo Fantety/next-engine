@@ -6,6 +6,7 @@
 
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/io/json.h"
 #include "core/os/os.h"
 #include "core/os/time.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
@@ -67,6 +68,14 @@ AIAgentDock::AIAgentDock() {
 	delete_session_dialog->set_cancel_button_text(TTR("Cancel"));
 	delete_session_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AIAgentDock::_confirm_delete_session));
 	add_child(delete_session_dialog);
+
+	tool_approval_dialog = memnew(ConfirmationDialog);
+	tool_approval_dialog->set_title(TTR("Approve AI Tool"));
+	tool_approval_dialog->set_ok_button_text(TTR("Approve"));
+	tool_approval_dialog->set_cancel_button_text(TTR("Reject"));
+	tool_approval_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AIAgentDock::_confirm_tool_approval));
+	tool_approval_dialog->connect("canceled", callable_mp(this, &AIAgentDock::_reject_tool_approval));
+	add_child(tool_approval_dialog);
 
 	VBoxContainer *main = memnew(VBoxContainer);
 	main->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -187,12 +196,13 @@ void AIAgentDock::_message_removed(int p_index) {
 
 void AIAgentDock::_state_changed(int p_state) {
 	const bool running = p_state == AI_AGENT_STATE_STREAMING || p_state == AI_AGENT_STATE_PREPARING_CONTEXT;
-	composer->set_running(running);
+	const bool waiting_approval = p_state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL;
+	composer->set_running(running || waiting_approval);
 	if (new_session_button) {
-		new_session_button->set_disabled(running);
+		new_session_button->set_disabled(running || waiting_approval);
 	}
 	if (delete_session_button) {
-		delete_session_button->set_disabled(running || !session_selector || session_selector->get_item_count() == 0 || session_selector->get_selected() < 0);
+		delete_session_button->set_disabled(running || waiting_approval || !session_selector || session_selector->get_item_count() == 0 || session_selector->get_selected() < 0);
 	}
 	if (request_progress) {
 		request_progress->set_visible(running);
@@ -200,7 +210,7 @@ void AIAgentDock::_state_changed(int p_state) {
 	if (request_status_row) {
 		request_status_row->set_visible(running);
 	}
-	if (p_state == AI_AGENT_STATE_IDLE || p_state == AI_AGENT_STATE_FAILED || p_state == AI_AGENT_STATE_CANCELLED) {
+	if (p_state == AI_AGENT_STATE_IDLE || p_state == AI_AGENT_STATE_FAILED || p_state == AI_AGENT_STATE_CANCELLED || p_state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
 		_refresh_session_list();
 	}
 	_refresh_token_usage();
@@ -213,6 +223,26 @@ void AIAgentDock::_token_usage_changed(const Dictionary &p_usage) {
 
 void AIAgentDock::_settings_changed() {
 	composer->reload_models();
+}
+
+void AIAgentDock::_tool_approval_requested(const Dictionary &p_approval) {
+	pending_tool_approval = p_approval.duplicate(true);
+	if (!tool_approval_dialog) {
+		return;
+	}
+
+	const String tool_name = String(pending_tool_approval.get("tool_name", ""));
+	const String reason = String(pending_tool_approval.get("reason", ""));
+	String text = vformat(TTR("Approve AI tool call `%s`?"), tool_name.is_empty() ? String("unknown") : tool_name);
+	if (!reason.is_empty()) {
+		text += "\n\n" + reason;
+	}
+	if (pending_tool_approval.has("arguments") && Variant(pending_tool_approval["arguments"]).get_type() == Variant::DICTIONARY) {
+		text += "\n\n" + TTR("Arguments:") + "\n" + JSON::stringify(pending_tool_approval["arguments"], "\t");
+	}
+
+	tool_approval_dialog->set_text(text);
+	tool_approval_dialog->popup_centered();
 }
 
 void AIAgentDock::_new_session_pressed() {
@@ -234,7 +264,7 @@ void AIAgentDock::_delete_session_pressed() {
 		return;
 	}
 
-	if (session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT) {
+	if (session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT || session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
 		return;
 	}
 
@@ -270,11 +300,38 @@ void AIAgentDock::_confirm_delete_session() {
 	_refresh_session_list();
 }
 
+void AIAgentDock::_confirm_tool_approval() {
+	if (!session) {
+		pending_tool_approval.clear();
+		return;
+	}
+
+	pending_tool_approval.clear();
+	session->approve_pending_tool();
+}
+
+void AIAgentDock::_reject_tool_approval() {
+	if (!session) {
+		pending_tool_approval.clear();
+		return;
+	}
+	if (pending_tool_approval.is_empty() && session->get_pending_tool_approval().is_empty()) {
+		return;
+	}
+
+	pending_tool_approval.clear();
+	session->reject_pending_tool();
+}
+
 void AIAgentDock::_session_selected(int p_index) {
 	_ensure_session();
 	ERR_FAIL_NULL(session);
 
 	if (!session_selector || p_index < 0) {
+		return;
+	}
+	if (session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT || session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
+		_select_current_session();
 		return;
 	}
 
@@ -301,6 +358,7 @@ void AIAgentDock::_ensure_session() {
 	session->connect("message_removed", callable_mp(this, &AIAgentDock::_message_removed));
 	session->connect("state_changed", callable_mp(this, &AIAgentDock::_state_changed));
 	session->connect("token_usage_changed", callable_mp(this, &AIAgentDock::_token_usage_changed));
+	session->connect("tool_approval_requested", callable_mp(this, &AIAgentDock::_tool_approval_requested));
 }
 
 String AIAgentDock::_get_selected_session_id() const {
@@ -342,7 +400,7 @@ void AIAgentDock::_refresh_session_list() {
 	}
 	_select_current_session();
 	if (delete_session_button) {
-		delete_session_button->set_disabled(session_selector->get_item_count() == 0 || session_selector->get_selected() < 0 || session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT);
+		delete_session_button->set_disabled(session_selector->get_item_count() == 0 || session_selector->get_selected() < 0 || session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT || session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL);
 	}
 }
 

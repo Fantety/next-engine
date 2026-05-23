@@ -20,6 +20,13 @@
 #include "editor/ai_component/tools/editor/ai_scene_rename_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_save_current_scene_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_set_property_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_bind_to_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_create_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_delete_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_inspect_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_patch_function_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_write_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
@@ -133,6 +140,13 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.set_property", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.save_current_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.open_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.inspect", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.create", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.write", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.patch_function", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.bind_to_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.unbind_from_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.delete", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "unknown.tool", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
@@ -151,6 +165,13 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.set_property", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.save_current_scene", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.open_scene", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "script.inspect", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "script.create", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "script.write", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "script.patch_function", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "script.bind_to_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "script.unbind_from_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(write, "script.delete", arguments).decision == AI_TOOL_PERMISSION_ASK);
 	CHECK(AIToolPermissionPolicy::evaluate(write, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
 
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
@@ -244,6 +265,56 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	Dictionary folder_schema = create_folder->get_parameters_schema();
 	Dictionary folder_properties = folder_schema["properties"];
 	CHECK(folder_properties.has("path"));
+
+	Ref<AIScriptInspectTool> script_inspect;
+	script_inspect.instantiate();
+	CHECK(script_inspect->get_name() == "script.inspect");
+	Dictionary inspect_properties = script_inspect->get_parameters_schema()["properties"];
+	CHECK(inspect_properties.has("path"));
+
+	Ref<AIScriptCreateTool> script_create;
+	script_create.instantiate();
+	CHECK(script_create->get_name() == "script.create");
+	Dictionary script_create_properties = script_create->get_parameters_schema()["properties"];
+	CHECK(script_create_properties.has("path"));
+	CHECK(script_create_properties.has("extends"));
+	CHECK(script_create_properties.has("source"));
+	CHECK(script_create_properties.has("overwrite"));
+
+	Ref<AIScriptWriteTool> script_write;
+	script_write.instantiate();
+	CHECK(script_write->get_name() == "script.write");
+	Dictionary script_write_properties = script_write->get_parameters_schema()["properties"];
+	CHECK(script_write_properties.has("path"));
+	CHECK(script_write_properties.has("source"));
+
+	Ref<AIScriptPatchFunctionTool> script_patch_function;
+	script_patch_function.instantiate();
+	CHECK(script_patch_function->get_name() == "script.patch_function");
+	Dictionary script_patch_properties = script_patch_function->get_parameters_schema()["properties"];
+	CHECK(script_patch_properties.has("path"));
+	CHECK(script_patch_properties.has("function_name"));
+	CHECK(script_patch_properties.has("function_source"));
+	CHECK(script_patch_properties.has("create_if_missing"));
+
+	Ref<AIScriptBindToNodeTool> script_bind_to_node;
+	script_bind_to_node.instantiate();
+	CHECK(script_bind_to_node->get_name() == "script.bind_to_node");
+	Dictionary bind_properties = script_bind_to_node->get_parameters_schema()["properties"];
+	CHECK(bind_properties.has("node_path"));
+	CHECK(bind_properties.has("script_path"));
+
+	Ref<AIScriptUnbindFromNodeTool> script_unbind_from_node;
+	script_unbind_from_node.instantiate();
+	CHECK(script_unbind_from_node->get_name() == "script.unbind_from_node");
+	Dictionary unbind_properties = script_unbind_from_node->get_parameters_schema()["properties"];
+	CHECK(unbind_properties.has("node_path"));
+
+	Ref<AIScriptDeleteTool> script_delete;
+	script_delete.instantiate();
+	CHECK(script_delete->get_name() == "script.delete");
+	Dictionary delete_script_properties = script_delete->get_parameters_schema()["properties"];
+	CHECK(delete_script_properties.has("path"));
 }
 
 TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before touching editor state") {
@@ -305,6 +376,49 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	CHECK(create_folder->execute(folder_arguments).is_error());
 	folder_arguments["path"] = "res://";
 	CHECK(create_folder->execute(folder_arguments).is_error());
+
+	Ref<AIScriptInspectTool> script_inspect;
+	script_inspect.instantiate();
+	Dictionary inspect_arguments;
+	CHECK(script_inspect->execute(inspect_arguments).is_error());
+
+	Ref<AIScriptCreateTool> script_create;
+	script_create.instantiate();
+	Dictionary script_create_arguments;
+	CHECK(script_create->execute(script_create_arguments).is_error());
+
+	Ref<AIScriptWriteTool> script_write;
+	script_write.instantiate();
+	Dictionary script_write_arguments;
+	CHECK(script_write->execute(script_write_arguments).is_error());
+	script_write_arguments["path"] = "res://scripts/player.gd";
+	CHECK(script_write->execute(script_write_arguments).is_error());
+
+	Ref<AIScriptPatchFunctionTool> script_patch_function;
+	script_patch_function.instantiate();
+	Dictionary patch_arguments;
+	CHECK(script_patch_function->execute(patch_arguments).is_error());
+	patch_arguments["path"] = "res://scripts/player.gd";
+	CHECK(script_patch_function->execute(patch_arguments).is_error());
+	patch_arguments["function_name"] = "_ready";
+	CHECK(script_patch_function->execute(patch_arguments).is_error());
+
+	Ref<AIScriptBindToNodeTool> script_bind_to_node;
+	script_bind_to_node.instantiate();
+	Dictionary bind_arguments;
+	CHECK(script_bind_to_node->execute(bind_arguments).is_error());
+	bind_arguments["node_path"] = ".";
+	CHECK(script_bind_to_node->execute(bind_arguments).is_error());
+
+	Ref<AIScriptUnbindFromNodeTool> script_unbind_from_node;
+	script_unbind_from_node.instantiate();
+	Dictionary unbind_arguments;
+	CHECK(script_unbind_from_node->execute(unbind_arguments).is_error());
+
+	Ref<AIScriptDeleteTool> script_delete;
+	script_delete.instantiate();
+	Dictionary delete_script_arguments;
+	CHECK(script_delete->execute(delete_script_arguments).is_error());
 }
 
 TEST_CASE("[Editor][AI] Read-only project tools enforce project boundaries") {

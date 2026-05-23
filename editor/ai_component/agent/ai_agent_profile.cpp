@@ -10,6 +10,7 @@ static void _add_read_only_tools(AIAgentProfile &r_profile) {
 	r_profile.allowed_tools.insert("project.search_text");
 	r_profile.allowed_tools.insert("editor.get_context");
 	r_profile.allowed_tools.insert("scene.list_properties");
+	r_profile.allowed_tools.insert("script.inspect");
 }
 
 static void _add_scene_write_tools(AIAgentProfile &r_profile) {
@@ -23,8 +24,21 @@ static void _add_scene_write_tools(AIAgentProfile &r_profile) {
 	r_profile.allowed_tools.insert("scene.open_scene");
 }
 
+static void _add_script_write_tools(AIAgentProfile &r_profile) {
+	r_profile.allowed_tools.insert("script.create");
+	r_profile.allowed_tools.insert("script.write");
+	r_profile.allowed_tools.insert("script.patch_function");
+	r_profile.allowed_tools.insert("script.bind_to_node");
+	r_profile.allowed_tools.insert("script.unbind_from_node");
+	r_profile.ask_tools.insert("script.delete");
+}
+
 bool AIAgentProfile::allows_tool(const String &p_tool_name) const {
 	return allowed_tools.has(p_tool_name);
+}
+
+bool AIAgentProfile::asks_for_tool(const String &p_tool_name) const {
+	return ask_tools.has(p_tool_name);
 }
 
 AIAgentProfile AIAgentProfile::get_plan_profile() {
@@ -41,6 +55,7 @@ AIAgentProfile AIAgentProfile::get_write_profile() {
 	profile.display_name = "Write";
 	_add_read_only_tools(profile);
 	_add_scene_write_tools(profile);
+	_add_script_write_tools(profile);
 	profile.allowed_tools.insert("project.create_folder");
 	return profile;
 }

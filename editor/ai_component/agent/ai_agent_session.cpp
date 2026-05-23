@@ -19,6 +19,13 @@
 #include "editor/ai_component/tools/editor/ai_scene_rename_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_save_current_scene_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_set_property_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_bind_to_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_create_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_delete_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_inspect_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_patch_function_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_script_write_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
@@ -30,6 +37,9 @@ void AIAgentSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("start_new_session"), &AIAgentSession::start_new_session);
 	ClassDB::bind_method(D_METHOD("load_session", "session_id"), &AIAgentSession::load_session);
 	ClassDB::bind_method(D_METHOD("delete_session", "session_id"), &AIAgentSession::delete_session);
+	ClassDB::bind_method(D_METHOD("approve_pending_tool"), &AIAgentSession::approve_pending_tool);
+	ClassDB::bind_method(D_METHOD("reject_pending_tool"), &AIAgentSession::reject_pending_tool);
+	ClassDB::bind_method(D_METHOD("get_pending_tool_approval"), &AIAgentSession::get_pending_tool_approval);
 	ClassDB::bind_method(D_METHOD("get_messages_as_array"), &AIAgentSession::get_messages_as_array);
 	ClassDB::bind_method(D_METHOD("set_agent_profile_id", "profile_id"), &AIAgentSession::set_agent_profile_id);
 	ClassDB::bind_method(D_METHOD("get_agent_profile_id"), &AIAgentSession::get_agent_profile_id);
@@ -42,6 +52,7 @@ void AIAgentSession::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("state_changed", PropertyInfo(Variant::INT, "state")));
 	ADD_SIGNAL(MethodInfo("token_usage_changed", PropertyInfo(Variant::DICTIONARY, "usage")));
 	ADD_SIGNAL(MethodInfo("request_failed", PropertyInfo(Variant::STRING, "message")));
+	ADD_SIGNAL(MethodInfo("tool_approval_requested", PropertyInfo(Variant::DICTIONARY, "approval")));
 }
 
 AIAgentSession::AIAgentSession() {
@@ -108,7 +119,7 @@ bool AIAgentSession::is_tool_runtime_available() const {
 
 void AIAgentSession::send_user_message(const String &p_message) {
 	String stripped = p_message.strip_edges();
-	if (stripped.is_empty() || state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
+	if (stripped.is_empty() || _is_busy()) {
 		print_line(vformat("[AI Agent][Session] Ignored send request. empty=%s state=%d", stripped.is_empty() ? "yes" : "no", (int)state));
 		return;
 	}
@@ -136,28 +147,7 @@ void AIAgentSession::send_user_message(const String &p_message) {
 	emit_signal(SNAME("message_added"), assistant_message.to_dict());
 	print_line(vformat("[AI Agent][Session] Assistant placeholder added. index=%d", active_assistant_index));
 
-	_set_state(AI_AGENT_STATE_PREPARING_CONTEXT);
-	print_line("[AI Agent][Session] Collecting editor/project context...");
-	Array context = _collect_context();
-	print_line(vformat("[AI Agent][Session] Context collected. documents=%d", context.size()));
-	Vector<AIAgentMessage> request_messages = messages;
-	if (active_assistant_index >= 0 && active_assistant_index < request_messages.size() && request_messages[active_assistant_index].content.is_empty()) {
-		request_messages.remove_at(active_assistant_index);
-		print_line("[AI Agent][Session] Removed assistant placeholder from provider request messages.");
-	}
-	_set_state(AI_AGENT_STATE_STREAMING);
-	if (is_tool_runtime_available()) {
-		print_line(vformat("[AI Agent][Session] Starting function-calling runtime. request_messages=%d", request_messages.size()));
-		runtime_base_message_count = request_messages.size();
-		runtime_progress_message_count = 0;
-		if (!runtime_runner->start(request_messages, context)) {
-			print_line("[AI Agent][Session] Failed to start function-calling runtime.");
-			_on_provider_request_failed("Failed to start AI runtime.");
-		}
-	} else {
-		print_line("[AI Agent][Session] Failed before runtime start: tool runtime is not available.");
-		_on_provider_request_failed("AI runtime is not configured.");
-	}
+	_start_runtime_turn();
 }
 
 void AIAgentSession::cancel_request() {
@@ -169,22 +159,31 @@ void AIAgentSession::cancel_request() {
 		}
 		_set_state(AI_AGENT_STATE_CANCELLED);
 		_save();
+	} else if (state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
+		reject_pending_tool();
 	}
 }
 
 void AIAgentSession::start_new_session() {
+	if (state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
+		pending_tool_approval.clear();
+	}
 	session_id = OS::get_singleton()->get_unique_id() + "_" + itos(Time::get_singleton()->get_unix_time_from_system()) + "_" + itos(Math::rand());
 	title = "New Chat";
 	messages.clear();
 	active_assistant_index = -1;
 	runtime_base_message_count = 0;
 	runtime_progress_message_count = 0;
+	pending_tool_approval.clear();
 	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
 	print_line(vformat("[AI Agent][Session] Started new session. session=%s", session_id));
 }
 
 bool AIAgentSession::load_session(const String &p_session_id) {
+	if (state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
+		pending_tool_approval.clear();
+	}
 	if (state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
 		print_line("[AI Agent][Session] Loading another session while request is active; cancelling current request.");
 		cancel_request();
@@ -203,6 +202,7 @@ bool AIAgentSession::load_session(const String &p_session_id) {
 	active_assistant_index = -1;
 	runtime_base_message_count = messages.size();
 	runtime_progress_message_count = 0;
+	pending_tool_approval.clear();
 	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
 	print_line(vformat("[AI Agent][Session] Loaded session. session=%s title=%s messages=%d", session_id, title, messages.size()));
@@ -210,7 +210,7 @@ bool AIAgentSession::load_session(const String &p_session_id) {
 }
 
 bool AIAgentSession::delete_session(const String &p_session_id) {
-	if (state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
+	if (_is_busy()) {
 		print_line("[AI Agent][Session] Refused to delete session while request is active.");
 		return false;
 	}
@@ -230,6 +230,68 @@ bool AIAgentSession::delete_session(const String &p_session_id) {
 		_load_initial_session();
 	}
 	return true;
+}
+
+bool AIAgentSession::approve_pending_tool() {
+	if (pending_tool_approval.is_empty()) {
+		print_line("[AI Agent][Session] No pending tool approval to approve.");
+		return false;
+	}
+
+	AIToolCall call = AIToolCall::from_dict(pending_tool_approval);
+	Ref<AITool> tool = tool_registry->get_tool(call.tool_name);
+	if (tool.is_null()) {
+		AIToolResult result;
+		result.error = "Tool is not registered.";
+		call.status = AI_TOOL_CALL_STATUS_FAILED;
+		call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+		_update_tool_call_status(call);
+		_append_tool_result_message(call, result);
+		pending_tool_approval.clear();
+		_start_runtime_turn();
+		return false;
+	}
+
+	print_line(vformat("[AI Agent][Session] Approved pending tool. name=%s", call.tool_name));
+	AIToolResult result = tool->execute(call.arguments);
+	call.status = result.is_error() ? AI_TOOL_CALL_STATUS_FAILED : AI_TOOL_CALL_STATUS_COMPLETED;
+	call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+	_update_tool_call_status(call);
+	_append_tool_result_message(call, result);
+	pending_tool_approval.clear();
+	_start_runtime_turn();
+	return !result.is_error();
+}
+
+bool AIAgentSession::reject_pending_tool() {
+	if (pending_tool_approval.is_empty()) {
+		print_line("[AI Agent][Session] No pending tool approval to reject.");
+		return false;
+	}
+
+	AIToolCall call = AIToolCall::from_dict(pending_tool_approval);
+	call.status = AI_TOOL_CALL_STATUS_DENIED;
+	call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+	_update_tool_call_status(call);
+	AIAgentMessage tool_message;
+	tool_message.role = AI_AGENT_ROLE_TOOL;
+	tool_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+	tool_message.content = "Tool call denied for `" + call.tool_name + "`: user rejected the approval request.";
+	tool_message.metadata["tool_call_id"] = call.id;
+	tool_message.metadata["tool_name"] = call.tool_name;
+	tool_message.metadata["status"] = AIToolCall::status_to_string(AI_TOOL_CALL_STATUS_DENIED);
+	messages.push_back(tool_message);
+	emit_signal(SNAME("message_added"), tool_message.to_dict());
+	pending_tool_approval.clear();
+	_recalculate_token_usage();
+	_save();
+	print_line(vformat("[AI Agent][Session] Rejected pending tool. name=%s", call.tool_name));
+	_start_runtime_turn();
+	return true;
+}
+
+Dictionary AIAgentSession::get_pending_tool_approval() const {
+	return pending_tool_approval;
 }
 
 Array AIAgentSession::get_messages_as_array() const {
@@ -358,6 +420,88 @@ void AIAgentSession::_remove_message_at(int p_index) {
 	_recalculate_token_usage();
 }
 
+void AIAgentSession::_append_tool_result_message(const AIToolCall &p_call, const AIToolResult &p_tool_result) {
+	AIAgentMessage tool_message;
+	tool_message.role = AI_AGENT_ROLE_TOOL;
+	tool_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+	tool_message.metadata = p_tool_result.metadata;
+	tool_message.metadata["tool_call_id"] = p_call.id;
+	tool_message.metadata["tool_name"] = p_call.tool_name;
+	tool_message.metadata["truncated"] = p_tool_result.truncated;
+	if (p_tool_result.is_error()) {
+		tool_message.content = "Tool call failed for `" + p_call.tool_name + "`: " + p_tool_result.error;
+		tool_message.metadata["status"] = AIToolCall::status_to_string(AI_TOOL_CALL_STATUS_FAILED);
+	} else {
+		tool_message.content = p_tool_result.content;
+		tool_message.metadata["status"] = AIToolCall::status_to_string(AI_TOOL_CALL_STATUS_COMPLETED);
+	}
+	messages.push_back(tool_message);
+	emit_signal(SNAME("message_added"), tool_message.to_dict());
+	_recalculate_token_usage();
+	_save();
+}
+
+bool AIAgentSession::_update_tool_call_status(const AIToolCall &p_call) {
+	for (int i = messages.size() - 1; i >= 0; i--) {
+		AIAgentMessage message = messages[i];
+		if (!message.metadata.has("tool_calls") || Variant(message.metadata["tool_calls"]).get_type() != Variant::ARRAY) {
+			continue;
+		}
+
+		Array tool_calls = message.metadata["tool_calls"];
+		for (int j = 0; j < tool_calls.size(); j++) {
+			if (Variant(tool_calls[j]).get_type() != Variant::DICTIONARY) {
+				continue;
+			}
+			Dictionary call_dict = tool_calls[j];
+			if (String(call_dict.get("id", "")) != p_call.id) {
+				continue;
+			}
+
+			tool_calls[j] = p_call.to_dict();
+			message.metadata["tool_calls"] = tool_calls;
+			messages.write[i] = message;
+			emit_signal(SNAME("message_updated"), i, message.to_dict());
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AIAgentSession::_start_runtime_turn() {
+	if (!is_tool_runtime_available()) {
+		print_line("[AI Agent][Session] Failed before runtime start: tool runtime is not available.");
+		_on_provider_request_failed("AI runtime is not configured.");
+		return false;
+	}
+
+	_set_state(AI_AGENT_STATE_PREPARING_CONTEXT);
+	print_line("[AI Agent][Session] Collecting editor/project context...");
+	Array context = _collect_context();
+	print_line(vformat("[AI Agent][Session] Context collected. documents=%d", context.size()));
+
+	Vector<AIAgentMessage> request_messages = messages;
+	if (active_assistant_index >= 0 && active_assistant_index < request_messages.size() && request_messages[active_assistant_index].content.is_empty()) {
+		request_messages.remove_at(active_assistant_index);
+		print_line("[AI Agent][Session] Removed assistant placeholder from provider request messages.");
+	}
+
+	_set_state(AI_AGENT_STATE_STREAMING);
+	print_line(vformat("[AI Agent][Session] Starting function-calling runtime. request_messages=%d", request_messages.size()));
+	runtime_base_message_count = request_messages.size();
+	runtime_progress_message_count = 0;
+	if (!runtime_runner->start(request_messages, context)) {
+		print_line("[AI Agent][Session] Failed to start function-calling runtime.");
+		_on_provider_request_failed("Failed to start AI runtime.");
+		return false;
+	}
+	return true;
+}
+
+bool AIAgentSession::_is_busy() const {
+	return state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT || state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL;
+}
+
 void AIAgentSession::_configure_tool_runtime() {
 	Ref<AIListProjectTool> list_project;
 	list_project.instantiate();
@@ -429,6 +573,41 @@ void AIAgentSession::_configure_tool_runtime() {
 	tool_registry->register_tool(open_scene_tool);
 	print_line("[AI Agent][Session] Registered tool: scene.open_scene");
 
+	Ref<AIScriptInspectTool> script_inspect_tool;
+	script_inspect_tool.instantiate();
+	tool_registry->register_tool(script_inspect_tool);
+	print_line("[AI Agent][Session] Registered tool: script.inspect");
+
+	Ref<AIScriptCreateTool> script_create_tool;
+	script_create_tool.instantiate();
+	tool_registry->register_tool(script_create_tool);
+	print_line("[AI Agent][Session] Registered tool: script.create");
+
+	Ref<AIScriptWriteTool> script_write_tool;
+	script_write_tool.instantiate();
+	tool_registry->register_tool(script_write_tool);
+	print_line("[AI Agent][Session] Registered tool: script.write");
+
+	Ref<AIScriptPatchFunctionTool> script_patch_function_tool;
+	script_patch_function_tool.instantiate();
+	tool_registry->register_tool(script_patch_function_tool);
+	print_line("[AI Agent][Session] Registered tool: script.patch_function");
+
+	Ref<AIScriptBindToNodeTool> script_bind_to_node_tool;
+	script_bind_to_node_tool.instantiate();
+	tool_registry->register_tool(script_bind_to_node_tool);
+	print_line("[AI Agent][Session] Registered tool: script.bind_to_node");
+
+	Ref<AIScriptUnbindFromNodeTool> script_unbind_from_node_tool;
+	script_unbind_from_node_tool.instantiate();
+	tool_registry->register_tool(script_unbind_from_node_tool);
+	print_line("[AI Agent][Session] Registered tool: script.unbind_from_node");
+
+	Ref<AIScriptDeleteTool> script_delete_tool;
+	script_delete_tool.instantiate();
+	tool_registry->register_tool(script_delete_tool);
+	print_line("[AI Agent][Session] Registered tool: script.delete");
+
 	runtime->set_tool_registry(tool_registry);
 	runtime->set_profile(agent_profile);
 	runtime_runner->set_runtime(runtime);
@@ -458,6 +637,15 @@ void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result)
 	runtime_base_message_count = messages.size();
 	runtime_progress_message_count = 0;
 	_recalculate_token_usage();
+	if (!p_result.pending_approval.is_empty()) {
+		pending_tool_approval = p_result.pending_approval.duplicate(true);
+		_set_state(AI_AGENT_STATE_WAITING_TOOL_APPROVAL);
+		emit_signal(SNAME("tool_approval_requested"), pending_tool_approval);
+		_save();
+		print_line(vformat("[AI Agent][Session] Runtime result is waiting for tool approval. tool=%s", String(pending_tool_approval.get("tool_name", ""))));
+		return;
+	}
+
 	_set_state(AI_AGENT_STATE_IDLE);
 	_save();
 	print_line(vformat("[AI Agent][Session] Runtime result applied and saved. session=%s messages=%d", session_id, messages.size()));
