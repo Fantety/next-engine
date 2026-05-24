@@ -9,7 +9,7 @@
 class AIBestPracticesContextProvider : public AIContextProvider {
 	GDCLASS(AIBestPracticesContextProvider, AIContextProvider);
 
-	int max_chars = 12000;
+	int max_chars = 24000;
 
 protected:
 	static void _bind_methods();
