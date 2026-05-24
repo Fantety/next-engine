@@ -140,11 +140,18 @@
 
 #include "editor/ai_component/agent/ai_agent_session.h"
 #include "editor/ai_component/agent/ai_context_manager.h"
+#include "editor/ai_component/agent/ai_mcp_service.h"
+#include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
+#include "editor/ai_component/agent/ai_mcp_tool_discovery_runner.h"
 #include "editor/ai_component/context/ai_best_practices_context_provider.h"
 #include "editor/ai_component/context/ai_context_provider.h"
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_file_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
+#include "editor/ai_component/providers/ai_mcp_client.h"
+#include "editor/ai_component/providers/ai_mcp_http_client.h"
+#include "editor/ai_component/providers/ai_mcp_stdio_client.h"
+#include "editor/ai_component/providers/ai_mcp_status_tracker.h"
 #include "editor/ai_component/review/ai_change_set_store.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/tools/ai_tool_execution_context.h"
@@ -155,10 +162,12 @@
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_change_review_panel.h"
 #include "editor/ai_component/ui/ai_composer.h"
+#include "editor/ai_component/ui/ai_mcp_server_dialog.h"
 #include "editor/ai_component/ui/ai_model_profile_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/ai_component/ui/ai_message_list.h"
+#include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_models_page.h"
 #include "editor/ai_component/ui/ai_settings_placeholder_page.h"
 #include "editor/ai_component/ui/ai_text_diff_viewer.h"
@@ -247,6 +256,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterWAV);
 	GDREGISTER_CLASS(AIAgentSession);
 	GDREGISTER_CLASS(AIContextManager);
+	GDREGISTER_CLASS(AIMCPService);
 	GDREGISTER_CLASS(AIBestPracticesContextProvider);
 	GDREGISTER_CLASS(AIContextProvider);
 	GDREGISTER_CLASS(AIEditorContextProvider);
@@ -254,6 +264,12 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIProjectTreeContextProvider);
 	GDREGISTER_CLASS(AIChangeSetStore);
 	GDREGISTER_CLASS(AIConversationStore);
+	GDREGISTER_CLASS(AIMCPClient);
+	GDREGISTER_CLASS(AIMCPHTTPClient);
+	GDREGISTER_CLASS(AIMCPStdioClient);
+	GDREGISTER_CLASS(AIMCPStatusTracker);
+	GDREGISTER_CLASS(AIMCPToolDiscovery);
+	GDREGISTER_CLASS(AIMCPToolDiscoveryRunner);
 	GDREGISTER_CLASS(AIToolExecutionContext);
 	GDREGISTER_CLASS(AISceneEditingService);
 	GDREGISTER_CLASS(AIScriptEditingService);
@@ -261,10 +277,12 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIAgentSettingsDialog);
 	GDREGISTER_CLASS(AIChangeReviewPanel);
 	GDREGISTER_CLASS(AIComposer);
+	GDREGISTER_CLASS(AIMCPServerDialog);
 	GDREGISTER_CLASS(AIModelProfileDialog);
 	GDREGISTER_CLASS(AIMarkdownLabel);
 	GDREGISTER_CLASS(AIMessageBubble);
 	GDREGISTER_CLASS(AIMessageList);
+	GDREGISTER_CLASS(AISettingsMCPPage);
 	GDREGISTER_CLASS(AISettingsModelsPage);
 	GDREGISTER_CLASS(AISettingsPlaceholderPage);
 	GDREGISTER_CLASS(AITextDiffViewer);

@@ -11,6 +11,7 @@
 #include "scene/gui/check_box.h"
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
+#include "scene/gui/option_button.h"
 #include "scene/gui/text_edit.h"
 
 namespace {
@@ -72,6 +73,13 @@ void AIMCPServerDialog::_build_ui() {
 	name_edit->set_placeholder(TTR("Filesystem"));
 	_make_field_row(root, _ai_ui_text(u8"\u540d\u79f0"), name_edit);
 
+	transport_option = memnew(OptionButton);
+	transport_option->add_item("stdio", 0);
+	transport_option->add_item("streamable_http", 1);
+	transport_option->add_item("sse", 2);
+	transport_option->connect(SceneStringName(item_selected), callable_mp(this, &AIMCPServerDialog::_transport_selected));
+	_make_field_row(root, TTR("Transport"), transport_option);
+
 	command_edit = memnew(LineEdit);
 	command_edit->set_placeholder("npx");
 	_make_field_row(root, TTR("Command"), command_edit);
@@ -90,26 +98,65 @@ void AIMCPServerDialog::_build_ui() {
 	environment_edit->set_placeholder("KEY=value");
 	_make_field_row(root, TTR("Environment"), environment_edit);
 
+	url_edit = memnew(LineEdit);
+	url_edit->set_placeholder("https://example.com/mcp");
+	_make_field_row(root, TTR("URL"), url_edit);
+
+	headers_edit = memnew(TextEdit);
+	headers_edit->set_custom_minimum_size(Size2(0, 74) * EDSCALE);
+	headers_edit->set_placeholder("Authorization=Bearer token");
+	_make_field_row(root, TTR("Headers"), headers_edit);
+
 	enabled_check = memnew(CheckBox);
 	enabled_check->set_text(TTR("Enabled"));
 	root->add_child(enabled_check);
 
 	connect(SceneStringName(confirmed), callable_mp(this, &AIMCPServerDialog::_confirmed), CONNECT_DEFERRED);
+	_sync_transport_fields();
 }
 
 void AIMCPServerDialog::_reset_form() {
 	_build_ui();
 	editing_server_id.clear();
 	name_edit->clear();
+	transport_option->select(0);
 	command_edit->clear();
 	arguments_edit->clear();
 	working_directory_edit->clear();
 	environment_edit->clear();
+	url_edit->clear();
+	headers_edit->clear();
 	enabled_check->set_pressed(true);
+	_sync_transport_fields();
 }
 
 void AIMCPServerDialog::_confirmed() {
 	emit_signal(SNAME("server_submitted"));
+}
+
+void AIMCPServerDialog::_transport_selected(int p_index) {
+	(void)p_index;
+	_sync_transport_fields();
+}
+
+void AIMCPServerDialog::_sync_transport_fields() {
+	if (!transport_option || !command_edit || !arguments_edit || !working_directory_edit || !environment_edit || !url_edit || !headers_edit) {
+		return;
+	}
+
+	const bool is_stdio = transport_option->get_selected_id() == 0;
+	command_edit->set_editable(is_stdio);
+	arguments_edit->set_editable(is_stdio);
+	working_directory_edit->set_editable(is_stdio);
+	environment_edit->set_editable(is_stdio);
+	url_edit->set_editable(!is_stdio);
+	headers_edit->set_editable(!is_stdio);
+	command_edit->set_modulate(is_stdio ? Color(1, 1, 1) : Color(1, 1, 1, 0.45));
+	arguments_edit->set_modulate(is_stdio ? Color(1, 1, 1) : Color(1, 1, 1, 0.45));
+	working_directory_edit->set_modulate(is_stdio ? Color(1, 1, 1) : Color(1, 1, 1, 0.45));
+	environment_edit->set_modulate(is_stdio ? Color(1, 1, 1) : Color(1, 1, 1, 0.45));
+	url_edit->set_modulate(!is_stdio ? Color(1, 1, 1) : Color(1, 1, 1, 0.45));
+	headers_edit->set_modulate(!is_stdio ? Color(1, 1, 1) : Color(1, 1, 1, 0.45));
 }
 
 void AIMCPServerDialog::popup_add_server() {
@@ -122,11 +169,21 @@ void AIMCPServerDialog::popup_edit_server(const AIMCPServerConfig &p_server) {
 	_reset_form();
 	editing_server_id = p_server.id;
 	name_edit->set_text(p_server.display_name);
+	if (p_server.transport == "streamable_http") {
+		transport_option->select(1);
+	} else if (p_server.transport == "sse") {
+		transport_option->select(2);
+	} else {
+		transport_option->select(0);
+	}
 	command_edit->set_text(p_server.command);
 	arguments_edit->set_text(p_server.arguments);
 	working_directory_edit->set_text(p_server.working_directory);
 	environment_edit->set_text(p_server.environment);
+	url_edit->set_text(p_server.url);
+	headers_edit->set_text(p_server.headers);
 	enabled_check->set_pressed(p_server.enabled);
+	_sync_transport_fields();
 	set_title(TTR("Edit MCP Server"));
 	popup_centered();
 }
@@ -141,16 +198,20 @@ String AIMCPServerDialog::get_editing_server_id() const {
 
 AIMCPServerConfig AIMCPServerDialog::get_submitted_server() const {
 	AIMCPServerConfig server;
-	if (!name_edit || !command_edit || !arguments_edit || !working_directory_edit || !environment_edit || !enabled_check) {
+	if (!name_edit || !transport_option || !command_edit || !arguments_edit || !working_directory_edit || !environment_edit || !url_edit || !headers_edit || !enabled_check) {
 		return server;
 	}
 
 	server.id = editing_server_id;
 	server.display_name = name_edit->get_text().strip_edges();
+	const int transport_index = transport_option->get_selected_id();
+	server.transport = transport_index == 1 ? String("streamable_http") : (transport_index == 2 ? String("sse") : String("stdio"));
 	server.command = command_edit->get_text().strip_edges();
 	server.arguments = arguments_edit->get_text().strip_edges();
 	server.working_directory = working_directory_edit->get_text().strip_edges();
 	server.environment = environment_edit->get_text().strip_edges();
+	server.url = url_edit->get_text().strip_edges();
+	server.headers = headers_edit->get_text().strip_edges();
 	server.enabled = enabled_check->is_pressed();
 	return server;
 }

@@ -26,6 +26,7 @@ String _ai_ui_text(const char *p_text) {
 void AIAgentSettingsDialog::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_save_settings"), &AIAgentSettingsDialog::_save_settings);
 	ADD_SIGNAL(MethodInfo("ai_settings_changed"));
+	ADD_SIGNAL(MethodInfo("ai_mcp_settings_changed"));
 }
 
 void AIAgentSettingsDialog::_notification(int p_what) {
@@ -104,12 +105,12 @@ void AIAgentSettingsDialog::_build_pages(HBoxContainer *p_root) {
 
 	models_page = memnew(AISettingsModelsPage);
 	models_page->set_name(_ai_ui_text(u8"\u6a21\u578b"));
-	models_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_settings));
+	models_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_model_settings));
 	pages->add_child(models_page);
 
 	mcp_page = memnew(AISettingsMCPPage);
 	mcp_page->set_name(TTR("MCP"));
-	mcp_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_settings));
+	mcp_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_mcp_settings));
 	pages->add_child(mcp_page);
 
 	AISettingsPlaceholderPage *skills_page = memnew(AISettingsPlaceholderPage);
@@ -136,6 +137,23 @@ void AIAgentSettingsDialog::_save_settings() {
 
 	settings->save();
 	emit_signal(SNAME("ai_settings_changed"));
+	emit_signal(SNAME("ai_mcp_settings_changed"));
+}
+
+void AIAgentSettingsDialog::_save_model_settings() {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	ERR_FAIL_NULL(settings);
+
+	settings->save();
+	emit_signal(SNAME("ai_settings_changed"));
+}
+
+void AIAgentSettingsDialog::_save_mcp_settings() {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	ERR_FAIL_NULL(settings);
+
+	settings->save();
+	emit_signal(SNAME("ai_mcp_settings_changed"));
 }
 
 void AIAgentSettingsDialog::build_for_test() {

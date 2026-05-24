@@ -46,8 +46,10 @@ class AIAgentSession : public Node {
 
 	String _get_project_scope_key() const;
 	void _configure_tool_runtime();
-	void _register_mcp_tools();
+	void _register_mcp_tools_from_service();
+	void _remove_dynamic_tool_permissions();
 	void _apply_dynamic_tool_permissions();
+	void _mcp_tools_changed();
 	void _load_initial_session();
 	void _apply_runtime_result(const AIAgentRuntimeResult &p_result);
 	void _set_state(AIAgentState p_state);

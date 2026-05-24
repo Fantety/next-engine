@@ -95,10 +95,13 @@ TEST_CASE("[Editor][AI] MCP settings manage server enable states") {
 	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(false);
 	REQUIRE(servers.size() == 2);
 	CHECK(servers[0].display_name == "Filesystem");
+	CHECK(servers[0].transport == "stdio");
 	CHECK(servers[0].command == "npx");
 	CHECK(servers[0].arguments == "-y @modelcontextprotocol/server-filesystem .");
 	CHECK(servers[0].working_directory == "res://");
 	CHECK(servers[0].environment == "NODE_ENV=development");
+	CHECK(servers[0].url.is_empty());
+	CHECK(servers[0].headers.is_empty());
 	CHECK(servers[0].enabled);
 	CHECK_FALSE(servers[1].enabled);
 
@@ -113,6 +116,7 @@ TEST_CASE("[Editor][AI] MCP settings manage server enable states") {
 	CHECK(AIMCPSettings::update_server(filesystem_id, "Filesystem Local", "node", "server.js", "res://tools", "FOO=bar", false));
 	AIMCPServerConfig updated = AIMCPSettings::get_server(filesystem_id);
 	CHECK(updated.display_name == "Filesystem Local");
+	CHECK(updated.transport == "stdio");
 	CHECK(updated.command == "node");
 	CHECK(updated.arguments == "server.js");
 	CHECK(updated.working_directory == "res://tools");
@@ -123,6 +127,109 @@ TEST_CASE("[Editor][AI] MCP settings manage server enable states") {
 	servers = AIMCPSettings::get_servers(false);
 	REQUIRE(servers.size() == 1);
 	CHECK(servers[0].id == filesystem_id);
+
+	AIMCPSettings::set_server_storage_for_test(original_servers);
+}
+
+TEST_CASE("[Editor][AI] MCP settings import stdio and HTTP servers from JSON") {
+	Array original_servers = AIMCPSettings::get_server_storage_for_test();
+	AIMCPSettings::clear_servers_for_test();
+
+	const String json = R"({
+		"mcpServers": {
+			"filesystem": {
+				"command": "npx",
+				"args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+				"env": {"NODE_ENV": "development"}
+			},
+			"remote-docs": {
+				"type": "streamable_http",
+				"url": "https://mcp.example.test/mcp",
+				"headers": {"Authorization": "Bearer test-token"}
+			},
+			"legacy-events": {
+				"transport": "sse",
+				"url": "https://mcp.example.test/sse"
+			}
+		}
+	})";
+
+	String error;
+	CHECK(AIMCPSettings::import_servers_from_json(json, error));
+	CHECK(error.is_empty());
+
+	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(false);
+	REQUIRE(servers.size() == 3);
+	CHECK(servers[0].display_name == "filesystem");
+	CHECK(servers[0].transport == "stdio");
+	CHECK(servers[0].command == "npx");
+	CHECK(servers[0].arguments == "-y @modelcontextprotocol/server-filesystem .");
+	CHECK(servers[0].environment == "NODE_ENV=development");
+
+	CHECK(servers[1].display_name == "remote-docs");
+	CHECK(servers[1].transport == "streamable_http");
+	CHECK(servers[1].url == "https://mcp.example.test/mcp");
+	CHECK(servers[1].headers == "Authorization=Bearer test-token");
+	CHECK(servers[1].command.is_empty());
+
+	CHECK(servers[2].display_name == "legacy-events");
+	CHECK(servers[2].transport == "sse");
+	CHECK(servers[2].url == "https://mcp.example.test/sse");
+
+	AIMCPSettings::set_server_storage_for_test(original_servers);
+}
+
+TEST_CASE("[Editor][AI] MCP settings import URL-only JSON servers as streamable HTTP") {
+	Array original_servers = AIMCPSettings::get_server_storage_for_test();
+	AIMCPSettings::clear_servers_for_test();
+
+	const String json = R"({
+		"mcpServers": {
+			"remote-docs": {
+				"url": "https://mcp.example.test/mcp"
+			}
+		}
+	})";
+
+	String error;
+	CHECK(AIMCPSettings::import_servers_from_json(json, error));
+	CHECK(error.is_empty());
+
+	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(false);
+	REQUIRE(servers.size() == 1);
+	CHECK(servers[0].display_name == "remote-docs");
+	CHECK(servers[0].transport == "streamable_http");
+	CHECK(servers[0].url == "https://mcp.example.test/mcp");
+
+	AIMCPSettings::set_server_storage_for_test(original_servers);
+}
+
+TEST_CASE("[Editor][AI] MCP settings expose invalid configs for status reporting") {
+	Array original_servers = AIMCPSettings::get_server_storage_for_test();
+	AIMCPSettings::clear_servers_for_test();
+
+	Dictionary invalid_server;
+	invalid_server["id"] = "mcp:invalid";
+	invalid_server["display_name"] = "Invalid Remote";
+	invalid_server["transport"] = "streamable_http";
+	invalid_server["url"] = "";
+	invalid_server["enabled"] = true;
+
+	Array storage;
+	storage.push_back(invalid_server);
+	AIMCPSettings::set_server_storage_for_test(storage);
+
+	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(false);
+	REQUIRE(servers.size() == 1);
+	CHECK(AIMCPSettings::get_servers(true).is_empty());
+
+	Vector<AIMCPServerConfig> status_configs = AIMCPSettings::get_server_status_configs();
+	REQUIRE(status_configs.size() == 1);
+	CHECK(status_configs[0].display_name == "Invalid Remote");
+
+	String error;
+	CHECK_FALSE(AIMCPSettings::is_server_config_usable(status_configs[0], &error));
+	CHECK(error.contains("URL"));
 
 	AIMCPSettings::set_server_storage_for_test(original_servers);
 }
@@ -528,6 +635,47 @@ TEST_CASE("[Editor][AI] Message bubbles render tool events with metadata") {
 	REQUIRE(title_label != nullptr);
 	CHECK(title_label->get_text() == "Tool: project.read_file (completed)");
 	CHECK(label->get_parsed_text() == "res://player.gd");
+
+	memdelete(bubble);
+}
+
+TEST_CASE("[Editor][AI] Message bubbles render MCP tool execution metadata") {
+	AIMessageBubble *bubble = memnew(AIMessageBubble);
+	Dictionary message;
+	message["role"] = "tool";
+	message["content"] = "Read 3 files.";
+
+	Dictionary metadata;
+	metadata["tool_name"] = "mcp_filesystem_read_file";
+	metadata["status"] = "completed";
+	metadata["tool_origin"] = "mcp";
+	metadata["mcp_server_name"] = "Filesystem";
+	metadata["mcp_server_id"] = "mcp:filesystem";
+	metadata["mcp_tool_name"] = "read_file";
+	metadata["mcp_transport"] = "stdio";
+	metadata["mcp_agent_tool_name"] = "mcp_filesystem_read_file";
+	message["metadata"] = metadata;
+
+	bubble->set_message(message);
+
+	RichTextLabel *label = find_child_of_type<RichTextLabel>(bubble);
+	Label *title_label = find_child_of_type<Label>(bubble);
+	LinkButton *details_button = find_child_of_type<LinkButton>(bubble);
+	REQUIRE(label != nullptr);
+	REQUIRE(title_label != nullptr);
+	REQUIRE(details_button != nullptr);
+
+	CHECK(title_label->get_text() == "MCP: Filesystem / read_file (completed)");
+	CHECK(label->get_parsed_text().contains("Read 3 files."));
+	CHECK(details_button->is_visible());
+
+	details_button->emit_signal(SceneStringName(pressed));
+	const String expanded_text = label->get_parsed_text();
+	CHECK(expanded_text.contains("MCP Server: Filesystem"));
+	CHECK(expanded_text.contains("MCP Tool: read_file"));
+	CHECK(expanded_text.contains("Transport: stdio"));
+	CHECK(expanded_text.contains("Agent Tool: mcp_filesystem_read_file"));
+	CHECK(expanded_text.contains("Read 3 files."));
 
 	memdelete(bubble);
 }

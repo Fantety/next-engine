@@ -9,16 +9,50 @@
 #include "core/io/json.h"
 #include "core/os/os.h"
 #include "core/os/time.h"
+#include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
+#include "editor/gui/editor_toaster.h"
 #include "editor/settings/editor_command_palette.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/color_rect.h"
 #include "scene/gui/dialogs.h"
+#include "scene/gui/margin_container.h"
+#include "scene/gui/popup.h"
+#include "scene/gui/scroll_container.h"
 #include "scene/resources/material.h"
 #include "scene/resources/shader.h"
+#include "scene/resources/texture.h"
 #include "servers/text/text_server.h"
+
+namespace {
+
+void _clear_children(Node *p_node) {
+	if (!p_node) {
+		return;
+	}
+	while (p_node->get_child_count() > 0) {
+		Node *child = p_node->get_child(0);
+		p_node->remove_child(child);
+		memdelete(child);
+	}
+}
+
+String _mcp_status_label(const String &p_status) {
+	if (p_status == "ok") {
+		return TTR("Ready");
+	}
+	if (p_status == "failed") {
+		return TTR("Failed");
+	}
+	if (p_status == "disabled") {
+		return TTR("Disabled");
+	}
+	return TTR("Checking");
+}
+
+} // namespace
 
 void AIAgentDock::_bind_methods() {
 }
@@ -33,6 +67,10 @@ void AIAgentDock::_notification(int p_what) {
 		if (delete_session_button) {
 			delete_session_button->set_button_icon(get_editor_theme_icon(SNAME("Delete")));
 		}
+		if (mcp_status_button) {
+			mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusSuccess")));
+		}
+		_refresh_mcp_status_button();
 	}
 }
 
@@ -75,6 +113,13 @@ AIAgentDock::AIAgentDock() {
 	delete_session_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentDock::_delete_session_pressed));
 	session_bar->add_child(delete_session_button);
 
+	mcp_status_button = memnew(Button);
+	mcp_status_button->set_text("MCP");
+	mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusSuccess")));
+	mcp_status_button->set_tooltip_text(TTR("MCP server status."));
+	mcp_status_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentDock::_mcp_status_pressed));
+	session_bar->add_child(mcp_status_button);
+
 	delete_session_dialog = memnew(ConfirmationDialog);
 	delete_session_dialog->set_title(TTR("Delete AI Chat"));
 	delete_session_dialog->set_ok_button_text(TTR("Delete"));
@@ -89,6 +134,27 @@ AIAgentDock::AIAgentDock() {
 	tool_approval_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AIAgentDock::_confirm_tool_approval));
 	tool_approval_dialog->connect("canceled", callable_mp(this, &AIAgentDock::_reject_tool_approval));
 	add_child(tool_approval_dialog);
+
+	mcp_status_popup = memnew(PopupPanel);
+	mcp_status_popup->set_min_size(Size2(380, 220) * EDSCALE);
+	MarginContainer *mcp_status_margin = memnew(MarginContainer);
+	mcp_status_margin->add_theme_constant_override("margin_right", 8 * EDSCALE);
+	mcp_status_margin->add_theme_constant_override("margin_top", 8 * EDSCALE);
+	mcp_status_margin->add_theme_constant_override("margin_left", 8 * EDSCALE);
+	mcp_status_margin->add_theme_constant_override("margin_bottom", 8 * EDSCALE);
+	mcp_status_popup->add_child(mcp_status_margin);
+
+	ScrollContainer *mcp_status_scroll = memnew(ScrollContainer);
+	mcp_status_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	mcp_status_scroll->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	mcp_status_margin->add_child(mcp_status_scroll);
+
+	mcp_status_list = memnew(VBoxContainer);
+	mcp_status_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	mcp_status_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	mcp_status_list->add_theme_constant_override("separation", 8 * EDSCALE);
+	mcp_status_scroll->add_child(mcp_status_list);
+	add_child(mcp_status_popup);
 
 	VBoxContainer *main = memnew(VBoxContainer);
 	main->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -167,11 +233,18 @@ void fragment() {
 
 	if (AIAgentSettingsDialog::get_singleton()) {
 		AIAgentSettingsDialog::get_singleton()->connect("ai_settings_changed", callable_mp(this, &AIAgentDock::_settings_changed));
+		AIAgentSettingsDialog::get_singleton()->connect("ai_mcp_settings_changed", callable_mp(this, &AIAgentDock::_mcp_settings_changed));
+	}
+	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
+	if (mcp_service.is_valid()) {
+		mcp_service->connect("status_changed", callable_mp(this, &AIAgentDock::_mcp_status_changed), CONNECT_DEFERRED);
+		mcp_service->refresh();
 	}
 
 	_ensure_session();
 	_reload_messages_from_session();
 	_refresh_session_list();
+	_refresh_mcp_status_button();
 }
 
 AIAgentDock *AIAgentDock::get_singleton() {
@@ -237,10 +310,45 @@ void AIAgentDock::_token_usage_changed(const Dictionary &p_usage) {
 	_refresh_token_usage();
 }
 
+void AIAgentDock::_mcp_status_changed(const Array &p_statuses, const Dictionary &p_summary) {
+	(void)p_statuses;
+	const int failed = (int)p_summary.get("failed", 0);
+	if (failed > 0 && !mcp_failure_toast_visible && EditorToaster::get_singleton()) {
+		EditorToaster::get_singleton()->popup_str(vformat(TTR("%d MCP server(s) failed to initialize. Open the MCP status menu for details."), failed), EditorToaster::SEVERITY_WARNING);
+		mcp_failure_toast_visible = true;
+	} else if (failed == 0) {
+		mcp_failure_toast_visible = false;
+	}
+	_refresh_mcp_status_button();
+	if (mcp_status_popup && mcp_status_popup->is_visible()) {
+		_refresh_mcp_status_popup();
+	}
+}
+
 void AIAgentDock::_settings_changed() {
 	composer->reload_models();
-	if (session) {
-		session->reload_tool_runtime();
+}
+
+void AIAgentDock::_mcp_settings_changed() {
+	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
+	if (mcp_service.is_valid()) {
+		mcp_service->refresh();
+	}
+	_refresh_mcp_status_button();
+}
+
+void AIAgentDock::_mcp_status_pressed() {
+	_refresh_mcp_status_popup();
+	if (mcp_status_popup) {
+		const Size2 popup_size = Size2(420, 300) * EDSCALE;
+		Rect2i popup_rect;
+		if (mcp_status_button) {
+			Rect2 rect = mcp_status_button->get_screen_rect();
+			rect.position.y += rect.size.height;
+			rect.size = popup_size;
+			popup_rect = Rect2i(rect);
+		}
+		mcp_status_popup->popup(popup_rect);
 	}
 }
 
@@ -378,6 +486,10 @@ void AIAgentDock::_ensure_session() {
 	session->connect("state_changed", callable_mp(this, &AIAgentDock::_state_changed));
 	session->connect("token_usage_changed", callable_mp(this, &AIAgentDock::_token_usage_changed));
 	session->connect("tool_approval_requested", callable_mp(this, &AIAgentDock::_tool_approval_requested));
+	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
+	if (mcp_service.is_valid()) {
+		_mcp_status_changed(mcp_service->get_statuses(), mcp_service->get_status_summary());
+	}
 }
 
 String AIAgentDock::_get_selected_session_id() const {
@@ -448,6 +560,109 @@ void AIAgentDock::_reload_messages_from_session() {
 	}
 	message_list->scroll_to_bottom();
 	_refresh_token_usage();
+}
+
+void AIAgentDock::_refresh_mcp_status_button() {
+	if (!mcp_status_button) {
+		return;
+	}
+
+	Dictionary summary;
+	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
+	if (mcp_service.is_valid()) {
+		summary = mcp_service->get_status_summary();
+	}
+	const int total = (int)summary.get("total", 0);
+	const int ok = (int)summary.get("ok", 0);
+	const int failed = (int)summary.get("failed", 0);
+	const int disabled = (int)summary.get("disabled", 0);
+	const int checking = (int)summary.get("checking", 0);
+	const int tool_count = (int)summary.get("tool_count", 0);
+
+	if (total <= 0) {
+		mcp_status_button->set_text(TTR("MCP"));
+		mcp_status_button->set_button_icon(Ref<Texture2D>());
+		mcp_status_button->set_tooltip_text(TTR("No MCP servers configured."));
+		return;
+	}
+
+	if (failed > 0) {
+		mcp_status_button->set_text(vformat(TTR("MCP %d"), failed));
+		mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusError")));
+		mcp_status_button->set_tooltip_text(vformat(TTR("MCP status: %d failed, %d ready, %d disabled. Tools: %d."), failed, ok, disabled, tool_count));
+		return;
+	}
+
+	if (checking > 0) {
+		mcp_status_button->set_text(TTR("MCP"));
+		mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusWarning")));
+		mcp_status_button->set_tooltip_text(vformat(TTR("MCP status: checking %d server(s)."), checking));
+		return;
+	}
+
+	mcp_status_button->set_text(TTR("MCP"));
+	mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusSuccess")));
+	mcp_status_button->set_tooltip_text(vformat(TTR("MCP status: %d ready, %d disabled. Tools: %d."), ok, disabled, tool_count));
+}
+
+void AIAgentDock::_refresh_mcp_status_popup() {
+	if (!mcp_status_list) {
+		return;
+	}
+
+	_clear_children(mcp_status_list);
+
+	Label *title = memnew(Label);
+	title->set_text(TTR("MCP Servers"));
+	title->add_theme_font_size_override(SceneStringName(font_size), int(14 * EDSCALE));
+	mcp_status_list->add_child(title);
+
+	Array statuses;
+	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
+	if (mcp_service.is_valid()) {
+		statuses = mcp_service->get_statuses();
+	}
+	if (statuses.is_empty()) {
+		Label *empty_label = memnew(Label);
+		empty_label->set_text(TTR("No MCP servers configured."));
+		empty_label->add_theme_font_size_override(SceneStringName(font_size), int(12 * EDSCALE));
+		mcp_status_list->add_child(empty_label);
+		return;
+	}
+
+	for (int i = 0; i < statuses.size(); i++) {
+		if (Variant(statuses[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		Dictionary status = statuses[i];
+		const String display_name = String(status.get("display_name", TTR("Unnamed MCP")));
+		const String transport = String(status.get("transport", String()));
+		const String state = String(status.get("status", String()));
+		const int tool_count = (int)status.get("tool_count", 0);
+		const String error = String(status.get("error", String()));
+		const String endpoint = String(status.get("endpoint", String()));
+
+		VBoxContainer *row = memnew(VBoxContainer);
+		row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		row->add_theme_constant_override("separation", 2 * EDSCALE);
+		mcp_status_list->add_child(row);
+
+		Label *line = memnew(Label);
+		line->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		line->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+		line->set_text(vformat("%s  %s  %s  %s", display_name, transport, _mcp_status_label(state), state == "ok" ? vformat(TTR("%d tools"), tool_count) : String()));
+		line->set_tooltip_text(line->get_text());
+		row->add_child(line);
+
+		Label *detail = memnew(Label);
+		detail->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		detail->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+		detail->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+		detail->set_text(error.is_empty() ? endpoint : error);
+		detail->set_tooltip_text(detail->get_text());
+		row->add_child(detail);
+	}
 }
 
 void AIAgentDock::_refresh_token_usage() {

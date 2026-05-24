@@ -286,22 +286,6 @@ bool AIMCPStdioClient::_read_response(const Ref<FileAccess> &p_pipe, int p_expec
 	return false;
 }
 
-void AIMCPStdioClient::set_server_config(const AIMCPServerConfig &p_server) {
-	server = p_server;
-}
-
-AIMCPServerConfig AIMCPStdioClient::get_server_config() const {
-	return server;
-}
-
-void AIMCPStdioClient::set_timeout_msec(int p_timeout_msec) {
-	timeout_msec = MAX(1000, p_timeout_msec);
-}
-
-int AIMCPStdioClient::get_timeout_msec() const {
-	return timeout_msec;
-}
-
 bool AIMCPStdioClient::initialize(String &r_error) {
 	Ref<FileAccess> stdio;
 	ProcessID pid = 0;
@@ -369,5 +353,6 @@ AIMCPToolCallResult AIMCPStdioClient::call_tool(const String &p_tool_name, const
 	result.metadata["mcp_server_id"] = server.id;
 	result.metadata["mcp_server_name"] = server.display_name;
 	result.metadata["mcp_tool_name"] = p_tool_name;
+	result.metadata["mcp_transport"] = server.transport;
 	return result;
 }

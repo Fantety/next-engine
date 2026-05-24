@@ -88,6 +88,61 @@ String _build_tool_call_details(const Array &p_tool_calls) {
 	return String("\n").join(lines);
 }
 
+bool _is_mcp_tool_metadata(const Dictionary &p_metadata) {
+	return String(p_metadata.get("tool_origin", String())) == "mcp" || p_metadata.has("mcp_server_name") || p_metadata.has("mcp_tool_name");
+}
+
+String _build_mcp_tool_title(const Dictionary &p_metadata) {
+	const String server_name = String(p_metadata.get("mcp_server_name", p_metadata.get("mcp_server_id", String()))).strip_edges();
+	const String mcp_tool_name = String(p_metadata.get("mcp_tool_name", p_metadata.get("tool_name", "tool"))).strip_edges();
+	String title = "MCP";
+	if (!server_name.is_empty() || !mcp_tool_name.is_empty()) {
+		title += ": ";
+		if (!server_name.is_empty()) {
+			title += server_name;
+		}
+		if (!server_name.is_empty() && !mcp_tool_name.is_empty()) {
+			title += " / ";
+		}
+		if (!mcp_tool_name.is_empty()) {
+			title += mcp_tool_name;
+		}
+	}
+	return title;
+}
+
+String _build_mcp_tool_details(const Dictionary &p_metadata, const String &p_content) {
+	PackedStringArray lines;
+	const String server_name = String(p_metadata.get("mcp_server_name", String())).strip_edges();
+	const String server_id = String(p_metadata.get("mcp_server_id", String())).strip_edges();
+	const String mcp_tool_name = String(p_metadata.get("mcp_tool_name", String())).strip_edges();
+	const String transport = String(p_metadata.get("mcp_transport", String())).strip_edges();
+	const String agent_tool_name = String(p_metadata.get("mcp_agent_tool_name", p_metadata.get("tool_name", String()))).strip_edges();
+
+	if (!server_name.is_empty()) {
+		lines.push_back("MCP Server: " + server_name);
+	}
+	if (!server_id.is_empty()) {
+		lines.push_back("Server ID: " + server_id);
+	}
+	if (!mcp_tool_name.is_empty()) {
+		lines.push_back("MCP Tool: " + mcp_tool_name);
+	}
+	if (!transport.is_empty()) {
+		lines.push_back("Transport: " + transport);
+	}
+	if (!agent_tool_name.is_empty()) {
+		lines.push_back("Agent Tool: " + agent_tool_name);
+	}
+	if (!p_content.is_empty()) {
+		if (!lines.is_empty()) {
+			lines.push_back(String());
+		}
+		lines.push_back(p_content);
+	}
+	return String("\n").join(lines);
+}
+
 bool _tool_details_need_toggle(const String &p_summary, const String &p_details, int p_call_count = 1) {
 	return p_call_count > 1 || p_details.contains("\n") || p_details.length() > p_summary.length();
 }
@@ -154,9 +209,9 @@ void AIMessageBubble::_render_message() {
 	} else if (role == "assistant" && content.strip_edges().is_empty() && !tool_calls.is_empty()) {
 		title = "Tool Call";
 	} else if (role == "tool") {
-		String tool_name = String(message_metadata.get("tool_name", "tool"));
+		String tool_name = _is_mcp_tool_metadata(message_metadata) ? _build_mcp_tool_title(message_metadata) : String("Tool: ") + String(message_metadata.get("tool_name", "tool"));
 		String status = String(message_metadata.get("status", ""));
-		title = "Tool: " + tool_name;
+		title = tool_name;
 		if (!status.is_empty()) {
 			title += " (" + status + ")";
 		}
@@ -191,7 +246,7 @@ void AIMessageBubble::_render_message() {
 		details = _build_tool_call_details(tool_calls);
 	} else if (role == "tool") {
 		summary = _single_line_summary(content);
-		details = content;
+		details = _is_mcp_tool_metadata(message_metadata) ? _build_mcp_tool_details(message_metadata, content) : content;
 	}
 
 	details_available = is_tool_bubble && _tool_details_need_toggle(summary, details, tool_call_count);

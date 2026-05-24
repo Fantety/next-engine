@@ -4,7 +4,7 @@
 
 #include "ai_mcp_tool.h"
 
-#include "editor/ai_component/providers/ai_mcp_stdio_client.h"
+#include "editor/ai_component/providers/ai_mcp_client.h"
 
 void AIMCPTool::_bind_methods() {
 }
@@ -31,14 +31,23 @@ Dictionary AIMCPTool::get_parameters_schema() const {
 
 AIToolResult AIMCPTool::execute(const Dictionary &p_arguments) {
 	AIToolResult result;
-	Ref<AIMCPStdioClient> client;
-	client.instantiate();
-	client->set_server_config(server);
+	result.metadata["tool_origin"] = "mcp";
+	result.metadata["mcp_server_id"] = server.id;
+	result.metadata["mcp_server_name"] = server.display_name;
+	result.metadata["mcp_tool_name"] = descriptor.name;
+	result.metadata["mcp_transport"] = server.transport;
+	result.metadata["mcp_agent_tool_name"] = get_name();
+
+	Ref<AIMCPClient> client = AIMCPClientFactory::create_client(server);
+	if (client.is_null()) {
+		result.error = "MCP client transport is not available.";
+		return result;
+	}
 	client->set_timeout_msec(30000);
 	AIMCPToolCallResult call_result = client->call_tool(descriptor.name, p_arguments);
 	result.content = call_result.content;
 	result.error = call_result.error;
-	result.metadata = call_result.metadata;
+	result.metadata.merge(call_result.metadata, true);
 	result.metadata["tool_origin"] = "mcp";
 	result.metadata["mcp_agent_tool_name"] = get_name();
 	return result;

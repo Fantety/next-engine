@@ -10,6 +10,7 @@
 #include "core/os/time.h"
 #include "core/templates/local_vector.h"
 
+#include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
@@ -28,9 +29,6 @@
 #include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_write_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_apply_to_node_tool.h"
-#include "editor/ai_component/providers/ai_mcp_settings.h"
-#include "editor/ai_component/providers/ai_mcp_stdio_client.h"
-#include "editor/ai_component/tools/ai_mcp_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
@@ -71,6 +69,11 @@ AIAgentSession::AIAgentSession() {
 	best_practices_context.instantiate();
 	agent_profile = AIAgentProfile::get_plan_profile();
 
+	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
+	if (mcp_service.is_valid()) {
+		mcp_service->connect("tools_changed", callable_mp(this, &AIAgentSession::_mcp_tools_changed), CONNECT_DEFERRED);
+	}
+
 	runtime->set_client(runtime_client);
 	_configure_tool_runtime();
 	store->set_project_scope(_get_project_scope_key());
@@ -99,6 +102,7 @@ void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {
 		agent_profile = AIAgentProfile::get_plan_profile();
 	}
 
+	_remove_dynamic_tool_permissions();
 	_apply_dynamic_tool_permissions();
 	if (runtime.is_valid()) {
 		runtime->set_profile(agent_profile);
@@ -545,6 +549,7 @@ bool AIAgentSession::_is_busy() const {
 }
 
 void AIAgentSession::_configure_tool_runtime() {
+	_remove_dynamic_tool_permissions();
 	if (tool_registry.is_null()) {
 		tool_registry.instantiate();
 	} else {
@@ -661,38 +666,41 @@ void AIAgentSession::_configure_tool_runtime() {
 	tool_registry->register_tool(shader_apply_to_node_tool);
 	print_line("[AI Agent][Session] Registered tool: shader.apply_to_node");
 
-	_register_mcp_tools();
+	runtime_runner->set_runtime(runtime);
+	_register_mcp_tools_from_service();
 	_apply_dynamic_tool_permissions();
-
 	runtime->set_tool_registry(tool_registry);
 	runtime->set_profile(agent_profile);
-	runtime_runner->set_runtime(runtime);
 }
 
-void AIAgentSession::_register_mcp_tools() {
-	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(true);
-	for (int i = 0; i < servers.size(); i++) {
-		const AIMCPServerConfig &server = servers[i];
-		Ref<AIMCPStdioClient> client;
-		client.instantiate();
-		client->set_server_config(server);
-		client->set_timeout_msec(3000);
+void AIAgentSession::_register_mcp_tools_from_service() {
+	if (tool_registry.is_null()) {
+		return;
+	}
+	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
+	ERR_FAIL_COND(mcp_service.is_null());
+	mcp_service->register_discovered_tools(tool_registry);
+}
 
-		Vector<AIMCPToolDescriptor> tools;
-		String error;
-		if (!client->list_tools(tools, error)) {
-			print_line(vformat("[AI Agent][MCP] Failed to discover tools. server=%s error=%s", server.display_name, error));
-			continue;
+void AIAgentSession::_remove_dynamic_tool_permissions() {
+	Vector<String> stale_mcp_tools;
+	for (HashSet<String>::Iterator it = agent_profile.allowed_tools.begin(); it; ++it) {
+		if ((*it).begins_with("mcp_")) {
+			stale_mcp_tools.push_back(*it);
 		}
+	}
+	for (int i = 0; i < stale_mcp_tools.size(); i++) {
+		agent_profile.allowed_tools.erase(stale_mcp_tools[i]);
+	}
 
-		for (int j = 0; j < tools.size(); j++) {
-			Ref<AIMCPTool> tool;
-			tool.instantiate();
-			tool->setup(server, tools[j]);
-			if (tool_registry->register_tool(tool)) {
-				print_line(vformat("[AI Agent][Session] Registered MCP tool: %s server=%s source_tool=%s", tool->get_name(), server.display_name, tools[j].name));
-			}
+	stale_mcp_tools.clear();
+	for (HashSet<String>::Iterator it = agent_profile.ask_tools.begin(); it; ++it) {
+		if ((*it).begins_with("mcp_")) {
+			stale_mcp_tools.push_back(*it);
 		}
+	}
+	for (int i = 0; i < stale_mcp_tools.size(); i++) {
+		agent_profile.ask_tools.erase(stale_mcp_tools[i]);
 	}
 }
 
@@ -709,6 +717,15 @@ void AIAgentSession::_apply_dynamic_tool_permissions() {
 			agent_profile.ask_tools.insert(tool_name);
 		}
 	}
+}
+
+void AIAgentSession::_mcp_tools_changed() {
+	if (_is_busy()) {
+		pending_tool_runtime_reload = true;
+		print_line("[AI Agent][Session] MCP tools changed while the session is busy; applying them after the current turn.");
+		return;
+	}
+	reload_tool_runtime();
 }
 
 void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result) {

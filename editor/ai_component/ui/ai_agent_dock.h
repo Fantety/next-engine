@@ -17,6 +17,8 @@
 class ConfirmationDialog;
 class HBoxContainer;
 class ColorRect;
+class PopupPanel;
+class VBoxContainer;
 
 class AIAgentDock : public EditorDock {
 	GDCLASS(AIAgentDock, EditorDock);
@@ -24,6 +26,9 @@ class AIAgentDock : public EditorDock {
 	OptionButton *session_selector = nullptr;
 	Button *new_session_button = nullptr;
 	Button *delete_session_button = nullptr;
+	Button *mcp_status_button = nullptr;
+	PopupPanel *mcp_status_popup = nullptr;
+	VBoxContainer *mcp_status_list = nullptr;
 	ConfirmationDialog *delete_session_dialog = nullptr;
 	ConfirmationDialog *tool_approval_dialog = nullptr;
 	AIChangeReviewPanel *change_review_panel = nullptr;
@@ -35,6 +40,7 @@ class AIAgentDock : public EditorDock {
 	AIAgentSession *session = nullptr;
 	String pending_delete_session_id;
 	Dictionary pending_tool_approval;
+	bool mcp_failure_toast_visible = false;
 
 	static inline AIAgentDock *singleton = nullptr;
 
@@ -45,8 +51,11 @@ class AIAgentDock : public EditorDock {
 	void _message_removed(int p_index);
 	void _state_changed(int p_state);
 	void _token_usage_changed(const Dictionary &p_usage);
+	void _mcp_status_changed(const Array &p_statuses, const Dictionary &p_summary);
 	void _tool_approval_requested(const Dictionary &p_approval);
 	void _settings_changed();
+	void _mcp_settings_changed();
+	void _mcp_status_pressed();
 	void _new_session_pressed();
 	void _delete_session_pressed();
 	void _confirm_delete_session();
@@ -58,6 +67,8 @@ class AIAgentDock : public EditorDock {
 	void _refresh_session_list();
 	void _select_current_session();
 	void _reload_messages_from_session();
+	void _refresh_mcp_status_button();
+	void _refresh_mcp_status_popup();
 	void _refresh_token_usage();
 	String _format_token_count(int p_tokens) const;
 	AIProviderConfig _get_provider_config(const String &p_model_id) const;

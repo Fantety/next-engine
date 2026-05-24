@@ -5,8 +5,13 @@
 #include "tests/test_macros.h"
 
 #include "editor/ai_component/agent/ai_agent_profile.h"
+#include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
+#include "editor/ai_component/providers/ai_mcp_client.h"
+#include "editor/ai_component/providers/ai_mcp_http_client.h"
 #include "editor/ai_component/providers/ai_mcp_protocol.h"
 #include "editor/ai_component/providers/ai_mcp_settings.h"
+#include "editor/ai_component/providers/ai_mcp_stdio_client.h"
+#include "editor/ai_component/providers/ai_mcp_status_tracker.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/review/ai_change_set_store.h"
 #include "editor/ai_component/review/ai_diff_service.h"
@@ -144,6 +149,7 @@ TEST_CASE("[Editor][AI] MCP tool wraps descriptors without executing the server"
 	AIMCPServerConfig server;
 	server.id = "filesystem";
 	server.display_name = "Filesystem";
+	server.transport = "stdio";
 	server.command = "npx";
 
 	AIMCPToolDescriptor descriptor;
@@ -166,6 +172,214 @@ TEST_CASE("[Editor][AI] MCP tool wraps descriptors without executing the server"
 	profile.allowed_tools.insert(tool->get_name());
 	profile.ask_tools.insert(tool->get_name());
 	CHECK(AIToolPermissionPolicy::evaluate(profile, tool->get_name(), Dictionary()).decision == AI_TOOL_PERMISSION_ASK);
+}
+
+TEST_CASE("[Editor][AI] MCP discovery keeps agent tool names unique") {
+	AIMCPServerConfig server;
+	server.id = "filesystem";
+	server.display_name = "Filesystem";
+	server.transport = "stdio";
+	server.command = "npx";
+
+	AIMCPToolDescriptor first_descriptor;
+	first_descriptor.server_id = server.id;
+	first_descriptor.server_name = server.display_name;
+	first_descriptor.name = "read.file";
+	first_descriptor.description = "Read a file.";
+	first_descriptor.input_schema["type"] = "object";
+
+	AIMCPToolDescriptor duplicate_descriptor = first_descriptor;
+	duplicate_descriptor.display_name = "Read File Duplicate";
+
+	AIMCPToolDescriptor second_descriptor = first_descriptor;
+	second_descriptor.name = "write_file";
+
+	AIMCPServerDiscoveryResult result;
+	result.server = server;
+	result.status = "ok";
+	result.tools.push_back(first_descriptor);
+	result.tools.push_back(duplicate_descriptor);
+	result.tools.push_back(second_descriptor);
+
+	Vector<AIMCPServerDiscoveryResult> results;
+	results.push_back(result);
+
+	Vector<AIMCPDiscoveredTool> tools = AIMCPToolDiscovery::build_discovered_tools(results);
+	REQUIRE(tools.size() == 2);
+	CHECK(AIMCPProtocol::make_agent_tool_name(tools[0].server.id, tools[0].descriptor.name) == "mcp_filesystem_read_file");
+	CHECK(AIMCPProtocol::make_agent_tool_name(tools[1].server.id, tools[1].descriptor.name) == "mcp_filesystem_write_file");
+}
+
+TEST_CASE("[Editor][AI] Tool registry rejects duplicate MCP agent tool names") {
+	AIMCPServerConfig server;
+	server.id = "filesystem";
+	server.display_name = "Filesystem";
+	server.transport = "stdio";
+	server.command = "npx";
+
+	AIMCPToolDescriptor descriptor;
+	descriptor.server_id = server.id;
+	descriptor.server_name = server.display_name;
+	descriptor.name = "read_file";
+	descriptor.description = "Read a file.";
+	descriptor.input_schema["type"] = "object";
+
+	Ref<AIMCPTool> first_tool;
+	first_tool.instantiate();
+	first_tool->setup(server, descriptor);
+
+	Ref<AIMCPTool> duplicate_tool;
+	duplicate_tool.instantiate();
+	duplicate_tool->setup(server, descriptor);
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(first_tool));
+	CHECK_FALSE(registry->register_tool(duplicate_tool));
+	CHECK(registry->get_tool_schemas().size() == 1);
+}
+
+TEST_CASE("[Editor][AI] MCP client factory selects transport implementations") {
+	AIMCPServerConfig stdio_server;
+	stdio_server.transport = "stdio";
+	stdio_server.command = "npx";
+	Ref<AIMCPClient> stdio_client = AIMCPClientFactory::create_client(stdio_server);
+	REQUIRE(stdio_client.is_valid());
+	CHECK(Object::cast_to<AIMCPStdioClient>(*stdio_client) != nullptr);
+
+	AIMCPServerConfig http_server;
+	http_server.transport = "streamable_http";
+	http_server.url = "https://mcp.example.test/mcp";
+	Ref<AIMCPClient> http_client = AIMCPClientFactory::create_client(http_server);
+	REQUIRE(http_client.is_valid());
+	CHECK(Object::cast_to<AIMCPHTTPClient>(*http_client) != nullptr);
+
+	AIMCPServerConfig sse_server;
+	sse_server.transport = "sse";
+	sse_server.url = "https://mcp.example.test/sse";
+	Ref<AIMCPClient> sse_client = AIMCPClientFactory::create_client(sse_server);
+	REQUIRE(sse_client.is_valid());
+	CHECK(Object::cast_to<AIMCPHTTPClient>(*sse_client) != nullptr);
+}
+
+TEST_CASE("[Editor][AI] MCP HTTP client maps wildcard bind hosts to loopback connection hosts") {
+	CHECK(AIMCPHTTPClient::normalize_connection_host_for_test("0.0.0.0") == "127.0.0.1");
+	CHECK(AIMCPHTTPClient::normalize_connection_host_for_test("::") == "::1");
+	CHECK(AIMCPHTTPClient::normalize_connection_host_for_test("localhost") == "localhost");
+	CHECK(AIMCPHTTPClient::normalize_connection_host_for_test("mcp.example.test") == "mcp.example.test");
+}
+
+TEST_CASE("[Editor][AI] MCP HTTP client extracts SSE data events") {
+	Vector<String> events = AIMCPHTTPClient::extract_sse_data_events_for_test("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n\n: keepalive\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}\n\n");
+	REQUIRE(events.size() == 2);
+	CHECK(events[0] == "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}");
+	CHECK(events[1] == "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}");
+}
+
+TEST_CASE("[Editor][AI] MCP HTTP client consumes only complete SSE events") {
+	PackedByteArray buffer = String("data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n\ndata: {\"jsonrpc\":\"2.0\"").to_utf8_buffer();
+	Vector<String> events = AIMCPHTTPClient::consume_sse_data_events_for_test(buffer);
+	REQUIRE(events.size() == 1);
+	CHECK(events[0] == "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}");
+
+	String remaining = String::utf8(reinterpret_cast<const char *>(buffer.ptr()), buffer.size());
+	CHECK(remaining == "data: {\"jsonrpc\":\"2.0\"");
+
+	PackedByteArray suffix = String(",\"id\":2,\"result\":{}}\n\n").to_utf8_buffer();
+	buffer.append_array(suffix);
+	events = AIMCPHTTPClient::consume_sse_data_events_for_test(buffer);
+	REQUIRE(events.size() == 1);
+	CHECK(events[0] == "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}");
+	CHECK(buffer.is_empty());
+}
+
+TEST_CASE("[Editor][AI] MCP status tracker summarizes server discovery results") {
+	AIMCPServerConfig ok_server;
+	ok_server.id = "mcp:ok";
+	ok_server.display_name = "Filesystem";
+	ok_server.transport = "stdio";
+	ok_server.command = "npx";
+	ok_server.enabled = true;
+
+	AIMCPServerConfig failed_server;
+	failed_server.id = "mcp:failed";
+	failed_server.display_name = "Remote";
+	failed_server.transport = "streamable_http";
+	failed_server.url = "https://mcp.example.test/mcp";
+	failed_server.enabled = true;
+
+	AIMCPServerConfig disabled_server;
+	disabled_server.id = "mcp:disabled";
+	disabled_server.display_name = "Disabled";
+	disabled_server.transport = "sse";
+	disabled_server.url = "https://mcp.example.test/sse";
+	disabled_server.enabled = false;
+
+	Vector<AIMCPServerConfig> servers;
+	servers.push_back(ok_server);
+	servers.push_back(failed_server);
+	servers.push_back(disabled_server);
+
+	Ref<AIMCPStatusTracker> tracker;
+	tracker.instantiate();
+	tracker->begin_refresh(servers);
+	tracker->record_success(ok_server, 2);
+	tracker->record_failure(failed_server, "connection refused");
+
+	Array statuses = tracker->get_statuses();
+	REQUIRE(statuses.size() == 3);
+
+	Dictionary ok_status = statuses[0];
+	CHECK(String(ok_status["status"]) == "ok");
+	CHECK((int)ok_status["tool_count"] == 2);
+	CHECK(String(ok_status["endpoint"]) == "npx");
+
+	Dictionary failed_status = statuses[1];
+	CHECK(String(failed_status["status"]) == "failed");
+	CHECK(String(failed_status["error"]) == "connection refused");
+	CHECK(String(failed_status["endpoint"]) == "https://mcp.example.test/mcp");
+
+	Dictionary disabled_status = statuses[2];
+	CHECK(String(disabled_status["status"]) == "disabled");
+	CHECK_FALSE(bool(disabled_status["enabled"]));
+
+	Dictionary summary = tracker->get_summary();
+	CHECK((int)summary["total"] == 3);
+	CHECK((int)summary["enabled"] == 2);
+	CHECK((int)summary["ok"] == 1);
+	CHECK((int)summary["failed"] == 1);
+	CHECK((int)summary["disabled"] == 1);
+	CHECK((int)summary["tool_count"] == 2);
+	CHECK(tracker->has_failures());
+}
+
+TEST_CASE("[Editor][AI] MCP status tracker records invalid enabled servers as failures") {
+	AIMCPServerConfig invalid_server;
+	invalid_server.id = "mcp:invalid";
+	invalid_server.display_name = "Invalid Remote";
+	invalid_server.transport = "streamable_http";
+	invalid_server.enabled = true;
+
+	Vector<AIMCPServerConfig> servers;
+	servers.push_back(invalid_server);
+
+	Ref<AIMCPStatusTracker> tracker;
+	tracker.instantiate();
+	tracker->begin_refresh(servers);
+
+	String error;
+	CHECK_FALSE(AIMCPSettings::is_server_config_usable(invalid_server, &error));
+	tracker->record_failure(invalid_server, error);
+
+	Array statuses = tracker->get_statuses();
+	REQUIRE(statuses.size() == 1);
+	Dictionary status = statuses[0];
+	CHECK(String(status["status"]) == "failed");
+	CHECK(String(status["error"]).contains("URL"));
+
+	Dictionary summary = tracker->get_summary();
+	CHECK((int)summary["failed"] == 1);
+	CHECK(tracker->has_failures());
 }
 
 TEST_CASE("[Editor][AI] Tool calls serialize stable execution state") {

@@ -9,6 +9,8 @@
 
 class AIMCPServerDialog;
 class Button;
+class AcceptDialog;
+class TextEdit;
 class VBoxContainer;
 
 class AISettingsMCPPage : public MarginContainer {
@@ -16,13 +18,21 @@ class AISettingsMCPPage : public MarginContainer {
 
 	VBoxContainer *server_table = nullptr;
 	Button *add_server_button = nullptr;
+	Button *import_json_button = nullptr;
 	AIMCPServerDialog *server_dialog = nullptr;
+	AcceptDialog *json_import_dialog = nullptr;
+	AcceptDialog *error_dialog = nullptr;
+	TextEdit *json_import_edit = nullptr;
 	Vector<AIMCPServerConfig> server_rows;
 
 	void _build_ui();
 	void _refresh_server_table();
-	void _add_server_table_row(const AIMCPServerConfig &p_server);
+	void _add_server_table_row(const AIMCPServerConfig &p_server, const Dictionary &p_status);
+	Dictionary _get_server_status(const String &p_server_id) const;
 	void _popup_add_server_dialog();
+	void _popup_import_json_dialog();
+	void _json_import_confirmed();
+	void _mcp_status_changed(const Array &p_statuses, const Dictionary &p_summary);
 	void _server_submitted();
 	void _edit_server_pressed(const String &p_server_id);
 	void _remove_server_pressed(const String &p_server_id);

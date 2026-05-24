@@ -34,6 +34,8 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	void _build_pages(HBoxContainer *p_root);
 	void _navigation_selected(int p_index);
 	void _save_settings();
+	void _save_model_settings();
+	void _save_mcp_settings();
 
 protected:
 	static void _bind_methods();
