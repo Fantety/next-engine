@@ -135,17 +135,20 @@ void AIChangeReviewPanel::_refresh() {
 		row->add_child(path_label);
 
 		Button *view_button = memnew(Button);
-		view_button->set_text(TTR("Diff"));
+		view_button->set_button_icon(get_editor_theme_icon(SNAME("Diff")));
+		view_button->set_tooltip_text(TTR("View Diff"));
 		view_button->connect(SceneStringName(pressed), callable_mp(this, &AIChangeReviewPanel::_view_change_set).bind(id), CONNECT_DEFERRED);
 		row->add_child(view_button);
 
 		Button *keep_button = memnew(Button);
-		keep_button->set_text(TTR("Keep"));
+		keep_button->set_button_icon(get_editor_theme_icon(SNAME("Keep")));
+		keep_button->set_tooltip_text(TTR("Keep Change"));
 		keep_button->connect(SceneStringName(pressed), callable_mp(this, &AIChangeReviewPanel::_keep_change_set).bind(id), CONNECT_DEFERRED);
 		row->add_child(keep_button);
 
 		Button *revert_button = memnew(Button);
-		revert_button->set_text(TTR("Revert"));
+		revert_button->set_button_icon(get_editor_theme_icon(SNAME("Reject")));
+		revert_button->set_tooltip_text(TTR("Revert Change"));
 		revert_button->connect(SceneStringName(pressed), callable_mp(this, &AIChangeReviewPanel::_revert_change_set).bind(id), CONNECT_DEFERRED);
 		row->add_child(revert_button);
 	}
