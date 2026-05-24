@@ -226,6 +226,9 @@ void AIAgentDock::_token_usage_changed(const Dictionary &p_usage) {
 
 void AIAgentDock::_settings_changed() {
 	composer->reload_models();
+	if (session) {
+		session->reload_tool_runtime();
+	}
 }
 
 void AIAgentDock::_tool_approval_requested(const Dictionary &p_approval) {

@@ -5,6 +5,8 @@
 #include "tests/test_macros.h"
 
 #include "editor/ai_component/agent/ai_agent_profile.h"
+#include "editor/ai_component/providers/ai_mcp_protocol.h"
+#include "editor/ai_component/providers/ai_mcp_settings.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/review/ai_change_set_store.h"
 #include "editor/ai_component/review/ai_diff_service.h"
@@ -12,6 +14,7 @@
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
+#include "editor/ai_component/tools/ai_mcp_tool.h"
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
@@ -97,6 +100,72 @@ TEST_CASE("[Editor][AI] Tool registry exposes OpenAI-compatible schemas") {
 
 	Dictionary parameters = function_schema["parameters"];
 	CHECK(String(parameters["type"]) == "object");
+}
+
+TEST_CASE("[Editor][AI] Tool registry exposes registered tool names") {
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<EchoAITool> tool;
+	tool.instantiate();
+	CHECK(registry->register_tool(tool));
+
+	Vector<String> names = registry->get_tool_names();
+	REQUIRE(names.size() == 1);
+	CHECK(names[0] == "test.echo");
+
+	registry->clear();
+	CHECK(registry->get_tool_names().is_empty());
+	CHECK_FALSE(registry->has_tool("test.echo"));
+}
+
+TEST_CASE("[Editor][AI] MCP protocol maps tools to provider-safe names") {
+	const String list_response = "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"tools\":[{\"name\":\"read.file\",\"description\":\"Read a file from the MCP server.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}]}}";
+
+	Dictionary list_result;
+	String error;
+	CHECK(AIMCPProtocol::parse_response(list_response, 7, list_result, error));
+	CHECK(error.is_empty());
+
+	Dictionary ignored_result;
+	CHECK(AIMCPProtocol::parse_response_line("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/message\",\"params\":{\"level\":\"info\",\"data\":\"ready\"}}", 7, ignored_result, error) == AI_MCP_RESPONSE_SKIPPED);
+	CHECK(AIMCPProtocol::parse_response_line("{\"jsonrpc\":\"2.0\",\"id\":99,\"result\":{}}", 7, ignored_result, error) == AI_MCP_RESPONSE_SKIPPED);
+
+	Vector<AIMCPToolDescriptor> tools;
+	CHECK(AIMCPProtocol::parse_tools_list_result(list_result, "filesystem server", "Filesystem", tools, error));
+	REQUIRE(tools.size() == 1);
+	CHECK(tools[0].name == "read.file");
+	CHECK(AIMCPProtocol::make_agent_tool_name(tools[0].server_id, tools[0].name) == "mcp_filesystem_server_read_file");
+
+	CHECK(String(tools[0].input_schema["type"]) == "object");
+}
+
+TEST_CASE("[Editor][AI] MCP tool wraps descriptors without executing the server") {
+	AIMCPServerConfig server;
+	server.id = "filesystem";
+	server.display_name = "Filesystem";
+	server.command = "npx";
+
+	AIMCPToolDescriptor descriptor;
+	descriptor.server_id = server.id;
+	descriptor.server_name = server.display_name;
+	descriptor.name = "read_file";
+	descriptor.description = "Read a file.";
+	descriptor.input_schema["type"] = "object";
+
+	Ref<AIMCPTool> tool;
+	tool.instantiate();
+	tool->setup(server, descriptor);
+
+	CHECK(tool->get_name() == "mcp_filesystem_read_file");
+	CHECK(tool->get_description().contains("MCP Server: Filesystem"));
+	CHECK(String(tool->get_parameters_schema()["type"]) == "object");
+
+	AIAgentProfile profile;
+	profile.id = "test";
+	profile.allowed_tools.insert(tool->get_name());
+	profile.ask_tools.insert(tool->get_name());
+	CHECK(AIToolPermissionPolicy::evaluate(profile, tool->get_name(), Dictionary()).decision == AI_TOOL_PERMISSION_ASK);
 }
 
 TEST_CASE("[Editor][AI] Tool calls serialize stable execution state") {

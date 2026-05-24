@@ -27,6 +27,7 @@ class AIAgentSession : public Node {
 	AIAgentProfile agent_profile;
 	Dictionary token_usage;
 	Dictionary pending_tool_approval;
+	bool pending_tool_runtime_reload = false;
 
 	Ref<AIAgentRuntime> runtime;
 	Ref<AIAgentRuntimeRunner> runtime_runner;
@@ -43,6 +44,8 @@ class AIAgentSession : public Node {
 
 	String _get_project_scope_key() const;
 	void _configure_tool_runtime();
+	void _register_mcp_tools();
+	void _apply_dynamic_tool_permissions();
 	void _load_initial_session();
 	void _apply_runtime_result(const AIAgentRuntimeResult &p_result);
 	void _set_state(AIAgentState p_state);
@@ -73,6 +76,7 @@ public:
 	Ref<AIAgentRuntimeRunner> get_agent_runtime_runner() const;
 	Ref<AIToolRegistry> get_tool_registry() const;
 	bool is_tool_runtime_available() const;
+	void reload_tool_runtime();
 	void send_user_message(const String &p_message);
 	void cancel_request();
 	void start_new_session();

@@ -92,7 +92,7 @@ void AISettingsMCPPage::_build_ui() {
 	content->add_child(section_title);
 
 	Label *description = memnew(Label);
-	description->set_text(_ai_ui_text(u8"\u6dfb\u52a0 MCP Server \u914d\u7f6e\uff0c\u5e76\u9009\u62e9\u54ea\u4e9b Server \u53ef\u7528\u3002\u5f53\u524d\u53ea\u4fdd\u5b58\u914d\u7f6e\uff0c\u5de5\u5177\u53d1\u73b0\u548c\u8c03\u7528\u5c06\u5728\u540e\u7eed\u63a5\u5165\u3002"));
+	description->set_text(_ai_ui_text(u8"\u6dfb\u52a0 MCP Server \u914d\u7f6e\uff0c\u5e76\u9009\u62e9\u54ea\u4e9b Server \u53ef\u7528\u3002\u5df2\u542f\u7528\u7684 Server \u4f1a\u5728\u5bf9\u8bdd\u8fd0\u884c\u65f6\u53d1\u73b0\u5de5\u5177\uff0c\u5e76\u4ee5\u9700\u8981\u786e\u8ba4\u7684\u5916\u90e8\u5de5\u5177\u63d0\u4f9b\u7ed9 Agent\u3002"));
 	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	content->add_child(description);

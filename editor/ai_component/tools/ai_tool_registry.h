@@ -20,7 +20,9 @@ protected:
 
 public:
 	bool register_tool(const Ref<AITool> &p_tool);
+	void clear();
 	bool has_tool(const String &p_name) const;
 	Ref<AITool> get_tool(const String &p_name) const;
+	Vector<String> get_tool_names() const;
 	Array get_tool_schemas() const;
 };

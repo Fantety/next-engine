@@ -21,6 +21,10 @@ bool AIToolRegistry::register_tool(const Ref<AITool> &p_tool) {
 	return true;
 }
 
+void AIToolRegistry::clear() {
+	tools.clear();
+}
+
 bool AIToolRegistry::has_tool(const String &p_name) const {
 	return tools.has(p_name);
 }
@@ -31,6 +35,14 @@ Ref<AITool> AIToolRegistry::get_tool(const String &p_name) const {
 		return Ref<AITool>();
 	}
 	return *tool;
+}
+
+Vector<String> AIToolRegistry::get_tool_names() const {
+	Vector<String> names;
+	for (const KeyValue<String, Ref<AITool>> &tool : tools) {
+		names.push_back(tool.key);
+	}
+	return names;
 }
 
 Array AIToolRegistry::get_tool_schemas() const {

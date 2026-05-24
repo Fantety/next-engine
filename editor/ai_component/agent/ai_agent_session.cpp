@@ -28,6 +28,9 @@
 #include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_write_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_apply_to_node_tool.h"
+#include "editor/ai_component/providers/ai_mcp_settings.h"
+#include "editor/ai_component/providers/ai_mcp_stdio_client.h"
+#include "editor/ai_component/tools/ai_mcp_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
@@ -95,6 +98,7 @@ void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {
 		agent_profile = AIAgentProfile::get_plan_profile();
 	}
 
+	_apply_dynamic_tool_permissions();
 	if (runtime.is_valid()) {
 		runtime->set_profile(agent_profile);
 	}
@@ -119,6 +123,16 @@ Ref<AIToolRegistry> AIAgentSession::get_tool_registry() const {
 
 bool AIAgentSession::is_tool_runtime_available() const {
 	return runtime.is_valid() && runtime_client.is_valid() && runtime->get_client().is_valid() && tool_registry.is_valid();
+}
+
+void AIAgentSession::reload_tool_runtime() {
+	if (_is_busy()) {
+		pending_tool_runtime_reload = true;
+		print_line("[AI Agent][Session] Tool runtime reload skipped because the session is busy.");
+		return;
+	}
+	pending_tool_runtime_reload = false;
+	_configure_tool_runtime();
 }
 
 void AIAgentSession::send_user_message(const String &p_message) {
@@ -163,6 +177,10 @@ void AIAgentSession::cancel_request() {
 		}
 		_set_state(AI_AGENT_STATE_CANCELLED);
 		_save();
+		if (pending_tool_runtime_reload) {
+			print_line("[AI Agent][Session] Applying deferred tool runtime reload after cancellation.");
+			reload_tool_runtime();
+		}
 	} else if (state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
 		reject_pending_tool();
 	}
@@ -525,6 +543,12 @@ bool AIAgentSession::_is_busy() const {
 }
 
 void AIAgentSession::_configure_tool_runtime() {
+	if (tool_registry.is_null()) {
+		tool_registry.instantiate();
+	} else {
+		tool_registry->clear();
+	}
+
 	Ref<AIListProjectTool> list_project;
 	list_project.instantiate();
 	tool_registry->register_tool(list_project);
@@ -635,9 +659,54 @@ void AIAgentSession::_configure_tool_runtime() {
 	tool_registry->register_tool(shader_apply_to_node_tool);
 	print_line("[AI Agent][Session] Registered tool: shader.apply_to_node");
 
+	_register_mcp_tools();
+	_apply_dynamic_tool_permissions();
+
 	runtime->set_tool_registry(tool_registry);
 	runtime->set_profile(agent_profile);
 	runtime_runner->set_runtime(runtime);
+}
+
+void AIAgentSession::_register_mcp_tools() {
+	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(true);
+	for (int i = 0; i < servers.size(); i++) {
+		const AIMCPServerConfig &server = servers[i];
+		Ref<AIMCPStdioClient> client;
+		client.instantiate();
+		client->set_server_config(server);
+		client->set_timeout_msec(3000);
+
+		Vector<AIMCPToolDescriptor> tools;
+		String error;
+		if (!client->list_tools(tools, error)) {
+			print_line(vformat("[AI Agent][MCP] Failed to discover tools. server=%s error=%s", server.display_name, error));
+			continue;
+		}
+
+		for (int j = 0; j < tools.size(); j++) {
+			Ref<AIMCPTool> tool;
+			tool.instantiate();
+			tool->setup(server, tools[j]);
+			if (tool_registry->register_tool(tool)) {
+				print_line(vformat("[AI Agent][Session] Registered MCP tool: %s server=%s source_tool=%s", tool->get_name(), server.display_name, tools[j].name));
+			}
+		}
+	}
+}
+
+void AIAgentSession::_apply_dynamic_tool_permissions() {
+	if (tool_registry.is_null()) {
+		return;
+	}
+
+	Vector<String> tool_names = tool_registry->get_tool_names();
+	for (int i = 0; i < tool_names.size(); i++) {
+		const String &tool_name = tool_names[i];
+		if (tool_name.begins_with("mcp_")) {
+			agent_profile.allowed_tools.erase(tool_name);
+			agent_profile.ask_tools.insert(tool_name);
+		}
+	}
 }
 
 void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result) {
@@ -679,6 +748,10 @@ void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result)
 
 	_set_state(AI_AGENT_STATE_IDLE);
 	_save();
+	if (pending_tool_runtime_reload) {
+		print_line("[AI Agent][Session] Applying deferred tool runtime reload.");
+		reload_tool_runtime();
+	}
 	print_line(vformat("[AI Agent][Session] Runtime result applied and saved. session=%s messages=%d", session_id, messages.size()));
 }
 
@@ -703,6 +776,10 @@ void AIAgentSession::_on_provider_request_failed(const String &p_message) {
 	runtime_progress_message_count = 0;
 	runtime_to_local_message_indices.clear();
 	_save();
+	if (pending_tool_runtime_reload) {
+		print_line("[AI Agent][Session] Applying deferred tool runtime reload after failure.");
+		reload_tool_runtime();
+	}
 }
 
 void AIAgentSession::_on_runtime_finished() {
