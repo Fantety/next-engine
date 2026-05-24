@@ -23,6 +23,19 @@
 void AIAgentDock::_bind_methods() {
 }
 
+void AIAgentDock::_notification(int p_what) {
+	EditorDock::_notification(p_what);
+
+	if (p_what == NOTIFICATION_THEME_CHANGED) {
+		if (new_session_button) {
+			new_session_button->set_button_icon(get_editor_theme_icon(SNAME("Add")));
+		}
+		if (delete_session_button) {
+			delete_session_button->set_button_icon(get_editor_theme_icon(SNAME("Delete")));
+		}
+	}
+}
+
 AIAgentDock::AIAgentDock() {
 	singleton = this;
 
@@ -51,13 +64,13 @@ AIAgentDock::AIAgentDock() {
 	session_bar->add_child(session_selector);
 
 	new_session_button = memnew(Button);
-	new_session_button->set_text(TTR("New"));
+	new_session_button->set_button_icon(get_editor_theme_icon(SNAME("Add")));
 	new_session_button->set_tooltip_text(TTR("Start a new AI chat session."));
 	new_session_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentDock::_new_session_pressed));
 	session_bar->add_child(new_session_button);
 
 	delete_session_button = memnew(Button);
-	delete_session_button->set_text(TTR("Delete"));
+	delete_session_button->set_button_icon(get_editor_theme_icon(SNAME("Delete")));
 	delete_session_button->set_tooltip_text(TTR("Delete the selected AI chat session."));
 	delete_session_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentDock::_delete_session_pressed));
 	session_bar->add_child(delete_session_button);

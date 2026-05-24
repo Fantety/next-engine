@@ -17,14 +17,16 @@ class AIComposer : public VBoxContainer {
 	OptionButton *model_selector = nullptr;
 	OptionButton *mode_selector = nullptr;
 	Button *send_button = nullptr;
-	Button *cancel_button = nullptr;
 	bool has_model = false;
+	bool running = false;
 
-	void _send_pressed();
-	void _cancel_pressed();
+	void _action_pressed();
+	void _input_text_changed();
+	void _update_action_button();
 
 protected:
 	static void _bind_methods();
+	void _notification(int p_what);
 
 public:
 	AIComposer();

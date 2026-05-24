@@ -17,6 +17,12 @@ void AIComposer::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("cancel_requested"));
 }
 
+void AIComposer::_notification(int p_what) {
+	if (p_what == NOTIFICATION_THEME_CHANGED) {
+		_update_action_button();
+	}
+}
+
 AIComposer::AIComposer() {
 	set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	set_v_size_flags(Control::SIZE_SHRINK_END);
@@ -24,7 +30,10 @@ AIComposer::AIComposer() {
 	input = memnew(TextEdit);
 	input->set_custom_minimum_size(Size2(0, 80) * EDSCALE);
 	input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	input->set_line_wrapping_mode(TextEdit::LINE_WRAPPING_BOUNDARY);
+	input->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	input->set_placeholder(TTR("Ask about this project..."));
+	input->connect("text_changed", callable_mp(this, &AIComposer::_input_text_changed));
 	add_child(input);
 
 	HBoxContainer *bar = memnew(HBoxContainer);
@@ -57,14 +66,10 @@ AIComposer::AIComposer() {
 	model_selector->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	bar->add_child(model_selector);
 
-	cancel_button = memnew(Button);
-	cancel_button->set_text(TTR("Cancel"));
-	cancel_button->connect("pressed", callable_mp(this, &AIComposer::_cancel_pressed));
-	bar->add_child(cancel_button);
-
 	send_button = memnew(Button);
-	send_button->set_text(TTR("Send"));
-	send_button->connect("pressed", callable_mp(this, &AIComposer::_send_pressed));
+	send_button->set_button_icon(get_editor_theme_icon(SNAME("Send")));
+	send_button->set_tooltip_text(TTR("Send"));
+	send_button->connect("pressed", callable_mp(this, &AIComposer::_action_pressed));
 	bar->add_child(send_button);
 
 	reload_models();
@@ -91,11 +96,12 @@ String AIComposer::get_selected_agent_profile_id() const {
 
 void AIComposer::clear_input() {
 	input->clear();
+	_update_action_button();
 }
 
 void AIComposer::set_running(bool p_running) {
-	send_button->set_disabled(p_running || !has_model);
-	cancel_button->set_disabled(!p_running);
+	running = p_running;
+	_update_action_button();
 	if (mode_selector) {
 		mode_selector->set_disabled(p_running);
 	}
@@ -125,22 +131,45 @@ void AIComposer::reload_models() {
 	if (model_selector->get_item_count() == 0) {
 		model_selector->add_item(TTR("No model configured"));
 		model_selector->set_disabled(true);
-		send_button->set_disabled(true);
+		_update_action_button();
 		return;
 	}
 
 	has_model = true;
 	model_selector->set_disabled(false);
-	send_button->set_disabled(false);
+	_update_action_button();
 }
 
-void AIComposer::_send_pressed() {
-	if (!has_model) {
+void AIComposer::_action_pressed() {
+	if (running) {
+		emit_signal(SNAME("cancel_requested"));
+		return;
+	}
+
+	String message = get_input_text().strip_edges();
+	if (!has_model || message.is_empty()) {
 		return;
 	}
 	emit_signal(SNAME("send_requested"), get_input_text(), get_selected_model(), get_selected_agent_profile_id());
 }
 
-void AIComposer::_cancel_pressed() {
-	emit_signal(SNAME("cancel_requested"));
+void AIComposer::_input_text_changed() {
+	_update_action_button();
+}
+
+void AIComposer::_update_action_button() {
+	if (!send_button) {
+		return;
+	}
+
+	if (running) {
+		send_button->set_button_icon(get_editor_theme_icon(SNAME("Stop")));
+		send_button->set_tooltip_text(TTR("Cancel"));
+		send_button->set_disabled(false);
+		return;
+	}
+
+	send_button->set_button_icon(get_editor_theme_icon(SNAME("Send")));
+	send_button->set_tooltip_text(TTR("Send"));
+	send_button->set_disabled(!has_model || get_input_text().strip_edges().is_empty());
 }

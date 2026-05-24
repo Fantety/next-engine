@@ -16,6 +16,12 @@
 void AIChangeReviewPanel::_bind_methods() {
 }
 
+void AIChangeReviewPanel::_notification(int p_what) {
+	if (p_what == NOTIFICATION_THEME_CHANGED && content) {
+		_refresh();
+	}
+}
+
 AIChangeReviewPanel::AIChangeReviewPanel() {
 	store = AIChangeSetStore::get_singleton();
 	if (store.is_valid()) {
