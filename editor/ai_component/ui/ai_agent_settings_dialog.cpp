@@ -5,6 +5,7 @@
 #include "ai_agent_settings_dialog.h"
 
 #include "editor/ai_component/ui/ai_settings_models_page.h"
+#include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_placeholder_page.h"
 
 #include "core/object/callable_mp.h"
@@ -106,10 +107,10 @@ void AIAgentSettingsDialog::_build_pages(HBoxContainer *p_root) {
 	models_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_settings));
 	pages->add_child(models_page);
 
-	AISettingsPlaceholderPage *mcp_page = memnew(AISettingsPlaceholderPage);
+	mcp_page = memnew(AISettingsMCPPage);
 	mcp_page->set_name(TTR("MCP"));
+	mcp_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_settings));
 	pages->add_child(mcp_page);
-	mcp_page->set_placeholder_text(_ai_ui_text(u8"MCP \u914d\u7f6e\u6682\u672a\u5b9e\u73b0\u3002"));
 
 	AISettingsPlaceholderPage *skills_page = memnew(AISettingsPlaceholderPage);
 	skills_page->set_name(_ai_ui_text(u8"\u6280\u80fd"));
@@ -142,6 +143,9 @@ void AIAgentSettingsDialog::build_for_test() {
 	if (models_page) {
 		models_page->build_for_test();
 	}
+	if (mcp_page) {
+		mcp_page->build_for_test();
+	}
 }
 
 int AIAgentSettingsDialog::get_model_table_row_count_for_test() const {
@@ -152,6 +156,10 @@ int AIAgentSettingsDialog::get_custom_model_table_row_count_for_test() const {
 	return models_page ? models_page->get_custom_model_table_row_count_for_test() : 0;
 }
 
+int AIAgentSettingsDialog::get_mcp_server_table_row_count_for_test() const {
+	return mcp_page ? mcp_page->get_server_table_row_count_for_test() : 0;
+}
+
 void AIAgentSettingsDialog::add_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
 	ERR_FAIL_NULL(models_page);
 	models_page->add_provider_model_for_test(p_provider_id, p_model, p_api_key);
@@ -160,6 +168,11 @@ void AIAgentSettingsDialog::add_provider_model_for_test(const String &p_provider
 void AIAgentSettingsDialog::add_custom_model_for_test(const String &p_model, const String &p_base_url, const String &p_api_key) {
 	ERR_FAIL_NULL(models_page);
 	models_page->add_custom_model_for_test(p_model, p_base_url, p_api_key);
+}
+
+void AIAgentSettingsDialog::add_mcp_server_for_test(const String &p_display_name, const String &p_command, bool p_enabled) {
+	ERR_FAIL_NULL(mcp_page);
+	mcp_page->add_server_for_test(p_display_name, p_command, p_enabled);
 }
 
 void AIAgentSettingsDialog::edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {

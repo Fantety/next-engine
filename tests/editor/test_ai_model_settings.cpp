@@ -5,6 +5,7 @@
 #include "tests/test_macros.h"
 
 #include "core/markdown/markdown_parser.h"
+#include "editor/ai_component/providers/ai_mcp_settings.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
@@ -78,6 +79,52 @@ TEST_CASE("[Editor][AI] Model settings expose editable presets") {
 	CHECK(found_openai_model);
 
 	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
+}
+
+TEST_CASE("[Editor][AI] MCP settings manage server enable states") {
+	Array original_servers = AIMCPSettings::get_server_storage_for_test();
+	AIMCPSettings::clear_servers_for_test();
+
+	const String filesystem_id = AIMCPSettings::add_server("Filesystem", "npx", "-y @modelcontextprotocol/server-filesystem .", "res://", "NODE_ENV=development", true);
+	const String disabled_id = AIMCPSettings::add_server("Disabled Server", "python", "server.py", "res://addons/mcp", String(), false);
+
+	CHECK(!filesystem_id.is_empty());
+	CHECK(!disabled_id.is_empty());
+	CHECK(filesystem_id != disabled_id);
+
+	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(false);
+	REQUIRE(servers.size() == 2);
+	CHECK(servers[0].display_name == "Filesystem");
+	CHECK(servers[0].command == "npx");
+	CHECK(servers[0].arguments == "-y @modelcontextprotocol/server-filesystem .");
+	CHECK(servers[0].working_directory == "res://");
+	CHECK(servers[0].environment == "NODE_ENV=development");
+	CHECK(servers[0].enabled);
+	CHECK_FALSE(servers[1].enabled);
+
+	Vector<AIMCPServerConfig> enabled_servers = AIMCPSettings::get_servers(true);
+	REQUIRE(enabled_servers.size() == 1);
+	CHECK(enabled_servers[0].id == filesystem_id);
+
+	CHECK(AIMCPSettings::set_server_enabled(disabled_id, true));
+	enabled_servers = AIMCPSettings::get_servers(true);
+	REQUIRE(enabled_servers.size() == 2);
+
+	CHECK(AIMCPSettings::update_server(filesystem_id, "Filesystem Local", "node", "server.js", "res://tools", "FOO=bar", false));
+	AIMCPServerConfig updated = AIMCPSettings::get_server(filesystem_id);
+	CHECK(updated.display_name == "Filesystem Local");
+	CHECK(updated.command == "node");
+	CHECK(updated.arguments == "server.js");
+	CHECK(updated.working_directory == "res://tools");
+	CHECK(updated.environment == "FOO=bar");
+	CHECK_FALSE(updated.enabled);
+
+	CHECK(AIMCPSettings::remove_server(disabled_id));
+	servers = AIMCPSettings::get_servers(false);
+	REQUIRE(servers.size() == 1);
+	CHECK(servers[0].id == filesystem_id);
+
+	AIMCPSettings::set_server_storage_for_test(original_servers);
 }
 
 TEST_CASE("[Editor][AI] Model profiles allow duplicate provider and model with user names") {
@@ -241,6 +288,28 @@ TEST_CASE("[Editor][AI] Settings dialog adds enabled provider and custom models"
 
 	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
 	AIModelSettings::set_custom_models("compatible", original_custom_models);
+}
+
+TEST_CASE("[Editor][AI] Settings dialog adds MCP servers") {
+	Array original_servers = AIMCPSettings::get_server_storage_for_test();
+	AIMCPSettings::clear_servers_for_test();
+
+	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
+	dialog->build_for_test();
+
+	CHECK(dialog->get_mcp_server_table_row_count_for_test() == 0);
+	dialog->add_mcp_server_for_test("Filesystem", "npx", true);
+	CHECK(dialog->get_mcp_server_table_row_count_for_test() == 1);
+
+	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(false);
+	REQUIRE(servers.size() == 1);
+	CHECK(servers[0].display_name == "Filesystem");
+	CHECK(servers[0].command == "npx");
+	CHECK(servers[0].enabled);
+
+	memdelete(dialog);
+
+	AIMCPSettings::set_server_storage_for_test(original_servers);
 }
 
 TEST_CASE("[Editor][AI] Settings dialog edits added provider model credentials") {

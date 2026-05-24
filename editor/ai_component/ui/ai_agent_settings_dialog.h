@@ -9,6 +9,7 @@
 #include "scene/gui/tab_container.h"
 
 class AISettingsModelsPage;
+class AISettingsMCPPage;
 class HBoxContainer;
 
 class AIAgentSettingsDialog : public ConfirmationDialog {
@@ -24,6 +25,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	ItemList *navigation = nullptr;
 	TabContainer *pages = nullptr;
 	AISettingsModelsPage *models_page = nullptr;
+	AISettingsMCPPage *mcp_page = nullptr;
 
 	static inline AIAgentSettingsDialog *singleton = nullptr;
 
@@ -44,8 +46,10 @@ public:
 	void build_for_test();
 	int get_model_table_row_count_for_test() const;
 	int get_custom_model_table_row_count_for_test() const;
+	int get_mcp_server_table_row_count_for_test() const;
 	void add_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key = String());
 	void add_custom_model_for_test(const String &p_model, const String &p_base_url, const String &p_api_key);
+	void add_mcp_server_for_test(const String &p_display_name, const String &p_command, bool p_enabled = true);
 	void edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key);
 	void edit_custom_model_for_test(const String &p_current_model, const String &p_new_model, const String &p_base_url, const String &p_api_key);
 	void remove_custom_model_for_test(const String &p_provider_id, const String &p_model);
