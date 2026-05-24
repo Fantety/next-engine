@@ -1,580 +1,416 @@
-# AI Agent 架构与工作流程
+# NEXT Engine AI Agent 架构说明
 
-本文档描述 NEXT Engine 当前内置 AI Agent 的代码结构、运行流程和扩展边界。目标是让后续开发者能从“用户在右侧 AI Dock 输入一句话”一直追踪到“模型请求工具、工具读取项目、模型生成最终回答、UI 和历史会话更新”的完整链路。
+本文档描述当前 NEXT Engine 中 AI Agent 的实现边界、核心模块、消息流程、工具调用流程和后续扩展方向。范围主要是 `editor/ai_component` 以及少量 Godot 编辑器入口修改。
 
-当前版本已经移除 MCPServer 依赖。Agent 的工具调用采用 OpenAI-compatible Chat Completions 的 function calling 方式：引擎侧把工具 schema 发给模型，模型返回 `tool_calls`，引擎执行本地工具，再把工具结果作为 `tool` 消息发回模型，直到模型给出最终文本。
+## 目标
 
-## 1. 分层总览
+当前实现的目标是把 AI Coding Agent 作为编辑器内置能力接入 Godot 编辑器，而不是做一个外挂脚本工具。核心原则是：
 
-AI 功能集中在 `editor/ai_component/` 下，按职责分为以下层：
+- AI 交互在编辑器 Dock 中完成。
+- 模型、MCP、会话、工具、上下文、Review/Diff 各自独立成模块。
+- 编辑类工具尽量调用 Godot 编辑器内部 API，不直接绕过编辑器状态修改场景。
+- 工具权限由 Agent Profile 控制，Ask / Review / Write 模式有不同边界。
+- 流式响应和工具执行进度需要实时更新到消息列表。
+- 文件改动通过 Change Set 记录，支持查看 diff、保留、撤销。
 
-| 层级              | 主要文件                                                                                                                                                   | 职责                                       |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| UI 层            | `ui/ai_agent_dock.*`, `ui/ai_composer.*`, `ui/ai_message_list.*`, `ui/ai_message_bubble.*`, `ui/ai_agent_settings_dialog.*`                            | 右侧 Dock、输入框、模型选择、设置页、消息渲染、loading 状态     |
-| Session 编排层     | `agent/ai_agent_session.*`                                                                                                                             | 管理一个聊天会话的消息、状态、模型配置、上下文收集、请求启动、结果回写、历史保存 |
-| Agent Runtime 层 | `agent/ai_agent_runtime.*`, `agent/ai_agent_runtime_runner.*`, `agent/ai_agent_profile.*`, `agent/ai_context_manager.*`                                | function calling 主循环、上下文预算、工具权限、最大轮数限制、后台线程执行 |
-| Provider 适配层    | `providers/ai_openai_runtime_client.*`, `providers/ai_openai_compatible_codec.*`, `providers/ai_provider_config.h`, `providers/ai_model_settings.*` | 模型配置、HTTP 请求、OpenAI-compatible 消息格式、响应解析 |
-| Tool 层          | `tools/ai_tool.*`, `tools/ai_tool_registry.*`, `tools/ai_tool_permission.*`, `tools/project/*`, `tools/editor/*`                                       | 本地工具协议、工具注册、权限判断、读取/搜索项目内容               |
-| Context 层       | `context/ai_editor_context_provider.*`, `context/ai_project_tree_context_provider.*`                                                                   | 每次请求前收集只读编辑器和项目树上下文                      |
-| Storage 层       | `storage/ai_conversation_store.*`, `storage/ai_conversation_serializer.*`                                                                              | 历史会话保存、读取、列表排序                           |
+## 编辑器入口
 
-## 2. 用户发送消息后的主流程
+AI 功能在编辑器启动时注册和挂载。
 
-### 2.1 UI 入口：AIComposer 到 AIAgentDock
+- `editor/register_editor_types.cpp`
+  - 注册 `AIAgentSession`、`AIContextManager`、`AIChangeSetStore`、`AIToolExecutionContext`、`AIAgentSettingsDialog`、`AIMarkdownLabel`、`AITextDiffViewer` 等类型。
 
-文件：
+- `editor/editor_node.cpp`
+  - 创建 `AIAgentSettingsDialog`。
+  - 创建并挂载 `AIAgentDock` 到编辑器 Dock 区域。
 
-- `editor/ai_component/ui/ai_composer.cpp`
-- `editor/ai_component/ui/ai_agent_dock.cpp`
+- `editor/ai_component/SCsub`
+  - 汇总构建子模块：`agent`、`providers`、`context`、`review`、`storage`、`prompts`、`tools`、`ui`。
 
-用户在输入框点击 `Send` 后：
+## UI 层
 
-1. `AIComposer::_send_pressed()` 发出 `send_requested(message, model_id)` 信号。
-2. `AIAgentDock` 在构造函数中连接该信号到 `_send_requested()`。
-3. `AIAgentDock::_send_requested()` 做三件事：
-   - 调用 `_get_provider_config(model_id)`，从 `AIModelSettings` 读取模型的 `base_url/api_key/model`。
-   - 调用 `session->configure_provider(config)`，把配置同步给 provider 和 runtime client。
-   - 调用 `session->send_user_message(message)` 启动 Agent。
-4. 输入框被 `composer->clear_input()` 清空。
+UI 层只负责用户交互、展示状态和转发命令，不直接执行 Agent 逻辑。
 
-`AIComposer::set_running()` 会在请求过程中禁用发送按钮、启用取消按钮。这个状态来自 `AIAgentSession` 的 `state_changed` 信号。
+- `editor/ai_component/ui/ai_agent_dock.*`
+  - AI Dock 主界面。
+  - 管理 session 下拉列表、新建/删除 session、消息列表、变更 Review 面板、token 用量、请求进度条、输入区。
+  - 持有一个 `AIAgentSession` 节点。
+  - 监听 session 的消息新增、消息更新、状态变化、token 用量变化、工具审批请求。
+
+- `editor/ai_component/ui/ai_composer.*`
+  - 输入框、模式选择、模型选择、发送/取消按钮。
+  - 发送按钮和取消按钮复用同一个按钮：
+    - 空输入时禁用。
+    - 请求中显示 Stop 图标并触发 cancel。
+  - 输入框使用自动换行，避免长文本产生横向滚动。
+
+- `editor/ai_component/ui/ai_message_list.*`
+  - 消息列表和滚动控制。
+  - 当滚动条本来在底部时，新消息自动滚到底部；用户主动上滚时不强行打断。
+
+- `editor/ai_component/ui/ai_message_bubble.*`
+  - 单条消息气泡。
+  - 支持 user、assistant、tool、error 等角色展示。
+  - tool 气泡默认折叠长内容，可展开查看详情。
+
+- `editor/ai_component/ui/ai_markdown_label.*`
+  - 消息 Markdown 展示控件。
+  - 使用 `AIMarkdownRenderer` 渲染 Markdown 到 `RichTextLabel`。
+
+- `editor/ai_component/ui/ai_markdown_renderer.*`
+  - Markdown AST 到富文本的转换逻辑。
+  - 处理标题、列表、代码块、表格等基础展示。
+
+- `editor/ai_component/ui/ai_change_review_panel.*`
+  - AI 改动列表。
+  - 每个 pending change set 提供查看 diff、保留、撤销按钮。
+
+- `editor/ai_component/ui/ai_text_diff_viewer.*`
+  - Diff 弹窗。
+  - 左右对比旧内容和新内容。
+  - 对 GDScript / GDShader 使用语法高亮。
+  - 增加内容用绿色标识，删除内容用红色标识。
 
-### 2.2 Session 创建用户消息和 loading 占位
+- `editor/ai_component/ui/ai_agent_settings_dialog.*`
+  - AI 设置对话框。
+  - 一级侧边栏包含模型、MCP、技能、规则。
 
-文件：
+- `editor/ai_component/ui/ai_settings_models_page.*`
+  - 模型配置页面。
+  - 支持添加、编辑、删除模型配置。
+  - 同一个供应商和模型可以创建多个不同配置，由用户设置名称。
 
-- `editor/ai_component/agent/ai_agent_session.cpp`
-- `editor/ai_component/ui/ai_message_bubble.cpp`
+- `editor/ai_component/ui/ai_settings_mcp_page.*`
+  - MCP Server 配置页面。
+  - 支持添加、编辑、删除、启用和关闭 MCP Server。
 
-`AIAgentSession::send_user_message()` 是请求编排入口：
+## 会话层
 
-1. 去除输入前后空白。
-2. 如果消息为空，或者当前已经在请求中，直接返回。
-3. 创建 `user` 消息，写入 `messages`，发出 `message_added`。
-4. 立即保存会话：`_save()`。
-5. 创建一个空内容的 `assistant` 消息，作为 pending/loading 占位，写入 `messages`。
-6. 记录 `active_assistant_index`，发出 `message_added`。
-7. `AIMessageBubble::set_message()` 收到空内容 assistant 后只渲染空 assistant 占位。
-8. 请求等待状态由 `AIAgentDock` 中放在输入框上方的 indeterminate `ProgressBar` 显示。
-
-这一步的作用是：即使 LLM API 还没有返回，用户也能看到明确的等待状态。
-
-### 2.3 收集只读上下文
-
-文件：
-
-- `editor/ai_component/agent/ai_agent_session.cpp`
-- `editor/ai_component/context/ai_editor_context_provider.cpp`
-- `editor/ai_component/context/ai_project_tree_context_provider.cpp`
-
-`AIAgentSession::_collect_context()` 会收集两类上下文：
-
-1. `AIEditorContextProvider::collect_context()`
-   - 当前阶段返回安全、只读的编辑器上下文说明。
-2. `AIProjectTreeContextProvider::collect_context()`
-   - 扫描 `res://` 下的项目树。
-   - 有最大深度、条目数和字符数限制。
-   - 过长时设置 `truncated` 并追加 `[truncated]`。
-
-这些上下文不会直接修改会话历史，而是在 runtime 请求模型时作为 system/context 消息注入。
-
-### 2.4 启动 Agent Runtime
-
-文件：
-
-- `editor/ai_component/agent/ai_agent_session.cpp`
-- `editor/ai_component/agent/ai_agent_runtime_runner.cpp`
-
-`send_user_message()` 在收集上下文后会进入 `AI_AGENT_STATE_STREAMING`。当前实际接入路径是 function calling runtime：
-
-1. 从 `messages` 复制出 `request_messages`。
-2. 移除刚才用于 UI loading 的空 assistant 占位，避免把空 assistant 发给模型。
-3. 调用 `runtime_runner->start(request_messages, context)`。
-4. `AIAgentRuntimeRunner` 在后台线程执行 `runtime->run(messages, context_documents)`。
-
-这里虽然状态名仍叫 `STREAMING`，但 runtime 路径当前是非流式 function calling：UI 会保持 loading，直到整个工具调用循环结束后一次性回写结果。
-
-## 3. Agent Runtime 工具调用循环
-
-文件：
-
-- `editor/ai_component/agent/ai_agent_runtime.cpp`
-- `editor/ai_component/agent/ai_agent_profile.cpp`
-- `editor/ai_component/tools/ai_tool_registry.cpp`
-- `editor/ai_component/tools/ai_tool_permission.cpp`
-
-`AIAgentRuntime::run()` 是 Agent 核心循环。
-
-### 3.1 构建发送给模型的消息和上下文预算
-
-文件：
-
-- `editor/ai_component/agent/ai_context_manager.cpp`
-- `editor/ai_component/agent/ai_context_manager.h`
-- `editor/ai_component/agent/ai_agent_runtime.cpp`
-
-`AIAgentRuntime::run()` 每一轮 provider 请求前都会调用：
-
-```cpp
-AIContextBuildResult context_result = context_manager->build_messages(
-        String(AIAgentPrompts::SYSTEM_PROMPT),
-        result.messages,
-        p_context_documents);
-```
-
-`AIContextManager` 是当前上下文管理的唯一入口，职责是把内部会话消息和只读项目上下文整理成 provider client 可以消费的消息数组：
-
-1. 插入 system prompt，来自 `prompts/agent_system_prompt.h`。
-2. 把 `AIEditorContextProvider`、`AIProjectTreeContextProvider` 收集到的只读上下文合并成一条 system/context 消息。
-3. 将内部 `AIAgentMessage` 转成 provider 消息字典。
-4. 按字符预算裁剪上下文文档、历史消息和工具结果。
-5. 返回 `metadata`，记录 `estimated_input_chars`、`omitted_history_messages`、`truncated_tool_results`、`truncated_context_documents` 等信息，便于终端日志和后续调试。
-
-当前预算是字符级近似，不是模型 tokenizer 级 token 预算。默认值：
-
-| 配置项 | 默认值 | 作用 |
-| --- | ---: | --- |
-| `max_input_chars` | 96000 | 发送给 provider 的整体输入字符预算 |
-| `max_context_chars` | 24000 | 只读编辑器/项目上下文预算 |
-| `max_history_chars` | 64000 | 历史会话消息预算 |
-| `max_tool_result_chars` | 16000 | 单条 tool result 内容预算 |
-| `min_recent_messages` | 4 | 即使历史超预算，也尽量保留的最近消息数量 |
-
-裁剪策略参考了 OpenCode 等 Agent 工具的常见模式：优先保留最近交互，对旧历史和工具输出做剪枝，把只读项目上下文作为受限系统上下文注入。OpenCode 官方文档在 `compaction` 配置中提供了 `auto`、`prune` 和 `reserved` 选项，其中 `prune` 用于移除旧工具输出以节省上下文：https://opencode.ai/docs/config/#compaction 。NEXT Engine 当前阶段没有做 LLM 总结式 compaction，而是先实现确定性的预算裁剪，后续可以在 `AIContextManager` 内扩展 summary/compaction。
-
-function calling 消息有协议约束：assistant 的 `tool_calls` 必须和后续 `tool` 消息成组出现。因此 `AIContextManager` 不会单独保留孤立 tool result，也不会保留缺少结果的 assistant tool-call 组；旧历史超预算时以“普通消息”或“assistant tool-call + tool results 组”为单位删除，避免 DeepSeek/OpenAI-compatible provider 因消息序列非法而返回 400。
-
-### 3.2 暴露允许的工具 schema
-
-`AIAgentRuntime::_get_allowed_tool_schemas()` 根据当前 `AIAgentProfile` 过滤工具。
-
-当前 `AIAgentProfile::get_plan_profile()` 和 `get_build_profile()` 都只允许只读工具：
-
-- `project.list_tree`
-- `project.read_file`
-- `project.search_text`
-- `editor.get_context`
-
-`AIToolRegistry::get_tool_schemas()` 会把工具转成内部 OpenAI function schema：
-
-```json
-{
-  "type": "function",
-  "function": {
-    "name": "project.read_file",
-    "description": "...",
-    "parameters": { "...": "..." }
-  }
-}
-```
-
-注意：内部工具名允许使用点号命名空间，例如 `project.read_file`。部分 OpenAI-compatible 服务商会要求 function name 只能匹配 `^[a-zA-Z0-9_-]+$`，不能包含点号。因此真正发送 HTTP 请求前，`AIOpenAICompatibleRuntimeClient::_build_provider_tool_schemas()` 会把内部工具名转换成 provider-safe 名称，例如：
-
-```text
-project.read_file -> project_read_file
-```
-
-同时 runtime client 会保存 `provider_safe_name -> internal_name` 映射。模型返回 `tool_calls` 后，`AIOpenAICompatibleRuntimeClient::_apply_tool_name_map()` 会把 `project_read_file` 恢复为内部的 `project.read_file`，再交给权限系统和 `AIToolRegistry` 执行。Tool 层、权限层、历史消息仍然统一使用内部工具名。
-
-### 3.3 Provider 回合
-
-`AIAgentRuntime::run()` 最多执行 `max_provider_turns` 次，默认 6 次。
-
-每一轮：
-
-1. 调用 `client->complete(messages, tool_schemas)`。
-2. 如果 response 有 `error`，结束并返回失败。
-3. 如果 response 没有 `tool_calls`：
-   - 如果有最终文本，追加一条 `assistant` 消息。
-   - 标记成功并结束。
-4. 如果 response 有 `tool_calls`：
-   - 追加一条 `assistant` 消息，内容可以为空，但 metadata 里保存 `tool_calls`。
-   - 逐个执行工具。
-   - 每个工具执行结果追加为 `tool` 消息。
-   - 进入下一轮，把 tool 结果发回模型继续推理。
-
-工具调用总数受 `max_tool_calls` 限制，默认 20 次。超过后失败关闭，避免模型无限循环。
-
-### 3.4 工具权限判断
-
-文件：
-
-- `editor/ai_component/tools/ai_tool_permission.cpp`
-
-每个 tool call 执行前都会经过：
-
-```cpp
-AIToolPermissionPolicy::evaluate(profile, call.tool_name, call.arguments)
-```
-
-当前策略很保守：
-
-- profile 允许的工具：`allow`
-- profile 未允许的工具：`deny`
-
-被拒绝的工具不会执行，会生成一条 `tool` 消息，内容类似：
-
-```text
-Tool call denied for `xxx`: Tool is not allowed by the active agent profile.
-```
-
-这样模型可以收到拒绝结果，并继续生成最终回答。
-
-## 4. Provider 与 OpenAI-compatible 协议
-
-### 4.1 Runtime Client
-
-文件：
-
-- `editor/ai_component/providers/ai_openai_runtime_client.cpp`
-- `editor/ai_component/providers/ai_openai_runtime_client.h`
-
-`AIOpenAICompatibleRuntimeClient::complete_streaming()` 是当前 Agent runtime 的默认 provider 入口，负责带 function calling 的流式请求：
-
-1. 调用 `_build_chat_messages()`，把内部消息转换成 OpenAI-compatible Chat Completions 格式。
-2. 调用 `_build_provider_tool_schemas()`，把内部工具名转换成 provider-safe function name，并记录映射表。
-3. 调用 `AIOpenAIHTTPRuntimeTransport::request_chat_completion_stream()` 发送 `stream=true` 的 HTTP 请求。
-4. 每收到一个 SSE `data:` 事件，交给 `AIOpenAICompatibleStreamAccumulator` 累积 content、reasoning_content、usage 和 tool_calls 分片。
-5. 如果事件里有 assistant content delta，`AIOpenAIStreamEventHandler` 会通过 partial callback 通知 `AIAgentRuntime`，runtime 再用 `message_added/message_updated` 推到 Session/UI。
-6. 流结束后调用 `_apply_tool_name_map()`，把 provider-safe 工具名恢复成内部工具名。
-7. 返回完整 `AIAgentRuntimeResponse`，由 runtime 决定是否执行工具或结束本轮。
-
-`complete()` 和 `request_chat_completion()` 仍保留为非流式路径，主要用于测试、兼容不支持 streaming 的 transport，以及将来必要时做 fallback。
-
-内部消息到 OpenAI-compatible 消息的关键转换：
-
-- 内部 assistant tool call：
-
-```cpp
-assistant.metadata["tool_calls"]
-```
-
-会转换成：
-
-```json
-{
-  "role": "assistant",
-  "content": "",
-  "tool_calls": [
-    {
-      "id": "call_xxx",
-      "type": "function",
-      "function": {
-        "name": "project_read_file",
-        "arguments": "{\"path\":\"res://player.gd\"}"
-      }
-    }
-  ]
-}
-```
-
-- 内部 tool result：
-
-```cpp
-role = "tool"
-metadata["tool_call_id"] = "call_xxx"
-```
-
-会转换成：
-
-```json
-{
-  "role": "tool",
-  "tool_call_id": "call_xxx",
-  "content": "工具返回内容"
-}
-```
-
-### 4.2 HTTP Transport
-
-文件：
-
-- `editor/ai_component/providers/ai_openai_runtime_client.cpp`
-
-`AIOpenAIHTTPRuntimeTransport::request_chat_completion_stream()` 使用 Godot `HTTPClient`：
-
-1. 校验 `api_key` 和 `base_url`。
-2. `base_url.parse_url()` 得到 scheme/host/port/base_path。
-3. `connect_to_host()` 建立 HTTP/HTTPS 连接。
-4. 组装请求头：
-   - `Authorization: Bearer <api_key>`
-   - `Content-Type: application/json`
-   - `Accept: text/event-stream`
-   - `Cache-Control: no-cache`
-5. 调用 `AIOpenAICompatibleCodec::build_body(..., stream=true)` 构造 body。
-6. 请求路径由 `build_request_path()` 统一补成 `/chat/completions`。
-7. 按 SSE 空行边界读取 `data:` 事件。内部使用字节缓冲，只有切出完整事件后才做 UTF-8 转换，避免中文等多字节字符被 HTTP chunk 截断时乱码。
-8. 每个事件都会打印终端日志，包括 chunk 大小、事件序号、是否 `[DONE]`、HTTP 状态码和错误预览。
-
-当前 function calling 路径已经支持 assistant 文本流式显示。工具调用仍必须等当前 provider turn 完成并拿到完整 `tool_calls[].function.arguments` 后才能执行，因为 OpenAI-compatible function calling 的参数通常是分片 JSON，未结束前不能安全解析。默认请求超时时间为 180 秒，用来覆盖慢模型和工具调用多轮请求的常见延迟；后续如果在设置页暴露 timeout，应继续写入 `AIProviderConfig::timeout_seconds`。
-
-### 4.3 Codec 与 `<null>` 防护
-
-文件：
-
-- `editor/ai_component/providers/ai_openai_compatible_codec.cpp`
-- `editor/ai_component/providers/ai_openai_compatible_codec.h`
-
-`AIOpenAICompatibleCodec` 只负责 OpenAI-compatible Chat Completions 协议的纯数据转换，不持有网络连接、不发信号、不管理线程：
-
-- `build_request_path()` 把 `base_url` path 统一补成 `/chat/completions`。
-- `build_body()` 构造请求 JSON body。
-- `parse_chat_completion()` 解析非流式响应。
-- `AIOpenAICompatibleStreamAccumulator::apply_event()` 解析并累积流式 SSE event。
-- `AIOpenAICompatibleStreamAccumulator::get_response()` 在流结束后生成完整 `AIAgentRuntimeResponse`。
-- `extract_delta()` 保留为旧的简单流式 delta 测试工具。
-
-`parse_chat_completion()` 解析非流式响应：
-
-- `choices[0].message.content` 非 null 时写入 `response.content`。
-- `choices[0].message.tool_calls` 会转换成内部 `AIToolCall`。
-- `finish_reason` 非 null 时才写入 metadata。
-
-这次修复的重点之一是避免 JSON `null` 被 Godot `String(Variant())` 转成字面量 `"<null>"`。因此流式 accumulator、旧的 `_extract_delta()` 和非流式 `parse_chat_completion()` 都做了 `Variant::NIL` 检查。
-
-旧的 `AIOpenAICompatibleProvider::
-()` 和 `AIAgentRunner` fallback 已移除。当前 AI Dock 只有 runtime function calling 主路径，避免旧 streaming provider 与新 Agent runtime 同时存在造成职责混乱。
-
-## 5. 当前内置工具
-
-### 5.1 project.list_tree
-
-文件：
-
-- `editor/ai_component/tools/project/ai_list_project_tool.cpp`
-
-功能：
-
-- 列出 `res://` 下的目录和文件。
-- 参数：
-  - `path`
-  - `max_depth`
-  - `max_entries`
-  - `max_chars`
-- 有深度、条目和字符限制。
-- 不列出隐藏文件。
-
-### 5.2 project.read_file
-
-文件：
-
-- `editor/ai_component/tools/project/ai_read_file_tool.cpp`
-
-功能：
-
-- 读取 `res://` 下允许扩展名的文本文件。
-- 参数：
-  - `path`
-  - `max_bytes`
-- 只允许文本扩展名，例如 `gd/cs/tscn/tres/md/txt/json/cfg/shader/gdshader`。
-- 有读取字节限制，超出后标记 `truncated`。
-
-### 5.3 project.search_text
-
-文件：
-
-- `editor/ai_component/tools/project/ai_search_project_tool.cpp`
-
-功能：
-
-- 在 `res://` 下允许扩展名的文本文件中做字面量搜索。
-- 参数：
-  - `query`
-  - `path`
-  - `max_results`
-  - `max_chars`
-- 返回格式类似：
-
-```text
-res://player.gd:12: matching line preview
-```
-
-### 5.4 editor.get_context
-
-文件：
-
-- `editor/ai_component/tools/editor/ai_get_editor_context_tool.cpp`
-
-功能：
-
-- 返回安全的只读编辑器/项目信息。
-- 包括：
-  - engine name/version
-  - project name
-  - project path
-  - capability 标记为 read-only
-- 不返回 API Key、Authorization 等敏感信息。
-
-### 5.5 工具安全边界
-
-文件：
-
-- `editor/ai_component/tools/project/ai_project_tool_utils.cpp`
-
-项目工具共同使用 `AIProjectToolUtils`：
-
-- `is_allowed_path()` 要求路径必须以 `res://` 开头，且不能包含 `..`。
-- `is_allowed_text_extension()` 限制可读取/搜索的文本文件扩展名。
-- `get_int_argument()` 对工具参数做最小/最大值 clamp。
-
-当前所有工具都是只读工具，不会修改项目文件、场景或节点。
-
-## 6. UI 消息和历史会话
-
-### 6.1 消息渲染
-
-文件：
-
-- `editor/ai_component/ui/ai_message_list.cpp`
-- `editor/ai_component/ui/ai_message_bubble.cpp`
-
-`AIMessageList` 管理消息气泡：
-
-- `add_message()`
-- `update_message()`
-- `remove_message()`
-- `clear_messages()`
-
-`AIMessageBubble` 根据 role 渲染标题：
-
-- `user` -> `You`
-- `assistant` -> `Assistant`
-- `tool` -> `Tool: <tool_name> (<status>)`
-- `error` -> `Error`
-
-`RichTextLabel::set_use_bbcode(false)` 用于避免用户文本或模型文本里的 `[b]...[/b]` 被误当 BBCode 渲染。
-
-### 6.2 空 assistant 占位和 loading
-
-文件：
-
-- `editor/ai_component/ui/ai_message_bubble.cpp`
-- `editor/ai_component/agent/ai_agent_session.cpp`
-
-当 `assistant` 内容为空时，UI 只保留 pending 占位消息，不再在气泡内显示文字动画。请求等待状态由 `AIAgentDock` 里的 `request_progress` 显示，它位于聊天输入组件上方，进入 `PREPARING_CONTEXT` 或 `STREAMING` 状态时显示，进入 `IDLE`、`FAILED` 或 `CANCELLED` 后隐藏。
-
-runtime 完成后：
-
-1. `AIAgentSession::_apply_runtime_result()` 检查 `active_assistant_index`。
-2. 如果占位 assistant 仍为空，调用 `_remove_message_at()`。
-3. 发出 `message_removed(index)`。
-4. `AIAgentDock::_message_removed()` 调用 `AIMessageList::remove_message(index)`。
-5. 再追加 runtime 返回的真实 assistant/tool 消息。
-
-请求失败时同样会移除空占位，然后追加 `error` 消息。
-
-### 6.3 历史 session 管理
-
-文件：
-
-- `editor/ai_component/storage/ai_conversation_store.cpp`
-- `editor/ai_component/storage/ai_conversation_serializer.cpp`
-- `editor/ai_component/ui/ai_agent_dock.cpp`
-
-`AIConversationStore` 把会话保存到 user data 下：
-
-```text
-ai_agent/conversations/<session_id>.json
-```
-
-保存内容包括：
-
-- `id`
-- `title`
-- `updated_at`
-- `messages`
-
-`AIAgentDock` 顶部使用 `OptionButton` 显示历史 session：
-
-- `New` 创建新会话。
-- 下拉选择历史会话时调用 `session->load_session(session_id)`。
-- 读取后用 `_reload_messages_from_session()` 重建消息列表。
-
-## 7. 模型设置与模型切换
-
-文件：
-
-- `editor/ai_component/ui/ai_agent_settings_dialog.cpp`
-- `editor/ai_component/providers/ai_model_settings.cpp`
-- `editor/ai_component/ui/ai_composer.cpp`
-
-AI Settings 当前有四个侧边栏页面：
-
-- Models：已实现。
-- MCP：占位，待实现。
-- Skills：占位，待实现。
-- Rules：占位，待实现。
-
-Models 页面支持：
-
-- 多 provider 预设。
-- 每个 provider 的 API Key。
-- 每个 provider 的 Base URL。
-- 预设模型开关。
-- 自定义模型列表。
-
-`AIModelSettings` 使用 `EditorSettings` 保存配置，路径形如：
-
-```text
-ai_agent/providers/<provider_id>/api_key
-ai_agent/providers/<provider_id>/base_url
-ai_agent/models/<provider_id>:<model>/enabled
-ai_agent/providers/<provider_id>/custom_models
-```
-
-对话发送时，`AIComposer::get_selected_model()` 返回当前选择的 model id，`AIAgentDock::_get_provider_config()` 再把它解析为 `AIProviderConfig`。
-
-## 8. 当前状态机
-
-文件：
-
-- `editor/ai_component/agent/ai_agent_types.h`
-- `editor/ai_component/agent/ai_agent_session.cpp`
-
-当前状态：
-
-- `AI_AGENT_STATE_IDLE`
-- `AI_AGENT_STATE_PREPARING_CONTEXT`
-- `AI_AGENT_STATE_STREAMING`
-- `AI_AGENT_STATE_CANCELLED`
-- `AI_AGENT_STATE_FAILED`
-
-发送消息时：
-
-```text
-IDLE
-  -> PREPARING_CONTEXT
-  -> STREAMING
-  -> IDLE / FAILED / CANCELLED
-```
-
-虽然状态名叫 `STREAMING`，但 function calling runtime 当前是非流式；这个状态在 UI 上表示“请求进行中”。
-
-## 9. 当前限制与后续扩展建议
-
-当前已稳定的能力：
-
-- 模型配置和切换。
-- 历史 session。
-- OpenAI-compatible function calling 基础闭环。
-- 只读项目工具。
-- loading 等待状态。
-- `<null>` 响应防护。
-- BBCode 不误渲染。
-
-当前限制：
-
-- function calling 路径暂不流式输出 token。
-- Cancel 对 runtime 的 HTTP 请求还不是强中断，只会让 UI 进入取消状态并忽略后续结果。
-- 工具当前只读，不支持编辑文件、创建节点、修改场景。
-- MCP、Skills、Rules 设置页仍是占位。
-- 权限策略只有 allow/deny，`ask` 还没有 UI 交互。
-
-建议的后续扩展方向：
-
-1. 把 `AI_AGENT_STATE_STREAMING` 拆成更准确的 `REQUESTING` / `RUNNING_TOOLS` / `STREAMING_RESPONSE`。
-2. 为 runtime transport 增加取消令牌，取消时真正终止 HTTP 请求。
-3. 增加工具执行事件信号，让 UI 能显示“正在读取文件/搜索项目”的实时进度。
-4. 在 Tool 层新增写入类工具前，先实现权限确认 UI 和审计记录。
-5. MCP 后续应作为 Tool Provider 接入 `AIToolRegistry`，不要侵入 Session/UI 主流程。
-6. Skills 和 Rules 应转化为 system prompt/context/profile 的输入，而不是散落在 provider 代码里。
+会话层是 UI 和 Runtime 之间的协调者。
+
+- `editor/ai_component/agent/ai_agent_session.*`
+  - 维护当前会话 ID、标题、消息列表、状态、token 统计、pending tool approval。
+  - 配置 provider、agent profile、tool registry、context providers。
+  - 启动 `AIAgentRuntimeRunner` 在线程中执行 Agent Runtime。
+  - 把 Runtime 的实时消息事件映射回本地消息列表。
+  - 将会话持久化到 `AIConversationStore`。
+
+关键流程：
+
+1. `AIAgentDock::_send_requested()` 收到 UI 发送事件。
+2. Dock 根据模型 ID 获取 `AIProviderConfig`，调用 `AIAgentSession::configure_provider()`。
+3. Dock 设置当前 Agent Profile，例如 `plan`、`review`、`write`。
+4. Dock 调用 `AIAgentSession::send_user_message()`。
+5. Session 写入 user 消息，创建 assistant placeholder，保存会话。
+6. Session 收集上下文，启动 Runtime Runner。
+7. Runtime Runner 在线程中执行 `AIAgentRuntime::run()`。
+8. Runtime 通过回调实时通知消息新增和更新。
+9. Session 将 Runtime 消息映射到本地消息列表并通知 Dock 刷新 UI。
+10. Runtime 结束后，Session 应用结果、保存会话、更新 token 用量和状态。
+
+## Runtime 层
+
+Runtime 是 Agent 的核心循环，负责模型调用、工具调用、权限判断和多轮执行。
+
+- `editor/ai_component/agent/ai_agent_runtime.*`
+  - 输入：历史消息、上下文文档、工具注册表、Agent Profile。
+  - 输出：运行结果、assistant 消息、tool 消息、tool calls、metadata、pending approval。
+  - 默认支持较高的 provider turn 和 tool call 次数上限。
+  - 使用 function calling，而不是纯 ReAct 文本解析。
+
+- `editor/ai_component/agent/ai_agent_runtime_runner.*`
+  - 在线程中运行 Runtime，避免阻塞编辑器 UI。
+  - 转发 runtime message added / updated 事件。
+
+Runtime 主循环：
+
+1. 从 `AIContextManager` 构建 provider messages。
+2. 从 `AIToolRegistry` 生成 OpenAI-compatible tool schemas。
+3. 调用 `AIAgentRuntimeClient::complete_streaming()`。
+4. 流式内容通过 `_on_provider_partial_response()` 更新 assistant 消息。
+5. 如果模型没有 tool calls，结束本轮。
+6. 如果模型返回 tool calls，创建 assistant tool-call 消息。
+7. 对每个 tool call 调用 `AIToolPermissionPolicy::evaluate()`。
+8. 权限为 deny 时，生成 tool denied 消息并继续。
+9. 权限为 ask 时，返回 pending approval，Session 进入 `WAITING_TOOL_APPROVAL`。
+10. 权限为 allow 时，设置 `AIToolExecutionContext`，执行工具。
+11. 工具结果转成 tool 消息实时加入 message list。
+12. 继续下一轮 provider turn，让 LLM 读取工具结果并决定下一步。
+
+## Provider 层
+
+Provider 层负责把内部消息和工具 schema 转成 OpenAI-compatible 请求，并解析模型响应。
+
+- `editor/ai_component/providers/ai_provider_config.h`
+  - provider 名称、base URL、API key、model、timeout。
+
+- `editor/ai_component/providers/ai_model_settings.*`
+  - 模型配置存取。
+  - 支持 provider preset、自定义模型、多个 profile。
+  - `get_provider_config()` 根据模型 profile 生成请求配置。
+
+- `editor/ai_component/providers/ai_openai_runtime_client.*`
+  - Runtime 使用的 OpenAI-compatible client。
+  - 负责：
+    - 内部 tool name 和 provider tool name 的映射。
+    - 内部消息到 OpenAI chat messages 的转换。
+    - reasoning_content 的回传。
+    - 非流式请求和流式 SSE 请求。
+    - tool_calls 和 usage metadata 的解析。
+
+- `editor/ai_component/providers/ai_openai_compatible_codec.*`
+  - OpenAI-compatible 编解码辅助逻辑，主要服务测试和结构化转换。
+
+## 上下文管理
+
+上下文由 provider 收集、`AIContextManager` 裁剪并组装。
+
+- `editor/ai_component/context/ai_context_provider.*`
+  - 上下文 provider 基类。
+
+- `editor/ai_component/context/ai_context_document.h`
+  - 单个上下文文档结构：`title`、`source`、`content`、`truncated`。
+
+- `editor/ai_component/context/ai_editor_context_provider.*`
+  - 当前编辑器和项目的基础信息。
+
+- `editor/ai_component/context/ai_project_tree_context_provider.*`
+  - 当前项目的目录树摘要。
+
+- `editor/ai_component/context/ai_best_practices_context_provider.*`
+  - 注入 Agent 最佳实践。
+  - 内容来自 `editor/ai_component/agent/best_practices.md`，当前实现会作为默认上下文进入 prompt。
+
+- `editor/ai_component/agent/ai_context_manager.*`
+  - 组装 system prompt、只读上下文和历史消息。
+  - 当前用字符数估算上下文预算：
+    - `max_input_chars = 96000`
+    - `max_context_chars = 24000`
+    - `max_history_chars = 64000`
+    - `max_tool_result_chars = 16000`
+    - `min_recent_messages = 4`
+  - tool result 会单独裁剪，避免巨大工具输出拖垮上下文。
+  - 历史消息按 assistant tool-call + tool result 分组处理，避免保留了 tool result 却丢失对应 tool call。
+  - metadata 会记录 estimated input chars、omitted history messages、truncated tool results、truncated context documents。
+
+## Agent Profile 和权限
+
+权限由 `AIAgentProfile` 和 `AIToolPermissionPolicy` 控制。
+
+- `editor/ai_component/agent/ai_agent_profile.*`
+  - `plan`：只读工具。
+  - `write`：只读工具 + 场景编辑 + 脚本编辑 + shader + 创建文件夹。
+  - `review`：基于 write，但写文件工具会通过 Review Change Set 记录可撤销改动。
+  - `build`：当前也是只读工具边界。
+
+- `editor/ai_component/tools/ai_tool_permission.*`
+  - 判断工具调用是 allow、ask 还是 deny。
+  - `script.delete` 默认 ask，需要用户审批。
+
+- `editor/ai_component/tools/ai_tool_execution_context.*`
+  - thread-local 工具执行上下文。
+  - 包含 session id、profile id、tool call id。
+  - 工具可通过 `is_review_mode()` 判断是否进入 review 行为。
+
+## 工具系统
+
+工具统一继承 `AITool`。
+
+- `editor/ai_component/tools/ai_tool.*`
+  - 工具基类。
+  - 工具必须提供 name、description、parameters schema、execute。
+  - `get_openai_schema()` 转换为 function calling schema。
+
+- `editor/ai_component/tools/ai_tool_registry.*`
+  - 注册和查询工具。
+  - Runtime 每次执行前从 registry 获取 tool schemas。
+
+- `editor/ai_component/tools/ai_tool_call.*`
+  - tool call 结构和状态。
+  - 状态包括 pending、running、completed、denied、failed。
+
+当前内置工具分组：
+
+- Project 工具
+  - `project.list_tree`
+  - `project.read_file`
+  - `project.search_text`
+  - `project.create_folder`
+
+- Editor 工具
+  - `editor.get_context`
+
+- Scene 工具
+  - `scene.create_scene`
+  - `scene.add_node`
+  - `scene.delete_node`
+  - `scene.list_properties`
+  - `scene.rename_node`
+  - `scene.move_node`
+  - `scene.set_property`
+  - `scene.save_current_scene`
+  - `scene.open_scene`
+
+- Script 工具
+  - `script.inspect`
+  - `script.create`
+  - `script.write`
+  - `script.patch_function`
+  - `script.bind_to_node`
+  - `script.unbind_from_node`
+  - `script.delete`
+
+- Shader 工具
+  - `shader.apply_to_node`
+
+## 场景编辑工具
+
+场景工具通过 `AISceneEditingService` 统一封装。
+
+- `editor/ai_component/tools/editor/ai_scene_editing_service.*`
+  - 在主线程中操作 Godot 编辑器场景。
+  - 创建场景、添加节点、删除节点、重命名节点、移动节点、设置属性、保存和打开场景。
+  - 修改后保存场景。
+  - `scene.list_properties` 会列出节点可编辑属性、类型、hint、Resource 预期、当前值预览和 set_property 路径。
+  - `scene.set_property` 支持根据属性类型转换 Variant，并支持子属性路径，例如 `position:x`、`shape:size`、`material_override:shader`。
+
+设计注意：
+
+- 编辑场景时优先走 Godot 编辑器 API。
+- 不直接把场景文件当纯文本改写。
+- Resource 类型属性需要通过工具 schema 和 `scene.list_properties` 给 LLM 足够信息。
+
+## 脚本和 Shader 工具
+
+- `editor/ai_component/tools/editor/ai_script_editing_service.*`
+  - 创建、写入、删除脚本。
+  - 绑定和解绑节点脚本。
+  - 基于 GDScript 解析能力做函数级定位和局部替换。
+  - Review 模式下把文本改动注册到 `AIChangeSetStore`。
+
+- `editor/ai_component/tools/editor/ai_shader_editing_service.*`
+  - 创建或更新 `.gdshader`。
+  - 创建 `ShaderMaterial` 并绑定到节点指定 material 属性。
+  - 保存当前场景。
+  - Review 模式下记录 shader 文件改动。
+
+## Review / Diff 架构
+
+Review 模式不阻塞工具执行，而是记录用户可检查、可撤销的改动。
+
+- `editor/ai_component/review/ai_change_set_store.*`
+  - 维护 pending / kept / reverted change set。
+  - 对同一 project、session、path 的多次改动进行合并。
+  - 同一文件多次修改时，最终展示原始 old_text 和最新 new_text 的 diff。
+  - `keep_change_set()` 表示接受当前文件状态。
+  - `revert_change_set()` 会校验文件当前内容仍等于 new_text，只有安全时才恢复 old_text。
+
+- `editor/ai_component/review/ai_diff_service.*`
+  - 构建文本改动对象。
+  - 生成 unified diff。
+  - 统计 added / removed 行数。
+
+文件 change 的核心字段：
+
+- `path`：项目内资源路径。
+- `type`：`create`、`modify`、`delete`。
+- `language`：例如 `gdscript`、`gdshader`。
+- `old_text`：AI 修改前内容。
+- `new_text`：AI 修改后内容。
+- `diff`：unified diff 文本。
+- `added_lines` / `removed_lines`：行数统计。
+- `metadata`：工具、session、合并状态等扩展信息。
+
+## MCP 当前实现
+
+MCP 已经作为可选工具来源接入，但仍应视为基础实现。
+
+- `editor/ai_component/providers/ai_mcp_settings.*`
+  - MCP Server 配置存储。
+  - 字段包括 display name、command、arguments、working directory、environment、enabled。
+
+- `editor/ai_component/providers/ai_mcp_stdio_client.*`
+  - 通过 stdio 启动 MCP server。
+  - 支持 initialize、tools/list、tools/call。
+
+- `editor/ai_component/providers/ai_mcp_protocol.*`
+  - JSON-RPC 请求构造和响应解析。
+  - 将 MCP tool name 映射为 Agent 可用 tool name。
+
+- `editor/ai_component/tools/ai_mcp_tool.*`
+  - 把 MCP tool 包装成 `AITool`，统一进入 tool registry。
+
+Session 启动时会读取启用的 MCP Server，列出工具并注册到 registry。MCP 工具默认走动态权限策略，目前名称以 `mcp_` 开头的工具会纳入当前 profile 可调用集合。
+
+## 会话和存储
+
+- `editor/ai_component/storage/ai_conversation_store.*`
+  - 按项目 scope 隔离会话。
+  - 保存会话标题、消息、时间等 metadata。
+  - 支持列出、加载、删除、查找最近会话。
+
+- `editor/ai_component/storage/ai_conversation_serializer.*`
+  - 会话序列化和反序列化。
+
+项目隔离逻辑：
+
+- Session 会根据当前项目路径生成 project scope key。
+- 存储路径使用 `user://ai_agent/projects/<scope>/conversations`。
+- 不同项目的对话列表互不展示。
+- 打开项目后默认加载最近一次会话。
+
+## Token 和用量展示
+
+当前 token 统计分两类：
+
+- provider usage：模型 API 返回的真实 usage metadata。
+- estimated context usage：`AIContextManager` 基于字符数估算的上下文用量。
+
+`AIAgentSession::_recalculate_token_usage()` 汇总消息 metadata 中的 usage，并通知 Dock 刷新 `token_usage_label`。当前不是严格 tokenizer 级别统计，后续可接入模型 tokenizer 或 provider-specific tokenizer。
+
+## 一次完整请求的工作流
+
+1. 用户在 `AIComposer` 输入消息，选择模型和模式。
+2. 用户点击 Send。
+3. `AIComposer` 发出 `send_requested`。
+4. `AIAgentDock` 配置 provider 和 agent profile。
+5. `AIAgentSession` 接收用户消息，保存会话，进入 preparing context。
+6. Session 收集 editor/project/best-practices 上下文。
+7. Session 启动 `AIAgentRuntimeRunner`。
+8. Runner 在线程中执行 `AIAgentRuntime::run()`。
+9. Runtime 通过 `AIContextManager` 构建 provider messages。
+10. Runtime 通过 `AIOpenAICompatibleRuntimeClient` 发起 streaming chat completion。
+11. 流式 assistant 文本实时回传到 `AIMessageList`。
+12. 如果模型返回 tool calls，Runtime 创建 tool-call 消息。
+13. Runtime 根据当前 profile 判断工具权限。
+14. allow 的工具直接执行，ask 的工具暂停等待用户确认，deny 的工具返回拒绝结果。
+15. 工具结果作为 tool message 实时加入消息列表。
+16. Runtime 把工具结果继续交给模型进行下一轮 provider turn。
+17. 当模型给出最终回答且没有新的 tool calls，Runtime 结束。
+18. Session 应用结果、保存会话、刷新 token 和状态。
+19. Dock 隐藏 loading 条，按钮回到 Send 状态。
+
+## 后续维护建议
+
+- 新增工具时：
+  - 新建 `AITool` 子类。
+  - 提供明确 JSON schema。
+  - 在 `AIAgentSession::_configure_tool_runtime()` 注册。
+  - 在 `AIAgentProfile` 中明确权限边界。
+  - 如果会写文件或改场景，优先封装到 service，不要在 tool 类里堆业务。
+
+- 新增 UI 页面时：
+  - 保持 `AIAgentSettingsDialog` 只负责导航。
+  - 页面逻辑拆到独立 page 组件。
+
+- 新增 Provider 时：
+  - 优先实现新的 runtime client 或 transport。
+  - 保持 Runtime 不感知具体 provider 协议。
+
+- 强化上下文时：
+  - 新增 `AIContextProvider`，让 Session 收集。
+  - 控制文档大小，并在 metadata 中标记是否截断。
+
+- 强化 Review 时：
+  - 文件级改动继续进入 `AIChangeSetStore`。
+  - 场景二进制或资源级变更需要设计 Resource-aware diff，而不是直接文本 diff。
