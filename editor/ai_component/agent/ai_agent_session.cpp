@@ -68,6 +68,7 @@ AIAgentSession::AIAgentSession() {
 	tool_registry.instantiate();
 	project_tree_context.instantiate();
 	editor_context.instantiate();
+	best_practices_context.instantiate();
 	agent_profile = AIAgentProfile::get_plan_profile();
 
 	runtime->set_client(runtime_client);
@@ -379,6 +380,7 @@ Array AIAgentSession::_collect_context() {
 	Array context;
 	context.append_array(editor_context->collect_context());
 	context.append_array(project_tree_context->collect_context());
+	context.append_array(best_practices_context->collect_context());
 	return context;
 }
 

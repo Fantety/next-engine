@@ -9,6 +9,20 @@ import uuid
 import methods
 
 
+def make_ai_best_practices_header(target, source, env):
+    with open(str(source[0]), "r", encoding="utf-8") as file:
+        content = file.read()
+
+    with methods.generated_wrapper(str(target[0])) as file:
+        file.write(
+            f"""\
+inline constexpr const char *AI_AGENT_BEST_PRACTICES_MARKDOWN = {{
+{methods.to_raw_cstring(content)}
+}};
+"""
+        )
+
+
 def doc_data_class_path_builder(target, source, env):
     paths = dict(sorted(source[0].read().items()))
     data = "\n".join([f'\t{{"{key}", "{value}"}},' for key, value in paths.items()])

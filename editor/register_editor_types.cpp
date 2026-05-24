@@ -140,6 +140,7 @@
 
 #include "editor/ai_component/agent/ai_agent_session.h"
 #include "editor/ai_component/agent/ai_context_manager.h"
+#include "editor/ai_component/context/ai_best_practices_context_provider.h"
 #include "editor/ai_component/context/ai_context_provider.h"
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_file_context_provider.h"
@@ -246,6 +247,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterWAV);
 	GDREGISTER_CLASS(AIAgentSession);
 	GDREGISTER_CLASS(AIContextManager);
+	GDREGISTER_CLASS(AIBestPracticesContextProvider);
 	GDREGISTER_CLASS(AIContextProvider);
 	GDREGISTER_CLASS(AIEditorContextProvider);
 	GDREGISTER_CLASS(AIFileContextProvider);

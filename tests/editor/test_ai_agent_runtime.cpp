@@ -8,6 +8,7 @@
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
 #include "editor/ai_component/agent/ai_agent_session.h"
+#include "editor/ai_component/context/ai_best_practices_context_provider.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
@@ -271,6 +272,20 @@ static AIAgentMessage _make_tool_result_message(const String &p_id, const String
 	message.metadata["tool_call_id"] = p_id;
 	message.metadata["tool_name"] = "project.read_file";
 	return message;
+}
+
+TEST_CASE("[Editor][AI] Best practices context provider injects static guidance document") {
+	Ref<AIBestPracticesContextProvider> provider;
+	provider.instantiate();
+	provider->set_max_chars(2048);
+
+	Array context_documents = provider->collect_context();
+
+	REQUIRE(context_documents.size() == 1);
+	Dictionary document = context_documents[0];
+	CHECK(String(document["title"]) == "Agent Best Practices");
+	CHECK(String(document["source"]).contains("best_practices.md"));
+	CHECK(String(document["content"]).contains("Godot"));
 }
 
 TEST_CASE("[Editor][AI] Context manager trims history and tool output within budget") {

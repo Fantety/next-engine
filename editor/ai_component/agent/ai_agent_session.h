@@ -10,6 +10,7 @@
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
+#include "editor/ai_component/context/ai_best_practices_context_provider.h"
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
@@ -36,6 +37,7 @@ class AIAgentSession : public Node {
 	Ref<AIConversationStore> store;
 	Ref<AIProjectTreeContextProvider> project_tree_context;
 	Ref<AIEditorContextProvider> editor_context;
+	Ref<AIBestPracticesContextProvider> best_practices_context;
 
 	int active_assistant_index = -1;
 	int runtime_base_message_count = 0;
