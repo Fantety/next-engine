@@ -9,11 +9,11 @@
 #include "editor/ai_component/review/ai_change_set_store.h"
 
 class AcceptDialog;
+class AITextDiffViewer;
 class Button;
 class ConfirmationDialog;
 class HBoxContainer;
 class Label;
-class RichTextLabel;
 class VBoxContainer;
 
 class AIChangeReviewPanel : public PanelContainer {
@@ -24,7 +24,8 @@ class AIChangeReviewPanel : public PanelContainer {
 	Label *title_label = nullptr;
 	Label *empty_label = nullptr;
 	AcceptDialog *diff_dialog = nullptr;
-	RichTextLabel *diff_text = nullptr;
+	AcceptDialog *error_dialog = nullptr;
+	AITextDiffViewer *diff_viewer = nullptr;
 	ConfirmationDialog *revert_dialog = nullptr;
 	String pending_revert_change_set_id;
 
@@ -34,7 +35,6 @@ class AIChangeReviewPanel : public PanelContainer {
 	void _revert_change_set(const String &p_change_set_id);
 	void _confirm_revert_change_set();
 	void _show_error(const String &p_error);
-	String _build_diff_text(const Dictionary &p_change_set) const;
 	void _store_changed();
 
 protected:

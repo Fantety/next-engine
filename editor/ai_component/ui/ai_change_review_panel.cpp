@@ -5,12 +5,12 @@
 #include "ai_change_review_panel.h"
 
 #include "core/object/callable_mp.h"
+#include "editor/ai_component/ui/ai_text_diff_viewer.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
 #include "scene/gui/dialogs.h"
 #include "scene/gui/label.h"
-#include "scene/gui/rich_text_label.h"
 #include "servers/text/text_server.h"
 
 void AIChangeReviewPanel::_bind_methods() {
@@ -57,17 +57,15 @@ AIChangeReviewPanel::AIChangeReviewPanel() {
 
 	diff_dialog = memnew(AcceptDialog);
 	diff_dialog->set_title(TTR("AI Change Diff"));
-	diff_dialog->set_min_size(Size2(820, 560) * EDSCALE);
+	diff_dialog->set_min_size(Size2(1040, 680) * EDSCALE);
 	add_child(diff_dialog);
 
-	diff_text = memnew(RichTextLabel);
-	diff_text->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	diff_text->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	diff_text->set_use_bbcode(false);
-	diff_text->set_fit_content(false);
-	diff_text->set_scroll_active(true);
-	diff_text->set_selection_enabled(true);
-	diff_dialog->add_child(diff_text);
+	diff_viewer = memnew(AITextDiffViewer);
+	diff_dialog->add_child(diff_viewer);
+
+	error_dialog = memnew(AcceptDialog);
+	error_dialog->set_title(TTR("AI Change Error"));
+	add_child(error_dialog);
 
 	revert_dialog = memnew(ConfirmationDialog);
 	revert_dialog->set_title(TTR("Revert AI Change"));
@@ -153,23 +151,8 @@ void AIChangeReviewPanel::_refresh() {
 	}
 }
 
-String AIChangeReviewPanel::_build_diff_text(const Dictionary &p_change_set) const {
-	String text = String(p_change_set.get("title", TTR("AI Change"))) + "\n";
-	text += vformat("+%d -%d\n\n", (int)p_change_set.get("added_lines", 0), (int)p_change_set.get("removed_lines", 0));
-
-	Array changes = p_change_set.get("changes", Array());
-	for (int i = 0; i < changes.size(); i++) {
-		if (Variant(changes[i]).get_type() != Variant::DICTIONARY) {
-			continue;
-		}
-		Dictionary change = changes[i];
-		text += String(change.get("diff", String())) + "\n";
-	}
-	return text;
-}
-
 void AIChangeReviewPanel::_view_change_set(const String &p_change_set_id) {
-	if (store.is_null() || !diff_dialog || !diff_text) {
+	if (store.is_null() || !diff_dialog || !diff_viewer) {
 		return;
 	}
 
@@ -179,8 +162,8 @@ void AIChangeReviewPanel::_view_change_set(const String &p_change_set_id) {
 		return;
 	}
 	diff_dialog->set_title(TTR("AI Change Diff"));
-	diff_text->set_text(_build_diff_text(change_set));
-	diff_dialog->popup_centered_ratio(0.72);
+	diff_viewer->set_change_set(change_set);
+	diff_dialog->popup_centered_ratio(0.82);
 }
 
 void AIChangeReviewPanel::_keep_change_set(const String &p_change_set_id) {
@@ -218,10 +201,9 @@ void AIChangeReviewPanel::_confirm_revert_change_set() {
 }
 
 void AIChangeReviewPanel::_show_error(const String &p_error) {
-	if (!diff_dialog || !diff_text) {
+	if (!error_dialog) {
 		return;
 	}
-	diff_dialog->set_title(TTR("AI Change Error"));
-	diff_text->set_text(p_error);
-	diff_dialog->popup_centered_ratio(0.45);
+	error_dialog->set_text(p_error);
+	error_dialog->popup_centered_ratio(0.45);
 }
