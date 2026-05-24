@@ -8,6 +8,7 @@
 #include "core/object/callable_mp.h"
 #include "core/os/os.h"
 #include "core/os/time.h"
+#include "core/templates/local_vector.h"
 
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
@@ -177,6 +178,7 @@ void AIAgentSession::start_new_session() {
 	active_assistant_index = -1;
 	runtime_base_message_count = 0;
 	runtime_progress_message_count = 0;
+	runtime_to_local_message_indices.clear();
 	pending_tool_approval.clear();
 	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
@@ -205,6 +207,7 @@ bool AIAgentSession::load_session(const String &p_session_id) {
 	active_assistant_index = -1;
 	runtime_base_message_count = messages.size();
 	runtime_progress_message_count = 0;
+	runtime_to_local_message_indices.clear();
 	pending_tool_approval.clear();
 	_recalculate_token_usage();
 	_set_state(AI_AGENT_STATE_IDLE);
@@ -420,6 +423,20 @@ void AIAgentSession::_remove_message_at(int p_index) {
 
 	messages.remove_at(p_index);
 	emit_signal(SNAME("message_removed"), p_index);
+	LocalVector<int> stale_runtime_indices;
+	for (const KeyValue<int, int> &E : runtime_to_local_message_indices) {
+		if (E.value == p_index) {
+			stale_runtime_indices.push_back(E.key);
+		}
+	}
+	for (uint32_t i = 0; i < stale_runtime_indices.size(); i++) {
+		runtime_to_local_message_indices.erase(stale_runtime_indices[i]);
+	}
+	for (KeyValue<int, int> &E : runtime_to_local_message_indices) {
+		if (E.value > p_index) {
+			E.value--;
+		}
+	}
 	_recalculate_token_usage();
 }
 
@@ -493,6 +510,7 @@ bool AIAgentSession::_start_runtime_turn() {
 	print_line(vformat("[AI Agent][Session] Starting function-calling runtime. request_messages=%d", request_messages.size()));
 	runtime_base_message_count = request_messages.size();
 	runtime_progress_message_count = 0;
+	runtime_to_local_message_indices.clear();
 	runtime->set_session_id(session_id);
 	if (!runtime_runner->start(request_messages, context)) {
 		print_line("[AI Agent][Session] Failed to start function-calling runtime.");
@@ -634,10 +652,13 @@ void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result)
 		print_line("[AI Agent][Session] Removed assistant placeholder before applying runtime messages.");
 	}
 
-	const int base_message_count = MAX(runtime_base_message_count, messages.size() - runtime_progress_message_count);
-	const int applied_message_count = base_message_count + runtime_progress_message_count;
-	print_line(vformat("[AI Agent][Session] Applying runtime result. base_messages=%d applied_messages=%d result_messages=%d tool_calls=%d", base_message_count, applied_message_count, p_result.messages.size(), p_result.tool_calls.size()));
-	for (int i = applied_message_count; i < p_result.messages.size(); i++) {
+	const int base_message_count = runtime_base_message_count;
+	print_line(vformat("[AI Agent][Session] Applying runtime result. base_messages=%d progress_messages=%d mapped_messages=%d result_messages=%d tool_calls=%d", base_message_count, runtime_progress_message_count, runtime_to_local_message_indices.size(), p_result.messages.size(), p_result.tool_calls.size()));
+	for (int i = base_message_count; i < p_result.messages.size(); i++) {
+		if (runtime_to_local_message_indices.has(i)) {
+			continue;
+		}
+
 		messages.push_back(p_result.messages[i]);
 		emit_signal(SNAME("message_added"), p_result.messages[i].to_dict());
 	}
@@ -645,6 +666,7 @@ void AIAgentSession::_apply_runtime_result(const AIAgentRuntimeResult &p_result)
 	active_assistant_index = -1;
 	runtime_base_message_count = messages.size();
 	runtime_progress_message_count = 0;
+	runtime_to_local_message_indices.clear();
 	_recalculate_token_usage();
 	if (!p_result.pending_approval.is_empty()) {
 		pending_tool_approval = p_result.pending_approval.duplicate(true);
@@ -679,6 +701,7 @@ void AIAgentSession::_on_provider_request_failed(const String &p_message) {
 	_set_state(AI_AGENT_STATE_FAILED);
 	runtime_base_message_count = messages.size();
 	runtime_progress_message_count = 0;
+	runtime_to_local_message_indices.clear();
 	_save();
 }
 
@@ -691,8 +714,17 @@ void AIAgentSession::_on_runtime_finished() {
 	_apply_runtime_result(runtime_runner->get_last_result());
 }
 
-void AIAgentSession::_on_runtime_message_added(const Dictionary &p_message) {
+void AIAgentSession::_on_runtime_message_added(int p_index, const Dictionary &p_message) {
 	if (state == AI_AGENT_STATE_CANCELLED) {
+		return;
+	}
+	if (state != AI_AGENT_STATE_STREAMING && state != AI_AGENT_STATE_PREPARING_CONTEXT) {
+		print_line(vformat("[AI Agent][Session] Ignored runtime progress add outside active run. runtime_index=%d state=%d", p_index, (int)state));
+		return;
+	}
+
+	if (p_index < runtime_base_message_count) {
+		print_line(vformat("[AI Agent][Session] Ignored runtime progress add for base history. runtime_index=%d base_messages=%d", p_index, runtime_base_message_count));
 		return;
 	}
 
@@ -703,22 +735,34 @@ void AIAgentSession::_on_runtime_message_added(const Dictionary &p_message) {
 		emit_signal(SNAME("message_updated"), active_assistant_index, message.to_dict());
 		active_assistant_index = -1;
 		runtime_progress_message_count++;
-		print_line(vformat("[AI Agent][Session] Runtime progress updated assistant placeholder. index=%d role=%s", replaced_index, AIAgentMessage::role_to_string(message.role)));
+		runtime_to_local_message_indices[p_index] = replaced_index;
+		print_line(vformat("[AI Agent][Session] Runtime progress updated assistant placeholder. runtime_index=%d local_index=%d role=%s", p_index, replaced_index, AIAgentMessage::role_to_string(message.role)));
 		return;
 	}
 
 	messages.push_back(message);
 	emit_signal(SNAME("message_added"), message.to_dict());
+	runtime_to_local_message_indices[p_index] = messages.size() - 1;
 	runtime_progress_message_count++;
-	print_line(vformat("[AI Agent][Session] Runtime progress message added. index=%d role=%s", messages.size() - 1, AIAgentMessage::role_to_string(message.role)));
+	print_line(vformat("[AI Agent][Session] Runtime progress message added. runtime_index=%d local_index=%d role=%s", p_index, messages.size() - 1, AIAgentMessage::role_to_string(message.role)));
 }
 
 void AIAgentSession::_on_runtime_message_updated(int p_index, const Dictionary &p_message) {
 	if (state == AI_AGENT_STATE_CANCELLED) {
 		return;
 	}
+	if (state != AI_AGENT_STATE_STREAMING && state != AI_AGENT_STATE_PREPARING_CONTEXT) {
+		print_line(vformat("[AI Agent][Session] Ignored runtime progress update outside active run. runtime_index=%d state=%d", p_index, (int)state));
+		return;
+	}
 
-	const int local_index = p_index;
+	const int *mapped_index = runtime_to_local_message_indices.getptr(p_index);
+	if (!mapped_index) {
+		print_line(vformat("[AI Agent][Session] Ignored runtime progress update without local mapping. runtime_index=%d mapped_messages=%d messages=%d", p_index, runtime_to_local_message_indices.size(), messages.size()));
+		return;
+	}
+
+	const int local_index = *mapped_index;
 	if (local_index < 0 || local_index >= messages.size()) {
 		print_line(vformat("[AI Agent][Session] Ignored runtime progress update outside local range. runtime_index=%d local_index=%d messages=%d", p_index, local_index, messages.size()));
 		return;
@@ -735,12 +779,21 @@ void AIAgentSession::replace_messages_for_test(const Vector<AIAgentMessage> &p_m
 	active_assistant_index = p_active_assistant_index;
 	runtime_base_message_count = active_assistant_index >= 0 ? active_assistant_index : messages.size();
 	runtime_progress_message_count = 0;
+	runtime_to_local_message_indices.clear();
 	_recalculate_token_usage();
 	_set_state(active_assistant_index >= 0 ? AI_AGENT_STATE_STREAMING : AI_AGENT_STATE_IDLE);
 }
 
 void AIAgentSession::apply_runtime_result_for_test(const AIAgentRuntimeResult &p_result) {
 	_apply_runtime_result(p_result);
+}
+
+void AIAgentSession::add_runtime_message_for_test(int p_index, const AIAgentMessage &p_message) {
+	_on_runtime_message_added(p_index, p_message.to_dict());
+}
+
+void AIAgentSession::update_runtime_message_for_test(int p_index, const AIAgentMessage &p_message) {
+	_on_runtime_message_updated(p_index, p_message.to_dict());
 }
 
 Error AIAgentSession::save_for_test() {

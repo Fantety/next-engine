@@ -197,11 +197,13 @@ class RuntimeProgressRecorder : public RefCounted {
 
 public:
 	Array added_messages;
+	Array added_indices;
 	Array updated_messages;
 	Array updated_indices;
 	Array partial_responses;
 
-	void record_added(const Dictionary &p_message) {
+	void record_added(int p_index, const Dictionary &p_message) {
+		added_indices.push_back(p_index);
 		added_messages.push_back(p_message);
 	}
 
@@ -667,6 +669,10 @@ TEST_CASE("[Editor][AI] Agent runtime reports tool progress before the final res
 
 	CHECK(result.success);
 	REQUIRE(recorder->added_messages.size() == 3);
+	REQUIRE(recorder->added_indices.size() == 3);
+	CHECK((int)recorder->added_indices[0] == 1);
+	CHECK((int)recorder->added_indices[1] == 2);
+	CHECK((int)recorder->added_indices[2] == 3);
 	Dictionary first_added = recorder->added_messages[0];
 	CHECK(String(first_added["role"]) == "assistant");
 	REQUIRE(first_added.has("metadata"));
@@ -737,6 +743,8 @@ TEST_CASE("[Editor][AI] Agent runtime streams assistant message updates before f
 	REQUIRE(result.messages.size() == 2);
 	CHECK(result.messages[1].content == "Hello world.");
 	REQUIRE(recorder->added_messages.size() == 1);
+	REQUIRE(recorder->added_indices.size() == 1);
+	CHECK((int)recorder->added_indices[0] == 1);
 	Dictionary added = recorder->added_messages[0];
 	CHECK(String(added["role"]) == "assistant");
 	CHECK(String(added["content"]) == "Hel");
@@ -1175,6 +1183,103 @@ TEST_CASE("[Editor][AI] Agent session applies runtime results into message histo
 	CHECK(String(fourth_message["role"]) == "assistant");
 	CHECK(String(fourth_message["content"]) == "I read the file.");
 	CHECK(session->get_state() == AI_AGENT_STATE_IDLE);
+
+	session->delete_session(session->get_session_id());
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] Agent session maps runtime progress messages without duplicating final results") {
+	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_runtime_progress_mapping");
+
+	AIAgentMessage previous_user;
+	previous_user.role = AI_AGENT_ROLE_USER;
+	previous_user.content = "Previous task.";
+
+	AIAgentMessage previous_assistant;
+	previous_assistant.role = AI_AGENT_ROLE_ASSISTANT;
+	previous_assistant.content = "Previous answer.";
+
+	AIAgentMessage current_user;
+	current_user.role = AI_AGENT_ROLE_USER;
+	current_user.content = "Read a file.";
+
+	AIAgentMessage assistant_placeholder;
+	assistant_placeholder.role = AI_AGENT_ROLE_ASSISTANT;
+
+	Vector<AIAgentMessage> original_messages;
+	original_messages.push_back(previous_user);
+	original_messages.push_back(previous_assistant);
+	original_messages.push_back(current_user);
+	original_messages.push_back(assistant_placeholder);
+	session->replace_messages_for_test(original_messages, 3);
+
+	AIToolCall call;
+	call.id = "call_read";
+	call.tool_name = "project.read_file";
+	call.status = AI_TOOL_CALL_STATUS_PENDING;
+	call.arguments["path"] = "res://player.gd";
+
+	Array pending_calls;
+	pending_calls.push_back(call.to_dict());
+	AIAgentMessage assistant_tool_call;
+	assistant_tool_call.role = AI_AGENT_ROLE_ASSISTANT;
+	assistant_tool_call.metadata["tool_calls"] = pending_calls;
+
+	session->add_runtime_message_for_test(3, assistant_tool_call);
+
+	call.status = AI_TOOL_CALL_STATUS_RUNNING;
+	Array running_calls;
+	running_calls.push_back(call.to_dict());
+	assistant_tool_call.metadata["tool_calls"] = running_calls;
+	session->update_runtime_message_for_test(3, assistant_tool_call);
+
+	call.status = AI_TOOL_CALL_STATUS_COMPLETED;
+	Array completed_calls;
+	completed_calls.push_back(call.to_dict());
+	assistant_tool_call.metadata["tool_calls"] = completed_calls;
+	session->update_runtime_message_for_test(3, assistant_tool_call);
+
+	AIAgentMessage tool_message;
+	tool_message.role = AI_AGENT_ROLE_TOOL;
+	tool_message.content = "file contents";
+	tool_message.metadata["tool_name"] = "project.read_file";
+	tool_message.metadata["status"] = "completed";
+	session->add_runtime_message_for_test(4, tool_message);
+
+	AIAgentMessage final_assistant;
+	final_assistant.role = AI_AGENT_ROLE_ASSISTANT;
+	final_assistant.content = "I read the file.";
+
+	AIAgentRuntimeResult runtime_result;
+	runtime_result.success = true;
+	runtime_result.messages.push_back(previous_user);
+	runtime_result.messages.push_back(previous_assistant);
+	runtime_result.messages.push_back(current_user);
+	runtime_result.messages.push_back(assistant_tool_call);
+	runtime_result.messages.push_back(tool_message);
+	runtime_result.messages.push_back(final_assistant);
+	session->apply_runtime_result_for_test(runtime_result);
+
+	Array messages = session->get_messages_as_array();
+	REQUIRE(messages.size() == 6);
+	Dictionary previous_assistant_message = messages[1];
+	CHECK(String(previous_assistant_message["content"]) == "Previous answer.");
+	Dictionary tool_call_message = messages[3];
+	CHECK(String(tool_call_message["role"]) == "assistant");
+	REQUIRE(tool_call_message.has("metadata"));
+	Dictionary tool_call_metadata = tool_call_message["metadata"];
+	REQUIRE(tool_call_metadata.has("tool_calls"));
+	Array tool_calls = tool_call_metadata["tool_calls"];
+	REQUIRE(tool_calls.size() == 1);
+	Dictionary mapped_call = tool_calls[0];
+	CHECK(String(mapped_call["status"]) == "completed");
+	Dictionary mapped_tool_message = messages[4];
+	CHECK(String(mapped_tool_message["role"]) == "tool");
+	CHECK(String(mapped_tool_message["content"]) == "file contents");
+	Dictionary final_message = messages[5];
+	CHECK(String(final_message["role"]) == "assistant");
+	CHECK(String(final_message["content"]) == "I read the file.");
 
 	session->delete_session(session->get_session_id());
 	memdelete(session);

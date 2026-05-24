@@ -8,7 +8,7 @@
 
 void AIAgentRuntimeRunner::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("runtime_finished"));
-	ADD_SIGNAL(MethodInfo("runtime_message_added", PropertyInfo(Variant::DICTIONARY, "message")));
+	ADD_SIGNAL(MethodInfo("runtime_message_added", PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::DICTIONARY, "message")));
 	ADD_SIGNAL(MethodInfo("runtime_message_updated", PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::DICTIONARY, "message")));
 }
 
@@ -87,8 +87,8 @@ void AIAgentRuntimeRunner::_set_last_result(const AIAgentRuntimeResult &p_result
 	last_result = p_result;
 }
 
-void AIAgentRuntimeRunner::_on_runtime_message_added(const Dictionary &p_message) {
-	call_deferred("emit_signal", SNAME("runtime_message_added"), p_message.duplicate(true));
+void AIAgentRuntimeRunner::_on_runtime_message_added(int p_index, const Dictionary &p_message) {
+	call_deferred("emit_signal", SNAME("runtime_message_added"), p_index, p_message.duplicate(true));
 }
 
 void AIAgentRuntimeRunner::_on_runtime_message_updated(int p_index, const Dictionary &p_message) {

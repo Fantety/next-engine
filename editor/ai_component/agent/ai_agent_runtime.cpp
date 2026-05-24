@@ -206,9 +206,9 @@ String AIAgentRuntime::_make_tool_failure_message(const String &p_tool_name, con
 	return "Tool call failed for `" + p_tool_name + "`: " + reason;
 }
 
-void AIAgentRuntime::_emit_message_added(const AIAgentMessage &p_message) const {
+void AIAgentRuntime::_emit_message_added(int p_index, const AIAgentMessage &p_message) const {
 	if (message_added_callback.is_valid()) {
-		message_added_callback.call(p_message.to_dict());
+		message_added_callback.call(p_index, p_message.to_dict());
 	}
 }
 
@@ -243,7 +243,7 @@ void AIAgentRuntime::_on_provider_partial_response(const Dictionary &p_response)
 		assistant_message.created_at = Time::get_singleton()->get_unix_time_from_system();
 		streaming_assistant_message_index = streaming_result->messages.size();
 		streaming_result->messages.push_back(assistant_message);
-		_emit_message_added(assistant_message);
+		_emit_message_added(streaming_assistant_message_index, assistant_message);
 		print_line(vformat("[AI Agent][Runtime] Streaming assistant message started. index=%d chars=%d", streaming_assistant_message_index, partial_response.content.length()));
 		return;
 	}
@@ -342,7 +342,7 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 				assistant_message.metadata = response.metadata;
 				assistant_message.created_at = Time::get_singleton()->get_unix_time_from_system();
 				result.messages.push_back(assistant_message);
-				_emit_message_added(assistant_message);
+				_emit_message_added(result.messages.size() - 1, assistant_message);
 				print_line(vformat("[AI Agent][Runtime] Final assistant message appended. chars=%d", response.content.length()));
 			}
 			result.success = true;
@@ -359,7 +359,7 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			streaming_assistant_message_index = -1;
 		} else {
 			result.messages.push_back(assistant_tool_call_message);
-			_emit_message_added(assistant_tool_call_message);
+			_emit_message_added(assistant_tool_call_message_index, assistant_tool_call_message);
 		}
 		print_line(vformat("[AI Agent][Runtime] Assistant tool-call message appended. tool_calls=%d", response.tool_calls.size()));
 
@@ -423,7 +423,7 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 				result.tool_calls.push_back(call);
 				AIAgentMessage tool_message = _make_tool_result_message(call, _make_tool_denied_message(call.tool_name, permission.reason), AIToolCall::status_to_string(call.status), result_metadata);
 				result.messages.push_back(tool_message);
-				_emit_message_added(tool_message);
+				_emit_message_added(result.messages.size() - 1, tool_message);
 				executed_tool_calls++;
 				print_line(vformat("[AI Agent][Runtime] Tool call denied. name=%s reason=%s executed_tools=%d", call.tool_name, permission.reason, executed_tool_calls));
 				continue;
@@ -446,7 +446,7 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 				result.tool_calls.push_back(call);
 				AIAgentMessage tool_message = _make_tool_result_message(call, _make_tool_failure_message(call.tool_name, "tool is not registered"), AIToolCall::status_to_string(call.status), result_metadata);
 				result.messages.push_back(tool_message);
-				_emit_message_added(tool_message);
+				_emit_message_added(result.messages.size() - 1, tool_message);
 				executed_tool_calls++;
 				print_line(vformat("[AI Agent][Runtime] Tool call failed: tool is not registered. name=%s executed_tools=%d", call.tool_name, executed_tool_calls));
 				continue;
@@ -488,7 +488,7 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			result.tool_calls.push_back(call);
 			AIAgentMessage tool_message = _make_tool_result_message(call, content, AIToolCall::status_to_string(call.status), result_metadata);
 			result.messages.push_back(tool_message);
-			_emit_message_added(tool_message);
+			_emit_message_added(result.messages.size() - 1, tool_message);
 			executed_tool_calls++;
 			print_line(vformat("[AI Agent][Runtime] Tool result message appended. name=%s status=%s executed_tools=%d", call.tool_name, AIToolCall::status_to_string(call.status), executed_tool_calls));
 		}

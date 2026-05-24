@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core/object/class_db.h"
+#include "core/templates/hash_map.h"
 #include "scene/main/node.h"
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
@@ -38,6 +39,7 @@ class AIAgentSession : public Node {
 	int active_assistant_index = -1;
 	int runtime_base_message_count = 0;
 	int runtime_progress_message_count = 0;
+	HashMap<int, int> runtime_to_local_message_indices;
 
 	String _get_project_scope_key() const;
 	void _configure_tool_runtime();
@@ -54,7 +56,7 @@ class AIAgentSession : public Node {
 
 	void _on_provider_request_failed(const String &p_message);
 	void _on_runtime_finished();
-	void _on_runtime_message_added(const Dictionary &p_message);
+	void _on_runtime_message_added(int p_index, const Dictionary &p_message);
 	void _on_runtime_message_updated(int p_index, const Dictionary &p_message);
 	void _remove_message_at(int p_index);
 
@@ -87,6 +89,8 @@ public:
 	Array list_sessions() const;
 	void replace_messages_for_test(const Vector<AIAgentMessage> &p_messages, int p_active_assistant_index);
 	void apply_runtime_result_for_test(const AIAgentRuntimeResult &p_result);
+	void add_runtime_message_for_test(int p_index, const AIAgentMessage &p_message);
+	void update_runtime_message_for_test(int p_index, const AIAgentMessage &p_message);
 	Error save_for_test();
 	void set_conversation_project_scope_for_test(const String &p_project_scope_key);
 	Ref<AIConversationStore> get_conversation_store_for_test() const;

@@ -65,7 +65,7 @@ class AIAgentRuntime : public RefCounted {
 	AIAgentMessage _make_tool_result_message(const AIToolCall &p_call, const String &p_content, const String &p_status, const Dictionary &p_metadata) const;
 	String _make_tool_denied_message(const String &p_tool_name, const String &p_reason) const;
 	String _make_tool_failure_message(const String &p_tool_name, const String &p_reason) const;
-	void _emit_message_added(const AIAgentMessage &p_message) const;
+	void _emit_message_added(int p_index, const AIAgentMessage &p_message) const;
 	void _emit_message_updated(int p_index, const AIAgentMessage &p_message) const;
 	void _on_provider_partial_response(const Dictionary &p_response);
 
