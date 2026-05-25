@@ -4,6 +4,8 @@
 
 #include "tests/test_macros.h"
 
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
 #include "editor/ai_component/agent/ai_agent_profile.h"
 #include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
@@ -15,6 +17,9 @@
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/review/ai_change_set_store.h"
 #include "editor/ai_component/review/ai_diff_service.h"
+#include "editor/ai_component/skills/ai_activate_skill_tool.h"
+#include "editor/ai_component/skills/ai_skill_context_provider.h"
+#include "editor/ai_component/skills/ai_skill_settings.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
@@ -42,6 +47,7 @@
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
+#include "tests/test_utils.h"
 
 TEST_FORCE_LINK(test_ai_agent_tools);
 
@@ -122,6 +128,174 @@ TEST_CASE("[Editor][AI] Tool registry exposes registered tool names") {
 	registry->clear();
 	CHECK(registry->get_tool_names().is_empty());
 	CHECK_FALSE(registry->has_tool("test.echo"));
+}
+
+TEST_CASE("[Editor][AI] Skill settings manage prompt context skills") {
+	Array original_skills = AISkillSettings::get_skill_storage_for_test();
+	AISkillSettings::clear_skills_for_test();
+
+	const String skill_id = AISkillSettings::add_skill("TDD", "Use when implementing changes.", "Write tests first.", true);
+	CHECK(!skill_id.is_empty());
+
+	Vector<AISkillConfig> skills = AISkillSettings::get_skills(false);
+	REQUIRE(skills.size() == 1);
+	CHECK(skills[0].id == skill_id);
+	CHECK(skills[0].display_name == "TDD");
+	CHECK(skills[0].description == "Use when implementing changes.");
+	CHECK(skills[0].content == "Write tests first.");
+	CHECK(skills[0].kind == "prompt_context");
+	CHECK(skills[0].enabled);
+
+	CHECK(AISkillSettings::update_skill(skill_id, "TDD Updated", "Use when changing behavior.", "Updated body.", false));
+	AISkillConfig updated = AISkillSettings::get_skill(skill_id);
+	CHECK(updated.display_name == "TDD Updated");
+	CHECK(updated.description == "Use when changing behavior.");
+	CHECK(updated.content == "Updated body.");
+	CHECK_FALSE(updated.enabled);
+	CHECK(AISkillSettings::get_skills(true).is_empty());
+
+	CHECK(AISkillSettings::remove_skill(skill_id));
+	CHECK(AISkillSettings::get_skills(false).is_empty());
+
+	AISkillSettings::set_skill_storage_for_test(original_skills);
+}
+
+TEST_CASE("[Editor][AI] Skill settings import local SKILL.md folders") {
+	Array original_skills = AISkillSettings::get_skill_storage_for_test();
+	AISkillSettings::clear_skills_for_test();
+
+	const String skill_dir = TestUtils::get_temp_path("ai_skill_import");
+	DirAccess::make_dir_recursive_absolute(skill_dir);
+
+	Ref<FileAccess> skill_file = FileAccess::open(skill_dir.path_join("SKILL.md"), FileAccess::WRITE);
+	REQUIRE(skill_file.is_valid());
+	skill_file->store_string("---\nname: imported-skill\ndescription: Use when importing local skills.\n---\n\n# Imported Skill\n\nFollow local instructions.");
+	skill_file.unref();
+
+	String error;
+	String skill_id;
+	CHECK(AISkillSettings::import_skill_folder(skill_dir, error, &skill_id));
+	CHECK(error.is_empty());
+	CHECK_FALSE(skill_id.is_empty());
+
+	AISkillConfig imported = AISkillSettings::get_skill(skill_id);
+	CHECK(imported.display_name == "imported-skill");
+	CHECK(imported.description == "Use when importing local skills.");
+	CHECK(imported.content.contains("# Imported Skill"));
+	CHECK(imported.content.contains("Follow local instructions."));
+	CHECK(imported.kind == "prompt_context");
+	CHECK(imported.enabled);
+
+	const String fallback_dir = TestUtils::get_temp_path("fallback_skill");
+	DirAccess::make_dir_recursive_absolute(fallback_dir);
+	Ref<FileAccess> fallback_file = FileAccess::open(fallback_dir.path_join("SKILL.md"), FileAccess::WRITE);
+	REQUIRE(fallback_file.is_valid());
+	fallback_file->store_string("# Fallback Skill\n\nNo front matter.");
+	fallback_file.unref();
+
+	String fallback_error;
+	String fallback_id;
+	CHECK(AISkillSettings::import_skill_folder(fallback_dir + "/", fallback_error, &fallback_id));
+	CHECK(fallback_error.is_empty());
+	CHECK(AISkillSettings::get_skill(fallback_id).display_name == "fallback_skill");
+
+	String missing_error;
+	CHECK_FALSE(AISkillSettings::import_skill_folder(skill_dir.path_join("missing"), missing_error));
+	CHECK(missing_error.contains("SKILL.md"));
+
+	DirAccess::remove_absolute(skill_dir.path_join("SKILL.md"));
+	DirAccess::remove_absolute(skill_dir);
+	DirAccess::remove_absolute(fallback_dir.path_join("SKILL.md"));
+	DirAccess::remove_absolute(fallback_dir);
+	AISkillSettings::set_skill_storage_for_test(original_skills);
+}
+
+TEST_CASE("[Editor][AI] Skill context provider exposes only enabled skill metadata") {
+	Array original_skills = AISkillSettings::get_skill_storage_for_test();
+	AISkillSettings::clear_skills_for_test();
+
+	AISkillSettings::add_skill("TDD", "Use when implementing changes.", "SECRET FULL BODY", true);
+	AISkillSettings::add_skill("Disabled", "Hidden trigger.", "Hidden body.", false);
+
+	Ref<AISkillIndexContextProvider> provider;
+	provider.instantiate();
+	Array context = provider->collect_context();
+	REQUIRE(context.size() == 1);
+
+	Dictionary doc = context[0];
+	CHECK(String(doc["title"]) == "Available Agent Skills");
+	String content = doc["content"];
+	CHECK(content.contains("TDD"));
+	CHECK(content.contains("Use when implementing changes."));
+	CHECK(content.contains("agent.activate_skill"));
+	CHECK(content.contains("prompt/context"));
+	CHECK_FALSE(content.contains("SECRET FULL BODY"));
+	CHECK_FALSE(content.contains("Disabled"));
+
+	AISkillSettings::set_skill_storage_for_test(original_skills);
+}
+
+TEST_CASE("[Editor][AI] Activate skill tool returns enabled prompt context content") {
+	Array original_skills = AISkillSettings::get_skill_storage_for_test();
+	AISkillSettings::clear_skills_for_test();
+
+	const String skill_id = AISkillSettings::add_skill("TDD", "Use when implementing changes.", "Full skill body.", true);
+	Ref<AIActivateSkillTool> tool;
+	tool.instantiate();
+
+	Dictionary args;
+	args["skill_id"] = skill_id;
+	AIToolResult result = tool->execute(args);
+	CHECK_FALSE(result.is_error());
+	CHECK(result.content.contains("Full skill body."));
+	CHECK(String(result.metadata["skill_id"]) == skill_id);
+	CHECK(String(result.metadata["skill_kind"]) == "prompt_context");
+	CHECK(String(result.metadata["tool_origin"]) == "agent_skill");
+
+	AISkillSettings::set_skill_storage_for_test(original_skills);
+}
+
+TEST_CASE("[Editor][AI] Activate skill tool rejects missing disabled and unsupported skills") {
+	Array original_skills = AISkillSettings::get_skill_storage_for_test();
+	AISkillSettings::clear_skills_for_test();
+
+	Dictionary disabled;
+	disabled["id"] = "skill:disabled";
+	disabled["display_name"] = "Disabled";
+	disabled["description"] = "Hidden trigger.";
+	disabled["content"] = "Hidden body.";
+	disabled["kind"] = "prompt_context";
+	disabled["enabled"] = false;
+
+	Dictionary unsupported;
+	unsupported["id"] = "skill:exec";
+	unsupported["display_name"] = "Executable";
+	unsupported["description"] = "Should not run.";
+	unsupported["content"] = "run me";
+	unsupported["kind"] = "executable";
+	unsupported["enabled"] = true;
+
+	Array storage;
+	storage.push_back(disabled);
+	storage.push_back(unsupported);
+	AISkillSettings::set_skill_storage_for_test(storage);
+
+	Ref<AIActivateSkillTool> tool;
+	tool.instantiate();
+
+	Dictionary missing_args;
+	missing_args["skill_id"] = "missing";
+	CHECK(tool->execute(missing_args).is_error());
+
+	Dictionary disabled_args;
+	disabled_args["skill_id"] = "skill:disabled";
+	CHECK(tool->execute(disabled_args).is_error());
+
+	Dictionary unsupported_args;
+	unsupported_args["skill_id"] = "skill:exec";
+	CHECK(tool->execute(unsupported_args).is_error());
+
+	AISkillSettings::set_skill_storage_for_test(original_skills);
 }
 
 TEST_CASE("[Editor][AI] MCP protocol maps tools to provider-safe names") {
@@ -417,6 +591,7 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.read_file", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.search_text", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "agent.activate_skill", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.create_folder", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.create_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);

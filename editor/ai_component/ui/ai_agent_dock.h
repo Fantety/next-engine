@@ -17,8 +17,8 @@
 class ConfirmationDialog;
 class HBoxContainer;
 class ColorRect;
+class ItemList;
 class PopupPanel;
-class VBoxContainer;
 
 class AIAgentDock : public EditorDock {
 	GDCLASS(AIAgentDock, EditorDock);
@@ -27,8 +27,11 @@ class AIAgentDock : public EditorDock {
 	Button *new_session_button = nullptr;
 	Button *delete_session_button = nullptr;
 	Button *mcp_status_button = nullptr;
+	Button *skill_status_button = nullptr;
 	PopupPanel *mcp_status_popup = nullptr;
-	VBoxContainer *mcp_status_list = nullptr;
+	ItemList *mcp_status_list = nullptr;
+	PopupPanel *skill_status_popup = nullptr;
+	ItemList *skill_status_list = nullptr;
 	ConfirmationDialog *delete_session_dialog = nullptr;
 	ConfirmationDialog *tool_approval_dialog = nullptr;
 	AIChangeReviewPanel *change_review_panel = nullptr;
@@ -56,6 +59,8 @@ class AIAgentDock : public EditorDock {
 	void _settings_changed();
 	void _mcp_settings_changed();
 	void _mcp_status_pressed();
+	void _skill_settings_changed();
+	void _skill_status_pressed();
 	void _new_session_pressed();
 	void _delete_session_pressed();
 	void _confirm_delete_session();
@@ -69,6 +74,8 @@ class AIAgentDock : public EditorDock {
 	void _reload_messages_from_session();
 	void _refresh_mcp_status_button();
 	void _refresh_mcp_status_popup();
+	void _refresh_skill_status_button();
+	void _refresh_skill_status_popup();
 	void _refresh_token_usage();
 	String _format_token_count(int p_tokens) const;
 	AIProviderConfig _get_provider_config(const String &p_model_id) const;

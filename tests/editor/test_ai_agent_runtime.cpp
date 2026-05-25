@@ -4,6 +4,8 @@
 
 #include "tests/test_macros.h"
 
+#include "core/object/callable_mp.h"
+
 #include "editor/ai_component/agent/ai_context_manager.h"
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
@@ -1013,6 +1015,7 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	REQUIRE(session->get_tool_registry().is_valid());
 	CHECK(session->get_agent_runtime_runner()->get_runtime() == session->get_agent_runtime());
 	CHECK(session->is_tool_runtime_available());
+	CHECK(session->get_tool_registry()->has_tool("agent.activate_skill"));
 	CHECK(session->get_tool_registry()->has_tool("shader.apply_to_node"));
 
 	session->set_agent_profile_id("build");

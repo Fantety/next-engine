@@ -11,6 +11,7 @@
 #include "core/templates/local_vector.h"
 
 #include "editor/ai_component/agent/ai_mcp_service.h"
+#include "editor/ai_component/skills/ai_activate_skill_tool.h"
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
@@ -67,6 +68,7 @@ AIAgentSession::AIAgentSession() {
 	project_tree_context.instantiate();
 	editor_context.instantiate();
 	best_practices_context.instantiate();
+	skill_context.instantiate();
 	agent_profile = AIAgentProfile::get_plan_profile();
 
 	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
@@ -385,6 +387,7 @@ Array AIAgentSession::_collect_context() {
 	context.append_array(editor_context->collect_context());
 	context.append_array(project_tree_context->collect_context());
 	context.append_array(best_practices_context->collect_context());
+	context.append_array(skill_context->collect_context());
 	return context;
 }
 
@@ -580,6 +583,11 @@ void AIAgentSession::_configure_tool_runtime() {
 	editor_context_tool.instantiate();
 	tool_registry->register_tool(editor_context_tool);
 	print_line("[AI Agent][Session] Registered tool: editor.get_context");
+
+	Ref<AIActivateSkillTool> activate_skill_tool;
+	activate_skill_tool.instantiate();
+	tool_registry->register_tool(activate_skill_tool);
+	print_line("[AI Agent][Session] Registered tool: agent.activate_skill");
 
 	Ref<AISceneCreateSceneTool> create_scene_tool;
 	create_scene_tool.instantiate();

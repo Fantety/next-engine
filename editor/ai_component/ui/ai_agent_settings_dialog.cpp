@@ -7,6 +7,7 @@
 #include "editor/ai_component/ui/ai_settings_models_page.h"
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_placeholder_page.h"
+#include "editor/ai_component/ui/ai_settings_skills_page.h"
 
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
@@ -27,6 +28,7 @@ void AIAgentSettingsDialog::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_save_settings"), &AIAgentSettingsDialog::_save_settings);
 	ADD_SIGNAL(MethodInfo("ai_settings_changed"));
 	ADD_SIGNAL(MethodInfo("ai_mcp_settings_changed"));
+	ADD_SIGNAL(MethodInfo("ai_skill_settings_changed"));
 }
 
 void AIAgentSettingsDialog::_notification(int p_what) {
@@ -113,10 +115,10 @@ void AIAgentSettingsDialog::_build_pages(HBoxContainer *p_root) {
 	mcp_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_mcp_settings));
 	pages->add_child(mcp_page);
 
-	AISettingsPlaceholderPage *skills_page = memnew(AISettingsPlaceholderPage);
+	skills_page = memnew(AISettingsSkillsPage);
 	skills_page->set_name(_ai_ui_text(u8"\u6280\u80fd"));
+	skills_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_skill_settings));
 	pages->add_child(skills_page);
-	skills_page->set_placeholder_text(_ai_ui_text(u8"\u6280\u80fd\u914d\u7f6e\u6682\u672a\u5b9e\u73b0\u3002"));
 
 	AISettingsPlaceholderPage *rules_page = memnew(AISettingsPlaceholderPage);
 	rules_page->set_name(_ai_ui_text(u8"\u89c4\u5219"));
@@ -138,6 +140,7 @@ void AIAgentSettingsDialog::_save_settings() {
 	settings->save();
 	emit_signal(SNAME("ai_settings_changed"));
 	emit_signal(SNAME("ai_mcp_settings_changed"));
+	emit_signal(SNAME("ai_skill_settings_changed"));
 }
 
 void AIAgentSettingsDialog::_save_model_settings() {
@@ -156,6 +159,14 @@ void AIAgentSettingsDialog::_save_mcp_settings() {
 	emit_signal(SNAME("ai_mcp_settings_changed"));
 }
 
+void AIAgentSettingsDialog::_save_skill_settings() {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	ERR_FAIL_NULL(settings);
+
+	settings->save();
+	emit_signal(SNAME("ai_skill_settings_changed"));
+}
+
 void AIAgentSettingsDialog::build_for_test() {
 	_build_ui();
 	if (models_page) {
@@ -163,6 +174,9 @@ void AIAgentSettingsDialog::build_for_test() {
 	}
 	if (mcp_page) {
 		mcp_page->build_for_test();
+	}
+	if (skills_page) {
+		skills_page->build_for_test();
 	}
 }
 
@@ -178,6 +192,10 @@ int AIAgentSettingsDialog::get_mcp_server_table_row_count_for_test() const {
 	return mcp_page ? mcp_page->get_server_table_row_count_for_test() : 0;
 }
 
+int AIAgentSettingsDialog::get_skill_table_row_count_for_test() const {
+	return skills_page ? skills_page->get_skill_table_row_count_for_test() : 0;
+}
+
 void AIAgentSettingsDialog::add_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
 	ERR_FAIL_NULL(models_page);
 	models_page->add_provider_model_for_test(p_provider_id, p_model, p_api_key);
@@ -191,6 +209,11 @@ void AIAgentSettingsDialog::add_custom_model_for_test(const String &p_model, con
 void AIAgentSettingsDialog::add_mcp_server_for_test(const String &p_display_name, const String &p_command, bool p_enabled) {
 	ERR_FAIL_NULL(mcp_page);
 	mcp_page->add_server_for_test(p_display_name, p_command, p_enabled);
+}
+
+void AIAgentSettingsDialog::add_skill_for_test(const String &p_display_name, const String &p_description, const String &p_content, bool p_enabled) {
+	ERR_FAIL_NULL(skills_page);
+	skills_page->add_skill_for_test(p_display_name, p_description, p_content, p_enabled);
 }
 
 void AIAgentSettingsDialog::edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {

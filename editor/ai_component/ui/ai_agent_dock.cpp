@@ -7,10 +7,13 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/io/json.h"
+#include "core/io/image.h"
+#include "core/math/math_funcs.h"
 #include "core/os/os.h"
 #include "core/os/time.h"
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
+#include "editor/ai_component/skills/ai_skill_settings.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/settings/editor_command_palette.h"
@@ -18,26 +21,16 @@
 #include "scene/gui/box_container.h"
 #include "scene/gui/color_rect.h"
 #include "scene/gui/dialogs.h"
+#include "scene/gui/item_list.h"
 #include "scene/gui/margin_container.h"
 #include "scene/gui/popup.h"
-#include "scene/gui/scroll_container.h"
+#include "scene/resources/image_texture.h"
 #include "scene/resources/material.h"
 #include "scene/resources/shader.h"
 #include "scene/resources/texture.h"
 #include "servers/text/text_server.h"
 
 namespace {
-
-void _clear_children(Node *p_node) {
-	if (!p_node) {
-		return;
-	}
-	while (p_node->get_child_count() > 0) {
-		Node *child = p_node->get_child(0);
-		p_node->remove_child(child);
-		memdelete(child);
-	}
-}
 
 String _mcp_status_label(const String &p_status) {
 	if (p_status == "ok") {
@@ -50,6 +43,49 @@ String _mcp_status_label(const String &p_status) {
 		return TTR("Disabled");
 	}
 	return TTR("Checking");
+}
+
+Color _status_dot_color(const String &p_status) {
+	if (p_status == "ok" || p_status == "enabled") {
+		return Color(0.24, 0.78, 0.43);
+	}
+	if (p_status == "failed") {
+		return Color(0.92, 0.25, 0.25);
+	}
+	return Color(0.96, 0.69, 0.20);
+}
+
+Ref<Texture2D> _make_status_dot_icon(const Color &p_color) {
+	const int size = MAX(12, int(12 * EDSCALE));
+	const real_t radius = size * 0.34;
+	const Vector2 center((size - 1) * 0.5, (size - 1) * 0.5);
+
+	Ref<Image> image = Image::create_empty(size, size, false, Image::FORMAT_RGBA8);
+	for (int y = 0; y < size; y++) {
+		for (int x = 0; x < size; x++) {
+			const real_t distance = center.distance_to(Vector2(x, y));
+			const real_t alpha = CLAMP(radius + 0.75 - distance, 0.0, 1.0);
+			Color pixel = p_color;
+			pixel.a = alpha;
+			image->set_pixel(x, y, pixel);
+		}
+	}
+	return ImageTexture::create_from_image(image);
+}
+
+void _setup_status_item_list(ItemList *p_list) {
+	ERR_FAIL_NULL(p_list);
+	p_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	p_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	p_list->set_theme_type_variation("ItemListSecondary");
+	p_list->set_select_mode(ItemList::SELECT_SINGLE);
+	p_list->set_icon_mode(ItemList::ICON_MODE_LEFT);
+	p_list->set_fixed_icon_size(Size2i(14, 14) * EDSCALE);
+	p_list->set_max_columns(1);
+	p_list->set_same_column_width(true);
+	p_list->set_auto_height(false);
+	p_list->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	p_list->set_allow_search(false);
 }
 
 } // namespace
@@ -68,9 +104,13 @@ void AIAgentDock::_notification(int p_what) {
 			delete_session_button->set_button_icon(get_editor_theme_icon(SNAME("Delete")));
 		}
 		if (mcp_status_button) {
-			mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusSuccess")));
+			mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("AIMCP")));
+		}
+		if (skill_status_button) {
+			skill_status_button->set_button_icon(get_editor_theme_icon(SNAME("AISkill")));
 		}
 		_refresh_mcp_status_button();
+		_refresh_skill_status_button();
 	}
 }
 
@@ -114,11 +154,16 @@ AIAgentDock::AIAgentDock() {
 	session_bar->add_child(delete_session_button);
 
 	mcp_status_button = memnew(Button);
-	mcp_status_button->set_text("MCP");
-	mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusSuccess")));
+	mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("AIMCP")));
 	mcp_status_button->set_tooltip_text(TTR("MCP server status."));
 	mcp_status_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentDock::_mcp_status_pressed));
 	session_bar->add_child(mcp_status_button);
+
+	skill_status_button = memnew(Button);
+	skill_status_button->set_button_icon(get_editor_theme_icon(SNAME("AISkill")));
+	skill_status_button->set_tooltip_text(TTR("AgentSkill status."));
+	skill_status_button->connect(SceneStringName(pressed), callable_mp(this, &AIAgentDock::_skill_status_pressed));
+	session_bar->add_child(skill_status_button);
 
 	delete_session_dialog = memnew(ConfirmationDialog);
 	delete_session_dialog->set_title(TTR("Delete AI Chat"));
@@ -144,17 +189,24 @@ AIAgentDock::AIAgentDock() {
 	mcp_status_margin->add_theme_constant_override("margin_bottom", 8 * EDSCALE);
 	mcp_status_popup->add_child(mcp_status_margin);
 
-	ScrollContainer *mcp_status_scroll = memnew(ScrollContainer);
-	mcp_status_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	mcp_status_scroll->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	mcp_status_margin->add_child(mcp_status_scroll);
-
-	mcp_status_list = memnew(VBoxContainer);
-	mcp_status_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	mcp_status_list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	mcp_status_list->add_theme_constant_override("separation", 8 * EDSCALE);
-	mcp_status_scroll->add_child(mcp_status_list);
+	mcp_status_list = memnew(ItemList);
+	_setup_status_item_list(mcp_status_list);
+	mcp_status_margin->add_child(mcp_status_list);
 	add_child(mcp_status_popup);
+
+	skill_status_popup = memnew(PopupPanel);
+	skill_status_popup->set_min_size(Size2(380, 220) * EDSCALE);
+	MarginContainer *skill_status_margin = memnew(MarginContainer);
+	skill_status_margin->add_theme_constant_override("margin_right", 8 * EDSCALE);
+	skill_status_margin->add_theme_constant_override("margin_top", 8 * EDSCALE);
+	skill_status_margin->add_theme_constant_override("margin_left", 8 * EDSCALE);
+	skill_status_margin->add_theme_constant_override("margin_bottom", 8 * EDSCALE);
+	skill_status_popup->add_child(skill_status_margin);
+
+	skill_status_list = memnew(ItemList);
+	_setup_status_item_list(skill_status_list);
+	skill_status_margin->add_child(skill_status_list);
+	add_child(skill_status_popup);
 
 	VBoxContainer *main = memnew(VBoxContainer);
 	main->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -234,6 +286,7 @@ void fragment() {
 	if (AIAgentSettingsDialog::get_singleton()) {
 		AIAgentSettingsDialog::get_singleton()->connect("ai_settings_changed", callable_mp(this, &AIAgentDock::_settings_changed));
 		AIAgentSettingsDialog::get_singleton()->connect("ai_mcp_settings_changed", callable_mp(this, &AIAgentDock::_mcp_settings_changed));
+		AIAgentSettingsDialog::get_singleton()->connect("ai_skill_settings_changed", callable_mp(this, &AIAgentDock::_skill_settings_changed));
 	}
 	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
 	if (mcp_service.is_valid()) {
@@ -245,6 +298,7 @@ void fragment() {
 	_reload_messages_from_session();
 	_refresh_session_list();
 	_refresh_mcp_status_button();
+	_refresh_skill_status_button();
 }
 
 AIAgentDock *AIAgentDock::get_singleton() {
@@ -337,6 +391,13 @@ void AIAgentDock::_mcp_settings_changed() {
 	_refresh_mcp_status_button();
 }
 
+void AIAgentDock::_skill_settings_changed() {
+	_refresh_skill_status_button();
+	if (skill_status_popup && skill_status_popup->is_visible()) {
+		_refresh_skill_status_popup();
+	}
+}
+
 void AIAgentDock::_mcp_status_pressed() {
 	_refresh_mcp_status_popup();
 	if (mcp_status_popup) {
@@ -349,6 +410,21 @@ void AIAgentDock::_mcp_status_pressed() {
 			popup_rect = Rect2i(rect);
 		}
 		mcp_status_popup->popup(popup_rect);
+	}
+}
+
+void AIAgentDock::_skill_status_pressed() {
+	_refresh_skill_status_popup();
+	if (skill_status_popup) {
+		const Size2 popup_size = Size2(420, 300) * EDSCALE;
+		Rect2i popup_rect;
+		if (skill_status_button) {
+			Rect2 rect = skill_status_button->get_screen_rect();
+			rect.position.y += rect.size.height;
+			rect.size = popup_size;
+			popup_rect = Rect2i(rect);
+		}
+		skill_status_popup->popup(popup_rect);
 	}
 }
 
@@ -580,28 +656,24 @@ void AIAgentDock::_refresh_mcp_status_button() {
 	const int tool_count = (int)summary.get("tool_count", 0);
 
 	if (total <= 0) {
-		mcp_status_button->set_text(TTR("MCP"));
-		mcp_status_button->set_button_icon(Ref<Texture2D>());
+		mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("AIMCP")));
 		mcp_status_button->set_tooltip_text(TTR("No MCP servers configured."));
 		return;
 	}
 
 	if (failed > 0) {
-		mcp_status_button->set_text(vformat(TTR("MCP %d"), failed));
-		mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusError")));
+		mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("AIMCP")));
 		mcp_status_button->set_tooltip_text(vformat(TTR("MCP status: %d failed, %d ready, %d disabled. Tools: %d."), failed, ok, disabled, tool_count));
 		return;
 	}
 
 	if (checking > 0) {
-		mcp_status_button->set_text(TTR("MCP"));
-		mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusWarning")));
+		mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("AIMCP")));
 		mcp_status_button->set_tooltip_text(vformat(TTR("MCP status: checking %d server(s)."), checking));
 		return;
 	}
 
-	mcp_status_button->set_text(TTR("MCP"));
-	mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("StatusSuccess")));
+	mcp_status_button->set_button_icon(get_editor_theme_icon(SNAME("AIMCP")));
 	mcp_status_button->set_tooltip_text(vformat(TTR("MCP status: %d ready, %d disabled. Tools: %d."), ok, disabled, tool_count));
 }
 
@@ -610,12 +682,7 @@ void AIAgentDock::_refresh_mcp_status_popup() {
 		return;
 	}
 
-	_clear_children(mcp_status_list);
-
-	Label *title = memnew(Label);
-	title->set_text(TTR("MCP Servers"));
-	title->add_theme_font_size_override(SceneStringName(font_size), int(14 * EDSCALE));
-	mcp_status_list->add_child(title);
+	mcp_status_list->clear();
 
 	Array statuses;
 	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
@@ -623,10 +690,8 @@ void AIAgentDock::_refresh_mcp_status_popup() {
 		statuses = mcp_service->get_statuses();
 	}
 	if (statuses.is_empty()) {
-		Label *empty_label = memnew(Label);
-		empty_label->set_text(TTR("No MCP servers configured."));
-		empty_label->add_theme_font_size_override(SceneStringName(font_size), int(12 * EDSCALE));
-		mcp_status_list->add_child(empty_label);
+		const int index = mcp_status_list->add_item(TTR("No MCP servers configured."), _make_status_dot_icon(_status_dot_color("disabled")), false);
+		mcp_status_list->set_item_disabled(index, true);
 		return;
 	}
 
@@ -643,25 +708,67 @@ void AIAgentDock::_refresh_mcp_status_popup() {
 		const String error = String(status.get("error", String()));
 		const String endpoint = String(status.get("endpoint", String()));
 
-		VBoxContainer *row = memnew(VBoxContainer);
-		row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-		row->add_theme_constant_override("separation", 2 * EDSCALE);
-		mcp_status_list->add_child(row);
+		String tooltip = vformat(TTR("%s\nStatus: %s\nTransport: %s"), display_name, _mcp_status_label(state), transport);
+		if (state == "ok") {
+			tooltip += "\n" + vformat(TTR("Tools: %d"), tool_count);
+		}
+		if (!endpoint.is_empty()) {
+			tooltip += "\n" + endpoint;
+		}
+		if (!error.is_empty()) {
+			tooltip += "\n" + error;
+		}
 
-		Label *line = memnew(Label);
-		line->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-		line->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-		line->set_text(vformat("%s  %s  %s  %s", display_name, transport, _mcp_status_label(state), state == "ok" ? vformat(TTR("%d tools"), tool_count) : String()));
-		line->set_tooltip_text(line->get_text());
-		row->add_child(line);
+		const int index = mcp_status_list->add_item(display_name, _make_status_dot_icon(_status_dot_color(state)), false);
+		mcp_status_list->set_item_tooltip(index, tooltip);
+	}
+}
 
-		Label *detail = memnew(Label);
-		detail->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-		detail->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-		detail->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
-		detail->set_text(error.is_empty() ? endpoint : error);
-		detail->set_tooltip_text(detail->get_text());
-		row->add_child(detail);
+void AIAgentDock::_refresh_skill_status_button() {
+	if (!skill_status_button) {
+		return;
+	}
+
+	const Vector<AISkillConfig> skills = AISkillSettings::get_skills(false);
+	skill_status_button->set_button_icon(get_editor_theme_icon(SNAME("AISkill")));
+	if (skills.is_empty()) {
+		skill_status_button->set_tooltip_text(TTR("No AgentSkills configured."));
+		return;
+	}
+
+	int enabled_count = 0;
+	for (int i = 0; i < skills.size(); i++) {
+		if (skills[i].enabled) {
+			enabled_count++;
+		}
+	}
+	skill_status_button->set_tooltip_text(vformat(TTR("AgentSkills: %d configured, %d enabled."), skills.size(), enabled_count));
+}
+
+void AIAgentDock::_refresh_skill_status_popup() {
+	if (!skill_status_list) {
+		return;
+	}
+
+	skill_status_list->clear();
+
+	const Vector<AISkillConfig> skills = AISkillSettings::get_skills(false);
+	if (skills.is_empty()) {
+		const int index = skill_status_list->add_item(TTR("No AgentSkills configured."), _make_status_dot_icon(_status_dot_color("disabled")), false);
+		skill_status_list->set_item_disabled(index, true);
+		return;
+	}
+
+	for (int i = 0; i < skills.size(); i++) {
+		const AISkillConfig &skill = skills[i];
+		const String state = skill.enabled ? String("enabled") : String("disabled");
+		String tooltip = vformat(TTR("%s\nStatus: %s\nKind: %s"), skill.display_name, skill.enabled ? TTR("Enabled") : TTR("Disabled"), skill.kind);
+		if (!skill.description.is_empty()) {
+			tooltip += "\n" + skill.description;
+		}
+
+		const int index = skill_status_list->add_item(skill.display_name, _make_status_dot_icon(_status_dot_color(state)), false);
+		skill_status_list->set_item_tooltip(index, tooltip);
 	}
 }
 

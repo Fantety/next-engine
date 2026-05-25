@@ -8,6 +8,7 @@
 #include "editor/ai_component/providers/ai_mcp_settings.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
+#include "editor/ai_component/skills/ai_skill_settings.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
@@ -129,6 +130,23 @@ TEST_CASE("[Editor][AI] MCP settings manage server enable states") {
 	CHECK(servers[0].id == filesystem_id);
 
 	AIMCPSettings::set_server_storage_for_test(original_servers);
+}
+
+TEST_CASE("[Editor][AI] Agent settings dialog exposes skill rows") {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	REQUIRE(settings != nullptr);
+
+	Array original_skills = AISkillSettings::get_skill_storage_for_test();
+	AISkillSettings::clear_skills_for_test();
+
+	AIAgentSettingsDialog dialog;
+	dialog.build_for_test();
+	CHECK(dialog.get_skill_table_row_count_for_test() == 0);
+	dialog.add_skill_for_test("TDD", "Use when changing behavior.", "Write tests first.", true);
+	CHECK(dialog.get_skill_table_row_count_for_test() == 1);
+	dialog.save_settings_for_test();
+
+	AISkillSettings::set_skill_storage_for_test(original_skills);
 }
 
 TEST_CASE("[Editor][AI] MCP settings import stdio and HTTP servers from JSON") {

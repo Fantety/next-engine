@@ -342,6 +342,30 @@ MCP 已经作为可选工具来源接入，但仍应视为基础实现。
 
 Session 启动时会读取启用的 MCP Server，列出工具并注册到 registry。MCP 工具默认走动态权限策略，目前名称以 `mcp_` 开头的工具会纳入当前 profile 可调用集合。
 
+## AgentSkill 当前实现
+
+AgentSkill 作为独立模块接入，首版只支持 Prompt/Context Skill，不执行代码，也不自动授予工具权限。
+
+- `editor/ai_component/skills/ai_skill_settings.*`
+  - 使用 `EditorSettings` 的 `ai_agent/skills` 存储 Skill 配置。
+  - 字段包括 id、display name、description、content、kind、enabled。
+  - 当前可用 kind 为 `prompt_context`，保留 kind 字段用于后续扩展。
+
+- `editor/ai_component/skills/ai_skill_context_provider.*`
+  - 收集启用 Skill 的索引上下文。
+  - 只注入 skill id、名称、描述和安全边界说明，不默认注入完整内容。
+
+- `editor/ai_component/skills/ai_activate_skill_tool.*`
+  - 提供只读工具 `agent.activate_skill`。
+  - Agent 根据上下文中的 skill id 主动调用该工具后，才会读取完整 Skill 内容。
+  - 工具会拒绝缺失、禁用或非 `prompt_context` 的 Skill。
+
+- `editor/ai_component/ui/ai_settings_skills_page.*`
+  - AI Settings 中的 Skill 配置页。
+  - 支持添加、编辑、删除、启用和禁用 Prompt/Context Skill。
+
+Skill 的安全边界是：当前只提供 prompt/context 指令；不执行脚本，不启动外部进程，不读取任意 bundled resources，不绕过 `AIAgentProfile`、`AIToolPermissionPolicy`、MCP 审批或 Review/Diff 流程。后续如果支持 tool bundle、资源引用或 executable skill，需要新增独立的权限模型和显式用户授权。
+
 ## 会话和存储
 
 - `editor/ai_component/storage/ai_conversation_store.*`

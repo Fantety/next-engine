@@ -153,6 +153,7 @@
 #include "editor/ai_component/providers/ai_mcp_stdio_client.h"
 #include "editor/ai_component/providers/ai_mcp_status_tracker.h"
 #include "editor/ai_component/review/ai_change_set_store.h"
+#include "editor/ai_component/skills/ai_skill_context_provider.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/tools/ai_tool_execution_context.h"
 #include "editor/ai_component/tools/editor/ai_scene_editing_service.h"
@@ -167,9 +168,11 @@
 #include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/ai_component/ui/ai_message_list.h"
+#include "editor/ai_component/ui/ai_skill_dialog.h"
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_models_page.h"
 #include "editor/ai_component/ui/ai_settings_placeholder_page.h"
+#include "editor/ai_component/ui/ai_settings_skills_page.h"
 #include "editor/ai_component/ui/ai_text_diff_viewer.h"
 
 #include "servers/rendering/rendering_server.h"
@@ -262,6 +265,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIEditorContextProvider);
 	GDREGISTER_CLASS(AIFileContextProvider);
 	GDREGISTER_CLASS(AIProjectTreeContextProvider);
+	GDREGISTER_CLASS(AISkillIndexContextProvider);
 	GDREGISTER_CLASS(AIChangeSetStore);
 	GDREGISTER_CLASS(AIConversationStore);
 	GDREGISTER_CLASS(AIMCPClient);
@@ -282,9 +286,11 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIMarkdownLabel);
 	GDREGISTER_CLASS(AIMessageBubble);
 	GDREGISTER_CLASS(AIMessageList);
+	GDREGISTER_CLASS(AISkillDialog);
 	GDREGISTER_CLASS(AISettingsMCPPage);
 	GDREGISTER_CLASS(AISettingsModelsPage);
 	GDREGISTER_CLASS(AISettingsPlaceholderPage);
+	GDREGISTER_CLASS(AISettingsSkillsPage);
 	GDREGISTER_CLASS(AITextDiffViewer);
 
 	// This list is alphabetized, and plugins that depend on Node2D are in their own section below.
