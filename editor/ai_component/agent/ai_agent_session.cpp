@@ -68,6 +68,7 @@ AIAgentSession::AIAgentSession() {
 	project_tree_context.instantiate();
 	editor_context.instantiate();
 	best_practices_context.instantiate();
+	rules_context.instantiate();
 	skill_context.instantiate();
 	agent_profile = AIAgentProfile::get_plan_profile();
 
@@ -399,6 +400,7 @@ Array AIAgentSession::_collect_context() {
 	context.append_array(editor_context->collect_context());
 	context.append_array(project_tree_context->collect_context());
 	context.append_array(best_practices_context->collect_context());
+	context.append_array(rules_context->collect_context());
 	context.append_array(skill_context->collect_context());
 	return context;
 }

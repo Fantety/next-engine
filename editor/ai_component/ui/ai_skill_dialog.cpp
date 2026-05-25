@@ -18,10 +18,6 @@
 
 namespace {
 
-String _ai_ui_text(const char *p_text) {
-	return String::utf8(p_text);
-}
-
 Label *_make_field_label(const String &p_text) {
 	Label *label = memnew(Label);
 	label->set_text(p_text);
@@ -79,11 +75,11 @@ void AISkillDialog::_build_ui() {
 
 	name_edit = memnew(LineEdit);
 	name_edit->set_placeholder("Test Driven Development");
-	_make_field_row(root, _ai_ui_text(u8"\u540d\u79f0"), name_edit);
+	_make_field_row(root, TTR("Name"), name_edit);
 
 	description_edit = memnew(LineEdit);
 	description_edit->set_placeholder("Use when implementing behavior changes.");
-	_make_field_row(root, _ai_ui_text(u8"\u63cf\u8ff0"), description_edit);
+	_make_field_row(root, TTR("Description"), description_edit);
 
 	Label *kind_value = memnew(Label);
 	kind_value->set_text("prompt_context");

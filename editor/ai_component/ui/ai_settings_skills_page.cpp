@@ -22,10 +22,6 @@
 
 namespace {
 
-String _ai_ui_text(const char *p_text) {
-	return String::utf8(p_text);
-}
-
 void _clear_children(Node *p_node) {
 	ERR_FAIL_NULL(p_node);
 	while (p_node->get_child_count() > 0) {
@@ -231,12 +227,12 @@ void AISettingsSkillsPage::_add_skill_table_row(const AISkillConfig &p_skill) {
 	row->add_child(action_cell);
 
 	Button *edit_button = memnew(Button);
-	edit_button->set_text(_ai_ui_text(u8"\u7f16\u8f91"));
+	edit_button->set_text(TTR("Edit"));
 	edit_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsSkillsPage::_edit_skill_pressed).bind(p_skill.id), CONNECT_DEFERRED);
 	action_cell->add_child(edit_button);
 
 	Button *remove_button = memnew(Button);
-	remove_button->set_text(_ai_ui_text(u8"\u79fb\u9664"));
+	remove_button->set_text(TTR("Remove"));
 	remove_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsSkillsPage::_remove_skill_pressed).bind(p_skill.id), CONNECT_DEFERRED);
 	action_cell->add_child(remove_button);
 

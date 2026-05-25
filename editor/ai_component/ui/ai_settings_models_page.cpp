@@ -53,10 +53,6 @@ Label *_make_table_label(const String &p_text, int p_width = 0) {
 	return label;
 }
 
-String _ai_ui_text(const char *p_text) {
-	return String::utf8(p_text);
-}
-
 } // namespace
 
 void AISettingsModelsPage::_bind_methods() {
@@ -93,17 +89,17 @@ void AISettingsModelsPage::_build_ui() {
 	scroll->add_child(content);
 
 	Label *title = memnew(Label);
-	title->set_text(_ai_ui_text(u8"\u6a21\u578b"));
+	title->set_text(TTR("Models"));
 	title->add_theme_font_size_override(SceneStringName(font_size), int(22 * EDSCALE));
 	content->add_child(title);
 
 	Label *section_title = memnew(Label);
-	section_title->set_text(_ai_ui_text(u8"\u6a21\u578b\u7ba1\u7406"));
+	section_title->set_text(TTR("Model Management"));
 	section_title->add_theme_font_size_override(SceneStringName(font_size), int(14 * EDSCALE));
 	content->add_child(section_title);
 
 	Label *description = memnew(Label);
-	description->set_text(_ai_ui_text(u8"\u914d\u7f6e API key \u6dfb\u52a0\u66f4\u591a\u53ef\u7528\u6a21\u578b\uff0c\u9884\u7f6e\u6a21\u578b\u9ed8\u8ba4\u4f7f\u7528\u7a33\u5b9a\u7248\u672c\u3002"));
+	description->set_text(TTR("Configure API keys and add available models. Preset models use stable versions by default."));
 	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	content->add_child(description);
 
@@ -112,7 +108,7 @@ void AISettingsModelsPage::_build_ui() {
 	content->add_child(toolbar);
 
 	add_model_button = memnew(Button);
-	add_model_button->set_text(_ai_ui_text(u8"+ \u6dfb\u52a0\u6a21\u578b"));
+	add_model_button->set_text(TTR("Add Model"));
 	add_model_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsModelsPage::_popup_add_model_dialog));
 	toolbar->add_child(add_model_button);
 
@@ -145,19 +141,19 @@ void AISettingsModelsPage::_refresh_model_table() {
 	header->add_theme_constant_override("separation", 8 * EDSCALE);
 	model_table->add_child(header);
 
-	Label *name_header = _make_table_label(_ai_ui_text(u8"\u540d\u79f0"));
+	Label *name_header = _make_table_label(TTR("Name"));
 	name_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(name_header);
 
-	Label *provider_header = _make_table_label(_ai_ui_text(u8"\u670d\u52a1\u5546"), 170);
+	Label *provider_header = _make_table_label(TTR("Provider"), 170);
 	provider_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(provider_header);
 
-	Label *model_header = _make_table_label(_ai_ui_text(u8"\u6a21\u578b"), 180);
+	Label *model_header = _make_table_label(TTR("Model"), 180);
 	model_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(model_header);
 
-	Label *action_header = _make_table_label(_ai_ui_text(u8"\u64cd\u4f5c"), 150);
+	Label *action_header = _make_table_label(TTR("Actions"), 150);
 	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(action_header);
 
@@ -179,7 +175,7 @@ void AISettingsModelsPage::_refresh_model_table() {
 		model_table->add_child(empty_margin);
 
 		Label *empty_label = memnew(Label);
-		empty_label->set_text(_ai_ui_text(u8"\u6682\u65e0\u6a21\u578b\uff0c\u4f60\u53ef\u4ee5\u70b9\u51fb\u6dfb\u52a0\u6a21\u578b"));
+		empty_label->set_text(TTR("No models yet. Add a model to make it available to the AI Agent."));
 		empty_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 		empty_margin->add_child(empty_label);
 	}
@@ -231,12 +227,12 @@ void AISettingsModelsPage::_add_model_table_row(const AIModelProfile &p_profile)
 	row->add_child(action_cell);
 
 	Button *edit_button = memnew(Button);
-	edit_button->set_text(_ai_ui_text(u8"\u7f16\u8f91"));
+	edit_button->set_text(TTR("Edit"));
 	edit_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsModelsPage::_edit_model_pressed).bind(p_profile.id), CONNECT_DEFERRED);
 	action_cell->add_child(edit_button);
 
 	Button *remove_button = memnew(Button);
-	remove_button->set_text(_ai_ui_text(u8"\u79fb\u9664"));
+	remove_button->set_text(TTR("Remove"));
 	remove_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsModelsPage::_remove_model_pressed).bind(p_profile.id), CONNECT_DEFERRED);
 	action_cell->add_child(remove_button);
 

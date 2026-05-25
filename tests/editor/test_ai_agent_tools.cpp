@@ -17,6 +17,8 @@
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/review/ai_change_set_store.h"
 #include "editor/ai_component/review/ai_diff_service.h"
+#include "editor/ai_component/rules/ai_rule_settings.h"
+#include "editor/ai_component/rules/ai_rules_context_provider.h"
 #include "editor/ai_component/skills/ai_activate_skill_tool.h"
 #include "editor/ai_component/skills/ai_skill_context_provider.h"
 #include "editor/ai_component/skills/ai_skill_settings.h"
@@ -649,6 +651,54 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ASK) == "ask");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_DENY) == "deny");
+}
+
+TEST_CASE("[Editor][AI] Rule settings manage bounded prompt rules") {
+	Array original_rules = AIRuleSettings::get_rule_storage_for_test();
+	AIRuleSettings::clear_rules_for_test();
+
+	const String long_rule = String("Keep responses focused. ").repeat(8);
+	const String rule_id = AIRuleSettings::add_rule(long_rule, true);
+	REQUIRE(!rule_id.is_empty());
+
+	Vector<AIRuleConfig> rules = AIRuleSettings::get_rules(false);
+	REQUIRE(rules.size() == 1);
+	CHECK(rules[0].content.length() == 100);
+	CHECK(rules[0].enabled);
+
+	CHECK(AIRuleSettings::set_rule_enabled(rule_id, false));
+	CHECK(AIRuleSettings::get_rules(true).is_empty());
+
+	CHECK(AIRuleSettings::update_rule(rule_id, "Use tabs for indentation.", true));
+	AIRuleConfig updated = AIRuleSettings::get_rule(rule_id);
+	CHECK(updated.content == "Use tabs for indentation.");
+	CHECK(updated.enabled);
+
+	CHECK(AIRuleSettings::remove_rule(rule_id));
+	CHECK(AIRuleSettings::get_rules(false).is_empty());
+
+	AIRuleSettings::set_rule_storage_for_test(original_rules);
+}
+
+TEST_CASE("[Editor][AI] Rules context provider injects enabled rules") {
+	Array original_rules = AIRuleSettings::get_rule_storage_for_test();
+	AIRuleSettings::clear_rules_for_test();
+
+	AIRuleSettings::add_rule("Prefer concise answers.", true);
+	AIRuleSettings::add_rule("Disabled rule should not appear.", false);
+
+	Ref<AIRulesContextProvider> provider;
+	provider.instantiate();
+	Array context = provider->collect_context();
+
+	REQUIRE(context.size() == 1);
+	Dictionary document = context[0];
+	CHECK(String(document["title"]) == "User Rules");
+	CHECK(String(document["source"]) == "ai_agent/rules");
+	CHECK(String(document["content"]).contains("Prefer concise answers."));
+	CHECK_FALSE(String(document["content"]).contains("Disabled rule should not appear."));
+
+	AIRuleSettings::set_rule_storage_for_test(original_rules);
 }
 
 TEST_CASE("[Editor][AI] Diff service creates reviewable text change metadata") {

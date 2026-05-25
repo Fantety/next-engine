@@ -41,10 +41,6 @@ void _select_option_metadata(OptionButton *p_option, const String &p_metadata) {
 	}
 }
 
-String _ai_ui_text(const char *p_text) {
-	return String::utf8(p_text);
-}
-
 VBoxContainer *_make_tab_scroll_content(Control *p_page) {
 	ScrollContainer *scroll = memnew(ScrollContainer);
 	scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -82,10 +78,10 @@ void AIModelProfileDialog::_notification(int p_what) {
 }
 
 AIModelProfileDialog::AIModelProfileDialog() {
-	set_title(_ai_ui_text(u8"\u6dfb\u52a0\u6a21\u578b"));
+	set_title(TTR("Add Model"));
 	set_min_size(Size2(680, 560) * EDSCALE);
-	set_ok_button_text(_ai_ui_text(u8"\u6dfb\u52a0\u6a21\u578b"));
-	set_cancel_button_text(_ai_ui_text(u8"\u53d6\u6d88"));
+	set_ok_button_text(TTR("Add Model"));
+	set_cancel_button_text(TTR("Cancel"));
 	set_hide_on_ok(false);
 }
 
@@ -110,12 +106,12 @@ void AIModelProfileDialog::_build_ui() {
 	margin->add_child(add_model_tabs);
 
 	MarginContainer *provider_page = memnew(MarginContainer);
-	provider_page->set_name(_ai_ui_text(u8"\u6a21\u578b\u670d\u52a1\u5546"));
+	provider_page->set_name(TTR("Provider"));
 	add_model_tabs->add_child(provider_page);
 	_build_provider_add_tab(provider_page);
 
 	MarginContainer *custom_page = memnew(MarginContainer);
-	custom_page->set_name(_ai_ui_text(u8"\u81ea\u5b9a\u4e49\u914d\u7f6e"));
+	custom_page->set_name(TTR("Custom"));
 	add_model_tabs->add_child(custom_page);
 	_build_custom_add_tab(custom_page);
 }
@@ -129,16 +125,16 @@ void AIModelProfileDialog::_build_provider_add_tab(Control *p_page) {
 	VBoxContainer *content = _make_tab_scroll_content(p_page);
 
 	Label *name_label = memnew(Label);
-	name_label->set_text(_ai_ui_text(u8"* \u914d\u7f6e\u540d\u79f0"));
+	name_label->set_text(TTR("* Display Name"));
 	content->add_child(name_label);
 
 	provider_model_display_name = memnew(LineEdit);
 	provider_model_display_name->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	provider_model_display_name->set_placeholder(_ai_ui_text(u8"\u4f8b\u5982\uff1aOpenAI \u4e3b\u8d26\u53f7"));
+	provider_model_display_name->set_placeholder(TTR("e.g. OpenAI Primary"));
 	content->add_child(provider_model_display_name);
 
 	Label *provider_label = memnew(Label);
-	provider_label->set_text(_ai_ui_text(u8"* \u670d\u52a1\u5546"));
+	provider_label->set_text(TTR("* Provider"));
 	content->add_child(provider_label);
 
 	provider_model_provider = memnew(OptionButton);
@@ -148,7 +144,7 @@ void AIModelProfileDialog::_build_provider_add_tab(Control *p_page) {
 	content->add_child(provider_model_provider);
 
 	Label *model_label = memnew(Label);
-	model_label->set_text(_ai_ui_text(u8"* \u6a21\u578b"));
+	model_label->set_text(TTR("* Model"));
 	content->add_child(model_label);
 
 	provider_model_model = memnew(OptionButton);
@@ -157,13 +153,13 @@ void AIModelProfileDialog::_build_provider_add_tab(Control *p_page) {
 	content->add_child(provider_model_model);
 
 	Label *key_label = memnew(Label);
-	key_label->set_text(_ai_ui_text(u8"* API \u5bc6\u94a5"));
+	key_label->set_text(TTR("* API Key"));
 	content->add_child(key_label);
 
 	provider_model_api_key = memnew(LineEdit);
 	provider_model_api_key->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	provider_model_api_key->set_secret(true);
-	provider_model_api_key->set_placeholder(_ai_ui_text(u8"\u8f93\u5165 API \u5bc6\u94a5"));
+	provider_model_api_key->set_placeholder(TTR("Enter API key"));
 	content->add_child(provider_model_api_key);
 
 	_build_advanced_config(content, true);
@@ -172,7 +168,7 @@ void AIModelProfileDialog::_build_provider_add_tab(Control *p_page) {
 	content->add_child(separator);
 
 	Button *add_button = memnew(Button);
-	add_button->set_text(_ai_ui_text(u8"\u6dfb\u52a0\u6a21\u578b"));
+	add_button->set_text(TTR("Add Model"));
 	add_button->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	add_button->connect(SceneStringName(pressed), callable_mp(this, &AIModelProfileDialog::_submit_pressed));
 	content->add_child(add_button);
@@ -198,21 +194,21 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 	VBoxContainer *content = _make_tab_scroll_content(p_page);
 
 	Label *name_label = memnew(Label);
-	name_label->set_text(_ai_ui_text(u8"* \u914d\u7f6e\u540d\u79f0"));
+	name_label->set_text(TTR("* Display Name"));
 	content->add_child(name_label);
 
 	custom_display_name = memnew(LineEdit);
 	custom_display_name->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	custom_display_name->set_placeholder(_ai_ui_text(u8"\u4f8b\u5982\uff1a\u672c\u5730 Ollama"));
+	custom_display_name->set_placeholder(TTR("e.g. Local Ollama"));
 	content->add_child(custom_display_name);
 
 	Label *format_label = memnew(Label);
-	format_label->set_text(_ai_ui_text(u8"* API \u683c\u5f0f"));
+	format_label->set_text(TTR("* API Format"));
 	content->add_child(format_label);
 
 	custom_api_format = memnew(OptionButton);
 	custom_api_format->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	custom_api_format->add_item(_ai_ui_text(u8"OpenAI Chat Completions \u683c\u5f0f"));
+	custom_api_format->add_item(TTR("OpenAI Chat Completions"));
 	custom_api_format->set_item_metadata(0, "openai_chat_completions");
 	custom_api_format->select(0);
 	content->add_child(custom_api_format);
@@ -222,12 +218,12 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 	content->add_child(url_header);
 
 	Label *url_label = memnew(Label);
-	url_label->set_text(_ai_ui_text(u8"* \u81ea\u5b9a\u4e49\u8bf7\u6c42\u5730\u5740"));
+	url_label->set_text(TTR("* Custom Endpoint"));
 	url_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	url_header->add_child(url_label);
 
 	custom_full_url = memnew(CheckButton);
-	custom_full_url->set_text(_ai_ui_text(u8"\u5b8c\u6574 URL"));
+	custom_full_url->set_text(TTR("Full URL"));
 	url_header->add_child(custom_full_url);
 
 	custom_base_url = memnew(LineEdit);
@@ -240,7 +236,7 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 	content->add_child(hint_panel);
 
 	Label *hint_label = memnew(Label);
-	hint_label->set_text(_ai_ui_text(u8"\u8bf7\u586b\u5199\u517c\u5bb9 OpenAI API \u7684\u670d\u52a1\u7aef\u70b9\u5730\u5740\uff0c\u4e0d\u8981\u4ee5\u659c\u6760\u7ed3\u5c3e\u3002\n/chat/completions \u5c06\u4f1a\u88ab\u8865\u5145\u5230\u4f60\u586b\u5199\u7684\u5730\u5740\u672b\u5c3e\u3002"));
+	hint_label->set_text(TTR("Enter an OpenAI-compatible server endpoint without a trailing slash.\n/chat/completions will be appended to the endpoint."));
 	hint_panel->add_child(hint_label);
 
 	HBoxContainer *model_header = memnew(HBoxContainer);
@@ -248,28 +244,28 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 	content->add_child(model_header);
 
 	Label *model_label = memnew(Label);
-	model_label->set_text(_ai_ui_text(u8"* \u6a21\u578b ID"));
+	model_label->set_text(TTR("* Model ID"));
 	model_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	model_header->add_child(model_label);
 
 	custom_multimodal = memnew(CheckButton);
-	custom_multimodal->set_text(_ai_ui_text(u8"\u591a\u6a21\u6001"));
+	custom_multimodal->set_text(TTR("Multimodal"));
 	custom_multimodal->set_pressed(true);
 	model_header->add_child(custom_multimodal);
 
 	custom_model_id = memnew(LineEdit);
 	custom_model_id->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	custom_model_id->set_placeholder(_ai_ui_text(u8"\u8f93\u5165\u6a21\u578b ID"));
+	custom_model_id->set_placeholder(TTR("Enter model ID"));
 	content->add_child(custom_model_id);
 
 	Label *key_label = memnew(Label);
-	key_label->set_text(_ai_ui_text(u8"* API \u5bc6\u94a5"));
+	key_label->set_text(TTR("* API Key"));
 	content->add_child(key_label);
 
 	custom_api_key = memnew(LineEdit);
 	custom_api_key->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	custom_api_key->set_secret(true);
-	custom_api_key->set_placeholder(_ai_ui_text(u8"\u8f93\u5165 API \u5bc6\u94a5"));
+	custom_api_key->set_placeholder(TTR("Enter API key"));
 	content->add_child(custom_api_key);
 
 	_build_advanced_config(content, false);
@@ -278,7 +274,7 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 	content->add_child(separator);
 
 	Button *add_button = memnew(Button);
-	add_button->set_text(_ai_ui_text(u8"\u6dfb\u52a0\u6a21\u578b"));
+	add_button->set_text(TTR("Add Model"));
 	add_button->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	add_button->connect(SceneStringName(pressed), callable_mp(this, &AIModelProfileDialog::_submit_pressed));
 	content->add_child(add_button);
@@ -461,12 +457,12 @@ void AIModelProfileDialog::_reset_form() {
 	editing_profile_id.clear();
 	editing_custom = false;
 
-	set_title(_ai_ui_text(u8"\u6dfb\u52a0\u6a21\u578b"));
+	set_title(TTR("Add Model"));
 	if (provider_model_submit_button) {
-		provider_model_submit_button->set_text(_ai_ui_text(u8"\u6dfb\u52a0\u6a21\u578b"));
+		provider_model_submit_button->set_text(TTR("Add Model"));
 	}
 	if (custom_model_submit_button) {
-		custom_model_submit_button->set_text(_ai_ui_text(u8"\u6dfb\u52a0\u6a21\u578b"));
+		custom_model_submit_button->set_text(TTR("Add Model"));
 	}
 	if (add_model_tabs) {
 		add_model_tabs->set_current_tab(0);
@@ -522,11 +518,11 @@ void AIModelProfileDialog::popup_edit_model(const AIModelProfile &p_profile) {
 	editing_model = true;
 	editing_profile_id = p_profile.id;
 	editing_custom = p_profile.custom;
-	set_title(_ai_ui_text(u8"\u7f16\u8f91\u6a21\u578b"));
+	set_title(TTR("Edit Model"));
 
 	if (p_profile.custom) {
 		if (custom_model_submit_button) {
-			custom_model_submit_button->set_text(_ai_ui_text(u8"\u4fdd\u5b58\u6a21\u578b"));
+			custom_model_submit_button->set_text(TTR("Save Model"));
 		}
 		if (add_model_tabs) {
 			add_model_tabs->set_current_tab(1);
@@ -555,7 +551,7 @@ void AIModelProfileDialog::popup_edit_model(const AIModelProfile &p_profile) {
 		_apply_advanced_config(p_profile, false);
 	} else {
 		if (provider_model_submit_button) {
-			provider_model_submit_button->set_text(_ai_ui_text(u8"\u4fdd\u5b58\u6a21\u578b"));
+			provider_model_submit_button->set_text(TTR("Save Model"));
 		}
 		if (add_model_tabs) {
 			add_model_tabs->set_current_tab(0);

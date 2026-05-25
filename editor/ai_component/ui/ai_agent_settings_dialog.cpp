@@ -6,7 +6,7 @@
 
 #include "editor/ai_component/ui/ai_settings_models_page.h"
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
-#include "editor/ai_component/ui/ai_settings_placeholder_page.h"
+#include "editor/ai_component/ui/ai_settings_rules_page.h"
 #include "editor/ai_component/ui/ai_settings_skills_page.h"
 
 #include "core/object/callable_mp.h"
@@ -16,19 +16,12 @@
 #include "scene/gui/box_container.h"
 #include "scene/gui/separator.h"
 
-namespace {
-
-String _ai_ui_text(const char *p_text) {
-	return String::utf8(p_text);
-}
-
-} // namespace
-
 void AIAgentSettingsDialog::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_save_settings"), &AIAgentSettingsDialog::_save_settings);
 	ADD_SIGNAL(MethodInfo("ai_settings_changed"));
 	ADD_SIGNAL(MethodInfo("ai_mcp_settings_changed"));
 	ADD_SIGNAL(MethodInfo("ai_skill_settings_changed"));
+	ADD_SIGNAL(MethodInfo("ai_rule_settings_changed"));
 }
 
 void AIAgentSettingsDialog::_notification(int p_what) {
@@ -50,7 +43,7 @@ void AIAgentSettingsDialog::_build_ui() {
 		return;
 	}
 
-	set_title(_ai_ui_text(u8"AI Agent \u8bbe\u7f6e"));
+	set_title(TTR("NEXT AI Agent Settings"));
 	set_min_size(Size2(1040, 640) * EDSCALE);
 
 	HBoxContainer *root = memnew(HBoxContainer);
@@ -66,7 +59,7 @@ void AIAgentSettingsDialog::_build_ui() {
 
 	_build_pages(root);
 
-	get_ok_button()->set_text(_ai_ui_text(u8"\u4fdd\u5b58"));
+	get_ok_button()->set_text(TTR("OK"));
 	connect("confirmed", callable_mp(this, &AIAgentSettingsDialog::_save_settings));
 }
 
@@ -85,13 +78,13 @@ void AIAgentSettingsDialog::_build_navigation(HBoxContainer *p_root) {
 	navigation->add_theme_constant_override("v_separation", int(14 * EDSCALE));
 	navigation->add_theme_constant_override("icon_margin", int(10 * EDSCALE));
 	navigation->add_theme_constant_override("line_separation", int(4 * EDSCALE));
-	navigation->add_item(_ai_ui_text(u8"\u6a21\u578b"), get_editor_theme_icon(SNAME("AIModel")));
+	navigation->add_item(TTR("LLM"), get_editor_theme_icon(SNAME("AIModel")));
 	navigation->set_item_metadata(PAGE_MODELS, PAGE_MODELS);
 	navigation->add_item(TTR("MCP"), get_editor_theme_icon(SNAME("AIMCP")));
 	navigation->set_item_metadata(PAGE_MCP, PAGE_MCP);
-	navigation->add_item(_ai_ui_text(u8"\u6280\u80fd"), get_editor_theme_icon(SNAME("AISkill")));
+	navigation->add_item(TTR("Skill"), get_editor_theme_icon(SNAME("AISkill")));
 	navigation->set_item_metadata(PAGE_SKILLS, PAGE_SKILLS);
-	navigation->add_item(_ai_ui_text(u8"\u89c4\u5219"), get_editor_theme_icon(SNAME("AIRules")));
+	navigation->add_item(TTR("Rules"), get_editor_theme_icon(SNAME("AIRules")));
 	navigation->set_item_metadata(PAGE_RULES, PAGE_RULES);
 	navigation->select(PAGE_MODELS);
 	navigation->connect(SceneStringName(item_selected), callable_mp(this, &AIAgentSettingsDialog::_navigation_selected));
@@ -106,7 +99,7 @@ void AIAgentSettingsDialog::_build_pages(HBoxContainer *p_root) {
 	p_root->add_child(pages);
 
 	models_page = memnew(AISettingsModelsPage);
-	models_page->set_name(_ai_ui_text(u8"\u6a21\u578b"));
+	models_page->set_name(TTR("LLM"));
 	models_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_model_settings));
 	pages->add_child(models_page);
 
@@ -116,14 +109,14 @@ void AIAgentSettingsDialog::_build_pages(HBoxContainer *p_root) {
 	pages->add_child(mcp_page);
 
 	skills_page = memnew(AISettingsSkillsPage);
-	skills_page->set_name(_ai_ui_text(u8"\u6280\u80fd"));
+	skills_page->set_name(TTR("Skill"));
 	skills_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_skill_settings));
 	pages->add_child(skills_page);
 
-	AISettingsPlaceholderPage *rules_page = memnew(AISettingsPlaceholderPage);
-	rules_page->set_name(_ai_ui_text(u8"\u89c4\u5219"));
+	rules_page = memnew(AISettingsRulesPage);
+	rules_page->set_name(TTR("Rules"));
+	rules_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_rule_settings));
 	pages->add_child(rules_page);
-	rules_page->set_placeholder_text(_ai_ui_text(u8"\u89c4\u5219\u914d\u7f6e\u6682\u672a\u5b9e\u73b0\u3002"));
 }
 
 void AIAgentSettingsDialog::_navigation_selected(int p_index) {
@@ -141,6 +134,7 @@ void AIAgentSettingsDialog::_save_settings() {
 	emit_signal(SNAME("ai_settings_changed"));
 	emit_signal(SNAME("ai_mcp_settings_changed"));
 	emit_signal(SNAME("ai_skill_settings_changed"));
+	emit_signal(SNAME("ai_rule_settings_changed"));
 }
 
 void AIAgentSettingsDialog::_save_model_settings() {
@@ -167,6 +161,14 @@ void AIAgentSettingsDialog::_save_skill_settings() {
 	emit_signal(SNAME("ai_skill_settings_changed"));
 }
 
+void AIAgentSettingsDialog::_save_rule_settings() {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	ERR_FAIL_NULL(settings);
+
+	settings->save();
+	emit_signal(SNAME("ai_rule_settings_changed"));
+}
+
 void AIAgentSettingsDialog::build_for_test() {
 	_build_ui();
 	if (models_page) {
@@ -177,6 +179,9 @@ void AIAgentSettingsDialog::build_for_test() {
 	}
 	if (skills_page) {
 		skills_page->build_for_test();
+	}
+	if (rules_page) {
+		rules_page->build_for_test();
 	}
 }
 
@@ -194,6 +199,10 @@ int AIAgentSettingsDialog::get_mcp_server_table_row_count_for_test() const {
 
 int AIAgentSettingsDialog::get_skill_table_row_count_for_test() const {
 	return skills_page ? skills_page->get_skill_table_row_count_for_test() : 0;
+}
+
+int AIAgentSettingsDialog::get_rule_table_row_count_for_test() const {
+	return rules_page ? rules_page->get_rule_table_row_count_for_test() : 0;
 }
 
 void AIAgentSettingsDialog::add_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
@@ -214,6 +223,11 @@ void AIAgentSettingsDialog::add_mcp_server_for_test(const String &p_display_name
 void AIAgentSettingsDialog::add_skill_for_test(const String &p_display_name, const String &p_description, const String &p_content, bool p_enabled) {
 	ERR_FAIL_NULL(skills_page);
 	skills_page->add_skill_for_test(p_display_name, p_description, p_content, p_enabled);
+}
+
+void AIAgentSettingsDialog::add_rule_for_test(const String &p_content, bool p_enabled) {
+	ERR_FAIL_NULL(rules_page);
+	rules_page->add_rule_for_test(p_content, p_enabled);
 }
 
 void AIAgentSettingsDialog::edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {

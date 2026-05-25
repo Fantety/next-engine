@@ -14,6 +14,7 @@
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
+#include "editor/ai_component/rules/ai_rules_context_provider.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/skills/ai_skill_context_provider.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
@@ -39,6 +40,7 @@ class AIAgentSession : public Node {
 	Ref<AIProjectTreeContextProvider> project_tree_context;
 	Ref<AIEditorContextProvider> editor_context;
 	Ref<AIBestPracticesContextProvider> best_practices_context;
+	Ref<AIRulesContextProvider> rules_context;
 	Ref<AISkillIndexContextProvider> skill_context;
 
 	int active_assistant_index = -1;

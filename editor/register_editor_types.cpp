@@ -153,6 +153,7 @@
 #include "editor/ai_component/providers/ai_mcp_stdio_client.h"
 #include "editor/ai_component/providers/ai_mcp_status_tracker.h"
 #include "editor/ai_component/review/ai_change_set_store.h"
+#include "editor/ai_component/rules/ai_rules_context_provider.h"
 #include "editor/ai_component/skills/ai_skill_context_provider.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/tools/ai_tool_execution_context.h"
@@ -172,6 +173,7 @@
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_models_page.h"
 #include "editor/ai_component/ui/ai_settings_placeholder_page.h"
+#include "editor/ai_component/ui/ai_settings_rules_page.h"
 #include "editor/ai_component/ui/ai_settings_skills_page.h"
 #include "editor/ai_component/ui/ai_text_diff_viewer.h"
 
@@ -265,6 +267,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIEditorContextProvider);
 	GDREGISTER_CLASS(AIFileContextProvider);
 	GDREGISTER_CLASS(AIProjectTreeContextProvider);
+	GDREGISTER_CLASS(AIRulesContextProvider);
 	GDREGISTER_CLASS(AISkillIndexContextProvider);
 	GDREGISTER_CLASS(AIChangeSetStore);
 	GDREGISTER_CLASS(AIConversationStore);
@@ -290,6 +293,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AISettingsMCPPage);
 	GDREGISTER_CLASS(AISettingsModelsPage);
 	GDREGISTER_CLASS(AISettingsPlaceholderPage);
+	GDREGISTER_CLASS(AISettingsRulesPage);
 	GDREGISTER_CLASS(AISettingsSkillsPage);
 	GDREGISTER_CLASS(AITextDiffViewer);
 

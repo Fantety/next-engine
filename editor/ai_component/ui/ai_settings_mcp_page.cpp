@@ -25,10 +25,6 @@
 
 namespace {
 
-String _ai_ui_text(const char *p_text) {
-	return String::utf8(p_text);
-}
-
 void _clear_children(Node *p_node) {
 	ERR_FAIL_NULL(p_node);
 	while (p_node->get_child_count() > 0) {
@@ -124,7 +120,7 @@ void AISettingsMCPPage::_build_ui() {
 	content->add_child(section_title);
 
 	Label *description = memnew(Label);
-	description->set_text(_ai_ui_text(u8"\u6dfb\u52a0 MCP Server \u914d\u7f6e\uff0c\u5e76\u9009\u62e9\u54ea\u4e9b Server \u53ef\u7528\u3002\u5df2\u542f\u7528\u7684 Server \u4f1a\u5728\u5bf9\u8bdd\u8fd0\u884c\u65f6\u53d1\u73b0\u5de5\u5177\uff0c\u5e76\u4ee5\u9700\u8981\u786e\u8ba4\u7684\u5916\u90e8\u5de5\u5177\u63d0\u4f9b\u7ed9 Agent\u3002"));
+	description->set_text(TTR("Add MCP server configurations and choose which servers are available. Enabled servers discover tools at runtime and expose them to the Agent as external tools that require confirmation."));
 	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	content->add_child(description);
@@ -134,7 +130,7 @@ void AISettingsMCPPage::_build_ui() {
 	content->add_child(toolbar);
 
 	add_server_button = memnew(Button);
-	add_server_button->set_text(_ai_ui_text(u8"+ \u6dfb\u52a0 MCP Server"));
+	add_server_button->set_text(TTR("Add MCP Server"));
 	add_server_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsMCPPage::_popup_add_server_dialog));
 	toolbar->add_child(add_server_button);
 
@@ -200,11 +196,11 @@ void AISettingsMCPPage::_refresh_server_table() {
 	status_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(status_header);
 
-	Label *enabled_header = _make_table_label(_ai_ui_text(u8"\u542f\u7528"), 70);
+	Label *enabled_header = _make_table_label(TTR("Enabled"), 70);
 	enabled_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(enabled_header);
 
-	Label *name_header = _make_table_label(_ai_ui_text(u8"\u540d\u79f0"));
+	Label *name_header = _make_table_label(TTR("Name"));
 	name_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(name_header);
 
@@ -216,7 +212,7 @@ void AISettingsMCPPage::_refresh_server_table() {
 	command_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(command_header);
 
-	Label *action_header = _make_table_label(_ai_ui_text(u8"\u64cd\u4f5c"), 150);
+	Label *action_header = _make_table_label(TTR("Actions"), 150);
 	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(action_header);
 
@@ -236,7 +232,7 @@ void AISettingsMCPPage::_refresh_server_table() {
 		server_table->add_child(empty_margin);
 
 		Label *empty_label = memnew(Label);
-		empty_label->set_text(_ai_ui_text(u8"\u6682\u65e0 MCP Server\uff0c\u4f60\u53ef\u4ee5\u70b9\u51fb\u6dfb\u52a0 MCP Server"));
+		empty_label->set_text(TTR("No MCP servers yet. Add a server to make external tools available to the AI Agent."));
 		empty_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 		empty_margin->add_child(empty_label);
 	}
@@ -291,12 +287,12 @@ void AISettingsMCPPage::_add_server_table_row(const AIMCPServerConfig &p_server,
 	row->add_child(action_cell);
 
 	Button *edit_button = memnew(Button);
-	edit_button->set_text(_ai_ui_text(u8"\u7f16\u8f91"));
+	edit_button->set_text(TTR("Edit"));
 	edit_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsMCPPage::_edit_server_pressed).bind(p_server.id), CONNECT_DEFERRED);
 	action_cell->add_child(edit_button);
 
 	Button *remove_button = memnew(Button);
-	remove_button->set_text(_ai_ui_text(u8"\u79fb\u9664"));
+	remove_button->set_text(TTR("Remove"));
 	remove_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsMCPPage::_remove_server_pressed).bind(p_server.id), CONNECT_DEFERRED);
 	action_cell->add_child(remove_button);
 

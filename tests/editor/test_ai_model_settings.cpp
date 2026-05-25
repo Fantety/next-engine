@@ -8,6 +8,7 @@
 #include "editor/ai_component/providers/ai_mcp_settings.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
+#include "editor/ai_component/rules/ai_rule_settings.h"
 #include "editor/ai_component/skills/ai_skill_settings.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
@@ -147,6 +148,23 @@ TEST_CASE("[Editor][AI] Agent settings dialog exposes skill rows") {
 	dialog.save_settings_for_test();
 
 	AISkillSettings::set_skill_storage_for_test(original_skills);
+}
+
+TEST_CASE("[Editor][AI] Agent settings dialog exposes rule rows") {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	REQUIRE(settings != nullptr);
+
+	Array original_rules = AIRuleSettings::get_rule_storage_for_test();
+	AIRuleSettings::clear_rules_for_test();
+
+	AIAgentSettingsDialog dialog;
+	dialog.build_for_test();
+	CHECK(dialog.get_rule_table_row_count_for_test() == 0);
+	dialog.add_rule_for_test("Always inspect errors before changing code.", true);
+	CHECK(dialog.get_rule_table_row_count_for_test() == 1);
+	dialog.save_settings_for_test();
+
+	AIRuleSettings::set_rule_storage_for_test(original_rules);
 }
 
 TEST_CASE("[Editor][AI] MCP settings import stdio and HTTP servers from JSON") {
