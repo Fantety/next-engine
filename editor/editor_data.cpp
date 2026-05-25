@@ -342,7 +342,7 @@ Dictionary EditorData::get_scene_editor_states_with_selection(int p_idx) const {
 		for (Node *node : es.selection) {
 			selected_paths.push_back(root->get_path_to(node));
 		}
-		states["selected_nodes"] = selected_paths;
+		states["$selected_nodes"] = selected_paths;
 	}
 	return states;
 }
@@ -356,19 +356,10 @@ void EditorData::set_editor_plugin_states(const Dictionary &p_states) {
 	}
 
 	for (const KeyValue<Variant, Variant> &kv : p_states) {
-		String name = kv.key;
-		int idx = -1;
-		for (int i = 0; i < editor_plugins.size(); i++) {
-			if (editor_plugins[i]->get_plugin_name() == name) {
-				idx = i;
-				break;
-			}
+		EditorPlugin *plugin = get_editor_by_name(kv.key);
+		if (plugin) {
+			plugin->set_state(kv.value);
 		}
-
-		if (idx == -1) {
-			continue;
-		}
-		editor_plugins[idx]->set_state(kv.value);
 	}
 }
 
@@ -407,8 +398,8 @@ void EditorData::load_editor_plugin_states_from_config(const Ref<ConfigFile> &p_
 	es.editor_states = states;
 
 	const Node *root = es.root;
-	if (root && p_config_file->has_section_key("editor_states", "selected_nodes")) {
-		TypedArray<NodePath> node_paths = p_config_file->get_value("editor_states", "selected_nodes");
+	if (root && p_config_file->has_section_key("editor_states", "$selected_nodes")) {
+		TypedArray<NodePath> node_paths = p_config_file->get_value("editor_states", "$selected_nodes");
 		List<Node *> nodes;
 
 		for (const Variant &np : node_paths) {
@@ -972,7 +963,7 @@ String EditorData::get_scene_path(int p_idx) const {
 	ERR_FAIL_INDEX_V(p_idx, edited_scene.size(), String());
 
 	if (edited_scene[p_idx].root) {
-		if (edited_scene[p_idx].root->get_scene_file_path().is_empty()) {
+		if (edited_scene[p_idx].root->get_scene_file_path().is_empty() && !edited_scene[p_idx].path.is_empty()) {
 			edited_scene[p_idx].root->set_scene_file_path(edited_scene[p_idx].path);
 		} else {
 			return edited_scene[p_idx].root->get_scene_file_path();

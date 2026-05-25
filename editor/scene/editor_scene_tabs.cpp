@@ -60,6 +60,7 @@ void EditorSceneTabs::_notification(int p_what) {
 			scene_tabs->add_theme_constant_override("icon_max_width", get_theme_constant(SNAME("class_icon_size"), EditorStringName(Editor)));
 
 			scene_list->set_button_icon(get_editor_theme_icon(SNAME("GuiTabMenuHl")));
+			_update_tab_titles();
 
 			scene_tab_add->set_button_icon(get_editor_theme_icon(SNAME("Add")));
 			scene_tab_add->add_theme_color_override("icon_normal_color", Color(0.6f, 0.6f, 0.6f, 0.8f));
@@ -415,12 +416,12 @@ void EditorSceneTabs::shortcut_input(const Ref<InputEvent> &p_event) {
 		if (ED_IS_SHORTCUT("editor/next_tab", p_event)) {
 			int next_tab = EditorNode::get_editor_data().get_edited_scene() + 1;
 			next_tab %= EditorNode::get_editor_data().get_edited_scene_count();
-			_scene_tab_changed(next_tab);
+			set_current_tab(next_tab);
 		}
 		if (ED_IS_SHORTCUT("editor/prev_tab", p_event)) {
 			int next_tab = EditorNode::get_editor_data().get_edited_scene() - 1;
 			next_tab = next_tab >= 0 ? next_tab : EditorNode::get_editor_data().get_edited_scene_count() - 1;
-			_scene_tab_changed(next_tab);
+			set_current_tab(next_tab);
 		}
 	}
 }
