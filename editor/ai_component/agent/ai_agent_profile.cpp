@@ -6,6 +6,7 @@
 
 static void _add_read_only_tools(AIAgentProfile &r_profile) {
 	r_profile.allowed_tools.insert("agent.activate_skill");
+	r_profile.allowed_tools.insert("agent.manage_plan");
 	r_profile.allowed_tools.insert("project.list_tree");
 	r_profile.allowed_tools.insert("project.read_file");
 	r_profile.allowed_tools.insert("project.search_text");

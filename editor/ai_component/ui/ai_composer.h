@@ -10,10 +10,13 @@
 #include "scene/gui/option_button.h"
 #include "scene/gui/text_edit.h"
 
+class AIPlanPanel;
+
 class AIComposer : public VBoxContainer {
 	GDCLASS(AIComposer, VBoxContainer);
 
 	TextEdit *input = nullptr;
+	AIPlanPanel *plan_panel = nullptr;
 	OptionButton *model_selector = nullptr;
 	OptionButton *mode_selector = nullptr;
 	Button *send_button = nullptr;

@@ -7,6 +7,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
+#include "editor/ai_component/ui/ai_plan_panel.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/label.h"
 #include "servers/text/text_server.h"
@@ -26,6 +27,9 @@ void AIComposer::_notification(int p_what) {
 AIComposer::AIComposer() {
 	set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	set_v_size_flags(Control::SIZE_SHRINK_END);
+
+	plan_panel = memnew(AIPlanPanel);
+	add_child(plan_panel);
 
 	input = memnew(TextEdit);
 	input->set_custom_minimum_size(Size2(0, 80) * EDSCALE);

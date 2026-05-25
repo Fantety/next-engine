@@ -23,6 +23,10 @@ static constexpr const char *SYSTEM_PROMPT =
 	"script.create and script.write validate GDScript syntax before writing. script.bind_to_node and script.unbind_from_node save the current scene after successful mutations.\n"
 	"script.delete always requires explicit user approval. Do not ask to delete scripts unless deletion is clearly necessary.\n"
 	"Use shader.apply_to_node for node shader work instead of manually editing scene files. Include a complete shader_type declaration in shader_code. Leave material_property empty for CanvasItem or GeometryInstance3D defaults, or pass an exact ShaderMaterial-compatible property path when needed.\n"
+	"For complex multi-step tasks, create a visible plan with agent.manage_plan before starting substantive work. Keep plans concise and task-oriented.\n"
+	"Only one active plan can exist at a time. Use agent.manage_plan to set the current task to in_progress, mark tasks completed as soon as they are done, and let the plan auto-archive when every task is completed.\n"
+	"Do not create a plan for trivial one-step tasks. Do not claim plan tasks are complete until the relevant work is actually done.\n"
+	"If the user's request or requirements are unclear, ask concise clarifying questions before taking action.\n"
 	"Do not claim that you modified files, created nodes, changed scenes, ran commands, or performed editor actions unless a tool result confirms it.\n"
 	"When project context is provided, use it carefully and mention uncertainty when context is incomplete.\n";
 }

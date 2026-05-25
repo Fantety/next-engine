@@ -148,6 +148,7 @@
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_file_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
+#include "editor/ai_component/planning/ai_plan_manager.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
 #include "editor/ai_component/providers/ai_mcp_stdio_client.h"
@@ -169,6 +170,7 @@
 #include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/ai_component/ui/ai_message_list.h"
+#include "editor/ai_component/ui/ai_plan_panel.h"
 #include "editor/ai_component/ui/ai_skill_dialog.h"
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_models_page.h"
@@ -268,6 +270,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIFileContextProvider);
 	GDREGISTER_CLASS(AIProjectTreeContextProvider);
 	GDREGISTER_CLASS(AIRulesContextProvider);
+	GDREGISTER_CLASS(AIPlanManager);
 	GDREGISTER_CLASS(AISkillIndexContextProvider);
 	GDREGISTER_CLASS(AIChangeSetStore);
 	GDREGISTER_CLASS(AIConversationStore);
@@ -289,6 +292,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIMarkdownLabel);
 	GDREGISTER_CLASS(AIMessageBubble);
 	GDREGISTER_CLASS(AIMessageList);
+	GDREGISTER_CLASS(AIPlanPanel);
 	GDREGISTER_CLASS(AISkillDialog);
 	GDREGISTER_CLASS(AISettingsMCPPage);
 	GDREGISTER_CLASS(AISettingsModelsPage);

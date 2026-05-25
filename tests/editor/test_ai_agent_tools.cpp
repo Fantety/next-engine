@@ -15,6 +15,8 @@
 #include "editor/ai_component/providers/ai_mcp_stdio_client.h"
 #include "editor/ai_component/providers/ai_mcp_status_tracker.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
+#include "editor/ai_component/planning/ai_manage_plan_tool.h"
+#include "editor/ai_component/planning/ai_plan_manager.h"
 #include "editor/ai_component/review/ai_change_set_store.h"
 #include "editor/ai_component/review/ai_diff_service.h"
 #include "editor/ai_component/rules/ai_rule_settings.h"
@@ -594,6 +596,7 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.read_file", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.search_text", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "agent.activate_skill", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::evaluate(plan, "agent.manage_plan", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.create_folder", arguments).decision == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.create_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
@@ -651,6 +654,133 @@ TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ASK) == "ask");
 	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_DENY) == "deny");
+}
+
+TEST_CASE("[Editor][AI] Plan manager keeps one active plan and archives completed work") {
+	Ref<AIPlanManager> manager = AIPlanManager::get_singleton();
+	manager->clear_for_test();
+
+	Array tasks;
+	tasks.push_back("Inspect context");
+	tasks.push_back("Implement feature");
+
+	String error;
+	CHECK(manager->create_plan("Planning support", tasks, error));
+	CHECK(error.is_empty());
+	CHECK(manager->has_active_plan());
+
+	Dictionary active_plan = manager->get_active_plan();
+	CHECK(String(active_plan["title"]) == "Planning support");
+	Array active_tasks = active_plan["tasks"];
+	REQUIRE(active_tasks.size() == 2);
+
+	Dictionary first_task = active_tasks[0];
+	Dictionary second_task = active_tasks[1];
+	CHECK(String(first_task["id"]) == "task:1");
+	CHECK(String(first_task["status"]) == "pending");
+
+	CHECK_FALSE(manager->create_plan("Second plan", tasks, error));
+	CHECK(error.contains("active plan"));
+
+	CHECK(manager->update_task(first_task["id"], "in_progress", error));
+	active_plan = manager->get_active_plan();
+	active_tasks = active_plan["tasks"];
+	first_task = active_tasks[0];
+	CHECK(String(first_task["status"]) == "in_progress");
+	CHECK(manager->has_active_plan());
+
+	CHECK_FALSE(manager->update_task(first_task["id"], "blocked", error));
+	CHECK(error.contains("status"));
+
+	CHECK(manager->update_task(first_task["id"], "completed", error));
+	CHECK(manager->has_active_plan());
+
+	CHECK(manager->update_task(second_task["id"], "completed", error));
+	CHECK_FALSE(manager->has_active_plan());
+	CHECK(manager->get_active_plan().is_empty());
+
+	Dictionary archived_plan = manager->get_archived_plan();
+	CHECK(String(archived_plan["title"]) == "Planning support");
+	Array archived_tasks = archived_plan["tasks"];
+	REQUIRE(archived_tasks.size() == 2);
+	Dictionary archived_first_task = archived_tasks[0];
+	Dictionary archived_second_task = archived_tasks[1];
+	CHECK(String(archived_first_task["status"]) == "completed");
+	CHECK(String(archived_second_task["status"]) == "completed");
+
+	manager->clear_for_test();
+}
+
+TEST_CASE("[Editor][AI] Manage plan tool exposes plan state metadata") {
+	Ref<AIPlanManager> manager = AIPlanManager::get_singleton();
+	manager->clear_for_test();
+
+	Ref<AIManagePlanTool> tool;
+	tool.instantiate();
+
+	CHECK(tool->get_name() == "agent.manage_plan");
+	Dictionary schema = tool->get_parameters_schema();
+	Dictionary properties = schema["properties"];
+	CHECK(properties.has("action"));
+	CHECK(properties.has("tasks"));
+	CHECK(properties.has("task_id"));
+	CHECK(properties.has("status"));
+
+	Dictionary create_args;
+	create_args["action"] = "create";
+	create_args["title"] = "Tool plan";
+	Array tasks;
+	tasks.push_back("First task");
+	tasks.push_back("Second task");
+	create_args["tasks"] = tasks;
+
+	AIToolResult create_result = tool->execute(create_args);
+	CHECK_FALSE(create_result.is_error());
+	CHECK(create_result.content.contains("Created active plan."));
+	CHECK(create_result.content.contains("task:1"));
+	CHECK(String(create_result.metadata["plan_action"]) == "create");
+	Dictionary active_plan = create_result.metadata["active_plan"];
+	CHECK(String(active_plan["title"]) == "Tool plan");
+
+	Array active_tasks = active_plan["tasks"];
+	REQUIRE(active_tasks.size() == 2);
+	Dictionary first_task = active_tasks[0];
+	Dictionary second_task = active_tasks[1];
+	const String first_task_id = String(first_task["id"]);
+	const String second_task_id = String(second_task["id"]);
+
+	Dictionary update_args;
+	update_args["action"] = "set_task_status";
+	update_args["task_id"] = first_task_id;
+	update_args["status"] = "completed";
+	AIToolResult update_result = tool->execute(update_args);
+	CHECK_FALSE(update_result.is_error());
+	CHECK(update_result.content.contains("Updated plan task."));
+	CHECK(update_result.content.contains("completed"));
+	CHECK(String(update_result.metadata["plan_action"]) == "set_task_status");
+	Dictionary updated_active_plan = update_result.metadata["active_plan"];
+	CHECK_FALSE(updated_active_plan.is_empty());
+
+	update_args["task_id"] = second_task_id;
+	AIToolResult archive_result = tool->execute(update_args);
+	CHECK_FALSE(archive_result.is_error());
+	CHECK(archive_result.content.contains("archived"));
+	Dictionary final_active_plan = archive_result.metadata["active_plan"];
+	Dictionary archived_tool_plan = archive_result.metadata["archived_plan"];
+	CHECK(final_active_plan.is_empty());
+	CHECK_FALSE(archived_tool_plan.is_empty());
+	CHECK_FALSE(manager->has_active_plan());
+
+	Dictionary missing_status_args;
+	missing_status_args["action"] = "set_task_status";
+	missing_status_args["task_id"] = "task:1";
+	CHECK(tool->execute(missing_status_args).is_error());
+
+	Dictionary unsupported_args;
+	unsupported_args["action"] = "unknown";
+	CHECK(tool->execute(unsupported_args).is_error());
+
+	manager->clear_for_test();
 }
 
 TEST_CASE("[Editor][AI] Rule settings manage bounded prompt rules") {

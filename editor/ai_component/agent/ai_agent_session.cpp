@@ -11,6 +11,7 @@
 #include "core/templates/local_vector.h"
 
 #include "editor/ai_component/agent/ai_mcp_service.h"
+#include "editor/ai_component/planning/ai_manage_plan_tool.h"
 #include "editor/ai_component/skills/ai_activate_skill_tool.h"
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
@@ -602,6 +603,11 @@ void AIAgentSession::_configure_tool_runtime() {
 	activate_skill_tool.instantiate();
 	tool_registry->register_tool(activate_skill_tool);
 	print_line("[AI Agent][Session] Registered tool: agent.activate_skill");
+
+	Ref<AIManagePlanTool> manage_plan_tool;
+	manage_plan_tool.instantiate();
+	tool_registry->register_tool(manage_plan_tool);
+	print_line("[AI Agent][Session] Registered tool: agent.manage_plan");
 
 	Ref<AISceneCreateSceneTool> create_scene_tool;
 	create_scene_tool.instantiate();
