@@ -204,7 +204,7 @@ bool AIOpenAIHTTPRuntimeTransport::request_chat_completion(const AIProviderConfi
 	headers.push_back("Content-Type: application/json");
 	headers.push_back("Accept: application/json");
 
-	PackedByteArray body = AIOpenAICompatibleCodec::build_body(p_messages, p_config.model, p_tool_schemas, false);
+	PackedByteArray body = AIOpenAICompatibleCodec::build_body(p_messages, p_config.model, p_tool_schemas, false, p_config.max_output_tokens);
 	print_line(vformat("[AI Agent][HTTP] Sending POST %s body_bytes=%d", request_path, (int)body.size()));
 	err = client->request(HTTPClient::METHOD_POST, request_path, headers, body.ptr(), body.size());
 	if (err != OK) {
@@ -351,7 +351,7 @@ bool AIOpenAIHTTPRuntimeTransport::request_chat_completion_stream(const AIProvid
 	headers.push_back("Accept: text/event-stream");
 	headers.push_back("Cache-Control: no-cache");
 
-	PackedByteArray body = AIOpenAICompatibleCodec::build_body(p_messages, p_config.model, p_tool_schemas, true);
+	PackedByteArray body = AIOpenAICompatibleCodec::build_body(p_messages, p_config.model, p_tool_schemas, true, p_config.max_output_tokens);
 	print_line(vformat("[AI Agent][HTTP] Sending streaming POST %s body_bytes=%d", request_path, (int)body.size()));
 	err = client->request(HTTPClient::METHOD_POST, request_path, headers, body.ptr(), body.size());
 	if (err != OK) {

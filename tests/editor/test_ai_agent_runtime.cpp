@@ -888,7 +888,7 @@ TEST_CASE("[Editor][AI] Agent runtime defaults to bounded provider and tool-call
 	Ref<AIAgentRuntime> runtime;
 	runtime.instantiate();
 
-	CHECK(runtime->get_max_provider_turns() == 12);
+	CHECK(runtime->get_max_provider_turns() == 255);
 	CHECK(runtime->get_max_tool_calls() == 60);
 }
 
@@ -1034,6 +1034,51 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	CHECK(session->get_agent_profile_id() == "plan");
 	CHECK(session->get_agent_runtime()->get_profile().id == "plan");
 
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] Agent session applies provider advanced configuration to runtime") {
+	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_provider_advanced_config");
+
+	AIProviderConfig config;
+	config.provider_name = "Advanced Test";
+	config.model = "advanced-model";
+	config.base_url = "https://advanced.example.test/v1";
+	config.api_key = "advanced-key";
+	config.timeout_seconds = 64;
+	config.max_input_chars = 77777;
+	config.max_context_chars = 11111;
+	config.max_history_chars = 22222;
+	config.max_tool_result_chars = 3333;
+	config.min_recent_messages = 5;
+	config.max_provider_turns = 13;
+	config.max_tool_calls = 9;
+	config.max_output_tokens = 2048;
+
+	session->configure_provider(config);
+
+	Ref<AIAgentRuntime> runtime = session->get_agent_runtime();
+	REQUIRE(runtime.is_valid());
+	CHECK(runtime->get_max_provider_turns() == 13);
+	CHECK(runtime->get_max_tool_calls() == 9);
+
+	Ref<AIContextManager> context_manager = runtime->get_context_manager();
+	REQUIRE(context_manager.is_valid());
+	CHECK(context_manager->get_max_input_chars() == 77777);
+	CHECK(context_manager->get_max_context_chars() == 11111);
+	CHECK(context_manager->get_max_history_chars() == 22222);
+	CHECK(context_manager->get_max_tool_result_chars() == 3333);
+	CHECK(context_manager->get_min_recent_messages() == 5);
+
+	AIOpenAICompatibleRuntimeClient *runtime_client = Object::cast_to<AIOpenAICompatibleRuntimeClient>(*runtime->get_client());
+	REQUIRE(runtime_client != nullptr);
+	AIProviderConfig client_config = runtime_client->get_config();
+	CHECK(client_config.model == "advanced-model");
+	CHECK(client_config.timeout_seconds == 64);
+	CHECK(client_config.max_output_tokens == 2048);
+
+	session->delete_session(session->get_session_id());
 	memdelete(session);
 }
 
@@ -1355,6 +1400,10 @@ TEST_CASE("[Editor][AI] OpenAI-compatible codec builds non-streaming tool reques
 	CHECK(body_text.contains("\"stream\":false"));
 	CHECK(body_text.contains("\"tools\""));
 	CHECK(body_text.contains("\"test.echo\""));
+	CHECK_FALSE(body_text.contains("\"max_tokens\""));
+
+	String limited_body_text = String::utf8(reinterpret_cast<const char *>(AIOpenAICompatibleCodec::build_body(messages, "test-model", registry->get_tool_schemas(), false, 4096).ptr()));
+	CHECK(limited_body_text.contains("\"max_tokens\":4096"));
 }
 
 TEST_CASE("[Editor][AI] OpenAI-compatible codec parses native tool call responses") {

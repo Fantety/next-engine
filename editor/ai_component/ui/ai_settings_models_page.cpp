@@ -270,20 +270,22 @@ void AISettingsModelsPage::_profile_submitted() {
 
 	if (!profile_dialog->is_editing_custom_model() && !profile.custom) {
 		if (profile_dialog->is_editing_model()) {
-			AIModelSettings::update_model_profile(profile_dialog->get_editing_profile_id(), profile.display_name, profile.provider_id, profile.model, profile.api_key, profile.base_url, false);
+			profile.id = profile_dialog->get_editing_profile_id();
+			AIModelSettings::update_model_profile_config(profile);
 		} else {
-			(void)AIModelSettings::add_model_profile(profile.display_name, profile.provider_id, profile.model, profile.api_key, profile.base_url, false);
+			(void)AIModelSettings::add_model_profile_config(profile);
 		}
 	} else {
 		const String editing_profile_id = profile_dialog->get_editing_profile_id();
 		if (profile_dialog->is_editing_model() && profile_dialog->is_editing_custom_model()) {
 			AIModelProfile previous_profile = AIModelSettings::get_model_profile(editing_profile_id);
-			AIModelSettings::update_model_profile(editing_profile_id, profile.display_name, profile.provider_id, profile.model, profile.api_key, profile.base_url, true);
+			profile.id = editing_profile_id;
+			AIModelSettings::update_model_profile_config(profile);
 			if (!previous_profile.id.is_empty() && previous_profile.model != profile.model) {
 				_remove_custom_model_if_unused(previous_profile.provider_id, previous_profile.model, previous_profile.id);
 			}
 		} else {
-			(void)AIModelSettings::add_model_profile(profile.display_name, profile.provider_id, profile.model, profile.api_key, profile.base_url, true);
+			(void)AIModelSettings::add_model_profile_config(profile);
 		}
 		_append_custom_model(profile.provider_id, profile.model);
 	}
@@ -355,6 +357,11 @@ int AISettingsModelsPage::get_custom_model_table_row_count_for_test() const {
 
 void AISettingsModelsPage::add_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
 	(void)AIModelSettings::add_model_profile(String(), p_provider_id, p_model, p_api_key, AIModelSettings::get_provider_base_url(p_provider_id), false);
+	_refresh_model_table();
+}
+
+void AISettingsModelsPage::add_provider_model_for_test(const AIModelProfile &p_profile) {
+	(void)AIModelSettings::add_model_profile_config(p_profile);
 	_refresh_model_table();
 }
 

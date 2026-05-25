@@ -91,6 +91,18 @@ void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
 	if (runtime_client.is_valid()) {
 		runtime_client->set_config(p_config);
 	}
+	if (runtime.is_valid()) {
+		runtime->set_max_provider_turns(p_config.max_provider_turns);
+		runtime->set_max_tool_calls(p_config.max_tool_calls);
+	}
+	if (runtime.is_valid() && runtime->get_context_manager().is_valid()) {
+		Ref<AIContextManager> context_manager = runtime->get_context_manager();
+		context_manager->set_max_input_chars(p_config.max_input_chars);
+		context_manager->set_max_context_chars(p_config.max_context_chars);
+		context_manager->set_max_history_chars(p_config.max_history_chars);
+		context_manager->set_max_tool_result_chars(p_config.max_tool_result_chars);
+		context_manager->set_min_recent_messages(p_config.min_recent_messages);
+	}
 }
 
 void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {

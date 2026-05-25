@@ -13,7 +13,10 @@
 #include "scene/gui/label.h"
 #include "scene/gui/margin_container.h"
 #include "scene/gui/panel_container.h"
+#include "scene/gui/scroll_container.h"
+#include "scene/gui/spin_box.h"
 #include "scene/gui/separator.h"
+#include "servers/text/text_server.h"
 
 namespace {
 
@@ -41,6 +44,30 @@ void _select_option_metadata(OptionButton *p_option, const String &p_metadata) {
 String _ai_ui_text(const char *p_text) {
 	return String::utf8(p_text);
 }
+
+VBoxContainer *_make_tab_scroll_content(Control *p_page) {
+	ScrollContainer *scroll = memnew(ScrollContainer);
+	scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	scroll->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	scroll->set_horizontal_scroll_mode(ScrollContainer::SCROLL_MODE_DISABLED);
+	p_page->add_child(scroll);
+
+	VBoxContainer *content = memnew(VBoxContainer);
+	content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	content->add_theme_constant_override("separation", 10 * EDSCALE);
+	scroll->add_child(content);
+	return content;
+}
+
+const int DEFAULT_MAX_INPUT_CHARS = 96000;
+const int DEFAULT_MAX_CONTEXT_CHARS = 24000;
+const int DEFAULT_MAX_HISTORY_CHARS = 64000;
+const int DEFAULT_MAX_TOOL_RESULT_CHARS = 16000;
+const int DEFAULT_MIN_RECENT_MESSAGES = 4;
+const int DEFAULT_MAX_PROVIDER_TURNS = 255;
+const int DEFAULT_MAX_TOOL_CALLS = 60;
+const int DEFAULT_MAX_OUTPUT_TOKENS = 0;
+const int DEFAULT_TIMEOUT_SECONDS = 180;
 
 } // namespace
 
@@ -99,10 +126,7 @@ void AIModelProfileDialog::_build_provider_add_tab(Control *p_page) {
 		margin->add_theme_constant_override("margin_top", 12 * EDSCALE);
 	}
 
-	VBoxContainer *content = memnew(VBoxContainer);
-	content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	content->add_theme_constant_override("separation", 10 * EDSCALE);
-	p_page->add_child(content);
+	VBoxContainer *content = _make_tab_scroll_content(p_page);
 
 	Label *name_label = memnew(Label);
 	name_label->set_text(_ai_ui_text(u8"* \u914d\u7f6e\u540d\u79f0"));
@@ -142,14 +166,7 @@ void AIModelProfileDialog::_build_provider_add_tab(Control *p_page) {
 	provider_model_api_key->set_placeholder(_ai_ui_text(u8"\u8f93\u5165 API \u5bc6\u94a5"));
 	content->add_child(provider_model_api_key);
 
-	Label *advanced_label = memnew(Label);
-	advanced_label->set_text(_ai_ui_text(u8"> \u9ad8\u7ea7\u914d\u7f6e"));
-	content->add_child(advanced_label);
-
-	Label *advanced_description = memnew(Label);
-	advanced_description->set_text(_ai_ui_text(u8"\u5305\u542b\u6a21\u578b\u7cfb\u5217\uff08\u4f18\u5316\u7684 Prompt \u548c\u8d85\u53c2\uff09\u3001\u5c55\u793a\u540d\u79f0\u3001\u4e0a\u4e0b\u6587\u7a97\u53e3\u7b49\u914d\u7f6e\u3002"));
-	advanced_description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
-	content->add_child(advanced_description);
+	_build_advanced_config(content, true);
 
 	HSeparator *separator = memnew(HSeparator);
 	content->add_child(separator);
@@ -178,10 +195,7 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 		margin->add_theme_constant_override("margin_top", 12 * EDSCALE);
 	}
 
-	VBoxContainer *content = memnew(VBoxContainer);
-	content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	content->add_theme_constant_override("separation", 10 * EDSCALE);
-	p_page->add_child(content);
+	VBoxContainer *content = _make_tab_scroll_content(p_page);
 
 	Label *name_label = memnew(Label);
 	name_label->set_text(_ai_ui_text(u8"* \u914d\u7f6e\u540d\u79f0"));
@@ -258,14 +272,7 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 	custom_api_key->set_placeholder(_ai_ui_text(u8"\u8f93\u5165 API \u5bc6\u94a5"));
 	content->add_child(custom_api_key);
 
-	Label *advanced_label = memnew(Label);
-	advanced_label->set_text(_ai_ui_text(u8"> \u9ad8\u7ea7\u914d\u7f6e"));
-	content->add_child(advanced_label);
-
-	Label *advanced_description = memnew(Label);
-	advanced_description->set_text(_ai_ui_text(u8"\u5305\u542b\u6a21\u578b\u7cfb\u5217\uff08\u4f18\u5316\u7684 Prompt \u548c\u8d85\u53c2\uff09\u3001\u5c55\u793a\u540d\u79f0\u3001\u4e0a\u4e0b\u6587\u7a97\u53e3\u7b49\u914d\u7f6e\u3002"));
-	advanced_description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
-	content->add_child(advanced_description);
+	_build_advanced_config(content, false);
 
 	HSeparator *separator = memnew(HSeparator);
 	content->add_child(separator);
@@ -276,6 +283,152 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 	add_button->connect(SceneStringName(pressed), callable_mp(this, &AIModelProfileDialog::_submit_pressed));
 	content->add_child(add_button);
 	custom_model_submit_button = add_button;
+}
+
+SpinBox *AIModelProfileDialog::_add_advanced_spinbox(VBoxContainer *p_content, const String &p_label, int p_default_value, int p_min_value, int p_max_value, const String &p_tooltip) {
+	HBoxContainer *row = memnew(HBoxContainer);
+	row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	row->add_theme_constant_override("separation", 8 * EDSCALE);
+	p_content->add_child(row);
+
+	Label *label = memnew(Label);
+	label->set_text(p_label);
+	label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
+	if (!p_tooltip.is_empty()) {
+		label->set_tooltip_text(p_tooltip);
+	}
+	row->add_child(label);
+
+	SpinBox *spinbox = memnew(SpinBox);
+	spinbox->set_h_size_flags(Control::SIZE_SHRINK_END);
+	spinbox->set_custom_minimum_size(Size2(150, 0) * EDSCALE);
+	spinbox->set_min(p_min_value);
+	spinbox->set_max(p_max_value);
+	spinbox->set_step(1);
+	spinbox->set_value(p_default_value);
+	spinbox->set_update_on_text_changed(true);
+	if (!p_tooltip.is_empty()) {
+		spinbox->set_tooltip_text(p_tooltip);
+	}
+	row->add_child(spinbox);
+	return spinbox;
+}
+
+void AIModelProfileDialog::_build_advanced_config(VBoxContainer *p_content, bool p_provider_tab) {
+	HSeparator *separator = memnew(HSeparator);
+	p_content->add_child(separator);
+
+	Label *advanced_label = memnew(Label);
+	advanced_label->set_text(TTR("Advanced Configuration"));
+	advanced_label->add_theme_font_size_override(SceneStringName(font_size), int(14 * EDSCALE));
+	p_content->add_child(advanced_label);
+
+	Label *advanced_description = memnew(Label);
+	advanced_description->set_text(TTR("Uses the current Agent defaults. Output tokens set to 0 does not send max_tokens."));
+	advanced_description->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	advanced_description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
+	advanced_description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	p_content->add_child(advanced_description);
+
+	SpinBox *max_input_chars = _add_advanced_spinbox(p_content, TTR("Input Context Characters"), DEFAULT_MAX_INPUT_CHARS, 256, 2000000, TTR("Maximum estimated input characters sent to the model."));
+	SpinBox *max_context_chars = _add_advanced_spinbox(p_content, TTR("Project/Skill Context Characters"), DEFAULT_MAX_CONTEXT_CHARS, 128, 1000000, TTR("Maximum characters kept from static project and skill context."));
+	SpinBox *max_history_chars = _add_advanced_spinbox(p_content, TTR("History Characters"), DEFAULT_MAX_HISTORY_CHARS, 128, 2000000, TTR("Maximum conversation history characters kept in model requests."));
+	SpinBox *max_tool_result_chars = _add_advanced_spinbox(p_content, TTR("Tool Result Characters"), DEFAULT_MAX_TOOL_RESULT_CHARS, 64, 1000000, TTR("Maximum characters kept from each tool result before it enters context."));
+	SpinBox *min_recent_messages = _add_advanced_spinbox(p_content, TTR("Minimum Recent Messages"), DEFAULT_MIN_RECENT_MESSAGES, 1, 1000, TTR("Recent messages to preserve when history exceeds the character budget."));
+	SpinBox *max_provider_turns = _add_advanced_spinbox(p_content, TTR("Provider Turns"), DEFAULT_MAX_PROVIDER_TURNS, 1, 1000, TTR("Maximum consecutive model calls in one agent request."));
+	SpinBox *max_tool_calls = _add_advanced_spinbox(p_content, TTR("Tool Calls"), DEFAULT_MAX_TOOL_CALLS, 1, 1000, TTR("Maximum tool executions in one agent request."));
+	SpinBox *max_output_tokens = _add_advanced_spinbox(p_content, TTR("Output Tokens"), DEFAULT_MAX_OUTPUT_TOKENS, 0, 1000000, TTR("0 means max_tokens is not sent to OpenAI-compatible requests."));
+	SpinBox *timeout_seconds = _add_advanced_spinbox(p_content, TTR("Request Timeout"), DEFAULT_TIMEOUT_SECONDS, 1, 3600, TTR("Connection and read timeout in seconds."));
+
+	if (p_provider_tab) {
+		provider_max_input_chars = max_input_chars;
+		provider_max_context_chars = max_context_chars;
+		provider_max_history_chars = max_history_chars;
+		provider_max_tool_result_chars = max_tool_result_chars;
+		provider_min_recent_messages = min_recent_messages;
+		provider_max_provider_turns = max_provider_turns;
+		provider_max_tool_calls = max_tool_calls;
+		provider_max_output_tokens = max_output_tokens;
+		provider_timeout_seconds = timeout_seconds;
+	} else {
+		custom_max_input_chars = max_input_chars;
+		custom_max_context_chars = max_context_chars;
+		custom_max_history_chars = max_history_chars;
+		custom_max_tool_result_chars = max_tool_result_chars;
+		custom_min_recent_messages = min_recent_messages;
+		custom_max_provider_turns = max_provider_turns;
+		custom_max_tool_calls = max_tool_calls;
+		custom_max_output_tokens = max_output_tokens;
+		custom_timeout_seconds = timeout_seconds;
+	}
+}
+
+void AIModelProfileDialog::_reset_advanced_config(bool p_provider_tab) {
+	AIModelProfile defaults;
+	_apply_advanced_config(defaults, p_provider_tab);
+}
+
+void AIModelProfileDialog::_apply_advanced_config(const AIModelProfile &p_profile, bool p_provider_tab) {
+	SpinBox *max_input_chars = p_provider_tab ? provider_max_input_chars : custom_max_input_chars;
+	SpinBox *max_context_chars = p_provider_tab ? provider_max_context_chars : custom_max_context_chars;
+	SpinBox *max_history_chars = p_provider_tab ? provider_max_history_chars : custom_max_history_chars;
+	SpinBox *max_tool_result_chars = p_provider_tab ? provider_max_tool_result_chars : custom_max_tool_result_chars;
+	SpinBox *min_recent_messages = p_provider_tab ? provider_min_recent_messages : custom_min_recent_messages;
+	SpinBox *max_provider_turns = p_provider_tab ? provider_max_provider_turns : custom_max_provider_turns;
+	SpinBox *max_tool_calls = p_provider_tab ? provider_max_tool_calls : custom_max_tool_calls;
+	SpinBox *max_output_tokens = p_provider_tab ? provider_max_output_tokens : custom_max_output_tokens;
+	SpinBox *timeout_seconds = p_provider_tab ? provider_timeout_seconds : custom_timeout_seconds;
+
+	if (max_input_chars) {
+		max_input_chars->set_value(p_profile.max_input_chars);
+	}
+	if (max_context_chars) {
+		max_context_chars->set_value(p_profile.max_context_chars);
+	}
+	if (max_history_chars) {
+		max_history_chars->set_value(p_profile.max_history_chars);
+	}
+	if (max_tool_result_chars) {
+		max_tool_result_chars->set_value(p_profile.max_tool_result_chars);
+	}
+	if (min_recent_messages) {
+		min_recent_messages->set_value(p_profile.min_recent_messages);
+	}
+	if (max_provider_turns) {
+		max_provider_turns->set_value(p_profile.max_provider_turns);
+	}
+	if (max_tool_calls) {
+		max_tool_calls->set_value(p_profile.max_tool_calls);
+	}
+	if (max_output_tokens) {
+		max_output_tokens->set_value(p_profile.max_output_tokens);
+	}
+	if (timeout_seconds) {
+		timeout_seconds->set_value(p_profile.timeout_seconds);
+	}
+}
+
+void AIModelProfileDialog::_read_advanced_config(AIModelProfile &r_profile, bool p_provider_tab) const {
+	SpinBox *max_input_chars = p_provider_tab ? provider_max_input_chars : custom_max_input_chars;
+	SpinBox *max_context_chars = p_provider_tab ? provider_max_context_chars : custom_max_context_chars;
+	SpinBox *max_history_chars = p_provider_tab ? provider_max_history_chars : custom_max_history_chars;
+	SpinBox *max_tool_result_chars = p_provider_tab ? provider_max_tool_result_chars : custom_max_tool_result_chars;
+	SpinBox *min_recent_messages = p_provider_tab ? provider_min_recent_messages : custom_min_recent_messages;
+	SpinBox *max_provider_turns = p_provider_tab ? provider_max_provider_turns : custom_max_provider_turns;
+	SpinBox *max_tool_calls = p_provider_tab ? provider_max_tool_calls : custom_max_tool_calls;
+	SpinBox *max_output_tokens = p_provider_tab ? provider_max_output_tokens : custom_max_output_tokens;
+	SpinBox *timeout_seconds = p_provider_tab ? provider_timeout_seconds : custom_timeout_seconds;
+
+	r_profile.max_input_chars = max_input_chars ? (int)max_input_chars->get_value() : DEFAULT_MAX_INPUT_CHARS;
+	r_profile.max_context_chars = max_context_chars ? (int)max_context_chars->get_value() : DEFAULT_MAX_CONTEXT_CHARS;
+	r_profile.max_history_chars = max_history_chars ? (int)max_history_chars->get_value() : DEFAULT_MAX_HISTORY_CHARS;
+	r_profile.max_tool_result_chars = max_tool_result_chars ? (int)max_tool_result_chars->get_value() : DEFAULT_MAX_TOOL_RESULT_CHARS;
+	r_profile.min_recent_messages = min_recent_messages ? (int)min_recent_messages->get_value() : DEFAULT_MIN_RECENT_MESSAGES;
+	r_profile.max_provider_turns = max_provider_turns ? (int)max_provider_turns->get_value() : DEFAULT_MAX_PROVIDER_TURNS;
+	r_profile.max_tool_calls = max_tool_calls ? (int)max_tool_calls->get_value() : DEFAULT_MAX_TOOL_CALLS;
+	r_profile.max_output_tokens = max_output_tokens ? (int)max_output_tokens->get_value() : DEFAULT_MAX_OUTPUT_TOKENS;
+	r_profile.timeout_seconds = timeout_seconds ? (int)timeout_seconds->get_value() : DEFAULT_TIMEOUT_SECONDS;
 }
 
 void AIModelProfileDialog::_provider_model_provider_selected(int p_index) {
@@ -346,6 +499,8 @@ void AIModelProfileDialog::_reset_form() {
 	if (custom_multimodal) {
 		custom_multimodal->set_pressed(true);
 	}
+	_reset_advanced_config(true);
+	_reset_advanced_config(false);
 }
 
 void AIModelProfileDialog::popup_add_model() {
@@ -397,6 +552,7 @@ void AIModelProfileDialog::popup_edit_model(const AIModelProfile &p_profile) {
 		if (custom_multimodal) {
 			custom_multimodal->set_pressed(true);
 		}
+		_apply_advanced_config(p_profile, false);
 	} else {
 		if (provider_model_submit_button) {
 			provider_model_submit_button->set_text(_ai_ui_text(u8"\u4fdd\u5b58\u6a21\u578b"));
@@ -417,6 +573,7 @@ void AIModelProfileDialog::popup_edit_model(const AIModelProfile &p_profile) {
 		if (provider_model_api_key) {
 			provider_model_api_key->set_text(p_profile.api_key);
 		}
+		_apply_advanced_config(p_profile, true);
 	}
 
 	popup_centered(Size2(680, 560) * EDSCALE);
@@ -452,6 +609,7 @@ AIModelProfile AIModelProfileDialog::get_submitted_profile() const {
 		profile.api_key = provider_model_api_key ? provider_model_api_key->get_text().strip_edges() : String();
 		profile.base_url = AIModelSettings::get_provider_base_url(profile.provider_id);
 		profile.custom = false;
+		_read_advanced_config(profile, true);
 	} else {
 		profile.model = custom_model_id ? custom_model_id->get_text().strip_edges() : String();
 		if (profile.model.is_empty()) {
@@ -463,6 +621,7 @@ AIModelProfile AIModelProfileDialog::get_submitted_profile() const {
 		profile.api_key = custom_api_key ? custom_api_key->get_text().strip_edges() : String();
 		profile.base_url = custom_base_url ? custom_base_url->get_text().strip_edges() : String();
 		profile.custom = true;
+		_read_advanced_config(profile, false);
 	}
 
 	return profile;

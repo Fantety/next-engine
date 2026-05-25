@@ -201,17 +201,20 @@ String AIOpenAICompatibleCodec::build_request_path(const String &p_base_path) {
 	return path + "/chat/completions";
 }
 
-PackedByteArray AIOpenAICompatibleCodec::build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas, bool p_stream) {
-	return _build_body(p_messages, p_model, p_tool_schemas, p_stream);
+PackedByteArray AIOpenAICompatibleCodec::build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas, bool p_stream, int p_max_output_tokens) {
+	return _build_body(p_messages, p_model, p_tool_schemas, p_stream, p_max_output_tokens);
 }
 
-PackedByteArray AIOpenAICompatibleCodec::_build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas, bool p_stream) {
+PackedByteArray AIOpenAICompatibleCodec::_build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas, bool p_stream, int p_max_output_tokens) {
 	Dictionary body;
 	body["model"] = p_model;
 	body["stream"] = p_stream;
 	body["messages"] = p_messages;
 	if (!p_tool_schemas.is_empty()) {
 		body["tools"] = p_tool_schemas;
+	}
+	if (p_max_output_tokens > 0) {
+		body["max_tokens"] = p_max_output_tokens;
 	}
 	return JSON::stringify(body).to_utf8_buffer();
 }

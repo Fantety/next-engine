@@ -291,6 +291,77 @@ TEST_CASE("[Editor][AI] Model profiles allow duplicate provider and model with u
 	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
 }
 
+TEST_CASE("[Editor][AI] Model profiles preserve advanced agent configuration") {
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
+	AIModelSettings::clear_model_profiles_for_test();
+
+	AIModelProfile profile;
+	profile.display_name = "OpenAI Advanced";
+	profile.provider_id = "openai";
+	profile.model = "gpt-5.4";
+	profile.base_url = "https://advanced.example.test/v1";
+	profile.api_key = "advanced-key";
+	profile.custom = false;
+	profile.max_input_chars = 123456;
+	profile.max_context_chars = 34567;
+	profile.max_history_chars = 78901;
+	profile.max_tool_result_chars = 2345;
+	profile.min_recent_messages = 6;
+	profile.max_provider_turns = 17;
+	profile.max_tool_calls = 8;
+	profile.max_output_tokens = 4096;
+	profile.timeout_seconds = 45;
+
+	const String profile_id = AIModelSettings::add_model_profile_config(profile);
+	REQUIRE(!profile_id.is_empty());
+
+	AIModelProfile stored = AIModelSettings::get_model_profile(profile_id);
+	CHECK(stored.max_input_chars == 123456);
+	CHECK(stored.max_context_chars == 34567);
+	CHECK(stored.max_history_chars == 78901);
+	CHECK(stored.max_tool_result_chars == 2345);
+	CHECK(stored.min_recent_messages == 6);
+	CHECK(stored.max_provider_turns == 17);
+	CHECK(stored.max_tool_calls == 8);
+	CHECK(stored.max_output_tokens == 4096);
+	CHECK(stored.timeout_seconds == 45);
+
+	AIProviderConfig config = AIModelSettings::get_provider_config(profile_id);
+	CHECK(config.max_input_chars == 123456);
+	CHECK(config.max_context_chars == 34567);
+	CHECK(config.max_history_chars == 78901);
+	CHECK(config.max_tool_result_chars == 2345);
+	CHECK(config.min_recent_messages == 6);
+	CHECK(config.max_provider_turns == 17);
+	CHECK(config.max_tool_calls == 8);
+	CHECK(config.max_output_tokens == 4096);
+	CHECK(config.timeout_seconds == 45);
+
+	stored.max_input_chars = 223456;
+	stored.max_context_chars = 44567;
+	stored.max_history_chars = 88901;
+	stored.max_tool_result_chars = 3345;
+	stored.min_recent_messages = 7;
+	stored.max_provider_turns = 19;
+	stored.max_tool_calls = 11;
+	stored.max_output_tokens = 0;
+	stored.timeout_seconds = 75;
+	CHECK(AIModelSettings::update_model_profile_config(stored));
+
+	AIProviderConfig updated_config = AIModelSettings::get_provider_config(profile_id);
+	CHECK(updated_config.max_input_chars == 223456);
+	CHECK(updated_config.max_context_chars == 44567);
+	CHECK(updated_config.max_history_chars == 88901);
+	CHECK(updated_config.max_tool_result_chars == 3345);
+	CHECK(updated_config.min_recent_messages == 7);
+	CHECK(updated_config.max_provider_turns == 19);
+	CHECK(updated_config.max_tool_calls == 11);
+	CHECK(updated_config.max_output_tokens == 0);
+	CHECK(updated_config.timeout_seconds == 75);
+
+	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
+}
+
 TEST_CASE("[Editor][AI] OpenAI compatible provider builds valid request paths") {
 	CHECK(AIOpenAICompatibleCodec::build_request_path("") == "/chat/completions");
 	CHECK(AIOpenAICompatibleCodec::build_request_path("/") == "/chat/completions");

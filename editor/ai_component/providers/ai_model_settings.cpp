@@ -152,6 +152,15 @@ AIModelProfile AIModelSettings::_profile_from_dictionary(const Dictionary &p_pro
 	profile.api_key = String(p_profile.get("api_key", String()));
 	profile.enabled = bool(p_profile.get("enabled", true));
 	profile.custom = bool(p_profile.get("custom", false));
+	profile.max_input_chars = MAX(256, (int)p_profile.get("max_input_chars", 96000));
+	profile.max_context_chars = MAX(128, (int)p_profile.get("max_context_chars", 24000));
+	profile.max_history_chars = MAX(128, (int)p_profile.get("max_history_chars", 64000));
+	profile.max_tool_result_chars = MAX(64, (int)p_profile.get("max_tool_result_chars", 16000));
+	profile.min_recent_messages = MAX(1, (int)p_profile.get("min_recent_messages", 4));
+	profile.max_provider_turns = MAX(1, (int)p_profile.get("max_provider_turns", 255));
+	profile.max_tool_calls = MAX(1, (int)p_profile.get("max_tool_calls", 60));
+	profile.max_output_tokens = MAX(0, (int)p_profile.get("max_output_tokens", 0));
+	profile.timeout_seconds = MAX(1, (int)p_profile.get("timeout_seconds", 180));
 
 	AIModelProviderPreset provider = _get_provider_preset(profile.provider_id);
 	profile.provider_name = provider.display_name.is_empty() ? profile.provider_id : provider.display_name;
@@ -177,6 +186,15 @@ Dictionary AIModelSettings::_profile_to_dictionary(const AIModelProfile &p_profi
 	profile["api_key"] = p_profile.api_key;
 	profile["enabled"] = p_profile.enabled;
 	profile["custom"] = p_profile.custom;
+	profile["max_input_chars"] = MAX(256, p_profile.max_input_chars);
+	profile["max_context_chars"] = MAX(128, p_profile.max_context_chars);
+	profile["max_history_chars"] = MAX(128, p_profile.max_history_chars);
+	profile["max_tool_result_chars"] = MAX(64, p_profile.max_tool_result_chars);
+	profile["min_recent_messages"] = MAX(1, p_profile.min_recent_messages);
+	profile["max_provider_turns"] = MAX(1, p_profile.max_provider_turns);
+	profile["max_tool_calls"] = MAX(1, p_profile.max_tool_calls);
+	profile["max_output_tokens"] = MAX(0, p_profile.max_output_tokens);
+	profile["timeout_seconds"] = MAX(1, p_profile.timeout_seconds);
 	return profile;
 }
 
@@ -332,6 +350,15 @@ AIProviderConfig AIModelSettings::get_provider_config(const String &p_model_id) 
 	config.base_url = descriptor.base_url;
 	config.api_key = descriptor.api_key;
 	config.model = descriptor.model;
+	config.timeout_seconds = descriptor.timeout_seconds;
+	config.max_input_chars = descriptor.max_input_chars;
+	config.max_context_chars = descriptor.max_context_chars;
+	config.max_history_chars = descriptor.max_history_chars;
+	config.max_tool_result_chars = descriptor.max_tool_result_chars;
+	config.min_recent_messages = descriptor.min_recent_messages;
+	config.max_provider_turns = descriptor.max_provider_turns;
+	config.max_tool_calls = descriptor.max_tool_calls;
+	config.max_output_tokens = descriptor.max_output_tokens;
 	return config;
 }
 
@@ -343,7 +370,6 @@ String AIModelSettings::add_model_profile(const String &p_display_name, const St
 	const String provider_name = provider.display_name.is_empty() ? p_provider_id : provider.display_name;
 
 	AIModelProfile profile;
-	profile.id = _make_profile_id(p_provider_id, model);
 	profile.display_name = p_display_name.strip_edges();
 	if (profile.display_name.is_empty()) {
 		profile.display_name = _make_profile_display_name(provider_name, model);
@@ -358,7 +384,30 @@ String AIModelSettings::add_model_profile(const String &p_display_name, const St
 	profile.api_key = p_api_key.strip_edges();
 	profile.enabled = true;
 	profile.custom = p_custom;
+	return add_model_profile_config(profile);
+}
 
+String AIModelSettings::add_model_profile_config(const AIModelProfile &p_profile) {
+	const String model = p_profile.model.strip_edges();
+	ERR_FAIL_COND_V(model.is_empty(), String());
+
+	AIModelProviderPreset provider = _get_provider_preset(p_profile.provider_id);
+	const String provider_name = provider.display_name.is_empty() ? p_profile.provider_id : provider.display_name;
+
+	AIModelProfile profile = p_profile;
+	profile.id = profile.id.is_empty() ? _make_profile_id(profile.provider_id, model) : profile.id;
+	profile.display_name = profile.display_name.strip_edges();
+	if (profile.display_name.is_empty()) {
+		profile.display_name = _make_profile_display_name(provider_name, model);
+	}
+	profile.provider_name = provider_name;
+	profile.model = model;
+	profile.base_url = profile.base_url.strip_edges();
+	if (profile.base_url.is_empty()) {
+		profile.base_url = get_provider_base_url(profile.provider_id);
+	}
+	profile.api_key = profile.api_key.strip_edges();
+	profile.enabled = true;
 	Array profiles = _get_profile_storage();
 	profiles.push_back(_profile_to_dictionary(profile));
 	_set_profile_storage(profiles);
@@ -380,22 +429,49 @@ bool AIModelSettings::update_model_profile(const String &p_profile_id, const Str
 			continue;
 		}
 
-		AIModelProviderPreset provider = _get_provider_preset(p_provider_id);
-		const String provider_name = provider.display_name.is_empty() ? p_provider_id : provider.display_name;
-		profile.display_name = p_display_name.strip_edges();
+		AIModelProfile updated_profile = profile;
+		updated_profile.display_name = p_display_name;
+		updated_profile.provider_id = p_provider_id;
+		updated_profile.model = model;
+		updated_profile.base_url = p_base_url;
+		updated_profile.api_key = p_api_key;
+		updated_profile.custom = p_custom;
+		return update_model_profile_config(updated_profile);
+	}
+
+	return false;
+}
+
+bool AIModelSettings::update_model_profile_config(const AIModelProfile &p_profile) {
+	const String model = p_profile.model.strip_edges();
+	ERR_FAIL_COND_V(p_profile.id.is_empty() || model.is_empty(), false);
+
+	Array profiles = _get_profile_storage();
+	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		AIModelProfile existing = _profile_from_dictionary(profiles[i]);
+		if (existing.id != p_profile.id) {
+			continue;
+		}
+
+		AIModelProviderPreset provider = _get_provider_preset(p_profile.provider_id);
+		const String provider_name = provider.display_name.is_empty() ? p_profile.provider_id : provider.display_name;
+		AIModelProfile profile = p_profile;
+		profile.display_name = profile.display_name.strip_edges();
 		if (profile.display_name.is_empty()) {
 			profile.display_name = _make_profile_display_name(provider_name, model);
 		}
-		profile.provider_id = p_provider_id;
 		profile.provider_name = provider_name;
 		profile.model = model;
-		profile.base_url = p_base_url.strip_edges();
+		profile.base_url = profile.base_url.strip_edges();
 		if (profile.base_url.is_empty()) {
-			profile.base_url = get_provider_base_url(p_provider_id);
+			profile.base_url = get_provider_base_url(profile.provider_id);
 		}
-		profile.api_key = p_api_key.strip_edges();
+		profile.api_key = profile.api_key.strip_edges();
 		profile.enabled = true;
-		profile.custom = p_custom;
 		profiles[i] = _profile_to_dictionary(profile);
 		_set_profile_storage(profiles);
 		return true;

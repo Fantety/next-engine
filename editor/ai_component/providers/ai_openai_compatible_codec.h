@@ -40,13 +40,13 @@ public:
 };
 
 class AIOpenAICompatibleCodec {
-	static PackedByteArray _build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array(), bool p_stream = false);
+	static PackedByteArray _build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array(), bool p_stream = false, int p_max_output_tokens = 0);
 	static bool _parse_chat_completion(const String &p_response_text, AIAgentRuntimeResponse &r_response, String &r_error);
 	static bool _extract_delta(const String &p_event, String &r_delta, String &r_finish_reason, String &r_error);
 
 public:
 	static String build_request_path(const String &p_base_path);
-	static PackedByteArray build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array(), bool p_stream = false);
+	static PackedByteArray build_body(const Array &p_messages, const String &p_model, const Array &p_tool_schemas = Array(), bool p_stream = false, int p_max_output_tokens = 0);
 	static bool parse_chat_completion(const String &p_response_text, AIAgentRuntimeResponse &r_response, String &r_error);
 	static bool extract_delta(const String &p_event, String &r_delta, String &r_finish_reason, String &r_error);
 };

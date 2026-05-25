@@ -48,6 +48,7 @@ public:
 	int get_model_table_row_count_for_test() const;
 	int get_custom_model_table_row_count_for_test() const;
 	void add_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key = String());
+	void add_provider_model_for_test(const AIModelProfile &p_profile);
 	void add_custom_model_for_test(const String &p_model, const String &p_base_url, const String &p_api_key);
 	void edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key);
 	void edit_custom_model_for_test(const String &p_current_model, const String &p_new_model, const String &p_base_url, const String &p_api_key);

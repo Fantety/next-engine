@@ -29,6 +29,15 @@ struct AIModelDescriptor {
 	String api_key;
 	bool enabled = false;
 	bool custom = false;
+	int max_input_chars = 96000;
+	int max_context_chars = 24000;
+	int max_history_chars = 64000;
+	int max_tool_result_chars = 16000;
+	int min_recent_messages = 4;
+	int max_provider_turns = 255;
+	int max_tool_calls = 60;
+	int max_output_tokens = 0;
+	int timeout_seconds = 180;
 };
 
 using AIModelProfile = AIModelDescriptor;
@@ -57,7 +66,9 @@ public:
 	static Vector<AIModelDescriptor> get_enabled_models();
 	static AIProviderConfig get_provider_config(const String &p_model_id);
 	static String add_model_profile(const String &p_display_name, const String &p_provider_id, const String &p_model, const String &p_api_key, const String &p_base_url, bool p_custom);
+	static String add_model_profile_config(const AIModelProfile &p_profile);
 	static bool update_model_profile(const String &p_profile_id, const String &p_display_name, const String &p_provider_id, const String &p_model, const String &p_api_key, const String &p_base_url, bool p_custom);
+	static bool update_model_profile_config(const AIModelProfile &p_profile);
 	static bool remove_model_profile(const String &p_profile_id);
 	static AIModelProfile get_model_profile(const String &p_profile_id);
 	static Vector<AIModelProfile> get_model_profiles(bool p_enabled_only = true);
