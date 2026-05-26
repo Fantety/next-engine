@@ -18,6 +18,13 @@
 # - Visual Studio specific
 # - OS specific
 
+
+
+############################
+### NEXT Engine Configue ###
+############################
+/docs
+
 ###########################
 ### Build configuration ###
 ###########################
