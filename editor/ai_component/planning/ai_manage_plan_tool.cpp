@@ -49,7 +49,7 @@ String AIManagePlanTool::get_name() const {
 }
 
 String AIManagePlanTool::get_description() const {
-	return "Creates and updates the single visible Agent task plan for complex work.";
+	return "Creates and updates the single visible Agent task plan for complex work. Use create before substantive multi-step work, set one current task to in_progress, mark tasks completed immediately after verified completion, and ensure every task is completed before the final response so the plan auto-archives. Ask the user to clarify unclear requirements before creating or executing a plan.";
 }
 
 Dictionary AIManagePlanTool::get_parameters_schema() const {
@@ -60,7 +60,7 @@ Dictionary AIManagePlanTool::get_parameters_schema() const {
 	Dictionary action;
 	action["type"] = "string";
 	action["enum"] = _make_plan_action_enum();
-	action["description"] = "create starts a new plan, set_task_status updates one task, archive releases the active plan.";
+	action["description"] = "create starts the one active plan before substantive work, set_task_status updates one task as progress changes, archive releases an active plan only when abandoning or explicitly closing it.";
 	properties["action"] = action;
 
 	Dictionary title;
@@ -70,7 +70,7 @@ Dictionary AIManagePlanTool::get_parameters_schema() const {
 
 	Dictionary tasks;
 	tasks["type"] = "array";
-	tasks["description"] = "Tasks for create. Each item can be a string or an object with title and optional id/status.";
+	tasks["description"] = "Concise task list for create. Use concrete, verifiable steps. Each item can be a string or an object with title and optional id/status.";
 	Dictionary task_items;
 	task_items["type"] = "object";
 	Dictionary task_properties;
@@ -96,7 +96,7 @@ Dictionary AIManagePlanTool::get_parameters_schema() const {
 	Dictionary status;
 	status["type"] = "string";
 	status["enum"] = _make_plan_status_enum();
-	status["description"] = "New task status for set_task_status.";
+	status["description"] = "New task status for set_task_status. Mark the current task in_progress before working on it, then completed immediately after the work is actually done.";
 	properties["status"] = status;
 
 	schema["properties"] = properties;

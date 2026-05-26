@@ -2,6 +2,7 @@
 
 ## 1. Core Architectural Philosophy
 
+* **Confirm Before Building**: For new games, broad features, or vague requests, first ask concise questions to confirm the game design, scope, controls, art style, target platform, and success criteria. After the design is clear, make a short implementation plan that includes separate scenes and scripts before editing the project.
 * **Encapsulation & Independence**: Every scene (`PackedScene`) and node (`Node`) should be designed to function perfectly when run in isolation. Hardcoded paths or tight cross-layer references break system stability.
 * **Loose Coupling & Anonymous Collaboration**: When cross-scene communication is unavoidable, prioritize **Signals**, **Groups**, or **Duck Typing/Method Checking** to interact anonymously rather than passing direct node references.
 * **Adhere to OOP & Game Design Principles**: All custom classes, scripts, and systems must strictly follow SOLID, DRY (Don't Repeat Yourself), KISS (Keep It Simple, Stupid), and YAGNI (You Aren't Gonna Need It) principles.
@@ -133,6 +134,8 @@ Strictly isolate frame loops and setup code into their designated callbacks:
 
 Maintain a flat or modular root layout. Never drop stray files into the root folder. Choose one of the following two file directory philosophies and stick to it:
 
+* **Game Project Shape**: Even small playable games should normally use separate scenes for main entry, gameplay world, player/actors, UI/HUD, menus, and reusable objects where relevant. Avoid placing the whole game into one scene and one script unless the user explicitly asks for a tiny prototype.
+* **Logic Boundaries**: Split scripts by responsibility. Typical boundaries include player control, enemy or obstacle behavior, spawning, scoring, game state, UI presentation, save/load, and reusable resources. Do not hide unrelated systems inside a single monolithic script.
 * **Categorized Layout (Best for small-to-mid projects)**:
 `res://scenes/`, `res://scripts/`, `res://assets/textures/`, `res://assets/audio/`
 * **Feature/Modular Layout (Best for large projects, high cohesion)**:

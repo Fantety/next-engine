@@ -11,6 +11,7 @@
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
 #include "editor/ai_component/agent/ai_agent_session.h"
 #include "editor/ai_component/context/ai_best_practices_context_provider.h"
+#include "editor/ai_component/prompts/agent_system_prompt.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
@@ -288,6 +289,21 @@ TEST_CASE("[Editor][AI] Best practices context provider injects static guidance 
 	CHECK(String(document["title"]) == "Agent Best Practices");
 	CHECK(String(document["source"]).contains("best_practices.md"));
 	CHECK(String(document["content"]).contains("Godot"));
+	CHECK(String(document["content"]).contains("confirm the game design"));
+	CHECK(String(document["content"]).contains("separate scenes"));
+}
+
+TEST_CASE("[Editor][AI] System prompt prioritizes clarification planning and project architecture") {
+	const String prompt = String(AIAgentPrompts::SYSTEM_PROMPT);
+
+	CHECK(prompt.contains("Clarify before acting"));
+	CHECK(prompt.contains("confirm design"));
+	CHECK(prompt.contains("agent.manage_plan"));
+	CHECK(prompt.contains("in_progress"));
+	CHECK(prompt.contains("completed"));
+	CHECK(prompt.contains("one scene"));
+	CHECK(prompt.contains("one script"));
+	CHECK_FALSE(prompt.contains("For scene.set_property, use property_path exactly"));
 }
 
 TEST_CASE("[Editor][AI] Context manager trims history and tool output within budget") {

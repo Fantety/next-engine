@@ -719,12 +719,25 @@ TEST_CASE("[Editor][AI] Manage plan tool exposes plan state metadata") {
 	tool.instantiate();
 
 	CHECK(tool->get_name() == "agent.manage_plan");
+	const String description = tool->get_description();
+	CHECK(description.contains("create"));
+	CHECK(description.contains("in_progress"));
+	CHECK(description.contains("completed"));
+	CHECK(description.contains("final response"));
+	CHECK(description.contains("auto-archives"));
+
 	Dictionary schema = tool->get_parameters_schema();
 	Dictionary properties = schema["properties"];
 	CHECK(properties.has("action"));
 	CHECK(properties.has("tasks"));
 	CHECK(properties.has("task_id"));
 	CHECK(properties.has("status"));
+	Dictionary action_property = properties["action"];
+	CHECK(String(action_property["description"]).contains("before substantive work"));
+	Dictionary tasks_property = properties["tasks"];
+	CHECK(String(tasks_property["description"]).contains("concise"));
+	Dictionary status_property = properties["status"];
+	CHECK(String(status_property["description"]).contains("Mark the current task"));
 
 	Dictionary create_args;
 	create_args["action"] = "create";
