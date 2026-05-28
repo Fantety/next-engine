@@ -70,6 +70,7 @@
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
 #include "scene/gui/link_button.h"
+#include "scene/gui/markdown_viewer.h"
 #include "scene/gui/margin_container.h"
 #include "scene/gui/menu_bar.h"
 #include "scene/gui/menu_button.h"
@@ -494,6 +495,8 @@ void register_scene_types() {
 
 	GDREGISTER_CLASS(Container);
 	GDREGISTER_CLASS(TextureRect);
+	GDREGISTER_INTERNAL_CLASS(MarkdownViewerImageLoader);
+	GDREGISTER_CLASS(MarkdownViewer);
 	GDREGISTER_CLASS(ColorRect);
 	GDREGISTER_CLASS(NinePatchRect);
 	GDREGISTER_CLASS(ReferenceRect);

@@ -14,6 +14,7 @@ void MarkdownNode::_bind_methods() {
 	BIND_ENUM_CONSTANT(NMARK_NODE_EMPH);
 	BIND_ENUM_CONSTANT(NMARK_NODE_STRONG);
 	BIND_ENUM_CONSTANT(NMARK_NODE_BLOCK_QUOTE);
+	BIND_ENUM_CONSTANT(NMARK_NODE_THEMATIC_BREAK);
 
 	ClassDB::bind_method(D_METHOD("set_type", "type"), &MarkdownNode::set_type);
 	ClassDB::bind_method(D_METHOD("get_type"), &MarkdownNode::get_type);
@@ -41,7 +42,7 @@ void MarkdownNode::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("to_dictionary"), &MarkdownNode::to_dictionary);
 
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "type", PROPERTY_HINT_ENUM, "Document,Paragraph,Heading,List,ListItem,Text,Code,CodeBlock,Link,Image,Emph,Strong,BlockQuote"), "set_type", "get_type");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "type", PROPERTY_HINT_ENUM, "Document,Paragraph,Heading,List,ListItem,Text,Code,CodeBlock,Link,Image,Emph,Strong,BlockQuote,ThematicBreak"), "set_type", "get_type");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "literal"), "set_literal", "get_literal");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "heading_level"), "set_heading_level", "get_heading_level");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "list_style", PROPERTY_HINT_ENUM, "None,Bullet,Ordered"), "set_list_style", "get_list_style");

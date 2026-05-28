@@ -105,6 +105,8 @@ MarkdownNode::NodeType MarkdownParser::_convert_cmark_type_to_node_type(cmark_no
 			return MarkdownNode::NMARK_NODE_STRONG;
 		case CMARK_NODE_BLOCK_QUOTE:
 			return MarkdownNode::NMARK_NODE_BLOCK_QUOTE;
+		case CMARK_NODE_THEMATIC_BREAK:
+			return MarkdownNode::NMARK_NODE_THEMATIC_BREAK;
 		default:
 			return MarkdownNode::NMARK_NODE_TEXT;
 	}
