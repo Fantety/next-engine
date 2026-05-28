@@ -92,6 +92,7 @@ class EditorSceneTabs;
 class EditorSelectionHistory;
 class EditorSettingsDialog;
 class EditorTitleBar;
+class EditorUserAvatar;
 class ExportTemplateManager;
 class EditorQuickOpenDialog;
 class FBXImporterManager;
@@ -336,6 +337,7 @@ private:
 	Control *right_menu_spacer = nullptr;
 	EditorTitleBar *title_bar = nullptr;
 	EditorRunBar *project_run_bar = nullptr;
+	EditorUserAvatar *user_avatar = nullptr;
 	HBoxContainer *right_menu_hb = nullptr;
 
 	// Spacers to center 2D / 3D / Script buttons.

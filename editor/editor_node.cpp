@@ -149,6 +149,7 @@
 #include "editor/themes/editor_theme_manager.h"
 #include "editor/translations/editor_translation_parser.h"
 #include "editor/translations/packed_scene_translation_parser_plugin.h"
+#include "editor/user_system/editor_user_avatar.h"
 #include "editor/version_control/version_control_editor_plugin.h"
 #include "main/main.h"
 #include "scene/2d/node_2d.h"
@@ -1660,7 +1661,7 @@ void EditorNode::_titlebar_resized() {
 		right_menu_spacer->set_custom_minimum_size(Size2(w, 0));
 	}
 	if (title_bar) {
-		title_bar->set_custom_minimum_size(Size2(0, margin.z - title_bar->get_global_position().y));
+		title_bar->set_custom_minimum_size(Size2(0, MAX(38 * EDSCALE, margin.z - title_bar->get_global_position().y)));
 	}
 }
 
@@ -8706,6 +8707,7 @@ EditorNode::EditorNode() {
 	title_bar = memnew(EditorTitleBar);
 	main_vbox->add_child(title_bar);
 #endif
+	title_bar->set_custom_minimum_size(Size2(0, 38) * EDSCALE);
 
 	DockSplitContainer *main_vsplit = memnew(DockSplitContainer);
 	main_vsplit->set_name("DockVSplitMain");
@@ -9158,6 +9160,9 @@ EditorNode::EditorNode() {
 	_update_renderer_color();
 
 	renderer->set_visible(EDITOR_GET("interface/editor/appearance/show_renderer_selector"));
+
+	user_avatar = memnew(EditorUserAvatar);
+	right_menu_hb->add_child(user_avatar);
 
 	progress_hb = memnew(BackgroundProgress);
 

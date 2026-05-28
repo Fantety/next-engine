@@ -1,0 +1,433 @@
+/**************************************************************************/
+/*  test_user_system.cpp                                                  */
+/**************************************************************************/
+
+#include "tests/test_macros.h"
+
+#include "core/io/json.h"
+#include "editor/user_system/auth_client.h"
+#include "editor/user_system/editor_user_avatar.h"
+#include "editor/user_system/editor_user_login_dialog.h"
+#include "editor/user_system/editor_user_manager.h"
+#include "editor/user_system/editor_user_session.h"
+
+TEST_FORCE_LINK(test_user_system);
+
+namespace TestEditorUserSystem {
+
+class FakeAuthTransport : public AuthTransport {
+	GDCLASS(FakeAuthTransport, AuthTransport);
+
+public:
+	struct Response {
+		bool ok = true;
+		String body;
+		int http_code = 200;
+		String error;
+	};
+
+	int request_count = 0;
+	HTTPClient::Method last_method = HTTPClient::METHOD_GET;
+	String last_path;
+	String last_body;
+	Vector<String> last_headers;
+	Vector<Response> responses;
+
+	void push_json(const String &p_body) {
+		Response response;
+		response.body = p_body;
+		responses.push_back(response);
+	}
+
+	void push_error(const String &p_error) {
+		Response response;
+		response.ok = false;
+		response.error = p_error;
+		response.http_code = 500;
+		responses.push_back(response);
+	}
+
+	virtual bool request_json(HTTPClient::Method p_method, const String &p_path, const String &p_body, const Vector<String> &p_headers, String &r_response, int &r_http_code, String &r_error) override {
+		request_count++;
+		last_method = p_method;
+		last_path = p_path;
+		last_body = p_body;
+		last_headers = p_headers;
+
+		Response response;
+		if (!responses.is_empty()) {
+			response = responses[0];
+			responses.remove_at(0);
+		} else {
+			response.body = "{\"code\":0}";
+		}
+
+		r_response = response.body;
+		r_http_code = response.http_code;
+		r_error = response.error;
+		return response.ok;
+	}
+};
+
+static Dictionary parse_json_dictionary(const String &p_json) {
+	Ref<JSON> parser;
+	parser.instantiate();
+	CHECK(parser->parse(p_json) == OK);
+	CHECK(parser->get_data().get_type() == Variant::DICTIONARY);
+	return parser->get_data();
+}
+
+static bool has_header(const Vector<String> &p_headers, const String &p_header) {
+	for (int i = 0; i < p_headers.size(); i++) {
+		if (p_headers[i] == p_header) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool has_header_prefix(const Vector<String> &p_headers, const String &p_prefix) {
+	for (int i = 0; i < p_headers.size(); i++) {
+		if (p_headers[i].begins_with(p_prefix)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+TEST_CASE("[Editor][UserSystem] Auth client defaults to HTTP transport") {
+	Ref<AuthClient> client;
+	client.instantiate();
+
+	CHECK(client->get_transport().is_valid());
+	CHECK(Object::cast_to<AuthHTTPTransport>(*client->get_transport()) != nullptr);
+}
+
+TEST_CASE("[Editor][UserSystem] Phone-code login body uses backend auto-register endpoint fields") {
+	Dictionary body = AuthClient::build_phone_code_login_body_for_test(" +8613800000000 ", " 2468 ", "device-1");
+
+	CHECK(String(body["phone"]) == "+8613800000000");
+	CHECK(String(body["code"]) == "2468");
+	CHECK(AuthClient::get_default_scene_for_test() == "client");
+	CHECK(String(body["scene"]) == AuthClient::get_default_scene_for_test());
+	CHECK(String(body["deviceId"]) == "device-1");
+	CHECK_FALSE(body.has("password"));
+}
+
+TEST_CASE("[Editor][UserSystem] Auth client sends phone-code login without register endpoint") {
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":0,\"data\":{\"userId\":\"user-1\",\"token\":\"token-1\",\"refreshToken\":\"refresh-1\"}}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	AuthResult result = client->login_with_phone_code(" +8613800000000 ", " 2468 ", "device-1");
+
+	CHECK(result.success);
+	CHECK(result.session.user_id == "user-1");
+	CHECK(result.session.token == "token-1");
+	CHECK(result.session.refresh_token == "refresh-1");
+	CHECK(result.session.phone == "+8613800000000");
+	CHECK(result.session.device_id == "device-1");
+	CHECK(transport->last_method == HTTPClient::METHOD_POST);
+	CHECK(transport->last_path == "/v1/auth/validate/phone/code");
+	CHECK_FALSE(transport->last_path.contains("/v1/auth/register"));
+
+	Dictionary body = parse_json_dictionary(transport->last_body);
+	CHECK(String(body["phone"]) == "+8613800000000");
+	CHECK(String(body["code"]) == "2468");
+	CHECK(String(body["scene"]) == AuthClient::get_default_scene_for_test());
+	CHECK(String(body["deviceId"]) == "device-1");
+}
+
+TEST_CASE("[Editor][UserSystem] Auth client accepts HTTP-style success codes from auth replies") {
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":200}");
+	transport->push_json("{\"code\":200,\"message\":\"ok\",\"data\":{\"userId\":\"user-1\",\"token\":\"token-1\",\"refreshToken\":\"refresh-1\"}}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	AuthResult send_result = client->send_phone_code("+8613800000000");
+	CHECK(send_result.success);
+
+	AuthResult login_result = client->login_with_phone_code("+8613800000000", "2468", "device-1");
+	CHECK(login_result.success);
+	CHECK(login_result.error.is_empty());
+	CHECK(login_result.session.user_id == "user-1");
+	CHECK(login_result.session.token == "token-1");
+	CHECK(login_result.session.refresh_token == "refresh-1");
+}
+
+TEST_CASE("[Editor][UserSystem] Auth client accepts code 1 success replies from auth replies") {
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":1}");
+	transport->push_json("{\"code\":1,\"message\":\"ok\",\"data\":{\"userId\":\"user-1\",\"token\":\"token-1\",\"refreshToken\":\"refresh-1\"}}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	AuthResult send_result = client->send_phone_code("+8613800000000");
+	CHECK(send_result.success);
+
+	AuthResult login_result = client->login_with_phone_code("+8613800000000", "2468", "device-1");
+	CHECK(login_result.success);
+	CHECK(login_result.error.is_empty());
+	CHECK(login_result.session.user_id == "user-1");
+	CHECK(login_result.session.token == "token-1");
+	CHECK(login_result.session.refresh_token == "refresh-1");
+}
+
+TEST_CASE("[Editor][UserSystem] Auth client loads user profile and score with security headers") {
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-1\",\"nickname\":\"Alex\",\"phone\":\"+8613800000000\",\"email\":\"alex@example.test\",\"score\":\"42\"}}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	AuthResult result = client->get_user("user-1", "token-1");
+
+	CHECK(result.success);
+	CHECK(result.user.user_id == "user-1");
+	CHECK(result.user.nickname == "Alex");
+	CHECK(result.user.phone == "+8613800000000");
+	CHECK(result.user.email == "alex@example.test");
+	CHECK(result.user.score == "42");
+	CHECK(transport->last_method == HTTPClient::METHOD_GET);
+	CHECK(transport->last_path == "/user/user-1");
+	CHECK(transport->last_body.is_empty());
+	CHECK(has_header(transport->last_headers, "sec-token: token-1"));
+	CHECK(has_header(transport->last_headers, "sec-sign: 1"));
+	CHECK_FALSE(has_header(transport->last_headers, "Authorization: Bearer token-1"));
+	CHECK_FALSE(has_header_prefix(transport->last_headers, "Cookie:"));
+}
+
+TEST_CASE("[Editor][UserSystem] Auth client refreshes token with body credentials") {
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":0,\"data\":{\"userId\":\"user-1\",\"token\":\"token-2\",\"refreshToken\":\"refresh-2\"}}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	AuthSessionData session;
+	session.user_id = "user-1";
+	session.token = "token-1";
+	session.refresh_token = "refresh-1";
+	session.device_id = "device-1";
+	session.phone = "+8613800000000";
+
+	AuthResult result = client->refresh_token(session);
+
+	CHECK(result.success);
+	CHECK(result.session.user_id == "user-1");
+	CHECK(result.session.token == "token-2");
+	CHECK(result.session.refresh_token == "refresh-2");
+	CHECK(result.session.device_id == "device-1");
+	CHECK(result.session.phone == "+8613800000000");
+	CHECK(transport->last_method == HTTPClient::METHOD_POST);
+	CHECK(transport->last_path == "/v1/auth/token/refresh");
+	CHECK_FALSE(has_header(transport->last_headers, "Authorization: Bearer token-1"));
+	CHECK(has_header(transport->last_headers, "sec-token: token-1"));
+	CHECK(has_header(transport->last_headers, "sec-sign: 1"));
+	CHECK_FALSE(has_header_prefix(transport->last_headers, "Cookie:"));
+
+	Dictionary body = parse_json_dictionary(transport->last_body);
+	CHECK(String(body["refreshToken"]) == "refresh-1");
+	CHECK(String(body["token"]) == "token-1");
+	CHECK(String(body["scene"]) == AuthClient::get_default_scene_for_test());
+	CHECK(String(body["service"]) == AuthClient::get_default_service_for_test());
+	CHECK(String(body["deviceId"]) == "device-1");
+}
+
+TEST_CASE("[Editor][UserSystem] Auth client parses server error messages") {
+	AuthResult result;
+
+	CHECK_FALSE(AuthClient::parse_auth_response_for_test("{\"code\":401,\"message\":\"invalid code\"}", result));
+	CHECK(result.error == "invalid code");
+}
+
+TEST_CASE("[Editor][UserSystem] Manager saves phone-code login session and falls back to phone display") {
+	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
+	EditorUserSession::set_session_storage_for_test(Dictionary());
+
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":0,\"data\":{\"userId\":\"user-1\",\"token\":\"token-1\",\"refreshToken\":\"refresh-1\"}}");
+	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-1\",\"nickname\":\"\",\"phone\":\"\",\"email\":\"\",\"score\":\"88\"}}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	Ref<EditorUserManager> manager;
+	manager.instantiate();
+	manager->set_auth_client_for_test(client);
+
+	AuthResult result = manager->login_with_phone_code("+8613800000000", "2468");
+
+	CHECK(result.success);
+	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_IN);
+	CHECK(manager->get_display_name() == "+8613800000000");
+	CHECK(manager->get_score_text() == "88");
+
+	AuthSessionData session = EditorUserSession::load_session();
+	CHECK(session.user_id == "user-1");
+	CHECK(session.token == "token-1");
+	CHECK(session.refresh_token == "refresh-1");
+	CHECK(session.phone == "+8613800000000");
+	CHECK(!session.device_id.is_empty());
+
+	EditorUserSession::set_session_storage_for_test(original_storage);
+}
+
+TEST_CASE("[Editor][UserSystem] Manager keeps auth when profile load fails") {
+	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
+	EditorUserSession::set_session_storage_for_test(Dictionary());
+
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":0,\"data\":{\"userId\":\"user-2\",\"token\":\"token-2\",\"refreshToken\":\"refresh-2\"}}");
+	transport->push_error("profile unavailable");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	Ref<EditorUserManager> manager;
+	manager.instantiate();
+	manager->set_auth_client_for_test(client);
+
+	AuthResult result = manager->login_with_phone_code("+8613900000000", "1357");
+
+	CHECK(result.success);
+	CHECK(manager->get_state() == EditorUserManager::STATE_PROFILE_UNAVAILABLE);
+	CHECK(manager->get_display_name() == "+8613900000000");
+	CHECK(manager->get_score_text() == "--");
+	CHECK(manager->get_last_error() == "profile unavailable");
+
+	AuthSessionData session = EditorUserSession::load_session();
+	CHECK(session.user_id == "user-2");
+	CHECK(session.token == "token-2");
+
+	EditorUserSession::set_session_storage_for_test(original_storage);
+}
+
+TEST_CASE("[Editor][UserSystem] Logout clears local session even when server logout fails") {
+	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
+
+	AuthSessionData session;
+	session.user_id = "user-3";
+	session.token = "token-3";
+	session.refresh_token = "refresh-3";
+	session.device_id = "device-3";
+	session.phone = "+8613700000000";
+	EditorUserSession::save_session(session);
+
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_error("logout failed");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	Ref<EditorUserManager> manager;
+	manager.instantiate();
+	manager->set_auth_client_for_test(client);
+	manager->set_session_for_test(session);
+
+	AuthResult result = manager->logout();
+
+	CHECK(result.success);
+	CHECK(has_header(transport->last_headers, "sec-token: token-3"));
+	CHECK(has_header(transport->last_headers, "sec-sign: 1"));
+	CHECK_FALSE(has_header_prefix(transport->last_headers, "Cookie:"));
+	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_OUT);
+	AuthSessionData cleared = EditorUserSession::load_session();
+	CHECK(cleared.user_id.is_empty());
+	CHECK(cleared.token.is_empty());
+	CHECK(cleared.refresh_token.is_empty());
+	CHECK(cleared.device_id == "device-3");
+
+	EditorUserSession::set_session_storage_for_test(original_storage);
+}
+
+TEST_CASE("[Editor][UserSystem] Avatar formats display fallback initial and score") {
+	AuthUserInfo user;
+	AuthSessionData session;
+	session.phone = "+8613600000000";
+	session.user_id = "user-4";
+
+	CHECK(EditorUserAvatar::get_display_name_for_test(user, session) == "+8613600000000");
+	CHECK(EditorUserAvatar::get_avatar_initial_for_test("alex") == "A");
+	CHECK(EditorUserAvatar::get_avatar_initial_for_test("") == "?");
+	CHECK(EditorUserAvatar::format_score_for_test("123") == "Score 123");
+	CHECK(EditorUserAvatar::format_score_for_test("") == "Score --");
+
+	user.nickname = "Nora";
+	CHECK(EditorUserAvatar::get_display_name_for_test(user, session) == "Nora");
+}
+
+TEST_CASE("[Editor][UserSystem] Login dialog validates phone-code fields") {
+	EditorUserLoginDialog dialog;
+	dialog.build_for_test();
+
+	dialog.set_phone_code_fields_for_test("", "");
+	CHECK_FALSE(dialog.can_submit_phone_code_for_test());
+
+	dialog.set_phone_code_fields_for_test("+8613800000000", "");
+	CHECK_FALSE(dialog.can_submit_phone_code_for_test());
+
+	dialog.set_phone_code_fields_for_test("+8613800000000", "2468");
+	CHECK(dialog.can_submit_phone_code_for_test());
+	CHECK(dialog.get_phone_code_phone_for_test() == "+8613800000000");
+}
+
+TEST_CASE("[Editor][UserSystem] Login dialog shows 30s cooldown after sending phone code") {
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":200}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	Ref<EditorUserManager> manager;
+	manager.instantiate();
+	manager->set_auth_client_for_test(client);
+
+	EditorUserLoginDialog dialog;
+	dialog.set_manager(manager);
+	dialog.build_for_test();
+	dialog.set_phone_code_fields_for_test("13800000000", "");
+
+	CHECK_FALSE(dialog.is_send_code_button_disabled_for_test());
+	CHECK(dialog.get_send_code_button_text_for_test() == "Send Code");
+
+	dialog.send_phone_code_for_test();
+
+	CHECK(transport->last_path == "/v1/auth/send/phone/code");
+	Dictionary body = parse_json_dictionary(transport->last_body);
+	CHECK(String(body["phone"]) == "+8613800000000");
+	CHECK(dialog.get_send_code_cooldown_for_test() == 30);
+	CHECK(dialog.is_send_code_button_disabled_for_test());
+	CHECK(dialog.get_send_code_button_text_for_test() == "Send Code (30s)");
+}
+
+TEST_CASE("[Editor][UserSystem] Login dialog formats local phone numbers with country code") {
+	CHECK(EditorUserLoginDialog::format_phone_for_test("+86", "13800000000") == "+8613800000000");
+	CHECK(EditorUserLoginDialog::format_phone_for_test("86", "013800000000") == "+8613800000000");
+	CHECK(EditorUserLoginDialog::format_phone_for_test("+86", "+14155550100") == "+14155550100");
+}
+
+} // namespace TestEditorUserSystem
