@@ -17,8 +17,6 @@ class EditorUserAvatar : public HBoxContainer {
 
 	Ref<EditorUserManager> manager;
 	Button *account_button = nullptr;
-	Label *account_label = nullptr;
-	Label *score_label = nullptr;
 	AcceptDialog *details_dialog = nullptr;
 	Label *details_name_value = nullptr;
 	Label *details_phone_value = nullptr;
@@ -44,11 +42,15 @@ protected:
 
 public:
 	static String get_display_name(const AuthUserInfo &p_user, const AuthSessionData &p_session);
+	static String get_user_id(const AuthUserInfo &p_user, const AuthSessionData &p_session);
 	static String get_avatar_initial(const String &p_display_name);
+	static String format_user_id(const String &p_user_id);
 	static String format_score(const String &p_score);
 
 	static String get_display_name_for_test(const AuthUserInfo &p_user, const AuthSessionData &p_session);
+	static String get_user_id_for_test(const AuthUserInfo &p_user, const AuthSessionData &p_session);
 	static String get_avatar_initial_for_test(const String &p_display_name);
+	static String format_user_id_for_test(const String &p_user_id);
 	static String format_score_for_test(const String &p_score);
 
 	void set_manager_for_test(const Ref<EditorUserManager> &p_manager);

@@ -270,7 +270,7 @@ void EditorUserLoginDialog::_build_ui() {
 	main->add_child(status_label);
 
 	provider_label = memnew(Label);
-	provider_label->set_text(TTR("服务由 AIRain(airain.net) 提供"));
+	provider_label->set_text(TTR("Service provided by AIRain (airain.net)"));
 	provider_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	provider_label->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
 	main->add_child(provider_label);
@@ -306,7 +306,7 @@ void EditorUserLoginDialog::_update_actions() {
 		return;
 	}
 
-	const bool request_active = manager.is_valid() && (manager->get_state() == EditorUserManager::STATE_LOGGING_IN || manager->get_state() == EditorUserManager::STATE_REFRESHING);
+	const bool request_active = manager.is_valid() && manager->is_request_pending();
 	if (phone_code_login_button) {
 		phone_code_login_button->set_disabled(request_active || !_can_submit_phone_code());
 	}
@@ -341,17 +341,12 @@ void EditorUserLoginDialog::_send_code_pressed() {
 		return;
 	}
 
-	AuthResult result = manager->send_phone_code(_get_phone_code_phone());
-	if (!result.success) {
-		_set_status(result.error, true);
+	if (!manager->request_send_phone_code(_get_phone_code_phone())) {
+		_set_status(manager->get_last_error(), true);
 		return;
 	}
 
-	send_code_cooldown = PHONE_CODE_COOLDOWN_SECONDS;
-	if (cooldown_timer && cooldown_timer->is_inside_tree()) {
-		cooldown_timer->start();
-	}
-	_set_status(TTR("Verification code sent."), false);
+	_set_status(TTR("Sending verification code..."), false);
 	_update_actions();
 }
 
@@ -361,16 +356,14 @@ void EditorUserLoginDialog::_phone_code_login_pressed() {
 		return;
 	}
 
-	AuthResult result = manager->login_with_phone_code(_get_phone_code_phone(), phone_code_code->get_text());
-	if (!result.success) {
-		_set_status(result.error, true);
+	if (!manager->request_login_with_phone_code(_get_phone_code_phone(), phone_code_code->get_text())) {
+		_set_status(manager->get_last_error(), true);
 		_update_actions();
 		return;
 	}
 
-	phone_code_code->clear();
-	_set_status(TTR("Account ready."), false);
-	hide();
+	_set_status(TTR("Signing in..."), false);
+	_update_actions();
 }
 
 void EditorUserLoginDialog::_password_login_pressed() {
@@ -379,16 +372,66 @@ void EditorUserLoginDialog::_password_login_pressed() {
 		return;
 	}
 
-	AuthResult result = manager->login_with_password(_get_password_phone(), password_password->get_text());
-	if (!result.success) {
-		_set_status(result.error, true);
+	if (!manager->request_login_with_password(_get_password_phone(), password_password->get_text())) {
+		_set_status(manager->get_last_error(), true);
 		_update_actions();
 		return;
 	}
 
-	password_password->clear();
-	_set_status(TTR("Account ready."), false);
-	hide();
+	_set_status(TTR("Signing in..."), false);
+	_update_actions();
+}
+
+void EditorUserLoginDialog::_manager_request_completed(int p_request, bool p_success, const String &p_message) {
+	if (!tabs) {
+		return;
+	}
+
+	if (!p_success && p_message.is_empty()) {
+		_update_actions();
+		return;
+	}
+
+	if (p_request == EditorUserManager::REQUEST_SEND_PHONE_CODE) {
+		if (!p_success) {
+			_set_status(p_message, true);
+			_update_actions();
+			return;
+		}
+
+		send_code_cooldown = PHONE_CODE_COOLDOWN_SECONDS;
+		if (cooldown_timer && cooldown_timer->is_inside_tree()) {
+			cooldown_timer->start();
+		}
+		_set_status(TTR("Verification code sent."), false);
+		_update_actions();
+		return;
+	}
+
+	if (p_request == EditorUserManager::REQUEST_LOGIN_PHONE_CODE || p_request == EditorUserManager::REQUEST_LOGIN_PASSWORD) {
+		if (!p_success) {
+			_set_status(p_message, true);
+			_update_actions();
+			return;
+		}
+
+		if (p_request == EditorUserManager::REQUEST_LOGIN_PHONE_CODE && phone_code_code) {
+			phone_code_code->clear();
+		}
+		if (p_request == EditorUserManager::REQUEST_LOGIN_PASSWORD && password_password) {
+			password_password->clear();
+		}
+		_set_status(TTR("Account ready."), false);
+		hide();
+		return;
+	}
+
+	_update_actions();
+}
+
+void EditorUserLoginDialog::_manager_state_changed(int p_state) {
+	(void)p_state;
+	_update_actions();
 }
 
 void EditorUserLoginDialog::_cooldown_timeout() {
@@ -422,7 +465,24 @@ String EditorUserLoginDialog::_get_password_phone() const {
 }
 
 void EditorUserLoginDialog::set_manager(const Ref<EditorUserManager> &p_manager) {
+	if (manager.is_valid()) {
+		if (manager->is_connected("request_completed", callable_mp(this, &EditorUserLoginDialog::_manager_request_completed))) {
+			manager->disconnect("request_completed", callable_mp(this, &EditorUserLoginDialog::_manager_request_completed));
+		}
+		if (manager->is_connected("state_changed", callable_mp(this, &EditorUserLoginDialog::_manager_state_changed))) {
+			manager->disconnect("state_changed", callable_mp(this, &EditorUserLoginDialog::_manager_state_changed));
+		}
+	}
+
 	manager = p_manager;
+	if (manager.is_valid()) {
+		if (!manager->is_connected("request_completed", callable_mp(this, &EditorUserLoginDialog::_manager_request_completed))) {
+			manager->connect("request_completed", callable_mp(this, &EditorUserLoginDialog::_manager_request_completed));
+		}
+		if (!manager->is_connected("state_changed", callable_mp(this, &EditorUserLoginDialog::_manager_state_changed))) {
+			manager->connect("state_changed", callable_mp(this, &EditorUserLoginDialog::_manager_state_changed));
+		}
+	}
 	_update_actions();
 }
 
@@ -450,7 +510,24 @@ void EditorUserLoginDialog::set_phone_code_fields_for_test(const String &p_phone
 
 void EditorUserLoginDialog::send_phone_code_for_test() {
 	_build_ui();
-	_send_code_pressed();
+	if (manager.is_null()) {
+		_set_status(TTR("Account service is not available."), true);
+		return;
+	}
+
+	AuthResult result = manager->send_phone_code(_get_phone_code_phone());
+	if (!result.success) {
+		_set_status(result.error, true);
+		_update_actions();
+		return;
+	}
+
+	send_code_cooldown = PHONE_CODE_COOLDOWN_SECONDS;
+	if (cooldown_timer && cooldown_timer->is_inside_tree()) {
+		cooldown_timer->start();
+	}
+	_set_status(TTR("Verification code sent."), false);
+	_update_actions();
 }
 
 bool EditorUserLoginDialog::can_submit_phone_code_for_test() const {

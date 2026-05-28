@@ -25,6 +25,11 @@ String _detail_value(const String &p_value) {
 	return value.is_empty() ? String("--") : value;
 }
 
+String _format_user_id_text(const String &p_user_id) {
+	const String user_id = p_user_id.strip_edges();
+	return vformat(TTR("ID %s"), user_id.is_empty() ? String("--") : user_id);
+}
+
 Label *_add_detail_value(GridContainer *p_grid, const String &p_label) {
 	Label *name = memnew(Label);
 	name->set_text(p_label);
@@ -63,7 +68,7 @@ void EditorUserAvatar::_build_ui() {
 	}
 
 	set_mouse_filter(Control::MOUSE_FILTER_STOP);
-	add_theme_constant_override("separation", 6 * EDSCALE);
+	add_theme_constant_override("separation", 0);
 
 	if (manager.is_null()) {
 		manager.instantiate();
@@ -72,32 +77,15 @@ void EditorUserAvatar::_build_ui() {
 	account_button = memnew(Button);
 	account_button->set_flat(true);
 	account_button->set_theme_type_variation("FlatMenuButton");
-	account_button->set_custom_minimum_size(Size2(44, 32) * EDSCALE);
+	account_button->set_custom_minimum_size(Size2(36, 36) * EDSCALE);
 	account_button->set_expand_icon(true);
 	account_button->set_icon_alignment(HORIZONTAL_ALIGNMENT_CENTER);
+	account_button->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
 	account_button->set_focus_mode(Control::FOCUS_ACCESSIBILITY);
 	account_button->set_accessibility_name(TTRC("User Account"));
 	account_button->connect(SceneStringName(pressed), callable_mp(this, &EditorUserAvatar::_account_pressed));
 	add_child(account_button);
 	_update_account_icon();
-
-	account_label = memnew(Label);
-	account_label->set_h_size_flags(Control::SIZE_SHRINK_CENTER);
-	account_label->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
-	account_label->set_clip_text(true);
-	account_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	account_label->set_custom_minimum_size(Size2(128, 0) * EDSCALE);
-	account_label->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-	add_child(account_label);
-
-	score_label = memnew(Label);
-	score_label->set_h_size_flags(Control::SIZE_SHRINK_CENTER);
-	score_label->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
-	score_label->set_clip_text(true);
-	score_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	score_label->set_custom_minimum_size(Size2(96, 0) * EDSCALE);
-	score_label->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-	add_child(score_label);
 
 	login_dialog = memnew(EditorUserLoginDialog);
 	login_dialog->set_manager(manager);
@@ -158,17 +146,8 @@ void EditorUserAvatar::_refresh_ui() {
 	const bool logged_in = _is_logged_in();
 
 	account_button->set_text(String());
-	account_button->set_custom_minimum_size(Size2(44, 32) * EDSCALE);
-	account_button->set_tooltip_text(logged_in ? display_name : TTR("Account"));
-	if (account_label) {
-		account_label->set_text(logged_in ? display_name : String());
-		account_label->set_visible(logged_in);
-	}
-	if (score_label) {
-		score_label->set_text(logged_in ? format_score(user.score) : String());
-		score_label->set_tooltip_text(TTR("Account score"));
-		score_label->set_visible(logged_in);
-	}
+	account_button->set_custom_minimum_size(Size2(36, 36) * EDSCALE);
+	account_button->set_tooltip_text(logged_in && !display_name.is_empty() ? display_name : TTR("Account"));
 
 	_refresh_details_ui();
 }
@@ -190,12 +169,12 @@ void EditorUserAvatar::_details_action(const String &p_action) {
 	}
 
 	if (p_action == DETAIL_ACTION_REFRESH) {
-		(void)manager->refresh_profile();
+		(void)manager->request_refresh_profile();
 	} else if (p_action == DETAIL_ACTION_LOGOUT) {
 		if (details_dialog) {
 			details_dialog->hide();
 		}
-		(void)manager->logout();
+		(void)manager->request_logout();
 	}
 }
 
@@ -239,7 +218,12 @@ bool EditorUserAvatar::_is_logged_in() const {
 		return false;
 	}
 
-	return manager->get_state() == EditorUserManager::STATE_LOGGED_IN || manager->get_state() == EditorUserManager::STATE_PROFILE_UNAVAILABLE;
+	const EditorUserManager::State state = manager->get_state();
+	if (state == EditorUserManager::STATE_LOGGED_IN || state == EditorUserManager::STATE_PROFILE_UNAVAILABLE) {
+		return true;
+	}
+	const AuthSessionData session = manager->get_session();
+	return state == EditorUserManager::STATE_REFRESHING && (!session.user_id.is_empty() || !session.token.is_empty());
 }
 
 void EditorUserAvatar::_state_changed(int p_state) {
@@ -270,12 +254,23 @@ String EditorUserAvatar::get_display_name(const AuthUserInfo &p_user, const Auth
 	return p_session.user_id.strip_edges();
 }
 
+String EditorUserAvatar::get_user_id(const AuthUserInfo &p_user, const AuthSessionData &p_session) {
+	if (!p_user.user_id.strip_edges().is_empty()) {
+		return p_user.user_id.strip_edges();
+	}
+	return p_session.user_id.strip_edges();
+}
+
 String EditorUserAvatar::get_avatar_initial(const String &p_display_name) {
 	const String display_name = p_display_name.strip_edges();
 	if (display_name.is_empty()) {
 		return "?";
 	}
 	return String::chr(display_name.unicode_at(0)).to_upper();
+}
+
+String EditorUserAvatar::format_user_id(const String &p_user_id) {
+	return _format_user_id_text(p_user_id);
 }
 
 String EditorUserAvatar::format_score(const String &p_score) {
@@ -287,8 +282,16 @@ String EditorUserAvatar::get_display_name_for_test(const AuthUserInfo &p_user, c
 	return get_display_name(p_user, p_session);
 }
 
+String EditorUserAvatar::get_user_id_for_test(const AuthUserInfo &p_user, const AuthSessionData &p_session) {
+	return get_user_id(p_user, p_session);
+}
+
 String EditorUserAvatar::get_avatar_initial_for_test(const String &p_display_name) {
 	return get_avatar_initial(p_display_name);
+}
+
+String EditorUserAvatar::format_user_id_for_test(const String &p_user_id) {
+	return format_user_id(p_user_id);
 }
 
 String EditorUserAvatar::format_score_for_test(const String &p_score) {

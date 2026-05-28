@@ -5,6 +5,10 @@
 #include "tests/test_macros.h"
 
 #include "core/io/json.h"
+#include "core/object/message_queue.h"
+#include "core/os/os.h"
+#include "core/os/semaphore.h"
+#include "core/os/thread.h"
 #include "editor/user_system/auth_client.h"
 #include "editor/user_system/editor_user_avatar.h"
 #include "editor/user_system/editor_user_login_dialog.h"
@@ -69,6 +73,22 @@ public:
 	}
 };
 
+class BlockingAuthTransport : public FakeAuthTransport {
+	GDCLASS(BlockingAuthTransport, FakeAuthTransport);
+
+public:
+	Semaphore request_started;
+	Semaphore release_request;
+	bool request_was_on_main_thread = true;
+
+	virtual bool request_json(HTTPClient::Method p_method, const String &p_path, const String &p_body, const Vector<String> &p_headers, String &r_response, int &r_http_code, String &r_error) override {
+		request_was_on_main_thread = Thread::is_main_thread();
+		request_started.post();
+		release_request.wait();
+		return FakeAuthTransport::request_json(p_method, p_path, p_body, p_headers, r_response, r_http_code, r_error);
+	}
+};
+
 static Dictionary parse_json_dictionary(const String &p_json) {
 	Ref<JSON> parser;
 	parser.instantiate();
@@ -91,6 +111,17 @@ static bool has_header_prefix(const Vector<String> &p_headers, const String &p_p
 		if (p_headers[i].begins_with(p_prefix)) {
 			return true;
 		}
+	}
+	return false;
+}
+
+static bool wait_for_semaphore(const Semaphore &p_semaphore, uint64_t p_timeout_msec = 1000) {
+	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
+	while (OS::get_singleton()->get_ticks_msec() - start_time < p_timeout_msec) {
+		if (p_semaphore.try_wait()) {
+			return true;
+		}
+		OS::get_singleton()->delay_usec(1000);
 	}
 	return false;
 }
@@ -290,6 +321,34 @@ TEST_CASE("[Editor][UserSystem] Manager saves phone-code login session and falls
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }
 
+TEST_CASE("[Editor][UserSystem] Manager async requests run transport off the main thread") {
+	Ref<BlockingAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":1}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	Ref<EditorUserManager> manager;
+	manager.instantiate();
+	manager->set_auth_client_for_test(client);
+
+	CHECK(manager->request_send_phone_code("+8613800000000"));
+	CHECK(wait_for_semaphore(transport->request_started));
+	CHECK_FALSE(transport->request_was_on_main_thread);
+	CHECK(manager->is_request_pending());
+
+	transport->release_request.post();
+	manager->wait_for_request_for_test();
+	if (MessageQueue::get_main_singleton()) {
+		MessageQueue::get_main_singleton()->flush();
+	}
+
+	CHECK_FALSE(manager->is_request_pending());
+	CHECK(transport->last_path == "/v1/auth/send/phone/code");
+}
+
 TEST_CASE("[Editor][UserSystem] Manager keeps auth when profile load fails") {
 	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
 	EditorUserSession::set_session_storage_for_test(Dictionary());
@@ -376,6 +435,19 @@ TEST_CASE("[Editor][UserSystem] Avatar formats display fallback initial and scor
 
 	user.nickname = "Nora";
 	CHECK(EditorUserAvatar::get_display_name_for_test(user, session) == "Nora");
+}
+
+TEST_CASE("[Editor][UserSystem] Avatar formats user id and falls back to session id") {
+	AuthUserInfo user;
+	AuthSessionData session;
+	session.user_id = "user-4";
+
+	CHECK(EditorUserAvatar::get_user_id_for_test(user, session) == "user-4");
+	CHECK(EditorUserAvatar::format_user_id_for_test("user-4") == "ID user-4");
+	CHECK(EditorUserAvatar::format_user_id_for_test("") == "ID --");
+
+	user.user_id = "user-5";
+	CHECK(EditorUserAvatar::get_user_id_for_test(user, session) == "user-5");
 }
 
 TEST_CASE("[Editor][UserSystem] Login dialog validates phone-code fields") {

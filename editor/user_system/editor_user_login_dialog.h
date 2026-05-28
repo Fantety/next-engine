@@ -47,6 +47,8 @@ class EditorUserLoginDialog : public ConfirmationDialog {
 	void _send_code_pressed();
 	void _phone_code_login_pressed();
 	void _password_login_pressed();
+	void _manager_request_completed(int p_request, bool p_success, const String &p_message);
+	void _manager_state_changed(int p_state);
 	void _cooldown_timeout();
 	String _get_phone_code_phone() const;
 	String _get_password_phone() const;
