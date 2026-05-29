@@ -7,6 +7,7 @@
 #include "core/error/error_macros.h"
 #include "core/io/json.h"
 #include "core/os/os.h"
+#include "core/string/print_string.h"
 
 namespace {
 
@@ -44,6 +45,39 @@ Dictionary _parse_root_dictionary(const String &p_json, String &r_error) {
 		return Dictionary();
 	}
 	return parser->get_data();
+}
+
+String _variant_to_string(const Variant &p_value) {
+	switch (p_value.get_type()) {
+		case Variant::NIL:
+			return String();
+		case Variant::STRING:
+		case Variant::STRING_NAME:
+		case Variant::NODE_PATH:
+			return String(p_value);
+		case Variant::INT:
+			return String::num_int64((int64_t)p_value);
+		case Variant::FLOAT:
+			return String::num((double)p_value);
+		case Variant::BOOL:
+			return bool(p_value) ? String("true") : String("false");
+		default:
+			return String(p_value);
+	}
+}
+
+String _get_dictionary_string(const Dictionary &p_data, const String &p_name, const String &p_fallback = String()) {
+	Variant value = p_data.get(p_name, Variant());
+	if (value.get_type() == Variant::NIL) {
+		value = p_data.get(StringName(p_name), Variant());
+	}
+	if (value.get_type() == Variant::NIL && !p_fallback.is_empty()) {
+		value = p_data.get(p_fallback, Variant());
+		if (value.get_type() == Variant::NIL) {
+			value = p_data.get(StringName(p_fallback), Variant());
+		}
+	}
+	return _variant_to_string(value).strip_edges();
 }
 
 String _join_base_path(const String &p_base_path, const String &p_path) {
@@ -257,9 +291,9 @@ AuthResult AuthClient::_parse_auth_response(const String &p_json) {
 	}
 
 	Dictionary data = data_value;
-	result.session.user_id = String(data.get("userId", data.get("id", String()))).strip_edges();
-	result.session.token = String(data.get("token", String()));
-	result.session.refresh_token = String(data.get("refreshToken", String()));
+	result.session.user_id = _get_dictionary_string(data, "userId", "id");
+	result.session.token = _variant_to_string(data.get("token", String()));
+	result.session.refresh_token = _variant_to_string(data.get("refreshToken", String()));
 	result.success = !result.session.user_id.is_empty() && !result.session.token.is_empty() && !result.session.refresh_token.is_empty();
 	if (!result.success) {
 		result.error = "Authentication server response is missing credentials.";
@@ -288,11 +322,11 @@ AuthResult AuthClient::_parse_user_response(const String &p_json) {
 	}
 
 	Dictionary data = data_value;
-	result.user.user_id = String(data.get("id", data.get("userId", String()))).strip_edges();
-	result.user.nickname = String(data.get("nickname", data.get("nickName", String()))).strip_edges();
-	result.user.phone = String(data.get("phone", String())).strip_edges();
-	result.user.email = String(data.get("email", String())).strip_edges();
-	result.user.score = String(data.get("score", String())).strip_edges();
+	result.user.user_id = _get_dictionary_string(data, "id", "userId");
+	result.user.nickname = _get_dictionary_string(data, "nickname", "nickName");
+	result.user.phone = _get_dictionary_string(data, "phone");
+	result.user.email = _get_dictionary_string(data, "email");
+	result.user.score = _get_dictionary_string(data, "score");
 	result.success = !result.user.user_id.is_empty();
 	if (!result.success) {
 		result.error = "Account information response is missing user id.";
@@ -410,6 +444,11 @@ AuthResult AuthClient::login_with_password(const String &p_phone, const String &
 
 AuthResult AuthClient::refresh_token(const AuthSessionData &p_session) {
 	AuthResult result = _send_request(HTTPClient::METHOD_POST, "/v1/auth/token/refresh", _build_refresh_token_body(p_session), true, p_session.token);
+	if (!result.success && result.session.user_id.is_empty() && !p_session.user_id.is_empty() && !result.session.token.is_empty() && !result.session.refresh_token.is_empty()) {
+		result.session.user_id = p_session.user_id;
+		result.success = true;
+		result.error.clear();
+	}
 	if (result.success) {
 		result.session.phone = p_session.phone;
 		result.session.device_id = p_session.device_id;
@@ -440,7 +479,9 @@ AuthResult AuthClient::get_user(const String &p_user_id, const String &p_token) 
 	String error;
 	int http_code = 0;
 	const String path = "/user/" + p_user_id.uri_encode();
-	if (!transport->request_json(HTTPClient::METHOD_GET, path, String(), headers, response, http_code, error)) {
+	const bool request_ok = transport->request_json(HTTPClient::METHOD_GET, path, String(), headers, response, http_code, error);
+	print_line(vformat("[User Auth] raw response path=%s transport_ok=%s http_code=%d error=%s body=%s", path, request_ok ? "true" : "false", http_code, error, response));
+	if (!request_ok) {
 		result.error = error.is_empty() ? "Failed to load account information." : error;
 		return result;
 	}

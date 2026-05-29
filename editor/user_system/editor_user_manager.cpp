@@ -7,6 +7,7 @@
 #include "core/error/error_macros.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/string/print_string.h"
 #include "editor/user_system/editor_user_session.h"
 
 void EditorUserManager::_bind_methods() {
@@ -189,6 +190,9 @@ void EditorUserManager::_complete_async_request() {
 				_set_error(result.error);
 				_set_state(session.user_id.is_empty() ? STATE_LOGGED_OUT : STATE_PROFILE_UNAVAILABLE);
 				emit_signal(SNAME("profile_changed"));
+				if (!session.user_id.is_empty() && !session.token.is_empty()) {
+					start_profile_refresh = true;
+				}
 			}
 		} break;
 
@@ -217,11 +221,17 @@ void EditorUserManager::_complete_async_request() {
 		} break;
 	}
 
-	emit_signal(SNAME("request_completed"), (int)request, completed_success, completed_message);
-
+	bool profile_refresh_started = false;
 	if (start_profile_refresh) {
-		(void)request_refresh_profile();
+		print_line(vformat("[User Auth] scheduling profile refresh user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
+		profile_refresh_started = request_refresh_profile();
+		if (!profile_refresh_started) {
+			print_line(vformat("[User Auth] profile refresh was not started: %s", last_error));
+		}
 	}
+
+	print_line(vformat("[User Auth] completed request=%d success=%s message=%s user_id=%s start_profile_refresh=%s profile_refresh_started=%s", (int)request, completed_success ? "true" : "false", completed_message, session.user_id, start_profile_refresh ? "true" : "false", profile_refresh_started ? "true" : "false"));
+	emit_signal(SNAME("request_completed"), (int)request, completed_success, completed_message);
 }
 
 void EditorUserManager::_thread_func(void *p_userdata) {
@@ -258,6 +268,7 @@ void EditorUserManager::_thread_func(void *p_userdata) {
 			result = client->refresh_token(session);
 			break;
 		case REQUEST_REFRESH_PROFILE:
+			print_line(vformat("[User Auth] worker loading profile user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
 			result = client->get_user(session.user_id, session.token);
 			break;
 		case REQUEST_LOGOUT:
@@ -335,6 +346,7 @@ bool EditorUserManager::request_refresh_profile() {
 		_set_error("Account session is not available.");
 		return false;
 	}
+	print_line(vformat("[User Auth] request_refresh_profile user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
 	return _start_request(REQUEST_REFRESH_PROFILE, session);
 }
 
@@ -458,20 +470,12 @@ String EditorUserManager::get_last_error() const {
 }
 
 String EditorUserManager::get_display_name() const {
-	if (!user_info.nickname.is_empty()) {
-		return user_info.nickname;
-	}
-	if (!user_info.phone.is_empty()) {
-		return user_info.phone;
-	}
-	if (!session.phone.is_empty()) {
-		return session.phone;
-	}
-	return session.user_id;
+	return user_info.nickname.strip_edges();
 }
 
 String EditorUserManager::get_score_text() const {
-	return user_info.score.is_empty() ? "--" : user_info.score;
+	const String score = user_info.score.strip_edges();
+	return score.is_empty() ? "--" : score;
 }
 
 void EditorUserManager::set_auth_client_for_test(const Ref<AuthClient> &p_client) {
