@@ -131,6 +131,7 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_event_log"), &AIAgentNextSession::get_event_log);
 	ClassDB::bind_method(D_METHOD("has_agent", "agent_id"), &AIAgentNextSession::has_agent);
 	ClassDB::bind_method(D_METHOD("set_model_profile_id", "model_profile_id"), &AIAgentNextSession::set_model_profile_id);
+	ClassDB::bind_method(D_METHOD("set_agent_model_profile_id", "agent_id", "model_profile_id"), &AIAgentNextSession::set_agent_model_profile_id);
 	ClassDB::bind_method(D_METHOD("submit_brief", "brief"), &AIAgentNextSession::submit_brief);
 	ClassDB::bind_method(D_METHOD("generate_plan"), &AIAgentNextSession::generate_plan);
 	ClassDB::bind_method(D_METHOD("approve_plan"), &AIAgentNextSession::approve_plan);
@@ -293,6 +294,13 @@ void AIAgentNextSession::set_model_profile_id(const String &p_model_profile_id) 
 	scene_agent->set_model_profile_id(p_model_profile_id);
 	shader_agent->set_model_profile_id(p_model_profile_id);
 	review_agent->set_model_profile_id(p_model_profile_id);
+}
+
+void AIAgentNextSession::set_agent_model_profile_id(const String &p_agent_id, const String &p_model_profile_id) {
+	Ref<AIAgentBase> agent = _get_agent(p_agent_id);
+	if (agent.is_valid() && !p_model_profile_id.is_empty()) {
+		agent->set_model_profile_id(p_model_profile_id);
+	}
 }
 
 void AIAgentNextSession::submit_brief(const String &p_brief) {

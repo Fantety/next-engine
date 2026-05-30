@@ -10,6 +10,7 @@
 
 class AISettingsModelsPage;
 class AISettingsMCPPage;
+class AISettingsNextPage;
 class AISettingsRulesPage;
 class AISettingsSkillsPage;
 class HBoxContainer;
@@ -19,6 +20,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 
 	enum SettingsPage {
 		PAGE_MODELS,
+		PAGE_NEXT,
 		PAGE_MCP,
 		PAGE_SKILLS,
 		PAGE_RULES,
@@ -27,6 +29,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	ItemList *navigation = nullptr;
 	TabContainer *pages = nullptr;
 	AISettingsModelsPage *models_page = nullptr;
+	AISettingsNextPage *next_page = nullptr;
 	AISettingsMCPPage *mcp_page = nullptr;
 	AISettingsSkillsPage *skills_page = nullptr;
 	AISettingsRulesPage *rules_page = nullptr;
@@ -39,6 +42,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	void _navigation_selected(int p_index);
 	void _save_settings();
 	void _save_model_settings();
+	void _save_next_settings();
 	void _save_mcp_settings();
 	void _save_skill_settings();
 	void _save_rule_settings();
@@ -54,6 +58,7 @@ public:
 	void build_for_test();
 	int get_model_table_row_count_for_test() const;
 	int get_custom_model_table_row_count_for_test() const;
+	int get_next_agent_model_row_count_for_test() const;
 	int get_mcp_server_table_row_count_for_test() const;
 	int get_skill_table_row_count_for_test() const;
 	int get_rule_table_row_count_for_test() const;
@@ -62,6 +67,7 @@ public:
 	void add_mcp_server_for_test(const String &p_display_name, const String &p_command, bool p_enabled = true);
 	void add_skill_for_test(const String &p_display_name, const String &p_description, const String &p_content, bool p_enabled = true);
 	void add_rule_for_test(const String &p_content, bool p_enabled = true);
+	void set_next_agent_model_for_test(const String &p_agent_id, const String &p_model_profile_id);
 	void edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key);
 	void edit_custom_model_for_test(const String &p_current_model, const String &p_new_model, const String &p_base_url, const String &p_api_key);
 	void remove_custom_model_for_test(const String &p_provider_id, const String &p_model);

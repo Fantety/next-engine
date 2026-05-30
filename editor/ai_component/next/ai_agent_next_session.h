@@ -43,6 +43,7 @@ public:
 	Ref<AIAgentBase> get_agent_for_test(const String &p_agent_id) const;
 
 	void set_model_profile_id(const String &p_model_profile_id);
+	void set_agent_model_profile_id(const String &p_agent_id, const String &p_model_profile_id);
 	void submit_brief(const String &p_brief);
 	void generate_plan();
 	void approve_plan();

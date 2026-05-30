@@ -15,10 +15,13 @@ class AIAgentNextDock : public VBoxContainer {
 	AIAgentNextSession *next_session = nullptr;
 	AINextPanel *next_panel = nullptr;
 
+	void _apply_agent_model_settings();
+
 protected:
 	static void _bind_methods();
 
 public:
 	AIAgentNextDock();
+	void apply_agent_model_settings();
 	AIAgentNextSession *get_next_session_for_test() const;
 };

@@ -288,6 +288,7 @@ void fragment() {
 
 	if (AIAgentSettingsDialog::get_singleton()) {
 		AIAgentSettingsDialog::get_singleton()->connect("ai_settings_changed", callable_mp(this, &AIAgentDock::_settings_changed));
+		AIAgentSettingsDialog::get_singleton()->connect("ai_next_settings_changed", callable_mp(this, &AIAgentDock::_settings_changed));
 		AIAgentSettingsDialog::get_singleton()->connect("ai_mcp_settings_changed", callable_mp(this, &AIAgentDock::_mcp_settings_changed));
 		AIAgentSettingsDialog::get_singleton()->connect("ai_skill_settings_changed", callable_mp(this, &AIAgentDock::_skill_settings_changed));
 	}
@@ -407,6 +408,9 @@ void AIAgentDock::_mcp_status_changed(const Array &p_statuses, const Dictionary 
 
 void AIAgentDock::_settings_changed() {
 	composer->reload_models();
+	if (next_dock) {
+		next_dock->apply_agent_model_settings();
+	}
 }
 
 void AIAgentDock::_mcp_settings_changed() {
