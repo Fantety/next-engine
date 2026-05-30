@@ -87,6 +87,9 @@ void AISceneEditingService::_execute_request_ptr(MainThreadRequest *p_request) {
 		case MainThreadRequest::OP_ADD_NODE:
 			p_request->result = _add_node_main_thread(p_request->parent_path, p_request->node_type, p_request->node_name);
 			break;
+		case MainThreadRequest::OP_INSTANTIATE_SCENE:
+			p_request->result = _instantiate_scene_main_thread(p_request->parent_path, p_request->scene_path, p_request->node_name, p_request->position);
+			break;
 		case MainThreadRequest::OP_DELETE_NODE:
 			p_request->result = _delete_node_main_thread(p_request->node_path);
 			break;
@@ -870,6 +873,26 @@ bool AISceneEditingService::_set_indexed_property(Object *p_object, const String
 	return true;
 }
 
+bool AISceneEditingService::_node_tree_contains_scene_path(Node *p_node, const String &p_scene_path) const {
+	ERR_FAIL_NULL_V(p_node, false);
+
+	const String target_scene_path = p_scene_path.strip_edges().simplify_path();
+	String node_scene_path = p_node->get_scene_file_path().strip_edges();
+	if (!node_scene_path.is_empty()) {
+		node_scene_path = ProjectSettings::get_singleton()->localize_path(node_scene_path).simplify_path();
+		if (node_scene_path == target_scene_path) {
+			return true;
+		}
+	}
+
+	for (int i = 0; i < p_node->get_child_count(false); i++) {
+		if (_node_tree_contains_scene_path(p_node->get_child(i, false), target_scene_path)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 String AISceneEditingService::_preview_variant_value(const Variant &p_value) const {
 	if (p_value.get_type() == Variant::NIL) {
 		return "<null>";
@@ -1112,6 +1135,137 @@ AISceneEditingResult AISceneEditingService::_add_node_main_thread(const String &
 	result.metadata["node_type"] = child->get_class();
 	result.metadata["node_name"] = String(child->get_name());
 	result.metadata["node_path"] = String(scene->get_path_to(child));
+	result.metadata["scene_path"] = saved_path;
+	result.metadata["saved"] = true;
+	return result;
+}
+
+AISceneEditingResult AISceneEditingService::_instantiate_scene_main_thread(const String &p_parent_path, const String &p_scene_path, const String &p_name, int p_position) {
+	AISceneEditingResult result;
+	String error;
+	Node *scene = _get_edited_scene(error);
+	if (!scene) {
+		result.error = error;
+		return result;
+	}
+	String current_scene_path;
+	if (!_get_current_scene_save_path_main_thread(scene, current_scene_path, error)) {
+		result.error = error;
+		return result;
+	}
+
+	Node *parent = _resolve_node_path(scene, p_parent_path, true, error);
+	if (!parent) {
+		result.error = error;
+		return result;
+	}
+	if (p_position < -1) {
+		result.error = "Position must be -1 or a non-negative child index.";
+		return result;
+	}
+	if (p_position > parent->get_child_count(false)) {
+		result.error = "Position is outside the parent child range.";
+		return result;
+	}
+
+	String scene_path;
+	if (!_normalize_scene_save_path(p_scene_path, scene_path, error)) {
+		result.error = error;
+		return result;
+	}
+	if (scene_path == current_scene_path) {
+		result.error = "Cannot instantiate the current edited scene into itself.";
+		return result;
+	}
+	if (!ResourceLoader::exists(scene_path, "PackedScene")) {
+		result.error = vformat("Scene resource `%s` does not exist.", scene_path);
+		return result;
+	}
+	const String resource_type = ResourceLoader::get_resource_type(scene_path);
+	if (resource_type != "PackedScene" && !ClassDB::is_parent_class(resource_type, SNAME("PackedScene"))) {
+		result.error = vformat("Resource `%s` is not a PackedScene.", scene_path);
+		return result;
+	}
+
+	Error load_error = OK;
+	Ref<PackedScene> packed_scene = ResourceLoader::load(scene_path, "PackedScene", ResourceLoader::CACHE_MODE_REUSE, &load_error);
+	if (packed_scene.is_null()) {
+		result.error = vformat("Failed to load scene `%s` (error %d).", scene_path, load_error);
+		return result;
+	}
+
+	Node *instance = packed_scene->instantiate(PackedScene::GEN_EDIT_STATE_INSTANCE);
+	if (!instance) {
+		result.error = vformat("Failed to instantiate scene `%s`.", scene_path);
+		return result;
+	}
+	if (_node_tree_contains_scene_path(instance, current_scene_path)) {
+		memdelete(instance);
+		result.error = vformat("Cannot instantiate scene `%s` because it contains the current edited scene.", scene_path);
+		return result;
+	}
+
+	instance->set_scene_file_path(ProjectSettings::get_singleton()->localize_path(scene_path));
+
+	String requested_name = p_name.strip_edges();
+	if (!requested_name.is_empty()) {
+		requested_name = requested_name.validate_node_name();
+		if (GLOBAL_GET("editor/naming/node_name_casing").operator int() != Node::NAME_CASING_PASCAL_CASE) {
+			requested_name = Node::adjust_name_casing(requested_name);
+		}
+		instance->set_name(requested_name);
+	}
+	const String new_name = parent->validate_child_name(instance);
+	instance->set_name(new_name);
+
+	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+	if (!undo_redo) {
+		memdelete(instance);
+		result.error = "Editor undo/redo manager is not available.";
+		return result;
+	}
+
+	const NodePath parent_path = scene->get_path_to(parent);
+	const NodePath instance_path = NodePath(String(parent_path).path_join(new_name));
+
+	undo_redo->create_action_for_history(TTR("AI Instantiate Scene"), EditorNode::get_editor_data().get_current_edited_scene_history_id());
+	undo_redo->add_do_method(parent, "add_child", instance, true);
+	if (p_position >= 0) {
+		undo_redo->add_do_method(parent, "move_child", instance, p_position);
+	}
+	undo_redo->add_do_method(instance, "set_owner", scene);
+	undo_redo->add_do_reference(instance);
+	undo_redo->add_undo_method(parent, "remove_child", instance);
+
+	EditorDebuggerNode *debugger = EditorDebuggerNode::get_singleton();
+	if (debugger) {
+		undo_redo->add_do_method(debugger, "live_debug_instantiate_node", parent_path, scene_path, new_name);
+		undo_redo->add_undo_method(debugger, "live_debug_remove_node", instance_path);
+	}
+	undo_redo->commit_action();
+
+	_select_node(instance);
+	_update_scene_tree();
+
+	String saved_path;
+	if (!_save_current_scene_main_thread(scene, saved_path, error)) {
+		undo_redo->undo();
+		_update_scene_tree();
+		result.error = error;
+		result.metadata["saved"] = false;
+		result.metadata["parent_path"] = p_parent_path;
+		result.metadata["source_scene_path"] = scene_path;
+		result.metadata["node_name"] = String(instance->get_name());
+		result.metadata["node_path"] = String(scene->get_path_to(instance));
+		return result;
+	}
+
+	result.success = true;
+	result.message = vformat("Instantiated scene `%s` as `%s` under `%s` and saved `%s`.", scene_path, instance->get_name(), p_parent_path, saved_path);
+	result.metadata["parent_path"] = p_parent_path;
+	result.metadata["source_scene_path"] = scene_path;
+	result.metadata["node_name"] = String(instance->get_name());
+	result.metadata["node_path"] = String(scene->get_path_to(instance));
 	result.metadata["scene_path"] = saved_path;
 	result.metadata["saved"] = true;
 	return result;
@@ -1841,6 +1995,16 @@ AISceneEditingResult AISceneEditingService::add_node(const String &p_parent_path
 	request.parent_path = p_parent_path;
 	request.node_type = p_type;
 	request.node_name = p_name;
+	return _dispatch_to_main_thread(request);
+}
+
+AISceneEditingResult AISceneEditingService::instantiate_scene(const String &p_parent_path, const String &p_scene_path, const String &p_name, int p_position) {
+	MainThreadRequest request;
+	request.operation = MainThreadRequest::OP_INSTANTIATE_SCENE;
+	request.parent_path = p_parent_path;
+	request.scene_path = p_scene_path;
+	request.node_name = p_name;
+	request.position = p_position;
 	return _dispatch_to_main_thread(request);
 }
 

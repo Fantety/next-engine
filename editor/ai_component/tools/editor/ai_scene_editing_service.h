@@ -29,6 +29,7 @@ class AISceneEditingService : public RefCounted {
 		enum Operation {
 			OP_CREATE_SCENE,
 			OP_ADD_NODE,
+			OP_INSTANTIATE_SCENE,
 			OP_DELETE_NODE,
 			OP_RENAME_NODE,
 			OP_MOVE_NODE,
@@ -86,11 +87,13 @@ class AISceneEditingService : public RefCounted {
 	bool _convert_dictionary_typed_value(const Dictionary &p_value, Variant::Type p_target_type, Variant &r_value, String &r_error) const;
 	bool _convert_array_typed_value(const Array &p_value, Variant::Type p_target_type, Variant &r_value, String &r_error) const;
 	bool _set_indexed_property(Object *p_object, const String &p_property_path, const Variant &p_value, String &r_error) const;
+	bool _node_tree_contains_scene_path(Node *p_node, const String &p_scene_path) const;
 	String _preview_variant_value(const Variant &p_value) const;
 	Array _get_common_subproperty_paths(const String &p_property_path, Variant::Type p_type) const;
 	String _build_resource_value_example(const PropertyInfo &p_property_info) const;
 	AISceneEditingResult _create_scene_main_thread(const String &p_root_type, const String &p_root_name, const String &p_path);
 	AISceneEditingResult _add_node_main_thread(const String &p_parent_path, const String &p_type, const String &p_name);
+	AISceneEditingResult _instantiate_scene_main_thread(const String &p_parent_path, const String &p_scene_path, const String &p_name, int p_position);
 	AISceneEditingResult _delete_node_main_thread(const String &p_node_path);
 	AISceneEditingResult _rename_node_main_thread(const String &p_node_path, const String &p_new_name);
 	AISceneEditingResult _move_node_main_thread(const String &p_node_path, const String &p_new_parent_path, int p_position);
@@ -107,6 +110,7 @@ protected:
 public:
 	AISceneEditingResult create_scene(const String &p_root_type, const String &p_root_name, const String &p_path);
 	AISceneEditingResult add_node(const String &p_parent_path, const String &p_type, const String &p_name);
+	AISceneEditingResult instantiate_scene(const String &p_parent_path, const String &p_scene_path, const String &p_name, int p_position);
 	AISceneEditingResult delete_node(const String &p_node_path);
 	AISceneEditingResult rename_node(const String &p_node_path, const String &p_new_name);
 	AISceneEditingResult move_node(const String &p_node_path, const String &p_new_parent_path, int p_position);

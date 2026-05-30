@@ -28,6 +28,10 @@ Ref<AIMCPService> AIMCPService::get_singleton() {
 	return singleton;
 }
 
+void AIMCPService::clear_singleton_for_test() {
+	singleton.unref();
+}
+
 AIMCPService::AIMCPService() {
 	_ensure_runtime();
 }

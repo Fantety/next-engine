@@ -8,6 +8,7 @@
 #include "core/io/file_access.h"
 #include "editor/ai_component/agent/ai_agent_profile.h"
 #include "editor/ai_component/agent/ai_main_agent.h"
+#include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
@@ -34,6 +35,7 @@
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_instantiate_scene_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_list_properties_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_move_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_open_scene_tool.h"
@@ -635,6 +637,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("editor.get_context") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("scene.instantiate_scene") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.inspect") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
@@ -662,6 +665,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.add_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.instantiate_scene") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.rename_node") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.move_node") == AI_TOOL_PERMISSION_ALLOW);
@@ -696,6 +700,11 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(AIToolPermissionPolicy::string_to_permission("ask") == AI_TOOL_PERMISSION_ASK);
 	CHECK(AIToolPermissionPolicy::string_to_permission("deny") == AI_TOOL_PERMISSION_DENY);
 	CHECK(AIToolPermissionPolicy::evaluate(AI_TOOL_PERMISSION_ASK, "script.delete").permission == AI_TOOL_PERMISSION_ASK);
+
+	agent->clear_tools();
+	registry.unref();
+	agent.unref();
+	AIMCPService::clear_singleton_for_test();
 }
 
 TEST_CASE("[Editor][AI] Plan manager keeps one active plan and archives completed work") {
@@ -1020,6 +1029,19 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	CHECK(add_properties.has("type"));
 	CHECK(add_properties.has("name"));
 
+	Ref<AISceneInstantiateSceneTool> instantiate_scene;
+	instantiate_scene.instantiate();
+	CHECK(instantiate_scene->get_name() == "scene.instantiate_scene");
+	Dictionary instantiate_schema = instantiate_scene->get_parameters_schema();
+	Dictionary instantiate_properties = instantiate_schema["properties"];
+	CHECK(instantiate_properties.has("parent_path"));
+	CHECK(instantiate_properties.has("scene_path"));
+	CHECK(instantiate_properties.has("name"));
+	CHECK(instantiate_properties.has("position"));
+	Array instantiate_required = instantiate_schema["required"];
+	CHECK(instantiate_required.has("parent_path"));
+	CHECK(instantiate_required.has("scene_path"));
+
 	Ref<AISceneDeleteNodeTool> delete_node;
 	delete_node.instantiate();
 	CHECK(delete_node->get_name() == "scene.delete_node");
@@ -1313,6 +1335,15 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	shader_arguments["target_property"] = "material";
 	shader_arguments["shader_parameters"] = "not an object";
 	CHECK(shader_apply->execute(shader_arguments).is_error());
+}
+
+TEST_CASE("[Editor][AI] Scene instantiate scene tool validates required arguments before touching editor state") {
+	Ref<AISceneInstantiateSceneTool> instantiate_scene;
+	instantiate_scene.instantiate();
+	Dictionary instantiate_arguments;
+	CHECK(instantiate_scene->execute(instantiate_arguments).is_error());
+	instantiate_arguments["parent_path"] = ".";
+	CHECK(instantiate_scene->execute(instantiate_arguments).is_error());
 }
 
 TEST_CASE("[Editor][AI] Read-only project tools enforce project boundaries") {

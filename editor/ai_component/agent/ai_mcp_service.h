@@ -31,6 +31,7 @@ protected:
 
 public:
 	static Ref<AIMCPService> get_singleton();
+	static void clear_singleton_for_test();
 
 	AIMCPService();
 

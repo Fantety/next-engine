@@ -11,6 +11,7 @@
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_instantiate_scene_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_list_properties_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_move_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_open_scene_tool.h"
@@ -100,6 +101,7 @@ void AIMainAgent::_register_local_tools() {
 		{ _create_main_agent_tool<AICreateFolderTool> },
 		{ _create_main_agent_tool<AISceneCreateSceneTool> },
 		{ _create_main_agent_tool<AISceneAddNodeTool> },
+		{ _create_main_agent_tool<AISceneInstantiateSceneTool> },
 		{ _create_main_agent_tool<AISceneDeleteNodeTool> },
 		{ _create_main_agent_tool<AISceneRenameNodeTool> },
 		{ _create_main_agent_tool<AISceneMoveNodeTool> },
