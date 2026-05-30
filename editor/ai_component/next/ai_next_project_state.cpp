@@ -632,6 +632,7 @@ int AINextProjectState::get_asset_count() const {
 
 bool AINextProjectState::replace_from_milestones_array(const Array &p_milestones, String &r_error) {
 	Vector<AINextMilestone> parsed_milestones;
+	int generated_task_number = 1;
 	for (int i = 0; i < p_milestones.size(); i++) {
 		if (Variant(p_milestones[i]).get_type() != Variant::DICTIONARY) {
 			r_error = "Milestone entries must be dictionaries.";
@@ -654,7 +655,7 @@ bool AINextProjectState::replace_from_milestones_array(const Array &p_milestones
 		for (int task_index = 0; task_index < milestone.tasks.size(); task_index++) {
 			AINextTask &task = milestone.tasks.write[task_index];
 			if (task.id.strip_edges().is_empty()) {
-				task.id = _format_next_id("task", next_task_number + task_index);
+				task.id = _format_next_id("task", generated_task_number++);
 			}
 			if (task.title.strip_edges().is_empty()) {
 				r_error = "Task title is required.";
