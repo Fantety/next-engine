@@ -6,8 +6,10 @@
 
 #include "core/error/error_macros.h"
 #include "core/io/json.h"
+#include "core/math/math_funcs.h"
 #include "core/os/os.h"
 #include "core/string/print_string.h"
+#include "core/variant/array.h"
 
 namespace {
 
@@ -57,8 +59,13 @@ String _variant_to_string(const Variant &p_value) {
 			return String(p_value);
 		case Variant::INT:
 			return String::num_int64((int64_t)p_value);
-		case Variant::FLOAT:
-			return String::num((double)p_value);
+		case Variant::FLOAT: {
+			const double number = (double)p_value;
+			if (Math::is_finite(number) && Math::floor(number) == number && number >= (double)INT64_MIN && number <= (double)INT64_MAX) {
+				return String::num_int64((int64_t)number);
+			}
+			return String::num(number);
+		}
 		case Variant::BOOL:
 			return bool(p_value) ? String("true") : String("false");
 		default:
@@ -78,6 +85,34 @@ String _get_dictionary_string(const Dictionary &p_data, const String &p_name, co
 		}
 	}
 	return _variant_to_string(value).strip_edges();
+}
+
+Vector<String> _get_dictionary_string_array(const Dictionary &p_data, const String &p_name) {
+	Variant value = p_data.get(p_name, Variant());
+	if (value.get_type() == Variant::NIL) {
+		value = p_data.get(StringName(p_name), Variant());
+	}
+	if (value.get_type() != Variant::ARRAY) {
+		return Vector<String>();
+	}
+
+	Vector<String> strings;
+	Array values = value;
+	for (int i = 0; i < values.size(); i++) {
+		strings.push_back(_variant_to_string(values[i]).strip_edges());
+	}
+	return strings;
+}
+
+Dictionary _get_dictionary_dictionary(const Dictionary &p_data, const String &p_name) {
+	Variant value = p_data.get(p_name, Variant());
+	if (value.get_type() == Variant::NIL) {
+		value = p_data.get(StringName(p_name), Variant());
+	}
+	if (value.get_type() != Variant::DICTIONARY) {
+		return Dictionary();
+	}
+	return value;
 }
 
 String _join_base_path(const String &p_base_path, const String &p_path) {
@@ -324,9 +359,11 @@ AuthResult AuthClient::_parse_user_response(const String &p_json) {
 	Dictionary data = data_value;
 	result.user.user_id = _get_dictionary_string(data, "id", "userId");
 	result.user.nickname = _get_dictionary_string(data, "nickname", "nickName");
+	result.user.tags = _get_dictionary_string_array(data, "tags");
 	result.user.phone = _get_dictionary_string(data, "phone");
 	result.user.email = _get_dictionary_string(data, "email");
-	result.user.score = _get_dictionary_string(data, "score");
+	result.user.credits = _get_dictionary_string(data, "credits");
+	result.user.gift_cards = _get_dictionary_dictionary(data, "giftCards");
 	result.success = !result.user.user_id.is_empty();
 	if (!result.success) {
 		result.error = "Account information response is missing user id.";
@@ -460,10 +497,10 @@ AuthResult AuthClient::logout(const AuthSessionData &p_session, bool p_all) {
 	return _send_request(HTTPClient::METHOD_POST, "/v1/auth/logout", _build_logout_body(p_session, p_all), false, p_session.token);
 }
 
-AuthResult AuthClient::get_user(const String &p_user_id, const String &p_token) {
+AuthResult AuthClient::get_user(const String &p_token) {
 	AuthResult result;
-	if (p_user_id.strip_edges().is_empty()) {
-		result.error = "User id is empty.";
+	if (p_token.strip_edges().is_empty()) {
+		result.error = "Authentication token is empty.";
 		return result;
 	}
 	if (transport.is_null()) {
@@ -478,7 +515,7 @@ AuthResult AuthClient::get_user(const String &p_user_id, const String &p_token) 
 	String response;
 	String error;
 	int http_code = 0;
-	const String path = "/user/" + p_user_id.uri_encode();
+	const String path = "/user/info";
 	const bool request_ok = transport->request_json(HTTPClient::METHOD_GET, path, String(), headers, response, http_code, error);
 	print_line(vformat("[User Auth] raw response path=%s transport_ok=%s http_code=%d error=%s body=%s", path, request_ok ? "true" : "false", http_code, error, response));
 	if (!request_ok) {

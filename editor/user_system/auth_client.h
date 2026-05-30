@@ -21,9 +21,11 @@ struct AuthSessionData {
 struct AuthUserInfo {
 	String user_id;
 	String nickname;
+	Vector<String> tags;
 	String phone;
 	String email;
-	String score;
+	String credits;
+	Dictionary gift_cards;
 };
 
 struct AuthResult {
@@ -89,7 +91,7 @@ public:
 	AuthResult login_with_password(const String &p_phone, const String &p_password, const String &p_device_id);
 	AuthResult refresh_token(const AuthSessionData &p_session);
 	AuthResult logout(const AuthSessionData &p_session, bool p_all = false);
-	AuthResult get_user(const String &p_user_id, const String &p_token = String());
+	AuthResult get_user(const String &p_token = String());
 
 	AuthClient();
 };

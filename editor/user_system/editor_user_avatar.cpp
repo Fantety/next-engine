@@ -69,7 +69,7 @@ void EditorUserAvatar::_notification(int p_what) {
 		}
 	} else if (p_what == NOTIFICATION_THEME_CHANGED) {
 		_update_account_visual();
-		_update_score_icon();
+		_update_credits_icon();
 	}
 }
 
@@ -112,20 +112,20 @@ void EditorUserAvatar::_build_ui() {
 	name_label->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
 	add_child(name_label);
 
-	score_icon = memnew(TextureRect);
-	score_icon->set_custom_minimum_size(Size2(16, 16) * EDSCALE);
-	score_icon->set_expand_mode(TextureRect::EXPAND_IGNORE_SIZE);
-	score_icon->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
-	score_icon->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
-	score_icon->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-	score_icon->set_tooltip_text(TTR("Score"));
-	add_child(score_icon);
+	credits_icon = memnew(TextureRect);
+	credits_icon->set_custom_minimum_size(Size2(16, 16) * EDSCALE);
+	credits_icon->set_expand_mode(TextureRect::EXPAND_IGNORE_SIZE);
+	credits_icon->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
+	credits_icon->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+	credits_icon->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+	credits_icon->set_tooltip_text(TTR("Credits"));
+	add_child(credits_icon);
 
-	score_label = memnew(Label);
-	score_label->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
-	score_label->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-	add_child(score_label);
-	_update_score_icon();
+	credits_label = memnew(Label);
+	credits_label->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+	credits_label->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+	add_child(credits_label);
+	_update_credits_icon();
 
 	login_dialog = memnew(EditorUserLoginDialog);
 	login_dialog->set_manager(manager);
@@ -160,7 +160,7 @@ void EditorUserAvatar::_build_ui() {
 	details_name_value = _add_detail_value(details_grid, TTR("Name"));
 	details_phone_value = _add_detail_value(details_grid, TTR("Phone"));
 	details_user_id_value = _add_detail_value(details_grid, TTR("User ID"));
-	details_score_value = _add_detail_value(details_grid, TTR("Score"));
+	details_credits_value = _add_detail_value(details_grid, TTR("Credits"));
 
 	HSeparator *details_separator = memnew(HSeparator);
 	details_content->add_child(details_separator);
@@ -189,15 +189,15 @@ void EditorUserAvatar::_refresh_ui() {
 		name_label->set_visible(logged_in);
 		name_label->set_text(logged_in ? _detail_value(nickname) : String());
 	}
-	if (score_icon) {
-		score_icon->set_visible(logged_in);
+	if (credits_icon) {
+		credits_icon->set_visible(logged_in);
 	}
-	if (score_label) {
-		score_label->set_visible(logged_in);
-		score_label->set_text(logged_in ? format_score_value(user.score) : String());
+	if (credits_label) {
+		credits_label->set_visible(logged_in);
+		credits_label->set_text(logged_in ? format_credits_value(user.credits) : String());
 	}
 
-	account_button->set_tooltip_text(logged_in && !nickname.is_empty() ? vformat("%s - %s", nickname, format_score(user.score)) : TTR("Account"));
+	account_button->set_tooltip_text(logged_in && !nickname.is_empty() ? vformat("%s - %s", nickname, format_credits(user.credits)) : TTR("Account"));
 	_update_account_visual();
 
 	_refresh_details_ui();
@@ -246,8 +246,8 @@ void EditorUserAvatar::_refresh_details_ui() {
 	if (details_user_id_value) {
 		details_user_id_value->set_text(_detail_value(!user.user_id.strip_edges().is_empty() ? user.user_id : session.user_id));
 	}
-	if (details_score_value) {
-		details_score_value->set_text(_detail_value(user.score));
+	if (details_credits_value) {
+		details_credits_value->set_text(_detail_value(user.credits));
 	}
 }
 
@@ -305,9 +305,9 @@ void EditorUserAvatar::_update_account_visual() {
 	}
 }
 
-void EditorUserAvatar::_update_score_icon() {
-	if (score_icon && score_icon->is_inside_tree()) {
-		score_icon->set_texture(score_icon->get_theme_icon(SNAME("Score"), EditorStringName(EditorIcons)));
+void EditorUserAvatar::_update_credits_icon() {
+	if (credits_icon && credits_icon->is_inside_tree()) {
+		credits_icon->set_texture(credits_icon->get_theme_icon(SNAME("Credits"), EditorStringName(EditorIcons)));
 	}
 }
 
@@ -366,14 +366,14 @@ String EditorUserAvatar::format_user_id(const String &p_user_id) {
 	return _format_user_id_text(p_user_id);
 }
 
-String EditorUserAvatar::format_score(const String &p_score) {
-	const String score = p_score.strip_edges();
-	return vformat(TTR("Score %s"), score.is_empty() ? String("--") : score);
+String EditorUserAvatar::format_credits(const String &p_credits) {
+	const String credits = p_credits.strip_edges();
+	return vformat(TTR("Credits %s"), credits.is_empty() ? String("--") : credits);
 }
 
-String EditorUserAvatar::format_score_value(const String &p_score) {
-	const String score = p_score.strip_edges();
-	return score.is_empty() ? String("--") : score;
+String EditorUserAvatar::format_credits_value(const String &p_credits) {
+	const String credits = p_credits.strip_edges();
+	return credits.is_empty() ? String("--") : credits;
 }
 
 String EditorUserAvatar::get_display_name_for_test(const AuthUserInfo &p_user, const AuthSessionData &p_session) {
@@ -392,12 +392,12 @@ String EditorUserAvatar::format_user_id_for_test(const String &p_user_id) {
 	return format_user_id(p_user_id);
 }
 
-String EditorUserAvatar::format_score_for_test(const String &p_score) {
-	return format_score(p_score);
+String EditorUserAvatar::format_credits_for_test(const String &p_credits) {
+	return format_credits(p_credits);
 }
 
-String EditorUserAvatar::format_score_value_for_test(const String &p_score) {
-	return format_score_value(p_score);
+String EditorUserAvatar::format_credits_value_for_test(const String &p_credits) {
+	return format_credits_value(p_credits);
 }
 
 void EditorUserAvatar::set_manager_for_test(const Ref<EditorUserManager> &p_manager) {

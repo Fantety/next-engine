@@ -14,7 +14,7 @@ void EditorUserManager::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_state"), &EditorUserManager::get_state);
 	ClassDB::bind_method(D_METHOD("is_request_pending"), &EditorUserManager::is_request_pending);
 	ClassDB::bind_method(D_METHOD("get_display_name"), &EditorUserManager::get_display_name);
-	ClassDB::bind_method(D_METHOD("get_score_text"), &EditorUserManager::get_score_text);
+	ClassDB::bind_method(D_METHOD("get_credits_text"), &EditorUserManager::get_credits_text);
 
 	ADD_SIGNAL(MethodInfo("state_changed", PropertyInfo(Variant::INT, "state")));
 	ADD_SIGNAL(MethodInfo("profile_changed"));
@@ -269,7 +269,7 @@ void EditorUserManager::_thread_func(void *p_userdata) {
 			break;
 		case REQUEST_REFRESH_PROFILE:
 			print_line(vformat("[User Auth] worker loading profile user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
-			result = client->get_user(session.user_id, session.token);
+			result = client->get_user(session.token);
 			break;
 		case REQUEST_LOGOUT:
 			result = client->logout(session, logout_all);
@@ -412,7 +412,7 @@ AuthResult EditorUserManager::login_with_password(const String &p_phone, const S
 AuthResult EditorUserManager::refresh_profile() {
 	ERR_FAIL_COND_V(auth_client.is_null(), AuthResult());
 
-	AuthResult result = auth_client->get_user(session.user_id, session.token);
+	AuthResult result = auth_client->get_user(session.token);
 	if (!result.success) {
 		user_info = AuthUserInfo();
 		_set_error(result.error);
@@ -473,9 +473,9 @@ String EditorUserManager::get_display_name() const {
 	return user_info.nickname.strip_edges();
 }
 
-String EditorUserManager::get_score_text() const {
-	const String score = user_info.score.strip_edges();
-	return score.is_empty() ? "--" : score;
+String EditorUserManager::get_credits_text() const {
+	const String credits = user_info.credits.strip_edges();
+	return credits.is_empty() ? "--" : credits;
 }
 
 void EditorUserManager::set_auth_client_for_test(const Ref<AuthClient> &p_client) {

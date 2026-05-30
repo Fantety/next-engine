@@ -35,6 +35,9 @@ public:
 	String last_path;
 	String last_body;
 	Vector<String> last_headers;
+	Vector<String> request_paths;
+	Vector<String> request_bodies;
+	Vector<Vector<String>> request_headers;
 	Vector<Response> responses;
 
 	void push_json(const String &p_body) {
@@ -57,6 +60,9 @@ public:
 		last_path = p_path;
 		last_body = p_body;
 		last_headers = p_headers;
+		request_paths.push_back(p_path);
+		request_bodies.push_back(p_body);
+		request_headers.push_back(p_headers);
 
 		Response response;
 		if (!responses.is_empty()) {
@@ -173,6 +179,28 @@ TEST_CASE("[Editor][UserSystem] Auth client sends phone-code login without regis
 	CHECK(String(body["deviceId"]) == "device-1");
 }
 
+TEST_CASE("[Editor][UserSystem] Auth client sends password login with client scene") {
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_json("{\"code\":0,\"data\":{\"userId\":\"user-1\",\"token\":\"token-1\",\"refreshToken\":\"refresh-1\"}}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	AuthResult result = client->login_with_password(" +8613800000000 ", "pass-1", "device-1");
+
+	CHECK(result.success);
+	CHECK(transport->last_method == HTTPClient::METHOD_POST);
+	CHECK(transport->last_path == "/v1/auth/validate/password");
+
+	Dictionary body = parse_json_dictionary(transport->last_body);
+	CHECK(String(body["phone"]) == "+8613800000000");
+	CHECK(String(body["password"]) == "pass-1");
+	CHECK(String(body["scene"]) == AuthClient::get_default_scene_for_test());
+	CHECK(String(body["deviceId"]) == "device-1");
+}
+
 TEST_CASE("[Editor][UserSystem] Auth client accepts HTTP-style success codes from auth replies") {
 	Ref<FakeAuthTransport> transport;
 	transport.instantiate();
@@ -215,25 +243,32 @@ TEST_CASE("[Editor][UserSystem] Auth client accepts code 1 success replies from 
 	CHECK(login_result.session.refresh_token == "refresh-1");
 }
 
-TEST_CASE("[Editor][UserSystem] Auth client loads user profile and score with security headers") {
+TEST_CASE("[Editor][UserSystem] Auth client loads user profile and credits with security headers") {
 	Ref<FakeAuthTransport> transport;
 	transport.instantiate();
-	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-1\",\"nickname\":\"Alex\",\"phone\":\"+8613800000000\",\"email\":\"alex@example.test\",\"score\":\"42\"}}");
+	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-1\",\"nickname\":\"Alex\",\"tags\":[\"dev\"],\"phone\":\"+8613800000000\",\"email\":\"alex@example.test\",\"credits\":\"42\",\"giftCards\":{\"property1\":{\"cardId\":\"card-1\",\"quantity\":\"2\",\"expireAt\":\"2026-12-31\"}}}}");
 
 	Ref<AuthClient> client;
 	client.instantiate();
 	client->set_transport(transport);
 
-	AuthResult result = client->get_user("user-1", "token-1");
+	AuthResult result = client->get_user("token-1");
 
 	CHECK(result.success);
 	CHECK(result.user.user_id == "user-1");
 	CHECK(result.user.nickname == "Alex");
 	CHECK(result.user.phone == "+8613800000000");
 	CHECK(result.user.email == "alex@example.test");
-	CHECK(result.user.score == "42");
+	CHECK(result.user.credits == "42");
+	CHECK(result.user.tags.size() == 1);
+	CHECK(result.user.tags[0] == "dev");
+	CHECK(result.user.gift_cards.has("property1"));
+	Dictionary gift_card = result.user.gift_cards["property1"];
+	CHECK(String(gift_card["cardId"]) == "card-1");
+	CHECK(String(gift_card["quantity"]) == "2");
+	CHECK(String(gift_card["expireAt"]) == "2026-12-31");
 	CHECK(transport->last_method == HTTPClient::METHOD_GET);
-	CHECK(transport->last_path == "/user/user-1");
+	CHECK(transport->last_path == "/user/info");
 	CHECK(transport->last_body.is_empty());
 	CHECK(has_header(transport->last_headers, "sec-token: token-1"));
 	CHECK(has_header(transport->last_headers, "sec-sign: 1"));
@@ -247,10 +282,10 @@ TEST_CASE("[Editor][UserSystem] Auth client parses protobuf int64 JSON fields as
 	CHECK(auth_result.session.user_id == "78");
 
 	AuthResult user_result;
-	CHECK(AuthClient::parse_user_response_for_test("{\"code\":0,\"data\":{\"id\":78,\"nickname\":\"Alex\",\"phone\":\"+8613800000000\",\"email\":\"alex@example.test\",\"score\":42}}", user_result));
+	CHECK(AuthClient::parse_user_response_for_test("{\"code\":0,\"data\":{\"id\":78,\"nickname\":\"Alex\",\"phone\":\"+8613800000000\",\"email\":\"alex@example.test\",\"credits\":42}}", user_result));
 	CHECK(user_result.user.user_id == "78");
 	CHECK(user_result.user.nickname == "Alex");
-	CHECK(user_result.user.score == "42");
+	CHECK(user_result.user.credits == "42");
 }
 
 TEST_CASE("[Editor][UserSystem] Auth client refreshes token with body credentials") {
@@ -332,7 +367,7 @@ TEST_CASE("[Editor][UserSystem] Manager saves phone-code login session and keeps
 	Ref<FakeAuthTransport> transport;
 	transport.instantiate();
 	transport->push_json("{\"code\":0,\"data\":{\"userId\":\"user-1\",\"token\":\"token-1\",\"refreshToken\":\"refresh-1\"}}");
-	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-1\",\"nickname\":\"\",\"phone\":\"\",\"email\":\"\",\"score\":\"88\"}}");
+	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-1\",\"nickname\":\"\",\"phone\":\"\",\"email\":\"\",\"credits\":\"88\"}}");
 
 	Ref<AuthClient> client;
 	client.instantiate();
@@ -347,7 +382,7 @@ TEST_CASE("[Editor][UserSystem] Manager saves phone-code login session and keeps
 	CHECK(result.success);
 	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_IN);
 	CHECK(manager->get_display_name().is_empty());
-	CHECK(manager->get_score_text() == "88");
+	CHECK(manager->get_credits_text() == "88");
 
 	AuthSessionData session = EditorUserSession::load_session();
 	CHECK(session.user_id == "user-1");
@@ -355,6 +390,10 @@ TEST_CASE("[Editor][UserSystem] Manager saves phone-code login session and keeps
 	CHECK(session.refresh_token == "refresh-1");
 	CHECK(session.phone == "+8613800000000");
 	CHECK(!session.device_id.is_empty());
+	REQUIRE(transport->request_count == 2);
+	CHECK(transport->request_paths[0] == "/v1/auth/validate/phone/code");
+	CHECK(transport->request_paths[1] == "/user/info");
+	CHECK(has_header(transport->request_headers[1], "sec-token: token-1"));
 
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }
@@ -387,14 +426,14 @@ TEST_CASE("[Editor][UserSystem] Manager async requests run transport off the mai
 	CHECK(transport->last_path == "/v1/auth/send/phone/code");
 }
 
-TEST_CASE("[Editor][UserSystem] Manager async login refreshes profile nickname and score") {
+TEST_CASE("[Editor][UserSystem] Manager async login refreshes profile nickname and credits") {
 	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
 	EditorUserSession::set_session_storage_for_test(Dictionary());
 
 	Ref<FakeAuthTransport> transport;
 	transport.instantiate();
 	transport->push_json("{\"code\":0,\"data\":{\"userId\":\"user-8\",\"token\":\"token-8\",\"refreshToken\":\"refresh-8\"}}");
-	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-8\",\"nickname\":\"Alex\",\"tags\":[\"dev\"],\"ban\":false,\"phone\":\"+8613800000000\",\"email\":\"alex@example.test\",\"score\":\"42\",\"giftCards\":{}}}");
+	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-8\",\"nickname\":\"Alex\",\"tags\":[\"dev\"],\"ban\":false,\"phone\":\"+8613800000000\",\"email\":\"alex@example.test\",\"credits\":\"42\",\"giftCards\":{}}}");
 
 	Ref<AuthClient> client;
 	client.instantiate();
@@ -413,12 +452,19 @@ TEST_CASE("[Editor][UserSystem] Manager async login refreshes profile nickname a
 	if (MessageQueue::get_main_singleton()) {
 		MessageQueue::get_main_singleton()->flush();
 	}
+	manager->wait_for_request_for_test();
+	if (MessageQueue::get_main_singleton()) {
+		MessageQueue::get_main_singleton()->flush();
+	}
 
 	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_IN);
 	CHECK(manager->get_display_name() == "Alex");
-	CHECK(manager->get_score_text() == "42");
-	CHECK(transport->request_count == 2);
-	CHECK(transport->last_path == "/user/user-8");
+	CHECK(manager->get_credits_text() == "42");
+	REQUIRE(transport->request_count == 2);
+	CHECK(transport->request_paths[0] == "/v1/auth/validate/phone/code");
+	CHECK(transport->request_paths[1] == "/user/info");
+	CHECK(transport->last_path == "/user/info");
+	CHECK(has_header(transport->request_headers[1], "sec-token: token-8"));
 
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }
@@ -436,7 +482,7 @@ TEST_CASE("[Editor][UserSystem] Manager initializes profile refresh even when to
 	Ref<FakeAuthTransport> transport;
 	transport.instantiate();
 	transport->push_error("refresh unavailable");
-	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-9\",\"nickname\":\"Nora\",\"phone\":\"\",\"email\":\"\",\"score\":\"77\"}}");
+	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-9\",\"nickname\":\"Nora\",\"phone\":\"\",\"email\":\"\",\"credits\":\"77\"}}");
 
 	Ref<AuthClient> client;
 	client.instantiate();
@@ -458,9 +504,9 @@ TEST_CASE("[Editor][UserSystem] Manager initializes profile refresh even when to
 
 	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_IN);
 	CHECK(manager->get_display_name() == "Nora");
-	CHECK(manager->get_score_text() == "77");
+	CHECK(manager->get_credits_text() == "77");
 	CHECK(transport->request_count == 2);
-	CHECK(transport->last_path == "/user/user-9");
+	CHECK(transport->last_path == "/user/info");
 
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }
@@ -487,7 +533,7 @@ TEST_CASE("[Editor][UserSystem] Manager keeps auth when profile load fails") {
 	CHECK(result.success);
 	CHECK(manager->get_state() == EditorUserManager::STATE_PROFILE_UNAVAILABLE);
 	CHECK(manager->get_display_name().is_empty());
-	CHECK(manager->get_score_text() == "--");
+	CHECK(manager->get_credits_text() == "--");
 	CHECK(manager->get_last_error() == "profile unavailable");
 
 	AuthSessionData session = EditorUserSession::load_session();
@@ -527,6 +573,10 @@ TEST_CASE("[Editor][UserSystem] Logout clears local session even when server log
 	CHECK(has_header(transport->last_headers, "sec-token: token-3"));
 	CHECK(has_header(transport->last_headers, "sec-sign: 1"));
 	CHECK_FALSE(has_header_prefix(transport->last_headers, "Cookie:"));
+	Dictionary body = parse_json_dictionary(transport->last_body);
+	CHECK(String(body["scene"]) == AuthClient::get_default_scene_for_test());
+	CHECK(String(body["service"]) == AuthClient::get_default_service_for_test());
+	CHECK(String(body["deviceId"]) == "device-3");
 	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_OUT);
 	AuthSessionData cleared = EditorUserSession::load_session();
 	CHECK(cleared.user_id.is_empty());
@@ -537,7 +587,7 @@ TEST_CASE("[Editor][UserSystem] Logout clears local session even when server log
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }
 
-TEST_CASE("[Editor][UserSystem] Avatar formats nickname initial and score") {
+TEST_CASE("[Editor][UserSystem] Avatar formats nickname initial and credits") {
 	AuthUserInfo user;
 	AuthSessionData session;
 	session.phone = "+8613600000000";
@@ -546,10 +596,10 @@ TEST_CASE("[Editor][UserSystem] Avatar formats nickname initial and score") {
 	CHECK(EditorUserAvatar::get_display_name_for_test(user, session).is_empty());
 	CHECK(EditorUserAvatar::get_avatar_initial_for_test("alex") == "A");
 	CHECK(EditorUserAvatar::get_avatar_initial_for_test("") == "?");
-	CHECK(EditorUserAvatar::format_score_for_test("123") == "Score 123");
-	CHECK(EditorUserAvatar::format_score_for_test("") == "Score --");
-	CHECK(EditorUserAvatar::format_score_value_for_test("123") == "123");
-	CHECK(EditorUserAvatar::format_score_value_for_test("") == "--");
+	CHECK(EditorUserAvatar::format_credits_for_test("123") == "Credits 123");
+	CHECK(EditorUserAvatar::format_credits_for_test("") == "Credits --");
+	CHECK(EditorUserAvatar::format_credits_value_for_test("123") == "123");
+	CHECK(EditorUserAvatar::format_credits_value_for_test("") == "--");
 
 	user.nickname = "Nora";
 	CHECK(EditorUserAvatar::get_display_name_for_test(user, session) == "Nora");

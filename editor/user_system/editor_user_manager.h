@@ -90,7 +90,7 @@ public:
 	AuthUserInfo get_user_info() const;
 	String get_last_error() const;
 	String get_display_name() const;
-	String get_score_text() const;
+	String get_credits_text() const;
 
 	void set_auth_client_for_test(const Ref<AuthClient> &p_client);
 	AuthSessionData get_session_for_test() const;
