@@ -234,6 +234,43 @@ void AIAgentNextSession::generate_plan() {
 	event_log->record_event("planning_started", String(), String(), "planning_agent", "NEXT planning started.");
 	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
 	emit_signal(SNAME("project_state_changed"));
+
+	const String brief = project_state->get_brief().strip_edges();
+	if (brief.is_empty()) {
+		project_state->set_session_state(AI_NEXT_SESSION_FAILED);
+		event_log->record_event("planning_failed", String(), String(), "planning_agent", "NEXT brief is empty.");
+		emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+		emit_signal(SNAME("project_state_changed"));
+		return;
+	}
+
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = "Create a NEXT milestone plan for this brief:\n\n" + brief;
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(user_message);
+	AIAgentRuntimeResult result = planning_agent->run(messages);
+	if (!result.success) {
+		project_state->set_session_state(AI_NEXT_SESSION_FAILED);
+		event_log->record_event("planning_failed", String(), String(), "planning_agent", result.error);
+		emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+		emit_signal(SNAME("project_state_changed"));
+		return;
+	}
+
+	if (project_state->get_milestone_count() <= 0) {
+		project_state->set_session_state(AI_NEXT_SESSION_FAILED);
+		event_log->record_event("planning_failed", String(), String(), "planning_agent", "Planning completed without writing NEXT milestones.");
+		emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+		emit_signal(SNAME("project_state_changed"));
+		return;
+	}
+
+	project_state->set_session_state(AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
+	event_log->record_event("planning_completed", project_state->get_active_milestone_id(), String(), "planning_agent", "NEXT planning completed.");
+	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+	emit_signal(SNAME("project_state_changed"));
 }
 
 void AIAgentNextSession::approve_plan() {
