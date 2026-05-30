@@ -128,6 +128,106 @@ TEST_CASE("[Editor][AI][NEXT] session runs ready milestone tasks serially") {
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] session batches ready tasks up to the NEXT scheduling limit") {
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String script_task = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+	const String scene_task = state->add_task(milestone_id, "Assemble player scene", "scene_agent", Array());
+	const String shader_task = state->add_task(milestone_id, "Create dash shader", "shader_agent", Array());
+	CHECK_FALSE(script_task.is_empty());
+	CHECK_FALSE(scene_task.is_empty());
+	CHECK_FALSE(shader_task.is_empty());
+
+	Ref<NextScriptedRuntimeClient> script_client;
+	script_client.instantiate();
+	AIAgentRuntimeResponse script_response;
+	script_response.content = "Created player_controller.gd";
+	script_client->push_response(script_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(script_client);
+
+	Ref<NextScriptedRuntimeClient> scene_client;
+	scene_client.instantiate();
+	AIAgentRuntimeResponse scene_response;
+	scene_response.content = "Created player.tscn";
+	scene_client->push_response(scene_response);
+	session->get_agent_for_test("scene_agent")->set_runtime_client(scene_client);
+
+	Ref<NextScriptedRuntimeClient> shader_client;
+	shader_client.instantiate();
+	AIAgentRuntimeResponse shader_response;
+	shader_response.content = "Created dash.shader";
+	shader_client->push_response(shader_response);
+	session->get_agent_for_test("shader_agent")->set_runtime_client(shader_client);
+
+	session->run_active_milestone();
+
+	Array events = session->get_event_log()->get_events();
+	Vector<int> batch_sizes;
+	for (int i = 0; i < events.size(); i++) {
+		Dictionary event = events[i];
+		if (String(event.get("event_type", String())) == "task_batch_started") {
+			Dictionary metadata = event.get("metadata", Dictionary());
+			batch_sizes.push_back((int)metadata.get("batch_size", 0));
+		}
+	}
+	REQUIRE(batch_sizes.size() == 2);
+	CHECK(batch_sizes[0] == 2);
+	CHECK(batch_sizes[1] == 1);
+	CHECK(script_client->request_count == 1);
+	CHECK(scene_client->request_count == 1);
+	CHECK(shader_client->request_count == 1);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] session serializes ready tasks with planned output conflicts") {
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String script_task = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+	const String scene_task = state->add_task(milestone_id, "Assemble player scene", "scene_agent", Array());
+
+	Array shared_outputs;
+	shared_outputs.push_back("res://player.tscn");
+	Dictionary patch;
+	patch["output_paths"] = shared_outputs;
+	String error;
+	CHECK(state->update_task(script_task, patch, error));
+	CHECK(state->update_task(scene_task, patch, error));
+
+	Ref<NextScriptedRuntimeClient> script_client;
+	script_client.instantiate();
+	AIAgentRuntimeResponse script_response;
+	script_response.content = "Created script.";
+	script_client->push_response(script_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(script_client);
+
+	Ref<NextScriptedRuntimeClient> scene_client;
+	scene_client.instantiate();
+	AIAgentRuntimeResponse scene_response;
+	scene_response.content = "Created scene.";
+	scene_client->push_response(scene_response);
+	session->get_agent_for_test("scene_agent")->set_runtime_client(scene_client);
+
+	session->run_active_milestone();
+
+	Array events = session->get_event_log()->get_events();
+	Vector<int> batch_sizes;
+	for (int i = 0; i < events.size(); i++) {
+		Dictionary event = events[i];
+		if (String(event.get("event_type", String())) == "task_batch_started") {
+			Dictionary metadata = event.get("metadata", Dictionary());
+			batch_sizes.push_back((int)metadata.get("batch_size", 0));
+		}
+	}
+	REQUIRE(batch_sizes.size() == 2);
+	CHECK(batch_sizes[0] == 1);
+	CHECK(batch_sizes[1] == 1);
+
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI][NEXT] session turns feedback into NEXT tasks") {
 	AIAgentNextSession *session = memnew(AIAgentNextSession);
 	Ref<AINextProjectState> state = session->get_project_state();
@@ -165,6 +265,39 @@ TEST_CASE("[Editor][AI][NEXT] session turns feedback into NEXT tasks") {
 	CHECK(state->get_task_count(milestone_id) == 2);
 	CHECK(state->get_session_state() == AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
 	CHECK(client->request_count == 2);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] session records review agent findings") {
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+	state->mark_task_completed(task_id, "Created player_controller.gd", Array());
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Finding: Jump landing feedback is unclear.";
+	client->push_response(final_response);
+	session->get_agent_for_test("review_agent")->set_runtime_client(client);
+
+	session->review_active_milestone();
+
+	Array events = session->get_event_log()->get_events();
+	Dictionary review_event;
+	for (int i = 0; i < events.size(); i++) {
+		Dictionary event = events[i];
+		if (String(event.get("event_type", String())) == "review_completed") {
+			review_event = event;
+		}
+	}
+	REQUIRE_FALSE(review_event.is_empty());
+	CHECK(String(review_event["milestone_id"]) == milestone_id);
+	CHECK(String(review_event["message"]) == "Finding: Jump landing feedback is unclear.");
+	CHECK(state->get_session_state() == AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
+	CHECK(client->request_count == 1);
 
 	memdelete(session);
 }

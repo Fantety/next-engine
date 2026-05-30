@@ -69,4 +69,38 @@ TEST_CASE("[Editor][AI][NEXT] event log records structured events") {
 	CHECK(String(Dictionary(event["metadata"])["phase"]) == "plan");
 }
 
+TEST_CASE("[Editor][AI][NEXT] project state supports failed task recovery") {
+	Ref<AINextProjectState> state;
+	state.instantiate();
+	const String milestone_id = state->create_milestone("Core Movement", "Player movement baseline.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+
+	CHECK(state->mark_task_failed(task_id, "Script tool failed."));
+	CHECK(String(state->get_task(task_id)["status"]) == "failed");
+
+	CHECK(state->retry_task(task_id));
+	CHECK(String(state->get_task(task_id)["status"]) == "ready");
+	CHECK(String(state->get_task(task_id)["error"]).is_empty());
+
+	CHECK(state->reassign_task(task_id, "scene_agent"));
+	CHECK(String(state->get_task(task_id)["assigned_agent_id"]) == "scene_agent");
+
+	CHECK(state->mark_task_failed(task_id, "Needs to be split."));
+	Dictionary first_split;
+	first_split["title"] = "Create movement resource";
+	first_split["assigned_agent_id"] = "script_agent";
+	Dictionary second_split;
+	second_split["title"] = "Assemble movement scene";
+	second_split["assigned_agent_id"] = "scene_agent";
+	Array split_tasks;
+	split_tasks.push_back(first_split);
+	split_tasks.push_back(second_split);
+
+	String error;
+	CHECK(state->split_task(task_id, split_tasks, error));
+	CHECK(error.is_empty());
+	CHECK(state->get_task_count(milestone_id) == 3);
+	CHECK(String(state->get_task(task_id)["status"]) == "skipped");
+}
+
 } // namespace TestAINextProjectState

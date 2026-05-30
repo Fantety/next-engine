@@ -29,6 +29,7 @@ class AINextPanel : public VBoxContainer {
 	void _submit_brief_pressed();
 	void _generate_plan_pressed();
 	void _run_milestone_pressed();
+	void _review_milestone_pressed();
 	void _refresh();
 	Label *_add_section_label(const String &p_text);
 

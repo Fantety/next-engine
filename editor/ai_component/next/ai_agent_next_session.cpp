@@ -37,6 +37,8 @@
 
 namespace {
 
+const int NEXT_MAX_TASK_BATCH_SIZE = 2;
+
 template <typename T>
 Ref<AITool> _make_tool() {
 	Ref<T> tool;
@@ -59,6 +61,68 @@ String _get_last_response_summary(const AIAgentRuntimeResult &p_result) {
 	return "Task completed.";
 }
 
+bool _task_conflicts_with_batch(const Dictionary &p_task, const Array &p_claimed_output_paths, const Array &p_claimed_agent_ids) {
+	const String agent_id = String(p_task.get("assigned_agent_id", String())).strip_edges();
+	if (!agent_id.is_empty() && p_claimed_agent_ids.has(agent_id)) {
+		return true;
+	}
+
+	Array output_paths = p_task.get("output_paths", Array());
+	for (int i = 0; i < output_paths.size(); i++) {
+		const String output_path = String(output_paths[i]).strip_edges();
+		if (!output_path.is_empty() && p_claimed_output_paths.has(output_path)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void _claim_batch_task(const Dictionary &p_task, Array &r_claimed_output_paths, Array &r_claimed_agent_ids) {
+	const String agent_id = String(p_task.get("assigned_agent_id", String())).strip_edges();
+	if (!agent_id.is_empty() && !r_claimed_agent_ids.has(agent_id)) {
+		r_claimed_agent_ids.push_back(agent_id);
+	}
+
+	Array output_paths = p_task.get("output_paths", Array());
+	for (int i = 0; i < output_paths.size(); i++) {
+		const String output_path = String(output_paths[i]).strip_edges();
+		if (!output_path.is_empty() && !r_claimed_output_paths.has(output_path)) {
+			r_claimed_output_paths.push_back(output_path);
+		}
+	}
+}
+
+Array _select_task_batch(const Array &p_ready_tasks) {
+	Array batch;
+	Array claimed_output_paths;
+	Array claimed_agent_ids;
+
+	for (int i = 0; i < p_ready_tasks.size() && batch.size() < NEXT_MAX_TASK_BATCH_SIZE; i++) {
+		if (Variant(p_ready_tasks[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		Dictionary task = p_ready_tasks[i];
+		if (_task_conflicts_with_batch(task, claimed_output_paths, claimed_agent_ids)) {
+			continue;
+		}
+		batch.push_back(task);
+		_claim_batch_task(task, claimed_output_paths, claimed_agent_ids);
+	}
+	return batch;
+}
+
+Array _task_ids_from_batch(const Array &p_batch) {
+	Array task_ids;
+	for (int i = 0; i < p_batch.size(); i++) {
+		if (Variant(p_batch[i]).get_type() == Variant::DICTIONARY) {
+			Dictionary task = p_batch[i];
+			task_ids.push_back(String(task.get("id", String())));
+		}
+	}
+	return task_ids;
+}
+
 } // namespace
 
 void AIAgentNextSession::_bind_methods() {
@@ -71,6 +135,7 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("generate_plan"), &AIAgentNextSession::generate_plan);
 	ClassDB::bind_method(D_METHOD("approve_plan"), &AIAgentNextSession::approve_plan);
 	ClassDB::bind_method(D_METHOD("run_active_milestone"), &AIAgentNextSession::run_active_milestone);
+	ClassDB::bind_method(D_METHOD("review_active_milestone"), &AIAgentNextSession::review_active_milestone);
 	ClassDB::bind_method(D_METHOD("generate_feedback_tasks", "feedback"), &AIAgentNextSession::generate_feedback_tasks);
 	ClassDB::bind_method(D_METHOD("accept_and_lock_active_milestone"), &AIAgentNextSession::accept_and_lock_active_milestone);
 	ClassDB::bind_method(D_METHOD("cancel_current_operation"), &AIAgentNextSession::cancel_current_operation);
@@ -312,11 +377,21 @@ void AIAgentNextSession::run_active_milestone() {
 			break;
 		}
 
-		for (int i = 0; i < ready_tasks.size(); i++) {
-			if (Variant(ready_tasks[i]).get_type() != Variant::DICTIONARY) {
+		Array task_batch = _select_task_batch(ready_tasks);
+		if (task_batch.is_empty()) {
+			task_batch.push_back(ready_tasks[0]);
+		}
+
+		Dictionary batch_metadata;
+		batch_metadata["batch_size"] = task_batch.size();
+		batch_metadata["task_ids"] = _task_ids_from_batch(task_batch);
+		event_log->record_event("task_batch_started", milestone_id, String(), "next_session", "NEXT task batch started.", batch_metadata);
+
+		for (int i = 0; i < task_batch.size(); i++) {
+			if (Variant(task_batch[i]).get_type() != Variant::DICTIONARY) {
 				continue;
 			}
-			Dictionary task = ready_tasks[i];
+			Dictionary task = task_batch[i];
 			const String task_id = String(task.get("id", String()));
 			const String agent_id = String(task.get("assigned_agent_id", String()));
 			Ref<AIAgentBase> agent = _get_agent(agent_id);
@@ -353,6 +428,45 @@ void AIAgentNextSession::run_active_milestone() {
 
 	project_state->set_session_state(failed ? AI_NEXT_SESSION_FAILED : AI_NEXT_SESSION_WAITING_PLAYTEST);
 	event_log->record_event(failed ? "milestone_run_failed" : "milestone_run_completed", milestone_id, String(), "next_session", failed ? "NEXT milestone run failed." : "NEXT milestone run completed.");
+	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+	emit_signal(SNAME("project_state_changed"));
+}
+
+void AIAgentNextSession::review_active_milestone() {
+	project_state->set_session_state(AI_NEXT_SESSION_FEEDBACK_PLANNING);
+	const String milestone_id = project_state->get_active_milestone_id();
+	event_log->record_event("review_started", milestone_id, String(), "review_agent", "NEXT review started.");
+	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+	emit_signal(SNAME("project_state_changed"));
+
+	if (milestone_id.is_empty()) {
+		project_state->set_session_state(AI_NEXT_SESSION_FAILED);
+		event_log->record_event("review_failed", String(), String(), "review_agent", "No active NEXT milestone.");
+		emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+		emit_signal(SNAME("project_state_changed"));
+		return;
+	}
+
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = vformat("Review NEXT milestone `%s`. Inspect project context and pending changes. Return findings only; do not edit files.", milestone_id);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(user_message);
+	AIAgentRuntimeResult result = review_agent->run(messages);
+	if (!result.success) {
+		project_state->set_session_state(AI_NEXT_SESSION_FAILED);
+		event_log->record_event("review_failed", milestone_id, String(), "review_agent", result.error);
+		emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+		emit_signal(SNAME("project_state_changed"));
+		return;
+	}
+
+	const String findings = _get_last_response_summary(result);
+	Dictionary review_metadata;
+	review_metadata["findings"] = findings;
+	event_log->record_event("review_completed", milestone_id, String(), "review_agent", findings, review_metadata);
+	project_state->set_session_state(AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
 	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
 	emit_signal(SNAME("project_state_changed"));
 }

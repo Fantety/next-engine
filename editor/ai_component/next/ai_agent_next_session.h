@@ -47,6 +47,7 @@ public:
 	void generate_plan();
 	void approve_plan();
 	void run_active_milestone();
+	void review_active_milestone();
 	void generate_feedback_tasks(const String &p_feedback);
 	void accept_and_lock_active_milestone();
 	void cancel_current_operation();

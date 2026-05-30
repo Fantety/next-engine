@@ -98,6 +98,11 @@ AINextPanel::AINextPanel() {
 	run_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_run_milestone_pressed));
 	run_actions->add_child(run_button);
 
+	Button *review_button = memnew(Button);
+	review_button->set_text(TTR("Review Milestone"));
+	review_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_review_milestone_pressed));
+	run_actions->add_child(review_button);
+
 	add_child(memnew(HSeparator));
 	_add_section_label(TTR("Playtest Feedback"));
 	feedback_panel = memnew(AINextFeedbackPanel);
@@ -157,6 +162,13 @@ void AINextPanel::_run_milestone_pressed() {
 		return;
 	}
 	next_session->run_active_milestone();
+}
+
+void AINextPanel::_review_milestone_pressed() {
+	if (!next_session) {
+		return;
+	}
+	next_session->review_active_milestone();
 }
 
 void AINextPanel::_refresh() {

@@ -37,6 +37,8 @@ void AINextProjectState::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("mark_task_completed", "task_id", "result_summary", "output_paths"), &AINextProjectState::mark_task_completed);
 	ClassDB::bind_method(D_METHOD("mark_task_failed", "task_id", "error"), &AINextProjectState::mark_task_failed);
 	ClassDB::bind_method(D_METHOD("skip_task", "task_id", "reason"), &AINextProjectState::skip_task);
+	ClassDB::bind_method(D_METHOD("retry_task", "task_id"), &AINextProjectState::retry_task);
+	ClassDB::bind_method(D_METHOD("reassign_task", "task_id", "assigned_agent_id"), &AINextProjectState::reassign_task);
 	ClassDB::bind_method(D_METHOD("get_ready_tasks", "milestone_id"), &AINextProjectState::get_ready_tasks);
 	ClassDB::bind_method(D_METHOD("get_milestones_as_array"), &AINextProjectState::get_milestones_as_array);
 	ClassDB::bind_method(D_METHOD("get_milestone", "milestone_id"), &AINextProjectState::get_milestone);
@@ -467,6 +469,141 @@ bool AINextProjectState::skip_task(const String &p_task_id, const String &p_reas
 	task->result_summary = p_reason;
 	task->error.clear();
 	_touch_task(*task, milestone);
+	last_error.clear();
+	return true;
+}
+
+bool AINextProjectState::retry_task(const String &p_task_id) {
+	AINextMilestone *milestone = nullptr;
+	AINextTask *task = _find_task(p_task_id, &milestone);
+	if (!task) {
+		last_error = "Unknown NEXT task.";
+		return false;
+	}
+	if (task->status != AI_NEXT_TASK_FAILED) {
+		last_error = "Only failed NEXT tasks can be retried.";
+		return false;
+	}
+	task->status = AI_NEXT_TASK_PENDING;
+	task->error.clear();
+	task->run_id.clear();
+	_touch_task(*task, milestone);
+	last_error.clear();
+	return true;
+}
+
+bool AINextProjectState::reassign_task(const String &p_task_id, const String &p_assigned_agent_id) {
+	const String assigned_agent_id = p_assigned_agent_id.strip_edges();
+	if (assigned_agent_id.is_empty()) {
+		last_error = "NEXT task assigned_agent_id is required.";
+		return false;
+	}
+
+	AINextMilestone *milestone = nullptr;
+	AINextTask *task = _find_task(p_task_id, &milestone);
+	if (!task) {
+		last_error = "Unknown NEXT task.";
+		return false;
+	}
+	task->assigned_agent_id = assigned_agent_id;
+	_touch_task(*task, milestone);
+	last_error.clear();
+	return true;
+}
+
+bool AINextProjectState::split_task(const String &p_task_id, const Array &p_split_tasks, String &r_error) {
+	r_error.clear();
+
+	AINextMilestone *milestone = nullptr;
+	AINextTask *task = _find_task(p_task_id, &milestone);
+	if (!task || !milestone) {
+		r_error = "Unknown NEXT task.";
+		last_error = r_error;
+		return false;
+	}
+	if (task->status != AI_NEXT_TASK_FAILED) {
+		r_error = "Only failed NEXT tasks can be split.";
+		last_error = r_error;
+		return false;
+	}
+	if (p_split_tasks.is_empty()) {
+		r_error = "Split requires replacement tasks.";
+		last_error = r_error;
+		return false;
+	}
+
+	const Dictionary snapshot = to_dict();
+	const int original_next_task_number = next_task_number;
+	Vector<AINextTask> new_tasks;
+	for (int i = 0; i < p_split_tasks.size(); i++) {
+		if (Variant(p_split_tasks[i]).get_type() != Variant::DICTIONARY) {
+			next_task_number = original_next_task_number;
+			r_error = "Split task entries must be dictionaries.";
+			last_error = r_error;
+			return false;
+		}
+
+		AINextTask split_task = ai_next_task_from_dict(p_split_tasks[i]);
+		if (split_task.id.strip_edges().is_empty()) {
+			split_task.id = _make_task_id();
+		}
+		if (split_task.title.strip_edges().is_empty()) {
+			next_task_number = original_next_task_number;
+			r_error = "Split task title is required.";
+			last_error = r_error;
+			return false;
+		}
+		if (split_task.assigned_agent_id.strip_edges().is_empty()) {
+			next_task_number = original_next_task_number;
+			r_error = "Split task assigned_agent_id is required.";
+			last_error = r_error;
+			return false;
+		}
+		if (_find_task(split_task.id)) {
+			next_task_number = original_next_task_number;
+			r_error = "Duplicate NEXT task id.";
+			last_error = r_error;
+			return false;
+		}
+		for (const AINextTask &queued_task : new_tasks) {
+			if (queued_task.id == split_task.id) {
+				next_task_number = original_next_task_number;
+				r_error = "Duplicate NEXT task id.";
+				last_error = r_error;
+				return false;
+			}
+		}
+		if (split_task.depends_on.is_empty()) {
+			if (new_tasks.is_empty()) {
+				split_task.depends_on = task->depends_on;
+			} else {
+				split_task.depends_on.push_back(new_tasks[new_tasks.size() - 1].id);
+			}
+		}
+		const uint64_t now = _now();
+		if (split_task.created_at == 0) {
+			split_task.created_at = now;
+		}
+		split_task.updated_at = now;
+		new_tasks.push_back(split_task);
+	}
+
+	task->status = AI_NEXT_TASK_SKIPPED;
+	task->result_summary = "Split into replacement NEXT tasks.";
+	task->error.clear();
+	for (const AINextTask &split_task : new_tasks) {
+		milestone->tasks.push_back(split_task);
+	}
+	milestone->updated_at = _now();
+	_refresh_milestone_status(*milestone);
+
+	if (has_dependency_cycle(r_error)) {
+		load_from_dict(snapshot);
+		last_error = r_error;
+		return false;
+	}
+
+	_sync_id_counters();
 	last_error.clear();
 	return true;
 }

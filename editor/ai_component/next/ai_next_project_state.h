@@ -62,6 +62,9 @@ public:
 	bool mark_task_completed(const String &p_task_id, const String &p_result_summary, const Array &p_output_paths);
 	bool mark_task_failed(const String &p_task_id, const String &p_error);
 	bool skip_task(const String &p_task_id, const String &p_reason);
+	bool retry_task(const String &p_task_id);
+	bool reassign_task(const String &p_task_id, const String &p_assigned_agent_id);
+	bool split_task(const String &p_task_id, const Array &p_split_tasks, String &r_error);
 	Array get_ready_tasks(const String &p_milestone_id) const;
 	Array get_milestones_as_array() const;
 	Dictionary get_milestone(const String &p_milestone_id) const;
