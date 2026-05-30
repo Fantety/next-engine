@@ -36,7 +36,7 @@ public:
 
 	void refresh();
 	bool is_refreshing() const;
-	void register_discovered_tools(const Ref<AIToolRegistry> &p_tool_registry) const;
+	void register_discovered_tools(const Ref<AIToolRegistry> &p_tool_registry, AIToolPermission p_permission = AI_TOOL_PERMISSION_ALLOW) const;
 	Array get_statuses() const;
 	Dictionary get_status_summary() const;
 	bool has_failures() const;

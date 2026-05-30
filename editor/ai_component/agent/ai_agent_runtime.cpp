@@ -74,6 +74,7 @@ void AIAgentRuntime::_bind_methods() {
 
 AIAgentRuntime::AIAgentRuntime() {
 	profile = AIAgentProfile::get_plan_profile();
+	system_prompt = AIAgentPrompts::SYSTEM_PROMPT;
 	context_manager.instantiate();
 }
 
@@ -107,6 +108,14 @@ void AIAgentRuntime::set_profile(const AIAgentProfile &p_profile) {
 
 AIAgentProfile AIAgentRuntime::get_profile() const {
 	return profile;
+}
+
+void AIAgentRuntime::set_system_prompt(const String &p_system_prompt) {
+	system_prompt = p_system_prompt;
+}
+
+String AIAgentRuntime::get_system_prompt() const {
+	return system_prompt;
 }
 
 void AIAgentRuntime::set_session_id(const String &p_session_id) {
@@ -143,29 +152,11 @@ void AIAgentRuntime::clear_progress_callbacks() {
 	message_updated_callback = Callable();
 }
 
-Array AIAgentRuntime::_get_allowed_tool_schemas() const {
-	Array schemas;
+Array AIAgentRuntime::_get_available_tool_schemas() const {
 	if (tool_registry.is_null()) {
-		return schemas;
+		return Array();
 	}
-
-	for (HashSet<String>::Iterator it = profile.allowed_tools.begin(); it; ++it) {
-		Ref<AITool> tool = tool_registry->get_tool(*it);
-		if (tool.is_valid()) {
-			schemas.push_back(tool->get_openai_schema());
-		}
-	}
-	for (HashSet<String>::Iterator it = profile.ask_tools.begin(); it; ++it) {
-		if (profile.allowed_tools.has(*it)) {
-			continue;
-		}
-		Ref<AITool> tool = tool_registry->get_tool(*it);
-		if (tool.is_valid()) {
-			schemas.push_back(tool->get_openai_schema());
-		}
-	}
-
-	return schemas;
+	return tool_registry->get_available_tool_schemas();
 }
 
 AIAgentMessage AIAgentRuntime::_make_assistant_tool_call_message(const AIAgentRuntimeResponse &p_response) const {
@@ -284,11 +275,11 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 
 	int executed_tool_calls = 0;
 	Dictionary token_usage;
-	const Array tool_schemas = _get_allowed_tool_schemas();
-	print_line(vformat("[AI Agent][Runtime] Allowed tool schemas prepared. count=%d max_provider_turns=%d max_tool_calls=%d", tool_schemas.size(), max_provider_turns, max_tool_calls));
+	const Array tool_schemas = _get_available_tool_schemas();
+	print_line(vformat("[AI Agent][Runtime] Available tool schemas prepared. count=%d max_provider_turns=%d max_tool_calls=%d", tool_schemas.size(), max_provider_turns, max_tool_calls));
 
 	for (int turn = 0; turn < max_provider_turns; turn++) {
-		AIContextBuildResult context_result = context_manager->build_messages(String(AIAgentPrompts::SYSTEM_PROMPT), result.messages, p_context_documents);
+		AIContextBuildResult context_result = context_manager->build_messages(system_prompt, result.messages, p_context_documents);
 		Array provider_messages = context_result.messages;
 		result.metadata["last_context"] = context_result.metadata;
 		print_line(vformat("[AI Agent][Runtime] Provider turn started. turn=%d provider_messages=%d estimated_chars=%d omitted_history=%d truncated_tools=%d truncated_context=%d executed_tools=%d",
@@ -389,8 +380,8 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			}
 
 			Dictionary result_metadata;
-			AIToolPermissionResult permission = AIToolPermissionPolicy::evaluate(profile, call.tool_name, call.arguments);
-			if (permission.decision == AI_TOOL_PERMISSION_ASK) {
+			AIToolPermissionResult permission_result = AIToolPermissionPolicy::evaluate(tool_registry->get_tool_permission(call.tool_name), call.tool_name, tool_registry->get_tool_permission_reason(call.tool_name));
+			if (permission_result.permission == AI_TOOL_PERMISSION_ASK) {
 				call.status = AI_TOOL_CALL_STATUS_PENDING;
 				call.updated_at = Time::get_singleton()->get_unix_time_from_system();
 				if (assistant_tool_call_message.metadata.has("tool_calls") && Variant(assistant_tool_call_message.metadata["tool_calls"]).get_type() == Variant::ARRAY) {
@@ -403,12 +394,12 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 					}
 				}
 				result.pending_approval = call.to_dict();
-				result.pending_approval["reason"] = permission.reason;
+				result.pending_approval["reason"] = permission_result.reason;
 				result.success = true;
-				print_line(vformat("[AI Agent][Runtime] Tool call requires approval. name=%s reason=%s", call.tool_name, permission.reason));
+				print_line(vformat("[AI Agent][Runtime] Tool call requires approval. name=%s reason=%s", call.tool_name, permission_result.reason));
 				return result;
 			}
-			if (permission.decision != AI_TOOL_PERMISSION_ALLOW) {
+			if (permission_result.permission != AI_TOOL_PERMISSION_ALLOW) {
 				call.status = AI_TOOL_CALL_STATUS_DENIED;
 				call.updated_at = Time::get_singleton()->get_unix_time_from_system();
 				if (assistant_tool_call_message.metadata.has("tool_calls") && Variant(assistant_tool_call_message.metadata["tool_calls"]).get_type() == Variant::ARRAY) {
@@ -421,11 +412,11 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 					}
 				}
 				result.tool_calls.push_back(call);
-				AIAgentMessage tool_message = _make_tool_result_message(call, _make_tool_denied_message(call.tool_name, permission.reason), AIToolCall::status_to_string(call.status), result_metadata);
+				AIAgentMessage tool_message = _make_tool_result_message(call, _make_tool_denied_message(call.tool_name, permission_result.reason), AIToolCall::status_to_string(call.status), result_metadata);
 				result.messages.push_back(tool_message);
 				_emit_message_added(result.messages.size() - 1, tool_message);
 				executed_tool_calls++;
-				print_line(vformat("[AI Agent][Runtime] Tool call denied. name=%s reason=%s executed_tools=%d", call.tool_name, permission.reason, executed_tool_calls));
+				print_line(vformat("[AI Agent][Runtime] Tool call denied. name=%s reason=%s executed_tools=%d", call.tool_name, permission_result.reason, executed_tool_calls));
 				continue;
 			}
 			print_line(vformat("[AI Agent][Runtime] Tool call allowed. name=%s", call.tool_name));

@@ -6,17 +6,21 @@
 
 #include "core/object/callable_mp.h"
 
+#include "editor/ai_component/agent/ai_agent_base.h"
 #include "editor/ai_component/agent/ai_context_manager.h"
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
 #include "editor/ai_component/agent/ai_agent_session.h"
+#include "editor/ai_component/agent/ai_main_agent.h"
 #include "editor/ai_component/context/ai_best_practices_context_provider.h"
 #include "editor/ai_component/prompts/agent_system_prompt.h"
+#include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/tools/ai_tool.h"
+#include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 
 TEST_FORCE_LINK(test_ai_agent_runtime);
@@ -222,20 +226,20 @@ public:
 };
 
 static AIAgentProfile _make_test_profile(bool p_allow_echo) {
+	(void)p_allow_echo;
+
 	AIAgentProfile profile;
 	profile.id = "test";
 	profile.display_name = "Test";
-	if (p_allow_echo) {
-		profile.allowed_tools.insert("test.echo");
-	}
 	return profile;
 }
 
 static AIAgentProfile _make_test_profile_with_ask_tool(const String &p_tool_name) {
+	(void)p_tool_name;
+
 	AIAgentProfile profile;
 	profile.id = "test";
 	profile.display_name = "Test";
-	profile.ask_tools.insert(p_tool_name);
 	return profile;
 }
 
@@ -373,6 +377,74 @@ TEST_CASE("[Editor][AI] Context manager trims history and tool output within bud
 	CHECK(saw_tool_result);
 }
 
+TEST_CASE("[Editor][AI] Agent base runs with bound tools prompt and model profile") {
+	Ref<EchoRuntimeTool> echo_tool;
+	echo_tool.instantiate();
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Ready.";
+	client->push_response(final_response);
+
+	Ref<AIAgentBase> agent;
+	agent.instantiate();
+	agent->set_runtime_client(client);
+	agent->set_system_prompt("Custom agent prompt.");
+	CHECK(agent->add_tool(echo_tool, AI_TOOL_PERMISSION_ALLOW));
+
+	AIModelProfile model_profile;
+	model_profile.provider_name = "Agent Test Provider";
+	model_profile.model = "agent-test-model";
+	model_profile.base_url = "https://agent.example.test/v1";
+	model_profile.api_key = "agent-key";
+	model_profile.max_provider_turns = 7;
+	model_profile.max_tool_calls = 3;
+	agent->set_model_profile(model_profile);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Use the agent object."));
+
+	AIAgentRuntimeResult result = agent->run(messages);
+
+	CHECK(result.success);
+	CHECK(result.messages[result.messages.size() - 1].content == "Ready.");
+	CHECK(agent->get_runtime()->get_max_provider_turns() == 7);
+	CHECK(agent->get_runtime()->get_max_tool_calls() == 3);
+	REQUIRE(client->last_tool_schemas.size() == 1);
+	Dictionary schema = client->last_tool_schemas[0];
+	Dictionary function_schema = schema["function"];
+	CHECK(String(function_schema["name"]) == "test.echo");
+	REQUIRE(client->last_messages.size() >= 1);
+	Dictionary system_message = client->last_messages[0];
+	CHECK(String(system_message.get("role", "")) == "system");
+	CHECK(String(system_message.get("content", "")).contains("Custom agent prompt."));
+}
+
+TEST_CASE("[Editor][AI] Main agent owns the current editor tool set") {
+	Ref<AIMainAgent> agent;
+	agent.instantiate();
+
+	CHECK(agent->get_profile().id == "plan");
+	Ref<AIToolRegistry> registry = agent->get_tool_registry();
+	REQUIRE(registry.is_valid());
+	CHECK(registry->has_tool("project.read_file"));
+	CHECK(registry->has_tool("script.write"));
+	CHECK(registry->has_tool("shader.apply_to_node"));
+	CHECK(registry->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_available_tool_schemas().size() < registry->get_tool_schemas().size());
+
+	agent->set_agent_profile_id("write");
+	CHECK(agent->get_profile().id == "write");
+	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
+
+	agent->set_agent_profile_id("unknown");
+	CHECK(agent->get_profile().id == "plan");
+	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
+}
+
 TEST_CASE("[Editor][AI] Agent runtime sends budgeted context to the provider client") {
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -441,7 +513,7 @@ TEST_CASE("[Editor][AI] Agent runtime executes allowed tool calls and continues 
 
 	Ref<AIToolRegistry> registry;
 	registry.instantiate();
-	CHECK(registry->register_tool(echo_tool));
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_ALLOW));
 
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -462,7 +534,7 @@ TEST_CASE("[Editor][AI] Agent runtime executes allowed tool calls and continues 
 	runtime.instantiate();
 	runtime->set_client(client);
 	runtime->set_tool_registry(registry);
-	runtime->set_profile(_make_test_profile(true));
+	runtime->set_profile(_make_test_profile(false));
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(_make_user_message("Inspect the project."));
@@ -510,7 +582,7 @@ TEST_CASE("[Editor][AI] Agent runtime passes tool failures back to the provider"
 
 	Ref<AIToolRegistry> registry;
 	registry.instantiate();
-	CHECK(registry->register_tool(failing_tool));
+	CHECK(registry->register_tool(failing_tool, AI_TOOL_PERMISSION_ALLOW));
 
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -526,16 +598,11 @@ TEST_CASE("[Editor][AI] Agent runtime passes tool failures back to the provider"
 	final_response.content = "I saw the failure.";
 	client->push_response(final_response);
 
-	AIAgentProfile profile;
-	profile.id = "test";
-	profile.display_name = "Test";
-	profile.allowed_tools.insert("test.fail");
-
 	Ref<AIAgentRuntime> runtime;
 	runtime.instantiate();
 	runtime->set_client(client);
 	runtime->set_tool_registry(registry);
-	runtime->set_profile(profile);
+	runtime->set_profile(_make_test_profile(false));
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(_make_user_message("Try the failing tool."));
@@ -584,7 +651,7 @@ TEST_CASE("[Editor][AI] Agent runtime pauses when a tool requires approval") {
 
 	Ref<AIToolRegistry> registry;
 	registry.instantiate();
-	CHECK(registry->register_tool(echo_tool));
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_ASK));
 
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -601,7 +668,7 @@ TEST_CASE("[Editor][AI] Agent runtime pauses when a tool requires approval") {
 	runtime.instantiate();
 	runtime->set_client(client);
 	runtime->set_tool_registry(registry);
-	runtime->set_profile(_make_test_profile_with_ask_tool("test.echo"));
+	runtime->set_profile(_make_test_profile(false));
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(_make_user_message("Delete this script."));
@@ -635,7 +702,7 @@ TEST_CASE("[Editor][AI] Agent runtime exposes ask-gated tool schemas to the prov
 
 	Ref<AIToolRegistry> registry;
 	registry.instantiate();
-	CHECK(registry->register_tool(echo_tool));
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_ASK));
 
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -647,7 +714,7 @@ TEST_CASE("[Editor][AI] Agent runtime exposes ask-gated tool schemas to the prov
 	runtime.instantiate();
 	runtime->set_client(client);
 	runtime->set_tool_registry(registry);
-	runtime->set_profile(_make_test_profile_with_ask_tool("test.echo"));
+	runtime->set_profile(_make_test_profile(false));
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(_make_user_message("May need approval."));
@@ -668,7 +735,7 @@ TEST_CASE("[Editor][AI] Agent runtime reports tool progress before the final res
 
 	Ref<AIToolRegistry> registry;
 	registry.instantiate();
-	CHECK(registry->register_tool(echo_tool));
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_ALLOW));
 
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -692,7 +759,7 @@ TEST_CASE("[Editor][AI] Agent runtime reports tool progress before the final res
 	runtime.instantiate();
 	runtime->set_client(client);
 	runtime->set_tool_registry(registry);
-	runtime->set_profile(_make_test_profile(true));
+	runtime->set_profile(_make_test_profile(false));
 	runtime->set_progress_callbacks(callable_mp(recorder.ptr(), &RuntimeProgressRecorder::record_added), callable_mp(recorder.ptr(), &RuntimeProgressRecorder::record_updated));
 
 	Vector<AIAgentMessage> messages;
@@ -795,7 +862,7 @@ TEST_CASE("[Editor][AI] Agent runtime aggregates provider token usage") {
 
 	Ref<AIToolRegistry> registry;
 	registry.instantiate();
-	CHECK(registry->register_tool(echo_tool));
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_ALLOW));
 
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -826,7 +893,7 @@ TEST_CASE("[Editor][AI] Agent runtime aggregates provider token usage") {
 	runtime.instantiate();
 	runtime->set_client(client);
 	runtime->set_tool_registry(registry);
-	runtime->set_profile(_make_test_profile(true));
+	runtime->set_profile(_make_test_profile(false));
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(_make_user_message("Inspect usage."));
@@ -853,7 +920,7 @@ TEST_CASE("[Editor][AI] Agent runtime denies disallowed tool calls without execu
 
 	Ref<AIToolRegistry> registry;
 	registry.instantiate();
-	CHECK(registry->register_tool(echo_tool));
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_DENY));
 
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -874,7 +941,7 @@ TEST_CASE("[Editor][AI] Agent runtime denies disallowed tool calls without execu
 	runtime.instantiate();
 	runtime->set_client(client);
 	runtime->set_tool_registry(registry);
-	runtime->set_profile(_make_test_profile(false));
+	runtime->set_profile(_make_test_profile(true));
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(_make_user_message("Use a denied tool."));
@@ -1026,13 +1093,18 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	session->set_conversation_project_scope_for_test("test_project_scope_dependencies");
 
 	CHECK(session->get_agent_profile_id() == "plan");
+	REQUIRE(session->get_main_agent().is_valid());
 	REQUIRE(session->get_agent_runtime().is_valid());
 	REQUIRE(session->get_agent_runtime_runner().is_valid());
 	REQUIRE(session->get_tool_registry().is_valid());
+	CHECK(session->get_main_agent()->get_runtime() == session->get_agent_runtime());
+	CHECK(session->get_main_agent()->get_tool_registry() == session->get_tool_registry());
 	CHECK(session->get_agent_runtime_runner()->get_runtime() == session->get_agent_runtime());
 	CHECK(session->is_tool_runtime_available());
 	CHECK(session->get_tool_registry()->has_tool("agent.activate_skill"));
 	CHECK(session->get_tool_registry()->has_tool("shader.apply_to_node"));
+	CHECK(session->get_tool_registry()->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(session->get_tool_registry()->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 
 	session->set_agent_profile_id("build");
 	CHECK(session->get_agent_profile_id() == "build");
@@ -1041,6 +1113,8 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	session->set_agent_profile_id("write");
 	CHECK(session->get_agent_profile_id() == "write");
 	CHECK(session->get_agent_runtime()->get_profile().id == "write");
+	CHECK(session->get_tool_registry()->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(session->get_tool_registry()->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
 
 	session->set_agent_profile_id("review");
 	CHECK(session->get_agent_profile_id() == "review");
@@ -1803,7 +1877,7 @@ TEST_CASE("[Editor][AI] Agent runtime fails closed when tool iteration limit is 
 
 	Ref<AIToolRegistry> registry;
 	registry.instantiate();
-	CHECK(registry->register_tool(echo_tool));
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_ALLOW));
 
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -1822,7 +1896,7 @@ TEST_CASE("[Editor][AI] Agent runtime fails closed when tool iteration limit is 
 	runtime.instantiate();
 	runtime->set_client(client);
 	runtime->set_tool_registry(registry);
-	runtime->set_profile(_make_test_profile(true));
+	runtime->set_profile(_make_test_profile(false));
 	runtime->set_max_provider_turns(2);
 
 	Vector<AIAgentMessage> messages;
@@ -1842,7 +1916,7 @@ TEST_CASE("[Editor][AI] Agent runtime runner executes runtime on a background th
 
 	Ref<AIToolRegistry> registry;
 	registry.instantiate();
-	CHECK(registry->register_tool(echo_tool));
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_ALLOW));
 
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -1855,7 +1929,7 @@ TEST_CASE("[Editor][AI] Agent runtime runner executes runtime on a background th
 	runtime.instantiate();
 	runtime->set_client(client);
 	runtime->set_tool_registry(registry);
-	runtime->set_profile(_make_test_profile(true));
+	runtime->set_profile(_make_test_profile(false));
 
 	Ref<AIAgentRuntimeRunner> runner;
 	runner.instantiate();

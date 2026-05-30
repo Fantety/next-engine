@@ -11,30 +11,6 @@
 #include "core/templates/local_vector.h"
 
 #include "editor/ai_component/agent/ai_mcp_service.h"
-#include "editor/ai_component/planning/ai_manage_plan_tool.h"
-#include "editor/ai_component/skills/ai_activate_skill_tool.h"
-#include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_list_properties_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_move_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_open_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_rename_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_save_current_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_set_property_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_bind_to_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_create_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_delete_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_inspect_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_patch_function_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_write_tool.h"
-#include "editor/ai_component/tools/editor/ai_shader_apply_to_node_tool.h"
-#include "editor/ai_component/tools/project/ai_list_project_tool.h"
-#include "editor/ai_component/tools/project/ai_create_folder_tool.h"
-#include "editor/ai_component/tools/project/ai_read_file_tool.h"
-#include "editor/ai_component/tools/project/ai_search_project_tool.h"
 
 void AIAgentSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("send_user_message", "message"), &AIAgentSession::send_user_message);
@@ -62,23 +38,23 @@ void AIAgentSession::_bind_methods() {
 
 AIAgentSession::AIAgentSession() {
 	store.instantiate();
-	runtime.instantiate();
-	runtime_runner.instantiate();
-	runtime_client.instantiate();
-	tool_registry.instantiate();
+	main_agent.instantiate();
+	runtime = main_agent->get_runtime();
+	runtime_runner = main_agent->get_runtime_runner();
+	runtime_client = main_agent->get_openai_runtime_client();
+	tool_registry = main_agent->get_tool_registry();
 	project_tree_context.instantiate();
 	editor_context.instantiate();
 	best_practices_context.instantiate();
 	rules_context.instantiate();
 	skill_context.instantiate();
-	agent_profile = AIAgentProfile::get_plan_profile();
+	agent_profile = main_agent->get_profile();
 
 	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
 	if (mcp_service.is_valid()) {
 		mcp_service->connect("tools_changed", callable_mp(this, &AIAgentSession::_mcp_tools_changed), CONNECT_DEFERRED);
 	}
 
-	runtime->set_client(runtime_client);
 	_configure_tool_runtime();
 	store->set_project_scope(_get_project_scope_key());
 
@@ -90,44 +66,33 @@ AIAgentSession::AIAgentSession() {
 }
 
 void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
-	if (runtime_client.is_valid()) {
-		runtime_client->set_config(p_config);
-	}
-	if (runtime.is_valid()) {
-		runtime->set_max_provider_turns(p_config.max_provider_turns);
-		runtime->set_max_tool_calls(p_config.max_tool_calls);
-	}
-	if (runtime.is_valid() && runtime->get_context_manager().is_valid()) {
-		Ref<AIContextManager> context_manager = runtime->get_context_manager();
-		context_manager->set_max_input_chars(p_config.max_input_chars);
-		context_manager->set_max_context_chars(p_config.max_context_chars);
-		context_manager->set_max_history_chars(p_config.max_history_chars);
-		context_manager->set_max_tool_result_chars(p_config.max_tool_result_chars);
-		context_manager->set_min_recent_messages(p_config.min_recent_messages);
+	if (main_agent.is_valid()) {
+		main_agent->set_provider_config(p_config);
+		runtime = main_agent->get_runtime();
+		runtime_runner = main_agent->get_runtime_runner();
+		runtime_client = main_agent->get_openai_runtime_client();
+		tool_registry = main_agent->get_tool_registry();
 	}
 }
 
 void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {
-	if (p_profile_id == "write") {
-		agent_profile = AIAgentProfile::get_write_profile();
-	} else if (p_profile_id == "review") {
-		agent_profile = AIAgentProfile::get_review_profile();
-	} else if (p_profile_id == "build") {
-		agent_profile = AIAgentProfile::get_build_profile();
-	} else {
-		agent_profile = AIAgentProfile::get_plan_profile();
-	}
-
-	_remove_dynamic_tool_permissions();
-	_apply_dynamic_tool_permissions();
-	if (runtime.is_valid()) {
-		runtime->set_profile(agent_profile);
+	if (main_agent.is_valid()) {
+		main_agent->set_agent_profile_id(p_profile_id);
+		agent_profile = main_agent->get_profile();
+		runtime = main_agent->get_runtime();
+		runtime_runner = main_agent->get_runtime_runner();
+		runtime_client = main_agent->get_openai_runtime_client();
+		tool_registry = main_agent->get_tool_registry();
 	}
 	print_line(vformat("[AI Agent][Session] Agent profile set: %s", agent_profile.id));
 }
 
 String AIAgentSession::get_agent_profile_id() const {
 	return agent_profile.id;
+}
+
+Ref<AIMainAgent> AIAgentSession::get_main_agent() const {
+	return main_agent;
 }
 
 Ref<AIAgentRuntime> AIAgentSession::get_agent_runtime() const {
@@ -143,7 +108,7 @@ Ref<AIToolRegistry> AIAgentSession::get_tool_registry() const {
 }
 
 bool AIAgentSession::is_tool_runtime_available() const {
-	return runtime.is_valid() && runtime_client.is_valid() && runtime->get_client().is_valid() && tool_registry.is_valid();
+	return main_agent.is_valid() && runtime.is_valid() && runtime_client.is_valid() && runtime->get_client().is_valid() && tool_registry.is_valid();
 }
 
 void AIAgentSession::reload_tool_runtime() {
@@ -553,8 +518,10 @@ bool AIAgentSession::_start_runtime_turn() {
 	runtime_base_message_count = request_messages.size();
 	runtime_progress_message_count = 0;
 	runtime_to_local_message_indices.clear();
-	runtime->set_session_id(session_id);
-	if (!runtime_runner->start(request_messages, context)) {
+	if (main_agent.is_valid()) {
+		main_agent->set_session_id(session_id);
+	}
+	if (main_agent.is_null() || !main_agent->start(request_messages, context)) {
 		print_line("[AI Agent][Session] Failed to start function-calling runtime.");
 		_on_provider_request_failed("Failed to start AI runtime.");
 		return false;
@@ -567,184 +534,17 @@ bool AIAgentSession::_is_busy() const {
 }
 
 void AIAgentSession::_configure_tool_runtime() {
-	_remove_dynamic_tool_permissions();
-	if (tool_registry.is_null()) {
-		tool_registry.instantiate();
+	if (main_agent.is_null()) {
+		main_agent.instantiate();
+		main_agent->set_profile(agent_profile);
 	} else {
-		tool_registry->clear();
+		main_agent->reload_tools();
 	}
-
-	Ref<AIListProjectTool> list_project;
-	list_project.instantiate();
-	tool_registry->register_tool(list_project);
-	print_line("[AI Agent][Session] Registered tool: project.list_tree");
-
-	Ref<AIReadFileTool> read_file;
-	read_file.instantiate();
-	tool_registry->register_tool(read_file);
-	print_line("[AI Agent][Session] Registered tool: project.read_file");
-
-	Ref<AICreateFolderTool> create_folder;
-	create_folder.instantiate();
-	tool_registry->register_tool(create_folder);
-	print_line("[AI Agent][Session] Registered tool: project.create_folder");
-
-	Ref<AISearchProjectTool> search_project;
-	search_project.instantiate();
-	tool_registry->register_tool(search_project);
-	print_line("[AI Agent][Session] Registered tool: project.search_text");
-
-	Ref<AIGetEditorContextTool> editor_context_tool;
-	editor_context_tool.instantiate();
-	tool_registry->register_tool(editor_context_tool);
-	print_line("[AI Agent][Session] Registered tool: editor.get_context");
-
-	Ref<AIActivateSkillTool> activate_skill_tool;
-	activate_skill_tool.instantiate();
-	tool_registry->register_tool(activate_skill_tool);
-	print_line("[AI Agent][Session] Registered tool: agent.activate_skill");
-
-	Ref<AIManagePlanTool> manage_plan_tool;
-	manage_plan_tool.instantiate();
-	tool_registry->register_tool(manage_plan_tool);
-	print_line("[AI Agent][Session] Registered tool: agent.manage_plan");
-
-	Ref<AISceneCreateSceneTool> create_scene_tool;
-	create_scene_tool.instantiate();
-	tool_registry->register_tool(create_scene_tool);
-	print_line("[AI Agent][Session] Registered tool: scene.create_scene");
-
-	Ref<AISceneAddNodeTool> add_node_tool;
-	add_node_tool.instantiate();
-	tool_registry->register_tool(add_node_tool);
-	print_line("[AI Agent][Session] Registered tool: scene.add_node");
-
-	Ref<AISceneDeleteNodeTool> delete_node_tool;
-	delete_node_tool.instantiate();
-	tool_registry->register_tool(delete_node_tool);
-	print_line("[AI Agent][Session] Registered tool: scene.delete_node");
-
-	Ref<AISceneListPropertiesTool> list_properties_tool;
-	list_properties_tool.instantiate();
-	tool_registry->register_tool(list_properties_tool);
-	print_line("[AI Agent][Session] Registered tool: scene.list_properties");
-
-	Ref<AISceneRenameNodeTool> rename_node_tool;
-	rename_node_tool.instantiate();
-	tool_registry->register_tool(rename_node_tool);
-	print_line("[AI Agent][Session] Registered tool: scene.rename_node");
-
-	Ref<AISceneMoveNodeTool> move_node_tool;
-	move_node_tool.instantiate();
-	tool_registry->register_tool(move_node_tool);
-	print_line("[AI Agent][Session] Registered tool: scene.move_node");
-
-	Ref<AISceneSetPropertyTool> set_property_tool;
-	set_property_tool.instantiate();
-	tool_registry->register_tool(set_property_tool);
-	print_line("[AI Agent][Session] Registered tool: scene.set_property");
-
-	Ref<AISceneSaveCurrentSceneTool> save_current_scene_tool;
-	save_current_scene_tool.instantiate();
-	tool_registry->register_tool(save_current_scene_tool);
-	print_line("[AI Agent][Session] Registered tool: scene.save_current_scene");
-
-	Ref<AISceneOpenSceneTool> open_scene_tool;
-	open_scene_tool.instantiate();
-	tool_registry->register_tool(open_scene_tool);
-	print_line("[AI Agent][Session] Registered tool: scene.open_scene");
-
-	Ref<AIScriptInspectTool> script_inspect_tool;
-	script_inspect_tool.instantiate();
-	tool_registry->register_tool(script_inspect_tool);
-	print_line("[AI Agent][Session] Registered tool: script.inspect");
-
-	Ref<AIScriptCreateTool> script_create_tool;
-	script_create_tool.instantiate();
-	tool_registry->register_tool(script_create_tool);
-	print_line("[AI Agent][Session] Registered tool: script.create");
-
-	Ref<AIScriptWriteTool> script_write_tool;
-	script_write_tool.instantiate();
-	tool_registry->register_tool(script_write_tool);
-	print_line("[AI Agent][Session] Registered tool: script.write");
-
-	Ref<AIScriptPatchFunctionTool> script_patch_function_tool;
-	script_patch_function_tool.instantiate();
-	tool_registry->register_tool(script_patch_function_tool);
-	print_line("[AI Agent][Session] Registered tool: script.patch_function");
-
-	Ref<AIScriptBindToNodeTool> script_bind_to_node_tool;
-	script_bind_to_node_tool.instantiate();
-	tool_registry->register_tool(script_bind_to_node_tool);
-	print_line("[AI Agent][Session] Registered tool: script.bind_to_node");
-
-	Ref<AIScriptUnbindFromNodeTool> script_unbind_from_node_tool;
-	script_unbind_from_node_tool.instantiate();
-	tool_registry->register_tool(script_unbind_from_node_tool);
-	print_line("[AI Agent][Session] Registered tool: script.unbind_from_node");
-
-	Ref<AIScriptDeleteTool> script_delete_tool;
-	script_delete_tool.instantiate();
-	tool_registry->register_tool(script_delete_tool);
-	print_line("[AI Agent][Session] Registered tool: script.delete");
-
-	Ref<AIShaderApplyToNodeTool> shader_apply_to_node_tool;
-	shader_apply_to_node_tool.instantiate();
-	tool_registry->register_tool(shader_apply_to_node_tool);
-	print_line("[AI Agent][Session] Registered tool: shader.apply_to_node");
-
-	runtime_runner->set_runtime(runtime);
-	_register_mcp_tools_from_service();
-	_apply_dynamic_tool_permissions();
-	runtime->set_tool_registry(tool_registry);
-	runtime->set_profile(agent_profile);
-}
-
-void AIAgentSession::_register_mcp_tools_from_service() {
-	if (tool_registry.is_null()) {
-		return;
-	}
-	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
-	ERR_FAIL_COND(mcp_service.is_null());
-	mcp_service->register_discovered_tools(tool_registry);
-}
-
-void AIAgentSession::_remove_dynamic_tool_permissions() {
-	Vector<String> stale_mcp_tools;
-	for (HashSet<String>::Iterator it = agent_profile.allowed_tools.begin(); it; ++it) {
-		if ((*it).begins_with("mcp_")) {
-			stale_mcp_tools.push_back(*it);
-		}
-	}
-	for (int i = 0; i < stale_mcp_tools.size(); i++) {
-		agent_profile.allowed_tools.erase(stale_mcp_tools[i]);
-	}
-
-	stale_mcp_tools.clear();
-	for (HashSet<String>::Iterator it = agent_profile.ask_tools.begin(); it; ++it) {
-		if ((*it).begins_with("mcp_")) {
-			stale_mcp_tools.push_back(*it);
-		}
-	}
-	for (int i = 0; i < stale_mcp_tools.size(); i++) {
-		agent_profile.ask_tools.erase(stale_mcp_tools[i]);
-	}
-}
-
-void AIAgentSession::_apply_dynamic_tool_permissions() {
-	if (tool_registry.is_null()) {
-		return;
-	}
-
-	Vector<String> tool_names = tool_registry->get_tool_names();
-	for (int i = 0; i < tool_names.size(); i++) {
-		const String &tool_name = tool_names[i];
-		if (tool_name.begins_with("mcp_")) {
-			agent_profile.allowed_tools.erase(tool_name);
-			agent_profile.ask_tools.insert(tool_name);
-		}
-	}
+	agent_profile = main_agent->get_profile();
+	runtime = main_agent->get_runtime();
+	runtime_runner = main_agent->get_runtime_runner();
+	runtime_client = main_agent->get_openai_runtime_client();
+	tool_registry = main_agent->get_tool_registry();
 }
 
 void AIAgentSession::_mcp_tools_changed() {

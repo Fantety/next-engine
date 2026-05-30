@@ -138,8 +138,10 @@
 #include "editor/translations/editor_translation_parser.h"
 #include "editor/version_control/editor_vcs_interface.h"
 
+#include "editor/ai_component/agent/ai_agent_base.h"
 #include "editor/ai_component/agent/ai_agent_session.h"
 #include "editor/ai_component/agent/ai_context_manager.h"
+#include "editor/ai_component/agent/ai_main_agent.h"
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
 #include "editor/ai_component/agent/ai_mcp_tool_discovery_runner.h"
@@ -265,8 +267,10 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterTexture);
 	GDREGISTER_CLASS(ResourceImporterTextureAtlas);
 	GDREGISTER_CLASS(ResourceImporterWAV);
+	GDREGISTER_CLASS(AIAgentBase);
 	GDREGISTER_CLASS(AIAgentSession);
 	GDREGISTER_CLASS(AIContextManager);
+	GDREGISTER_CLASS(AIMainAgent);
 	GDREGISTER_CLASS(AIMCPService);
 	GDREGISTER_CLASS(AIBestPracticesContextProvider);
 	GDREGISTER_CLASS(AIContextProvider);

@@ -115,7 +115,7 @@ void AIMCPService::_on_discovery_finished() {
 	}
 }
 
-void AIMCPService::register_discovered_tools(const Ref<AIToolRegistry> &p_tool_registry) const {
+void AIMCPService::register_discovered_tools(const Ref<AIToolRegistry> &p_tool_registry, AIToolPermission p_permission) const {
 	ERR_FAIL_COND(p_tool_registry.is_null());
 	for (int i = 0; i < discovered_tools.size(); i++) {
 		Ref<AIMCPTool> tool;
@@ -127,7 +127,7 @@ void AIMCPService::register_discovered_tools(const Ref<AIToolRegistry> &p_tool_r
 			continue;
 		}
 
-		if (!p_tool_registry->register_tool(tool)) {
+		if (!p_tool_registry->register_tool(tool, p_permission)) {
 			print_line(vformat("[AI Agent][MCP] Skipped cached tool because registration failed: %s server=%s source_tool=%s", tool_name, discovered_tools[i].server.display_name, discovered_tools[i].descriptor.name));
 			continue;
 		}

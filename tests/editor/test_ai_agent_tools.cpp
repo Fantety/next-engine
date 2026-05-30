@@ -7,6 +7,7 @@
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "editor/ai_component/agent/ai_agent_profile.h"
+#include "editor/ai_component/agent/ai_main_agent.h"
 #include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
@@ -132,6 +133,31 @@ TEST_CASE("[Editor][AI] Tool registry exposes registered tool names") {
 	registry->clear();
 	CHECK(registry->get_tool_names().is_empty());
 	CHECK_FALSE(registry->has_tool("test.echo"));
+}
+
+TEST_CASE("[Editor][AI] Tool registry stores permissions and exposes available schemas") {
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<EchoAITool> allowed_tool;
+	allowed_tool.instantiate();
+	CHECK(registry->register_tool(allowed_tool, AI_TOOL_PERMISSION_ASK, "Needs review."));
+
+	CHECK(registry->get_tool_permission("test.echo") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission_reason("test.echo") == "Needs review.");
+	CHECK(registry->set_tool_permission("test.echo", AI_TOOL_PERMISSION_DENY, "Disabled for this agent."));
+	CHECK(registry->get_tool_permission("test.echo") == AI_TOOL_PERMISSION_DENY);
+
+	CHECK(registry->get_tool_schemas().size() == 1);
+	CHECK(registry->get_available_tool_schemas().is_empty());
+
+	CHECK(registry->set_tool_permission("test.echo", AI_TOOL_PERMISSION_ALLOW));
+	Array schemas = registry->get_available_tool_schemas();
+	REQUIRE(schemas.size() == 1);
+	Dictionary schema = schemas[0];
+	Dictionary function_schema = schema["function"];
+	CHECK(String(function_schema["name"]) == "test.echo");
+	CHECK(registry->get_tool_permission("missing.tool") == AI_TOOL_PERMISSION_DENY);
 }
 
 TEST_CASE("[Editor][AI] Skill settings manage prompt context skills") {
@@ -345,11 +371,7 @@ TEST_CASE("[Editor][AI] MCP tool wraps descriptors without executing the server"
 	CHECK(tool->get_description().contains("MCP Server: Filesystem"));
 	CHECK(String(tool->get_parameters_schema()["type"]) == "object");
 
-	AIAgentProfile profile;
-	profile.id = "test";
-	profile.allowed_tools.insert(tool->get_name());
-	profile.ask_tools.insert(tool->get_name());
-	CHECK(AIToolPermissionPolicy::evaluate(profile, tool->get_name(), Dictionary()).decision == AI_TOOL_PERMISSION_ASK);
+	CHECK(AIToolPermissionPolicy::evaluate(AI_TOOL_PERMISSION_ASK, tool->get_name()).permission == AI_TOOL_PERMISSION_ASK);
 }
 
 TEST_CASE("[Editor][AI] MCP discovery keeps agent tool names unique") {
@@ -580,80 +602,85 @@ TEST_CASE("[Editor][AI] Tool calls serialize stable execution state") {
 	CHECK(String(restored.arguments["path"]) == "res://player.gd");
 }
 
-TEST_CASE("[Editor][AI] Agent profiles centralize read-only tool permissions") {
+TEST_CASE("[Editor][AI] Agent profiles only describe agent identity") {
 	AIAgentProfile plan = AIAgentProfile::get_plan_profile();
 	AIAgentProfile build = AIAgentProfile::get_build_profile();
 	AIAgentProfile review = AIAgentProfile::get_review_profile();
 	AIAgentProfile write = AIAgentProfile::get_write_profile();
 
-	Dictionary arguments;
 	CHECK(plan.id == "plan");
+	CHECK(plan.display_name == "Plan");
 	CHECK(build.id == "build");
+	CHECK(build.display_name == "Build");
 	CHECK(review.id == "review");
+	CHECK(review.display_name == "Review");
 	CHECK(write.id == "write");
+	CHECK(write.display_name == "Write");
+}
 
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.read_file", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.search_text", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "agent.activate_skill", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "agent.manage_plan", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.create_folder", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.create_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.add_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.delete_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.list_properties", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.rename_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.move_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.set_property", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.save_current_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "scene.open_scene", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.inspect", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.create", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.write", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.patch_function", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.bind_to_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.unbind_from_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "script.delete", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "shader.apply_to_node", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
-	CHECK(AIToolPermissionPolicy::evaluate(plan, "unknown.tool", arguments).decision == AI_TOOL_PERMISSION_DENY);
+TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
+	Ref<AIMainAgent> agent;
+	agent.instantiate();
+	Ref<AIToolRegistry> registry = agent->get_tool_registry();
+	REQUIRE(registry.is_valid());
 
-	CHECK(AIToolPermissionPolicy::evaluate(build, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(build, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("project.list_tree") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.search_text") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("agent.activate_skill") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("agent.manage_plan") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("editor.get_context") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.inspect") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("unknown.tool") == AI_TOOL_PERMISSION_DENY);
 
-	CHECK(AIToolPermissionPolicy::evaluate(review, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(review, "project.create_folder", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(review, "script.write", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(review, "script.delete", arguments).decision == AI_TOOL_PERMISSION_ASK);
-	CHECK(AIToolPermissionPolicy::evaluate(review, "shader.apply_to_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(review, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	agent->set_agent_profile_id("build");
+	CHECK(registry->get_tool_permission("project.list_tree") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 
-	CHECK(AIToolPermissionPolicy::evaluate(write, "project.list_tree", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "project.create_folder", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "editor.get_context", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.create_scene", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.add_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.delete_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.list_properties", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.rename_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.move_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.set_property", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.save_current_scene", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "scene.open_scene", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "script.inspect", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "script.create", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "script.write", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "script.patch_function", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "script.bind_to_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "script.unbind_from_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "script.delete", arguments).decision == AI_TOOL_PERMISSION_ASK);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "shader.apply_to_node", arguments).decision == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(AIToolPermissionPolicy::evaluate(write, "project.write_file", arguments).decision == AI_TOOL_PERMISSION_DENY);
+	agent->set_agent_profile_id("review");
+	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
 
-	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
-	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_ASK) == "ask");
-	CHECK(AIToolPermissionPolicy::decision_to_string(AI_TOOL_PERMISSION_DENY) == "deny");
+	agent->set_agent_profile_id("write");
+	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.add_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.rename_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.move_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.set_property") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.save_current_scene") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.open_scene") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.create") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.patch_function") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.bind_to_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.unbind_from_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
+
+	agent->set_profile(AIAgentProfile::get_plan_profile());
+	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_DENY);
+
+	CHECK_FALSE(registry->has_tool("project.write_file"));
+	CHECK(registry->get_tool_permission("project.write_file") == AI_TOOL_PERMISSION_DENY);
+
+	CHECK(AIToolPermissionPolicy::permission_to_string(AI_TOOL_PERMISSION_ALLOW) == "allow");
+	CHECK(AIToolPermissionPolicy::permission_to_string(AI_TOOL_PERMISSION_ASK) == "ask");
+	CHECK(AIToolPermissionPolicy::permission_to_string(AI_TOOL_PERMISSION_DENY) == "deny");
+	CHECK(AIToolPermissionPolicy::string_to_permission("allow") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(AIToolPermissionPolicy::string_to_permission("ask") == AI_TOOL_PERMISSION_ASK);
+	CHECK(AIToolPermissionPolicy::string_to_permission("deny") == AI_TOOL_PERMISSION_DENY);
+	CHECK(AIToolPermissionPolicy::evaluate(AI_TOOL_PERMISSION_ASK, "script.delete").permission == AI_TOOL_PERMISSION_ASK);
 }
 
 TEST_CASE("[Editor][AI] Plan manager keeps one active plan and archives completed work") {

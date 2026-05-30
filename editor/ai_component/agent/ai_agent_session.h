@@ -10,6 +10,7 @@
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
+#include "editor/ai_component/agent/ai_main_agent.h"
 #include "editor/ai_component/context/ai_best_practices_context_provider.h"
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
@@ -32,6 +33,7 @@ class AIAgentSession : public Node {
 	Dictionary pending_tool_approval;
 	bool pending_tool_runtime_reload = false;
 
+	Ref<AIMainAgent> main_agent;
 	Ref<AIAgentRuntime> runtime;
 	Ref<AIAgentRuntimeRunner> runtime_runner;
 	Ref<AIOpenAICompatibleRuntimeClient> runtime_client;
@@ -50,9 +52,6 @@ class AIAgentSession : public Node {
 
 	String _get_project_scope_key() const;
 	void _configure_tool_runtime();
-	void _register_mcp_tools_from_service();
-	void _remove_dynamic_tool_permissions();
-	void _apply_dynamic_tool_permissions();
 	void _mcp_tools_changed();
 	void _load_initial_session();
 	void _apply_runtime_result(const AIAgentRuntimeResult &p_result);
@@ -80,6 +79,7 @@ public:
 	void configure_provider(const AIProviderConfig &p_config);
 	void set_agent_profile_id(const String &p_profile_id);
 	String get_agent_profile_id() const;
+	Ref<AIMainAgent> get_main_agent() const;
 	Ref<AIAgentRuntime> get_agent_runtime() const;
 	Ref<AIAgentRuntimeRunner> get_agent_runtime_runner() const;
 	Ref<AIToolRegistry> get_tool_registry() const;
