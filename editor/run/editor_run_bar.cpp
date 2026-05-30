@@ -404,6 +404,13 @@ void EditorRunBar::_profiler_autostart_indicator_pressed() {
 	}
 }
 
+void EditorRunBar::_next_mode_pressed() {
+	if (!next_mode_button) {
+		return;
+	}
+	set_next_mode_enabled(next_mode_button->is_pressed());
+}
+
 void EditorRunBar::recovery_mode_show_dialog() {
 	recovery_mode_popup->popup_centered();
 }
@@ -523,6 +530,24 @@ bool EditorRunBar::is_movie_maker_enabled() const {
 	return movie_maker_enabled;
 }
 
+void EditorRunBar::set_next_mode_enabled(bool p_enabled) {
+	const bool changed = next_mode_enabled != p_enabled;
+	next_mode_enabled = p_enabled;
+	if (next_mode_button) {
+		next_mode_button->set_pressed_no_signal(p_enabled);
+	}
+	if (EditorSettings::get_singleton()) {
+		EditorSettings::get_singleton()->set_project_metadata("ai_next", "enabled", p_enabled);
+	}
+	if (changed) {
+		emit_signal(SNAME("next_mode_toggled"), p_enabled);
+	}
+}
+
+bool EditorRunBar::is_next_mode_enabled() const {
+	return next_mode_enabled;
+}
+
 void EditorRunBar::update_profiler_autostart_indicator() {
 	bool profiler_active = EditorSettings::get_singleton()->get_project_metadata("debug_options", "autostart_profiler", false);
 	bool visual_profiler_active = EditorSettings::get_singleton()->get_project_metadata("debug_options", "autostart_visual_profiler", false);
@@ -553,6 +578,7 @@ HBoxContainer *EditorRunBar::get_buttons_container() {
 void EditorRunBar::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("play_pressed"));
 	ADD_SIGNAL(MethodInfo("stop_pressed"));
+	ADD_SIGNAL(MethodInfo("next_mode_toggled", PropertyInfo(Variant::BOOL, "enabled")));
 }
 
 EditorRunBar::EditorRunBar() {
@@ -612,6 +638,17 @@ EditorRunBar::EditorRunBar() {
 
 		return;
 	}
+
+	next_mode_enabled = EditorSettings::get_singleton()->get_project_metadata("ai_next", "enabled", false);
+	next_mode_button = memnew(Button);
+	main_hbox->add_child(next_mode_button);
+	next_mode_button->set_text(TTRC("NEXT"));
+	next_mode_button->set_toggle_mode(true);
+	next_mode_button->set_theme_type_variation("RunBarButton");
+	next_mode_button->set_focus_mode(Control::FOCUS_ACCESSIBILITY);
+	next_mode_button->set_tooltip_text(TTRC("Toggle NEXT mode."));
+	next_mode_button->set_pressed_no_signal(next_mode_enabled);
+	next_mode_button->connect(SceneStringName(pressed), callable_mp(this, &EditorRunBar::_next_mode_pressed));
 
 	play_button = memnew(Button);
 	main_hbox->add_child(play_button);
