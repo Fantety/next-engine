@@ -104,4 +104,28 @@ TEST_CASE("[Editor][AI][NEXT] session generates structured plan through NEXT too
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] session runs ready milestone tasks serially") {
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Created player_controller.gd";
+	client->push_response(final_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+	session->run_active_milestone();
+
+	Dictionary task = state->get_task(task_id);
+	CHECK(String(task["status"]) == "completed");
+	CHECK(String(task["result_summary"]) == "Created player_controller.gd");
+	CHECK(state->get_session_state() == AI_NEXT_SESSION_WAITING_PLAYTEST);
+	CHECK(client->request_count == 1);
+
+	memdelete(session);
+}
+
 } // namespace TestAIAgentNextSession

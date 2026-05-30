@@ -50,6 +50,15 @@ void _push_tool(Vector<Ref<AITool>> &r_tools, const Ref<AITool> &p_tool) {
 	}
 }
 
+String _get_last_response_summary(const AIAgentRuntimeResult &p_result) {
+	for (int i = p_result.messages.size() - 1; i >= 0; i--) {
+		if (p_result.messages[i].role == AI_AGENT_ROLE_ASSISTANT && !p_result.messages[i].content.strip_edges().is_empty()) {
+			return p_result.messages[i].content.strip_edges();
+		}
+	}
+	return "Task completed.";
+}
+
 } // namespace
 
 void AIAgentNextSession::_bind_methods() {
@@ -283,6 +292,67 @@ void AIAgentNextSession::approve_plan() {
 void AIAgentNextSession::run_active_milestone() {
 	project_state->set_session_state(AI_NEXT_SESSION_EXECUTING);
 	event_log->record_event("milestone_run_started", project_state->get_active_milestone_id(), String(), "next_session", "NEXT active milestone run requested.");
+	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+	emit_signal(SNAME("project_state_changed"));
+
+	const String milestone_id = project_state->get_active_milestone_id();
+	if (milestone_id.is_empty()) {
+		project_state->set_session_state(AI_NEXT_SESSION_FAILED);
+		event_log->record_event("milestone_run_failed", String(), String(), "next_session", "No active NEXT milestone.");
+		emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+		emit_signal(SNAME("project_state_changed"));
+		return;
+	}
+
+	bool failed = false;
+	int guard = 0;
+	while (!failed && guard++ < 100) {
+		Array ready_tasks = project_state->get_ready_tasks(milestone_id);
+		if (ready_tasks.is_empty()) {
+			break;
+		}
+
+		for (int i = 0; i < ready_tasks.size(); i++) {
+			if (Variant(ready_tasks[i]).get_type() != Variant::DICTIONARY) {
+				continue;
+			}
+			Dictionary task = ready_tasks[i];
+			const String task_id = String(task.get("id", String()));
+			const String agent_id = String(task.get("assigned_agent_id", String()));
+			Ref<AIAgentBase> agent = _get_agent(agent_id);
+			if (agent.is_null()) {
+				project_state->mark_task_failed(task_id, "Unknown NEXT agent: " + agent_id);
+				event_log->record_event("task_failed", milestone_id, task_id, agent_id, "Unknown NEXT agent.");
+				failed = true;
+				break;
+			}
+
+			project_state->set_task_status(task_id, AI_NEXT_TASK_IN_PROGRESS);
+			event_log->record_event("task_started", milestone_id, task_id, agent_id, String(task.get("title", String())));
+
+			AIAgentMessage user_message;
+			user_message.role = AI_AGENT_ROLE_USER;
+			user_message.content = vformat("Run NEXT task `%s`.\n\nDescription:\n%s\n\nReturn a concise summary and list produced paths if any.",
+					String(task.get("title", String())),
+					String(task.get("description", String())));
+
+			Vector<AIAgentMessage> messages;
+			messages.push_back(user_message);
+			AIAgentRuntimeResult result = agent->run(messages);
+			if (!result.success) {
+				project_state->mark_task_failed(task_id, result.error);
+				event_log->record_event("task_failed", milestone_id, task_id, agent_id, result.error);
+				failed = true;
+				break;
+			}
+
+			project_state->mark_task_completed(task_id, _get_last_response_summary(result), Array());
+			event_log->record_event("task_completed", milestone_id, task_id, agent_id, _get_last_response_summary(result));
+		}
+	}
+
+	project_state->set_session_state(failed ? AI_NEXT_SESSION_FAILED : AI_NEXT_SESSION_WAITING_PLAYTEST);
+	event_log->record_event(failed ? "milestone_run_failed" : "milestone_run_completed", milestone_id, String(), "next_session", failed ? "NEXT milestone run failed." : "NEXT milestone run completed.");
 	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
 	emit_signal(SNAME("project_state_changed"));
 }
