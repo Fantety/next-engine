@@ -48,6 +48,9 @@
 #include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_write_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_apply_to_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_create_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_delete_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
@@ -636,6 +639,9 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("script.inspect") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("shader.edit") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("unknown.tool") == AI_TOOL_PERMISSION_DENY);
 
@@ -647,6 +653,9 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("shader.edit") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_ASK);
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
 
 	agent->set_agent_profile_id("write");
@@ -665,11 +674,17 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("script.bind_to_node") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.unbind_from_node") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("shader.edit") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_ASK);
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
 
 	agent->set_profile(AIAgentProfile::get_plan_profile());
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("shader.edit") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_DENY);
 
 	CHECK_FALSE(registry->has_tool("project.write_file"));
 	CHECK(registry->get_tool_permission("project.write_file") == AI_TOOL_PERMISSION_DENY);
@@ -1120,6 +1135,35 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	Dictionary delete_script_properties = script_delete->get_parameters_schema()["properties"];
 	CHECK(delete_script_properties.has("path"));
 
+	Ref<AIShaderCreateTool> shader_create;
+	shader_create.instantiate();
+	CHECK(shader_create->get_name() == "shader.create");
+	Dictionary shader_create_schema = shader_create->get_parameters_schema();
+	Dictionary shader_create_properties = shader_create_schema["properties"];
+	CHECK(shader_create_properties.has("path"));
+	CHECK(shader_create_properties.has("shader_type"));
+	CHECK(shader_create_properties.has("shader_code"));
+	CHECK(shader_create_properties.has("overwrite"));
+	Array shader_create_required = shader_create_schema["required"];
+	CHECK(shader_create_required.has("path"));
+
+	Ref<AIShaderEditTool> shader_edit;
+	shader_edit.instantiate();
+	CHECK(shader_edit->get_name() == "shader.edit");
+	Dictionary shader_edit_schema = shader_edit->get_parameters_schema();
+	Dictionary shader_edit_properties = shader_edit_schema["properties"];
+	CHECK(shader_edit_properties.has("path"));
+	CHECK(shader_edit_properties.has("shader_code"));
+	Array shader_edit_required = shader_edit_schema["required"];
+	CHECK(shader_edit_required.has("path"));
+	CHECK(shader_edit_required.has("shader_code"));
+
+	Ref<AIShaderDeleteTool> shader_delete;
+	shader_delete.instantiate();
+	CHECK(shader_delete->get_name() == "shader.delete");
+	Dictionary shader_delete_properties = shader_delete->get_parameters_schema()["properties"];
+	CHECK(shader_delete_properties.has("path"));
+
 	Ref<AIShaderApplyToNodeTool> shader_apply;
 	shader_apply.instantiate();
 	CHECK(shader_apply->get_name() == "shader.apply_to_node");
@@ -1127,14 +1171,15 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	Dictionary shader_properties = shader_schema["properties"];
 	CHECK(shader_properties.has("node_path"));
 	CHECK(shader_properties.has("shader_path"));
-	CHECK(shader_properties.has("shader_code"));
-	CHECK(shader_properties.has("material_property"));
-	CHECK(shader_properties.has("overwrite_shader"));
+	CHECK(shader_properties.has("target_property"));
+	CHECK_FALSE(shader_properties.has("shader_code"));
+	CHECK_FALSE(shader_properties.has("material_property"));
+	CHECK_FALSE(shader_properties.has("overwrite_shader"));
 	CHECK(shader_properties.has("shader_parameters"));
 	Array shader_required = shader_schema["required"];
 	CHECK(shader_required.has("node_path"));
 	CHECK(shader_required.has("shader_path"));
-	CHECK(shader_required.has("shader_code"));
+	CHECK(shader_required.has("target_property"));
 }
 
 TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before touching editor state") {
@@ -1240,6 +1285,23 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	Dictionary delete_script_arguments;
 	CHECK(script_delete->execute(delete_script_arguments).is_error());
 
+	Ref<AIShaderCreateTool> shader_create;
+	shader_create.instantiate();
+	Dictionary shader_create_arguments;
+	CHECK(shader_create->execute(shader_create_arguments).is_error());
+
+	Ref<AIShaderEditTool> shader_edit;
+	shader_edit.instantiate();
+	Dictionary shader_edit_arguments;
+	CHECK(shader_edit->execute(shader_edit_arguments).is_error());
+	shader_edit_arguments["path"] = "res://shaders/player_flash.gdshader";
+	CHECK(shader_edit->execute(shader_edit_arguments).is_error());
+
+	Ref<AIShaderDeleteTool> shader_delete;
+	shader_delete.instantiate();
+	Dictionary shader_delete_arguments;
+	CHECK(shader_delete->execute(shader_delete_arguments).is_error());
+
 	Ref<AIShaderApplyToNodeTool> shader_apply;
 	shader_apply.instantiate();
 	Dictionary shader_arguments;
@@ -1248,7 +1310,7 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	CHECK(shader_apply->execute(shader_arguments).is_error());
 	shader_arguments["shader_path"] = "res://shaders/player_flash.gdshader";
 	CHECK(shader_apply->execute(shader_arguments).is_error());
-	shader_arguments["shader_code"] = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(1.0); }\n";
+	shader_arguments["target_property"] = "material";
 	shader_arguments["shader_parameters"] = "not an object";
 	CHECK(shader_apply->execute(shader_arguments).is_error());
 }

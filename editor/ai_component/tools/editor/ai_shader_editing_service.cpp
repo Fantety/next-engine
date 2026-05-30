@@ -5,32 +5,26 @@
 #include "ai_shader_editing_service.h"
 
 #include "core/config/project_settings.h"
-#include "core/io/dir_access.h"
-#include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
-#include "core/io/resource_saver.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/object/message_queue.h"
+#include "core/os/os.h"
 #include "core/os/thread.h"
 #include "core/variant/variant.h"
 
 #include "editor/ai_component/review/ai_change_set_store.h"
 #include "editor/ai_component/review/ai_diff_service.h"
 #include "editor/ai_component/tools/project/ai_project_tool_utils.h"
+#include "editor/docks/filesystem_dock.h"
 #include "editor/docks/scene_tree_dock.h"
 #include "editor/editor_data.h"
 #include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/file_system/editor_file_system.h"
-#include "editor/scene/editor_scene_tabs.h"
 #include "editor/scene/scene_tree_editor.h"
-#include "scene/3d/mesh_instance_3d.h"
-#include "scene/3d/visual_instance_3d.h"
-#include "scene/main/canvas_item.h"
 #include "scene/main/node.h"
 #include "scene/resources/material.h"
-#include "scene/resources/packed_scene.h"
 #include "scene/resources/shader.h"
 
 namespace {
@@ -52,18 +46,8 @@ bool _get_property_names_for_assignment(Object *p_object, const String &p_proper
 	return !r_names.is_empty();
 }
 
-bool _read_shader_text(const String &p_path, String &r_text, String &r_error) {
-	Error err = OK;
-	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::READ, &err);
-	if (file.is_null() || err != OK) {
-		r_error = vformat("Failed to read shader `%s` (error %d).", p_path, err);
-		return false;
-	}
-	r_text = file->get_as_text();
-	return true;
-}
-
-void _register_shader_review_change(const String &p_title, const String &p_path, const String &p_change_type, const String &p_old_text, const String &p_new_text, Dictionary &r_metadata) {
+void _register_shader_review_change(const String &p_title, const String &p_path, const String &p_change_type, const String &p_old_text, const String &p_new_text,
+		Dictionary &r_metadata) {
 	Ref<AIToolExecutionContext> context = AIToolExecutionContext::get_current();
 	if (context.is_null() || !context->is_review_mode()) {
 		return;
@@ -71,7 +55,6 @@ void _register_shader_review_change(const String &p_title, const String &p_path,
 
 	Array changes;
 	Dictionary metadata;
-	metadata["scene_binding_not_reverted"] = true;
 	changes.push_back(AIDiffService::build_text_change(p_path, p_change_type, p_old_text, p_new_text, "gdshader", metadata));
 	Ref<AIChangeSetStore> store = AIChangeSetStore::get_singleton();
 	const String change_set_id = store->add_change_set(p_title, context->get_session_id(), context->get_tool_call_id(), changes, metadata);
@@ -82,7 +65,6 @@ void _register_shader_review_change(const String &p_title, const String &p_path,
 	r_metadata["review_change_set_id"] = change_set_id;
 	r_metadata["review_status"] = "pending";
 	r_metadata["review_mode"] = true;
-	r_metadata["review_note"] = "Reverting this review change restores the shader file. Scene material binding is not reverted in the first review implementation.";
 	print_line(vformat("[AI Agent][Review] Recorded shader change. id=%s path=%s type=%s", change_set_id, p_path, p_change_type));
 }
 
@@ -140,8 +122,17 @@ void AIShaderEditingService::_execute_request_ptr(MainThreadRequest *p_request) 
 	}
 
 	switch (p_request->operation) {
+		case MainThreadRequest::OP_CREATE_SHADER:
+			p_request->result = _create_shader_main_thread(p_request->shader_path, p_request->shader_type, p_request->shader_code, p_request->overwrite);
+			break;
+		case MainThreadRequest::OP_EDIT_SHADER:
+			p_request->result = _edit_shader_main_thread(p_request->shader_path, p_request->shader_code);
+			break;
+		case MainThreadRequest::OP_DELETE_SHADER:
+			p_request->result = _delete_shader_main_thread(p_request->shader_path);
+			break;
 		case MainThreadRequest::OP_APPLY_TO_NODE:
-			p_request->result = _apply_to_node_main_thread(p_request->node_path, p_request->shader_path, p_request->shader_code, p_request->material_property, p_request->shader_parameters, p_request->overwrite_shader);
+			p_request->result = _apply_to_node_main_thread(p_request->node_path, p_request->shader_path, p_request->target_property, p_request->shader_parameters);
 			break;
 	}
 
@@ -183,9 +174,17 @@ bool AIShaderEditingService::_ensure_parent_directory(const String &p_path, Stri
 		return true;
 	}
 
-	const String absolute_dir = ProjectSettings::get_singleton()->globalize_path(base_dir);
-	Error err = DirAccess::make_dir_recursive_absolute(absolute_dir);
-	if (err != OK) {
+	EditorFileSystem *file_system = EditorFileSystem::get_singleton();
+	if (!file_system) {
+		r_error = "EditorFileSystem is not available.";
+		return false;
+	}
+
+	if (file_system->get_filesystem_path(base_dir)) {
+		return true;
+	}
+	Error err = file_system->make_dir_recursive(base_dir);
+	if (err != OK && err != ERR_ALREADY_EXISTS) {
 		r_error = vformat("Failed to create shader directory `%s` (error %d).", base_dir, err);
 		return false;
 	}
@@ -235,76 +234,191 @@ Node *AIShaderEditingService::_resolve_node_path(Node *p_scene_root, const Strin
 	return node;
 }
 
-String AIShaderEditingService::_resolve_material_property(Node *p_node, const String &p_requested_property, String &r_error) const {
-	ERR_FAIL_NULL_V(p_node, String());
-
-	const String requested_property = p_requested_property.strip_edges();
-	if (!requested_property.is_empty()) {
-		if (requested_property.begins_with("/") || requested_property.contains("..")) {
-			r_error = "Only material property paths relative to the target node are allowed.";
-			return String();
-		}
-		return requested_property;
-	}
-
-	if (Object::cast_to<CanvasItem>(p_node)) {
-		return "material";
-	}
-	if (Object::cast_to<GeometryInstance3D>(p_node)) {
-		return "material_override";
-	}
-
-	r_error = vformat("Node `%s` does not expose a default shader material property. Provide material_property explicitly.", p_node->get_name());
-	return String();
-}
-
-bool AIShaderEditingService::_property_accepts_shader_material(Node *p_node, const String &p_property_path) const {
-	ERR_FAIL_NULL_V(p_node, false);
-
-	List<PropertyInfo> property_list;
-	p_node->get_property_list(&property_list);
-	for (const PropertyInfo &property : property_list) {
-		if (String(property.name) != p_property_path) {
-			continue;
-		}
-		if (property.type != Variant::OBJECT || property.hint != PROPERTY_HINT_RESOURCE_TYPE) {
-			return false;
-		}
-		PackedStringArray hint_types = property.hint_string.split(",");
-		for (int i = 0; i < hint_types.size(); i++) {
-			if (hint_types[i].strip_edges() == "ShaderMaterial") {
-				return true;
-			}
-		}
+bool AIShaderEditingService::_validate_shader_code(const String &p_code, String &r_error) const {
+	const String code = p_code.strip_edges();
+	if (code.is_empty()) {
+		r_error = "Shader code is required.";
 		return false;
 	}
-	return false;
+	if (!code.contains("shader_type")) {
+		r_error = "Shader code must include a shader_type declaration.";
+		return false;
+	}
+	return true;
 }
 
-bool AIShaderEditingService::_save_shader_resource(const String &p_path, const String &p_code, bool p_overwrite, bool &r_existed_before, Ref<Shader> &r_shader, String &r_error) const {
-	r_existed_before = ResourceLoader::exists(p_path);
-	if (r_existed_before && !p_overwrite) {
-		r_error = vformat("Shader `%s` already exists. Set overwrite_shader=true to replace it.", p_path);
+bool AIShaderEditingService::_build_shader_code(const String &p_shader_type, const String &p_shader_code, String &r_code, String &r_error) const {
+	const String code = p_shader_code.strip_edges();
+	if (!code.is_empty()) {
+		r_code = code + "\n";
+		return _validate_shader_code(r_code, r_error);
+	}
+
+	const String shader_type = p_shader_type.strip_edges().is_empty() ? String("canvas_item") : p_shader_type.strip_edges();
+	if (shader_type.contains("\n") || shader_type.contains("\r") || shader_type.contains(";")) {
+		r_error = "Shader type must be a single shader_type value such as canvas_item or spatial.";
+		return false;
+	}
+
+	r_code = "shader_type " + shader_type + ";\n";
+	return _validate_shader_code(r_code, r_error);
+}
+
+bool AIShaderEditingService::_load_shader_resource(const String &p_path, Ref<Shader> &r_shader, String &r_error, bool p_ignore_cache) const {
+	Ref<Resource> resource = ResourceLoader::load(p_path, "Shader", p_ignore_cache ? ResourceFormatLoader::CACHE_MODE_IGNORE : ResourceFormatLoader::CACHE_MODE_REUSE);
+	Ref<Shader> shader = resource;
+	if (shader.is_null()) {
+		r_error = vformat("Failed to load shader `%s`.", p_path);
+		return false;
+	}
+	r_shader = shader;
+	return true;
+}
+
+bool AIShaderEditingService::_save_shader_resource_via_editor(const Ref<Shader> &p_shader, const String &p_path, String &r_error) const {
+	if (p_shader.is_null()) {
+		r_error = "Shader resource is invalid.";
 		return false;
 	}
 	if (!_ensure_parent_directory(p_path, r_error)) {
 		return false;
 	}
 
-	Ref<Shader> shader;
-	shader.instantiate();
-	shader->set_code(p_code.strip_edges() + "\n");
-	shader->set_path(p_path, true);
-
-	Error err = ResourceSaver::save(shader, p_path, ResourceSaver::FLAG_CHANGE_PATH);
-	if (err != OK) {
-		r_error = vformat("Failed to save shader resource `%s` (error %d).", p_path, err);
+	EditorNode *editor = EditorNode::get_singleton();
+	if (!editor) {
+		r_error = "EditorNode is not available.";
 		return false;
 	}
 
-	r_shader = shader;
-	_refresh_file_system(p_path);
+	const String localized_path = ProjectSettings::get_singleton()->localize_path(p_path);
+	p_shader->set_path(localized_path, true);
+	editor->save_resource_in_path(p_shader, localized_path);
+	_refresh_file_system(localized_path);
+	if (FileSystemDock::get_singleton()) {
+		FileSystemDock::get_singleton()->select_file(localized_path);
+	}
+	editor->push_item(p_shader.ptr());
 	return true;
+}
+
+bool AIShaderEditingService::_delete_shader_resource(const String &p_path, String &r_error) const {
+	const String absolute_path = ProjectSettings::get_singleton()->globalize_path(p_path);
+	OS *os = OS::get_singleton();
+	if (!os) {
+		r_error = "OS file service is not available.";
+		return false;
+	}
+
+	Error err = os->move_to_trash(absolute_path);
+	if (err != OK) {
+		r_error = vformat("Failed to delete shader `%s` (error %d).", p_path, err);
+		return false;
+	}
+	if (ResourceCache::has(p_path)) {
+		Ref<Resource> cached_resource = ResourceCache::get_ref(p_path);
+		if (cached_resource.is_valid()) {
+			if (FileSystemDock::get_singleton()) {
+				FileSystemDock::get_singleton()->emit_signal(SNAME("resource_removed"), cached_resource);
+			}
+			cached_resource->set_path("");
+		}
+	}
+	_refresh_file_system(p_path);
+	if (FileSystemDock::get_singleton()) {
+		FileSystemDock::get_singleton()->emit_signal(SNAME("file_removed"), p_path);
+		FileSystemDock::get_singleton()->select_file(p_path.get_base_dir());
+	}
+	return true;
+}
+
+bool AIShaderEditingService::_resource_hint_accepts_type(const String &p_hint_string, const StringName &p_type) const {
+	PackedStringArray hint_types = p_hint_string.split(",");
+	for (int i = 0; i < hint_types.size(); i++) {
+		const String hint_type = hint_types[i].strip_edges();
+		if (hint_type.is_empty()) {
+			continue;
+		}
+		if (hint_type == p_type || ClassDB::is_parent_class(p_type, StringName(hint_type))) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AIShaderEditingService::_get_exact_property_info(Object *p_object, const String &p_property_path, PropertyInfo &r_property_info) const {
+	ERR_FAIL_NULL_V(p_object, false);
+
+	List<PropertyInfo> property_list;
+	p_object->get_property_list(&property_list);
+	for (const PropertyInfo &property : property_list) {
+		if (String(property.name) == p_property_path) {
+			r_property_info = property;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AIShaderEditingService::_resolve_shader_target(Node *p_node, const String &p_target_property, Vector<StringName> &r_property_names,
+		ShaderTargetKind &r_target_kind, Variant &r_old_value, String &r_error) const {
+	ERR_FAIL_NULL_V(p_node, false);
+
+	const String target_property = p_target_property.strip_edges();
+	if (target_property.is_empty()) {
+		r_error = "Target property is required.";
+		return false;
+	}
+	if (target_property.begins_with("/") || target_property.contains("..")) {
+		r_error = "Only target property paths relative to the target node are allowed.";
+		return false;
+	}
+
+	if (!_get_property_names_for_assignment(p_node, target_property, r_property_names)) {
+		r_error = "Target property path is invalid.";
+		return false;
+	}
+
+	bool valid = false;
+	r_old_value = p_node->get_indexed(r_property_names, &valid);
+	if (!valid) {
+		r_error = vformat("Property `%s` was not found on node `%s`.", target_property, p_node->get_name());
+		return false;
+	}
+
+	PropertyInfo property_info;
+	if (_get_exact_property_info(p_node, target_property, property_info)) {
+		if (property_info.type != Variant::OBJECT || property_info.hint != PROPERTY_HINT_RESOURCE_TYPE) {
+			r_error = vformat("Property `%s` on node `%s` is not a resource property.", target_property, p_node->get_name());
+			return false;
+		}
+		if (_resource_hint_accepts_type(property_info.hint_string, Shader::get_class_static())) {
+			r_target_kind = SHADER_TARGET_DIRECT_SHADER;
+			return true;
+		}
+		if (_resource_hint_accepts_type(property_info.hint_string, ShaderMaterial::get_class_static()) ||
+				_resource_hint_accepts_type(property_info.hint_string, Material::get_class_static())) {
+			r_target_kind = SHADER_TARGET_SHADER_MATERIAL;
+			return true;
+		}
+
+		r_error = vformat("Property `%s` on node `%s` does not accept Shader or ShaderMaterial resources.", target_property, p_node->get_name());
+		return false;
+	}
+
+	Object *old_object = Object::cast_to<Object>(r_old_value);
+	if (Object::cast_to<Shader>(old_object)) {
+		r_target_kind = SHADER_TARGET_DIRECT_SHADER;
+		return true;
+	}
+	if (Object::cast_to<ShaderMaterial>(old_object) || Object::cast_to<Material>(old_object)) {
+		r_target_kind = SHADER_TARGET_SHADER_MATERIAL;
+		return true;
+	}
+
+	r_error = vformat("Cannot infer whether property `%s` on node `%s` accepts Shader or ShaderMaterial. Use a concrete resource property such as "
+					   "shader, shader_override, material, material_override, or surface_material_override/0.",
+			target_property, p_node->get_name());
+	return false;
 }
 
 bool AIShaderEditingService::_save_current_scene_main_thread(Node *p_scene, String &r_saved_path, String &r_error) const {
@@ -321,30 +435,7 @@ bool AIShaderEditingService::_save_current_scene_main_thread(Node *p_scene, Stri
 		return false;
 	}
 
-	Ref<PackedScene> packed_scene;
-	packed_scene.instantiate();
-	Error err = packed_scene->pack(p_scene);
-	if (err != OK) {
-		r_error = vformat("Failed to pack scene before saving (error %d).", err);
-		return false;
-	}
-
-	uint32_t flags = ResourceSaver::FLAG_REPLACE_SUBRESOURCE_PATHS;
-	err = ResourceSaver::save(packed_scene, scene_path, flags);
-	if (err != OK) {
-		r_error = vformat("Failed to save scene `%s` (error %d).", scene_path, err);
-		return false;
-	}
-
-	int scene_index = EditorNode::get_editor_data().get_edited_scene();
-	if (scene_index >= 0) {
-		EditorNode::get_editor_data().notify_scene_saved(scene_path);
-		EditorNode::get_editor_data().set_scene_as_saved(scene_index);
-	}
-	editor->emit_signal(SNAME("scene_saved"), scene_path);
-	if (EditorSceneTabs::get_singleton()) {
-		EditorSceneTabs::get_singleton()->update_scene_tabs();
-	}
+	editor->save_scene_if_open(scene_path);
 	_refresh_file_system(scene_path);
 	r_saved_path = scene_path;
 	return true;
@@ -370,7 +461,7 @@ void AIShaderEditingService::_update_scene_tree() const {
 	}
 }
 
-AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const String &p_node_path, const String &p_shader_path, const String &p_shader_code, const String &p_material_property, const Dictionary &p_shader_parameters, bool p_overwrite_shader) {
+AIShaderEditingResult AIShaderEditingService::_create_shader_main_thread(const String &p_shader_path, const String &p_shader_type, const String &p_shader_code, bool p_overwrite) {
 	AIShaderEditingResult result;
 	String error;
 
@@ -379,13 +470,136 @@ AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const S
 		result.error = error;
 		return result;
 	}
-	const String shader_code = p_shader_code.strip_edges();
-	if (shader_code.is_empty()) {
-		result.error = "Shader code is required.";
+
+	const bool existed_before = ResourceLoader::exists(shader_path);
+	if (existed_before && !p_overwrite) {
+		result.error = vformat("Shader `%s` already exists. Set overwrite=true to replace it.", shader_path);
 		return result;
 	}
-	if (!shader_code.contains("shader_type")) {
-		result.error = "Shader code must include a shader_type declaration.";
+
+	String shader_code;
+	if (!_build_shader_code(p_shader_type, p_shader_code, shader_code, error)) {
+		result.error = error;
+		return result;
+	}
+
+	String old_shader_code;
+	Ref<Shader> shader;
+	if (existed_before) {
+		if (!_load_shader_resource(shader_path, shader, error, true)) {
+			result.error = error;
+			return result;
+		}
+		old_shader_code = shader->get_code();
+	} else {
+		shader.instantiate();
+	}
+	shader->set_code(shader_code);
+
+	if (!_save_shader_resource_via_editor(shader, shader_path, error)) {
+		result.error = error;
+		return result;
+	}
+
+	result.success = true;
+	result.message = vformat("%s shader `%s`.", existed_before ? "Overwrote" : "Created", shader_path);
+	result.metadata["shader_path"] = shader_path;
+	result.metadata["created"] = !existed_before;
+	result.metadata["overwritten"] = existed_before;
+	result.metadata["shader_code_chars"] = shader_code.length();
+	_register_shader_review_change(result.message, shader_path, existed_before ? String("modify") : String("create"), old_shader_code, shader_code, result.metadata);
+	return result;
+}
+
+AIShaderEditingResult AIShaderEditingService::_edit_shader_main_thread(const String &p_shader_path, const String &p_shader_code) {
+	AIShaderEditingResult result;
+	String error;
+
+	String shader_path;
+	if (!_normalize_shader_path(p_shader_path, shader_path, error)) {
+		result.error = error;
+		return result;
+	}
+	if (!ResourceLoader::exists(shader_path)) {
+		result.error = vformat("Shader `%s` does not exist.", shader_path);
+		return result;
+	}
+	const String shader_code = p_shader_code.strip_edges() + "\n";
+	if (!_validate_shader_code(shader_code, error)) {
+		result.error = error;
+		return result;
+	}
+
+	Ref<Shader> shader;
+	if (!_load_shader_resource(shader_path, shader, error, true)) {
+		result.error = error;
+		return result;
+	}
+	const String old_shader_code = shader->get_code();
+	shader->set_code(shader_code);
+
+	if (!_save_shader_resource_via_editor(shader, shader_path, error)) {
+		result.error = error;
+		return result;
+	}
+
+	result.success = true;
+	result.message = vformat("Edited shader `%s`.", shader_path);
+	result.metadata["shader_path"] = shader_path;
+	result.metadata["shader_code_chars"] = shader_code.length();
+	_register_shader_review_change(result.message, shader_path, "modify", old_shader_code, shader_code, result.metadata);
+	return result;
+}
+
+AIShaderEditingResult AIShaderEditingService::_delete_shader_main_thread(const String &p_shader_path) {
+	AIShaderEditingResult result;
+	String error;
+
+	String shader_path;
+	if (!_normalize_shader_path(p_shader_path, shader_path, error)) {
+		result.error = error;
+		return result;
+	}
+	if (!ResourceLoader::exists(shader_path)) {
+		result.error = vformat("Shader `%s` does not exist.", shader_path);
+		return result;
+	}
+
+	String old_shader_code;
+	Ref<Shader> shader;
+	if (_load_shader_resource(shader_path, shader, error, true)) {
+		old_shader_code = shader->get_code();
+	} else {
+		result.error = error;
+		return result;
+	}
+
+	if (!_delete_shader_resource(shader_path, error)) {
+		result.error = error;
+		return result;
+	}
+
+	result.success = true;
+	result.message = vformat("Deleted shader `%s`.", shader_path);
+	result.metadata["shader_path"] = shader_path;
+	result.metadata["deleted"] = true;
+	_register_shader_review_change(result.message, shader_path, "delete", old_shader_code, String(), result.metadata);
+	return result;
+}
+
+AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const String &p_node_path, const String &p_shader_path,
+		const String &p_target_property, const Dictionary &p_shader_parameters) {
+	AIShaderEditingResult result;
+	String error;
+
+	String shader_path;
+	if (!_normalize_shader_path(p_shader_path, shader_path, error)) {
+		result.error = error;
+		return result;
+	}
+	Ref<Shader> shader;
+	if (!_load_shader_resource(shader_path, shader, error)) {
+		result.error = error;
 		return result;
 	}
 
@@ -400,27 +614,15 @@ AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const S
 		return result;
 	}
 
-	const String material_property = _resolve_material_property(node, p_material_property, error);
-	if (material_property.is_empty()) {
+	Vector<StringName> property_names;
+	ShaderTargetKind target_kind = SHADER_TARGET_SHADER_MATERIAL;
+	Variant old_value;
+	if (!_resolve_shader_target(node, p_target_property, property_names, target_kind, old_value, error)) {
 		result.error = error;
 		return result;
 	}
-	if (!_property_accepts_shader_material(node, material_property)) {
-		result.error = vformat("Property `%s` on node `%s` does not accept ShaderMaterial.", material_property, p_node_path);
-		return result;
-	}
-
-	Vector<StringName> property_names;
-	if (!_get_property_names_for_assignment(node, material_property, property_names)) {
-		result.error = "Material property path is invalid.";
-		return result;
-	}
-	NodePath property_path(Vector<StringName>(), property_names, false);
-
-	bool valid = false;
-	Variant old_value = node->get_indexed(property_names, &valid);
-	if (!valid) {
-		result.error = vformat("Property `%s` was not found on node `%s`.", material_property, p_node_path);
+	if (target_kind == SHADER_TARGET_DIRECT_SHADER && !p_shader_parameters.is_empty()) {
+		result.error = "shader_parameters can only be used when target_property accepts a ShaderMaterial or Material.";
 		return result;
 	}
 
@@ -434,31 +636,32 @@ AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const S
 		return result;
 	}
 
-	bool existed_before = false;
-	String old_shader_code;
-	if (ResourceLoader::exists(shader_path) && !_read_shader_text(shader_path, old_shader_code, error)) {
-		result.error = error;
-		return result;
-	}
-	Ref<Shader> shader;
-	if (!_save_shader_resource(shader_path, shader_code, p_overwrite_shader, existed_before, shader, error)) {
-		result.error = error;
-		return result;
-	}
-
-	Ref<ShaderMaterial> material;
-	material.instantiate();
-	material->set_shader(shader);
-	for (const KeyValue<Variant, Variant> &E : p_shader_parameters) {
-		const String parameter_name = String(E.key).strip_edges();
-		if (parameter_name.is_empty()) {
-			continue;
+	NodePath property_path(Vector<StringName>(), property_names, false);
+	Variant new_value = shader;
+	if (target_kind == SHADER_TARGET_SHADER_MATERIAL) {
+		Ref<ShaderMaterial> material = old_value;
+		if (material.is_null()) {
+			material.instantiate();
+		} else {
+			Ref<Resource> duplicated = material->duplicate();
+			material = duplicated;
+			if (material.is_null()) {
+				material.instantiate();
+			}
 		}
-		material->set_shader_parameter(StringName(parameter_name), E.value);
+		material->set_shader(shader);
+		for (const KeyValue<Variant, Variant> &E : p_shader_parameters) {
+			const String parameter_name = String(E.key).strip_edges();
+			if (parameter_name.is_empty()) {
+				continue;
+			}
+			material->set_shader_parameter(StringName(parameter_name), E.value);
+		}
+		new_value = material;
 	}
 
-	undo_redo->create_action_for_history(TTR("AI Apply Shader Material"), EditorNode::get_editor_data().get_current_edited_scene_history_id(), UndoRedo::MERGE_DISABLE, false, true);
-	undo_redo->add_do_method(node, "set_indexed", property_path, material);
+	undo_redo->create_action_for_history(TTR("AI Apply Shader"), EditorNode::get_editor_data().get_current_edited_scene_history_id(), UndoRedo::MERGE_DISABLE, false, true);
+	undo_redo->add_do_method(node, "set_indexed", property_path, new_value);
 	undo_redo->add_undo_method(node, "set_indexed", property_path, old_value);
 	undo_redo->add_do_method(this, "_update_scene_tree");
 	undo_redo->add_undo_method(this, "_update_scene_tree");
@@ -473,32 +676,54 @@ AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const S
 		result.metadata["saved"] = false;
 		result.metadata["node_path"] = p_node_path;
 		result.metadata["shader_path"] = shader_path;
-		result.metadata["material_property"] = material_property;
+		result.metadata["target_property"] = p_target_property;
 		return result;
 	}
 
 	result.success = true;
-	result.message = vformat("Applied ShaderMaterial using `%s` to `%s:%s` and saved `%s`.", shader_path, p_node_path, material_property, saved_path);
+	result.message = vformat("Applied shader `%s` to `%s:%s` and saved `%s`.", shader_path, p_node_path, p_target_property, saved_path);
 	result.metadata["node_path"] = p_node_path;
 	result.metadata["shader_path"] = shader_path;
-	result.metadata["shader_created"] = !existed_before;
-	result.metadata["shader_overwritten"] = existed_before;
-	result.metadata["material_property"] = material_property;
+	result.metadata["target_property"] = p_target_property;
+	result.metadata["target_kind"] = target_kind == SHADER_TARGET_DIRECT_SHADER ? "shader" : "shader_material";
 	result.metadata["shader_parameter_count"] = p_shader_parameters.size();
 	result.metadata["scene_path"] = saved_path;
 	result.metadata["saved"] = true;
-	_register_shader_review_change(result.message, shader_path, existed_before ? String("modify") : String("create"), old_shader_code, shader_code.strip_edges() + "\n", result.metadata);
 	return result;
 }
 
-AIShaderEditingResult AIShaderEditingService::apply_to_node(const String &p_node_path, const String &p_shader_path, const String &p_shader_code, const String &p_material_property, const Dictionary &p_shader_parameters, bool p_overwrite_shader) {
+AIShaderEditingResult AIShaderEditingService::create_shader(const String &p_shader_path, const String &p_shader_type, const String &p_shader_code, bool p_overwrite) {
+	MainThreadRequest request;
+	request.operation = MainThreadRequest::OP_CREATE_SHADER;
+	request.shader_path = p_shader_path;
+	request.shader_type = p_shader_type;
+	request.shader_code = p_shader_code;
+	request.overwrite = p_overwrite;
+	return _dispatch_to_main_thread(request);
+}
+
+AIShaderEditingResult AIShaderEditingService::edit_shader(const String &p_shader_path, const String &p_shader_code) {
+	MainThreadRequest request;
+	request.operation = MainThreadRequest::OP_EDIT_SHADER;
+	request.shader_path = p_shader_path;
+	request.shader_code = p_shader_code;
+	return _dispatch_to_main_thread(request);
+}
+
+AIShaderEditingResult AIShaderEditingService::delete_shader(const String &p_shader_path) {
+	MainThreadRequest request;
+	request.operation = MainThreadRequest::OP_DELETE_SHADER;
+	request.shader_path = p_shader_path;
+	return _dispatch_to_main_thread(request);
+}
+
+AIShaderEditingResult AIShaderEditingService::apply_to_node(const String &p_node_path, const String &p_shader_path, const String &p_target_property,
+		const Dictionary &p_shader_parameters) {
 	MainThreadRequest request;
 	request.operation = MainThreadRequest::OP_APPLY_TO_NODE;
 	request.node_path = p_node_path;
 	request.shader_path = p_shader_path;
-	request.shader_code = p_shader_code;
-	request.material_property = p_material_property;
+	request.target_property = p_target_property;
 	request.shader_parameters = p_shader_parameters;
-	request.overwrite_shader = p_overwrite_shader;
 	return _dispatch_to_main_thread(request);
 }

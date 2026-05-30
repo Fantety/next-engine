@@ -430,6 +430,9 @@ TEST_CASE("[Editor][AI] Main agent owns the current editor tool set") {
 	REQUIRE(registry.is_valid());
 	CHECK(registry->has_tool("project.read_file"));
 	CHECK(registry->has_tool("script.write"));
+	CHECK(registry->has_tool("shader.create"));
+	CHECK(registry->has_tool("shader.edit"));
+	CHECK(registry->has_tool("shader.delete"));
 	CHECK(registry->has_tool("shader.apply_to_node"));
 	CHECK(registry->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
@@ -1102,6 +1105,9 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	CHECK(session->get_agent_runtime_runner()->get_runtime() == session->get_agent_runtime());
 	CHECK(session->is_tool_runtime_available());
 	CHECK(session->get_tool_registry()->has_tool("agent.activate_skill"));
+	CHECK(session->get_tool_registry()->has_tool("shader.create"));
+	CHECK(session->get_tool_registry()->has_tool("shader.edit"));
+	CHECK(session->get_tool_registry()->has_tool("shader.delete"));
 	CHECK(session->get_tool_registry()->has_tool("shader.apply_to_node"));
 	CHECK(session->get_tool_registry()->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(session->get_tool_registry()->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);

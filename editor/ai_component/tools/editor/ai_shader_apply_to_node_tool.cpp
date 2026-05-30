@@ -15,7 +15,7 @@ String AIShaderApplyToNodeTool::get_name() const {
 }
 
 String AIShaderApplyToNodeTool::get_description() const {
-	return "Creates or updates a .gdshader, wraps it in a ShaderMaterial, applies it to a node material property, and saves the current scene.";
+	return "Applies an existing .gdshader to an explicitly specified Shader or ShaderMaterial node property and saves the current scene.";
 }
 
 Dictionary AIShaderApplyToNodeTool::get_parameters_schema() const {
@@ -33,20 +33,11 @@ Dictionary AIShaderApplyToNodeTool::get_parameters_schema() const {
 	shader_path_property["description"] = "Project path for the .gdshader file, for example res://shaders/player_flash.gdshader.";
 	properties["shader_path"] = shader_path_property;
 
-	Dictionary shader_code_property;
-	shader_code_property["type"] = "string";
-	shader_code_property["description"] = "Complete Godot shader source. Include the shader_type line, for example shader_type canvas_item; or shader_type spatial;.";
-	properties["shader_code"] = shader_code_property;
-
-	Dictionary material_property_property;
-	material_property_property["type"] = "string";
-	material_property_property["description"] = "Optional material property path. Leave empty to auto-select material for CanvasItem nodes or material_override for GeometryInstance3D nodes.";
-	properties["material_property"] = material_property_property;
-
-	Dictionary overwrite_property;
-	overwrite_property["type"] = "boolean";
-	overwrite_property["description"] = "Set true to overwrite an existing shader file. Defaults to false.";
-	properties["overwrite_shader"] = overwrite_property;
+	Dictionary target_property_property;
+	target_property_property["type"] = "string";
+	target_property_property["description"] = "Required target property path on the node, for example material, material_override, shader, "
+											 "shader_override, or surface_material_override/0.";
+	properties["target_property"] = target_property_property;
 
 	Dictionary parameters_property;
 	parameters_property["type"] = "object";
@@ -56,7 +47,7 @@ Dictionary AIShaderApplyToNodeTool::get_parameters_schema() const {
 	Array required;
 	required.push_back("node_path");
 	required.push_back("shader_path");
-	required.push_back("shader_code");
+	required.push_back("target_property");
 	schema["required"] = required;
 	schema["properties"] = properties;
 	return schema;
@@ -66,11 +57,9 @@ AIToolResult AIShaderApplyToNodeTool::execute(const Dictionary &p_arguments) {
 	AIToolResult result;
 	const String node_path = String(p_arguments.get("node_path", "")).strip_edges();
 	const String shader_path = String(p_arguments.get("shader_path", "")).strip_edges();
-	const String shader_code = String(p_arguments.get("shader_code", "")).strip_edges();
-	const String material_property = String(p_arguments.get("material_property", "")).strip_edges();
-	const bool overwrite_shader = bool(p_arguments.get("overwrite_shader", false));
+	const String target_property = String(p_arguments.get("target_property", "")).strip_edges();
 	Dictionary shader_parameters;
-	print_line(vformat("[AI Agent][Tool:shader.apply_to_node] Start. node_path=%s shader_path=%s material_property=%s overwrite=%s", node_path, shader_path, material_property, overwrite_shader ? "yes" : "no"));
+	print_line(vformat("[AI Agent][Tool:shader.apply_to_node] Start. node_path=%s shader_path=%s target_property=%s", node_path, shader_path, target_property));
 
 	if (node_path.is_empty()) {
 		result.error = "Missing required node_path.";
@@ -82,9 +71,9 @@ AIToolResult AIShaderApplyToNodeTool::execute(const Dictionary &p_arguments) {
 		print_line("[AI Agent][Tool:shader.apply_to_node] Failed: missing required shader_path.");
 		return result;
 	}
-	if (shader_code.is_empty()) {
-		result.error = "Missing required shader_code.";
-		print_line("[AI Agent][Tool:shader.apply_to_node] Failed: missing required shader_code.");
+	if (target_property.is_empty()) {
+		result.error = "Missing required target_property.";
+		print_line("[AI Agent][Tool:shader.apply_to_node] Failed: missing required target_property.");
 		return result;
 	}
 	if (p_arguments.has("shader_parameters")) {
@@ -96,7 +85,7 @@ AIToolResult AIShaderApplyToNodeTool::execute(const Dictionary &p_arguments) {
 		shader_parameters = p_arguments["shader_parameters"];
 	}
 
-	AIShaderEditingResult edit_result = service->apply_to_node(node_path, shader_path, shader_code, material_property, shader_parameters, overwrite_shader);
+	AIShaderEditingResult edit_result = service->apply_to_node(node_path, shader_path, target_property, shader_parameters);
 	if (!edit_result.success) {
 		result.error = edit_result.error.is_empty() ? String("Failed to apply shader to node.") : edit_result.error;
 		result.metadata = edit_result.metadata;

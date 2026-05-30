@@ -25,6 +25,9 @@
 #include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_write_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_apply_to_node_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_create_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_delete_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
@@ -81,7 +84,7 @@ AIMainAgent::AIMainAgent() {
 void AIMainAgent::_register_local_tools() {
 	const bool write_capable = _is_write_capable_profile(get_profile().id);
 	const AIToolPermission write_permission = _allow_when(write_capable);
-	const AIToolPermission delete_script_permission = write_capable ? AI_TOOL_PERMISSION_ASK : AI_TOOL_PERMISSION_DENY;
+	const AIToolPermission destructive_permission = write_capable ? AI_TOOL_PERMISSION_ASK : AI_TOOL_PERMISSION_DENY;
 
 	const MainAgentToolFactory read_tools[] = {
 		{ _create_main_agent_tool<AIListProjectTool> },
@@ -108,15 +111,18 @@ void AIMainAgent::_register_local_tools() {
 		{ _create_main_agent_tool<AIScriptPatchFunctionTool> },
 		{ _create_main_agent_tool<AIScriptBindToNodeTool> },
 		{ _create_main_agent_tool<AIScriptUnbindFromNodeTool> },
+		{ _create_main_agent_tool<AIShaderCreateTool> },
+		{ _create_main_agent_tool<AIShaderEditTool> },
 		{ _create_main_agent_tool<AIShaderApplyToNodeTool> },
 	};
 	const MainAgentToolFactory explicit_approval_tools[] = {
 		{ _create_main_agent_tool<AIScriptDeleteTool> },
+		{ _create_main_agent_tool<AIShaderDeleteTool> },
 	};
 
 	_register_main_agent_tool_group(this, read_tools, AI_TOOL_PERMISSION_ALLOW);
 	_register_main_agent_tool_group(this, write_tools, write_permission);
-	_register_main_agent_tool_group(this, explicit_approval_tools, delete_script_permission);
+	_register_main_agent_tool_group(this, explicit_approval_tools, destructive_permission);
 }
 
 void AIMainAgent::_register_mcp_tools() {
