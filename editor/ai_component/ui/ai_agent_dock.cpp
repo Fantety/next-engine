@@ -14,6 +14,7 @@
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/skills/ai_skill_settings.h"
+#include "editor/ai_component/ui/ai_agent_next_dock.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/settings/editor_command_palette.h"
@@ -91,6 +92,8 @@ void _setup_status_item_list(ItemList *p_list) {
 } // namespace
 
 void AIAgentDock::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_next_mode_enabled", "enabled"), &AIAgentDock::set_next_mode_enabled);
+	ClassDB::bind_method(D_METHOD("is_next_mode_enabled"), &AIAgentDock::is_next_mode_enabled);
 }
 
 void AIAgentDock::_notification(int p_what) {
@@ -123,15 +126,15 @@ AIAgentDock::AIAgentDock() {
 	set_dock_shortcut(ED_SHORTCUT_AND_COMMAND("docks/open_ai_agent", TTRC("Open AI Agent Dock")));
 	set_default_slot(EditorDock::DOCK_SLOT_RIGHT_UL);
 
-	VBoxContainer *root = memnew(VBoxContainer);
-	root->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	root->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	root->add_theme_constant_override("separation", 8 * EDSCALE);
-	add_child(root);
+	chat_root = memnew(VBoxContainer);
+	chat_root->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	chat_root->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	chat_root->add_theme_constant_override("separation", 8 * EDSCALE);
+	add_child(chat_root);
 
 	HBoxContainer *session_bar = memnew(HBoxContainer);
 	session_bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	root->add_child(session_bar);
+	chat_root->add_child(session_bar);
 
 	session_selector = memnew(OptionButton);
 	session_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -212,7 +215,7 @@ AIAgentDock::AIAgentDock() {
 	main->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	main->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	main->add_theme_constant_override("separation", 8 * EDSCALE);
-	root->add_child(main);
+	chat_root->add_child(main);
 
 	change_review_panel = memnew(AIChangeReviewPanel);
 	main->add_child(change_review_panel);
@@ -299,10 +302,33 @@ void fragment() {
 	_refresh_session_list();
 	_refresh_mcp_status_button();
 	_refresh_skill_status_button();
+
+	next_dock = memnew(AIAgentNextDock);
+	next_dock->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	next_dock->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	next_dock->hide();
+	add_child(next_dock);
 }
 
 AIAgentDock *AIAgentDock::get_singleton() {
 	return singleton;
+}
+
+void AIAgentDock::set_next_mode_enabled(bool p_enabled) {
+	next_mode_enabled = p_enabled;
+	if (chat_root) {
+		chat_root->set_visible(!p_enabled);
+	}
+	if (next_dock) {
+		next_dock->set_visible(p_enabled);
+	}
+	if (p_enabled) {
+		make_visible();
+	}
+}
+
+bool AIAgentDock::is_next_mode_enabled() const {
+	return next_mode_enabled;
 }
 
 void AIAgentDock::_send_requested(const String &p_message, const String &p_model, const String &p_agent_profile_id) {

@@ -14,8 +14,10 @@
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
 
+class AIAgentNextDock;
 class ConfirmationDialog;
 class HBoxContainer;
+class VBoxContainer;
 class ColorRect;
 class ItemList;
 class PopupPanel;
@@ -41,9 +43,12 @@ class AIAgentDock : public EditorDock {
 	Label *token_usage_label = nullptr;
 	AIComposer *composer = nullptr;
 	AIAgentSession *session = nullptr;
+	VBoxContainer *chat_root = nullptr;
+	AIAgentNextDock *next_dock = nullptr;
 	String pending_delete_session_id;
 	Dictionary pending_tool_approval;
 	bool mcp_failure_toast_visible = false;
+	bool next_mode_enabled = false;
 
 	static inline AIAgentDock *singleton = nullptr;
 
@@ -87,4 +92,6 @@ protected:
 public:
 	AIAgentDock();
 	static AIAgentDock *get_singleton();
+	void set_next_mode_enabled(bool p_enabled);
+	bool is_next_mode_enabled() const;
 };
