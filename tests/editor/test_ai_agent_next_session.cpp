@@ -128,4 +128,61 @@ TEST_CASE("[Editor][AI][NEXT] session runs ready milestone tasks serially") {
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] session turns feedback into NEXT tasks") {
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+	state->mark_task_completed(task_id, "Created player_controller.gd", Array());
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse tool_response;
+	AIToolCall call;
+	call.id = "call_append_tasks";
+	call.tool_name = "ai_next.manage_project";
+	call.arguments["action"] = "append_tasks";
+	call.arguments["milestone_id"] = milestone_id;
+
+	Dictionary repair_task;
+	repair_task["id"] = "task_fix_jump";
+	repair_task["title"] = "Tune jump landing feedback";
+	repair_task["assigned_agent_id"] = "script_agent";
+	Array repair_tasks;
+	repair_tasks.push_back(repair_task);
+	call.arguments["tasks"] = repair_tasks;
+	tool_response.tool_calls.push_back(call);
+	client->push_response(tool_response);
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Feedback tasks generated.";
+	client->push_response(final_response);
+	session->get_agent_for_test("planning_agent")->set_runtime_client(client);
+
+	session->generate_feedback_tasks("Jump is too floaty.");
+
+	CHECK(state->get_task_count(milestone_id) == 2);
+	CHECK(state->get_session_state() == AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
+	CHECK(client->request_count == 2);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] session locks completed active milestone") {
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+	state->mark_task_completed(task_id, "Created player_controller.gd", Array());
+
+	session->accept_and_lock_active_milestone();
+
+	Dictionary milestone = state->get_milestone(milestone_id);
+	CHECK(String(milestone["status"]) == "locked");
+	CHECK(state->get_session_state() == AI_NEXT_SESSION_READY_TO_LOCK);
+
+	memdelete(session);
+}
+
 } // namespace TestAIAgentNextSession

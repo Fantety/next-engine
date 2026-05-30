@@ -364,6 +364,45 @@ void AIAgentNextSession::generate_feedback_tasks(const String &p_feedback) {
 	event_log->record_event("feedback_submitted", project_state->get_active_milestone_id(), String(), "user", "NEXT playtest feedback submitted.", feedback_metadata);
 	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
 	emit_signal(SNAME("project_state_changed"));
+
+	const String milestone_id = project_state->get_active_milestone_id();
+	const String feedback = p_feedback.strip_edges();
+	if (milestone_id.is_empty() || feedback.is_empty()) {
+		project_state->set_session_state(AI_NEXT_SESSION_FAILED);
+		event_log->record_event("feedback_planning_failed", milestone_id, String(), "planning_agent", "NEXT feedback or active milestone is empty.");
+		emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+		emit_signal(SNAME("project_state_changed"));
+		return;
+	}
+
+	const int previous_task_count = project_state->get_task_count(milestone_id);
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = vformat("Turn this playtest feedback into additional NEXT tasks for milestone `%s` by calling ai_next.manage_project with append_tasks:\n\n%s", milestone_id, feedback);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(user_message);
+	AIAgentRuntimeResult result = planning_agent->run(messages);
+	if (!result.success) {
+		project_state->set_session_state(AI_NEXT_SESSION_FAILED);
+		event_log->record_event("feedback_planning_failed", milestone_id, String(), "planning_agent", result.error);
+		emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+		emit_signal(SNAME("project_state_changed"));
+		return;
+	}
+
+	if (project_state->get_task_count(milestone_id) <= previous_task_count) {
+		project_state->set_session_state(AI_NEXT_SESSION_FAILED);
+		event_log->record_event("feedback_planning_failed", milestone_id, String(), "planning_agent", "Feedback planning completed without appending tasks.");
+		emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+		emit_signal(SNAME("project_state_changed"));
+		return;
+	}
+
+	project_state->set_session_state(AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
+	event_log->record_event("feedback_tasks_generated", milestone_id, String(), "planning_agent", "NEXT feedback tasks generated.");
+	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
+	emit_signal(SNAME("project_state_changed"));
 }
 
 void AIAgentNextSession::accept_and_lock_active_milestone() {
