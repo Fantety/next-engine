@@ -13,16 +13,77 @@
 #include "editor/ai_component/ui/ai_next_task_tree.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
+#include "scene/gui/color_rect.h"
 #include "scene/gui/label.h"
+#include "scene/gui/option_button.h"
 #include "scene/gui/separator.h"
 #include "scene/gui/text_edit.h"
+#include "scene/gui/texture_rect.h"
+#include "scene/resources/material.h"
+#include "scene/resources/shader.h"
 #include "servers/text/text_server.h"
+
+namespace {
+
+void _setup_icon_button(Button *p_button, const String &p_tooltip) {
+	ERR_FAIL_NULL(p_button);
+	p_button->set_text(String());
+	p_button->set_tooltip_text(p_tooltip);
+	p_button->set_accessibility_name(p_tooltip.trim_suffix("."));
+	p_button->set_custom_minimum_size(Size2(28, 0) * EDSCALE);
+}
+
+Ref<ShaderMaterial> _make_operation_progress_material() {
+	Ref<Shader> progress_shader;
+	progress_shader.instantiate();
+	progress_shader->set_code(R"(
+shader_type canvas_item;
+render_mode unshaded;
+
+uniform vec4 color_a : source_color = vec4(0.09, 0.68, 1.0, 1.0);
+uniform vec4 color_b : source_color = vec4(0.53, 0.36, 1.0, 1.0);
+uniform vec4 color_c : source_color = vec4(1.0, 0.33, 0.67, 1.0);
+uniform vec4 color_d : source_color = vec4(0.18, 0.92, 0.78, 1.0);
+uniform float speed = 0.95;
+
+vec3 palette(float t) {
+	vec3 a = color_a.rgb;
+	vec3 b = color_b.rgb;
+	vec3 c = color_c.rgb;
+	vec3 d = color_d.rgb;
+	return a + b * cos(TAU * (c * t + d));
+}
+
+void fragment() {
+	float phase = TIME * speed;
+	float wave = UV.x * 2.4 - phase;
+	vec3 color = palette(wave);
+	color += 0.08 * palette(wave + 0.17);
+	color += 0.05 * palette(wave + 0.41);
+	float edge = smoothstep(0.0, 0.08, min(UV.y, 1.0 - UV.y));
+	COLOR = vec4(clamp(color, 0.0, 1.0), edge);
+}
+)");
+
+	Ref<ShaderMaterial> progress_material;
+	progress_material.instantiate();
+	progress_material->set_shader(progress_shader);
+	return progress_material;
+}
+
+} // namespace
 
 void AINextPanel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("refresh"), &AINextPanel::refresh);
 }
 
 void AINextPanel::_notification(int p_what) {
+	if (p_what == NOTIFICATION_POSTINITIALIZE || p_what == NOTIFICATION_THEME_CHANGED) {
+		_refresh_theme_icons();
+		_update_operation_label();
+		return;
+	}
+
 	if (p_what != NOTIFICATION_PROCESS || !next_session || !next_session->is_workflow_active()) {
 		return;
 	}
@@ -33,6 +94,9 @@ void AINextPanel::_notification(int p_what) {
 	}
 	spinner_elapsed = 0.0;
 	spinner_frame++;
+	if (operation_progress) {
+		operation_progress->queue_redraw();
+	}
 	_update_operation_label();
 }
 
@@ -56,10 +120,64 @@ AINextPanel::AINextPanel() {
 	state_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
 	header->add_child(state_label);
 
+	HBoxContainer *workflow_bar = memnew(HBoxContainer);
+	workflow_bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	workflow_bar->add_theme_constant_override("separation", 4 * EDSCALE);
+	add_child(workflow_bar);
+
+	workflow_selector = memnew(OptionButton);
+	workflow_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	workflow_selector->set_custom_minimum_size(Size2(96, 0) * EDSCALE);
+	workflow_selector->set_fit_to_longest_item(false);
+	workflow_selector->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	workflow_selector->connect(SceneStringName(item_selected), callable_mp(this, &AINextPanel::_workflow_selected));
+	workflow_bar->add_child(workflow_selector);
+
+	new_workflow_button = memnew(Button);
+	_setup_icon_button(new_workflow_button, TTR("Start a new NEXT workflow."));
+	new_workflow_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_new_workflow_pressed));
+	workflow_bar->add_child(new_workflow_button);
+
+	delete_workflow_button = memnew(Button);
+	_setup_icon_button(delete_workflow_button, TTR("Delete the selected NEXT workflow."));
+	delete_workflow_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_delete_workflow_pressed));
+	workflow_bar->add_child(delete_workflow_button);
+
+	continue_workflow_button = memnew(Button);
+	_setup_icon_button(continue_workflow_button, TTR("Continue the interrupted NEXT workflow."));
+	continue_workflow_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_continue_workflow_pressed));
+	workflow_bar->add_child(continue_workflow_button);
+
+	terminate_workflow_button = memnew(Button);
+	_setup_icon_button(terminate_workflow_button, TTR("Stop the active NEXT workflow."));
+	terminate_workflow_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_terminate_workflow_pressed));
+	workflow_bar->add_child(terminate_workflow_button);
+
+	HBoxContainer *operation_row = memnew(HBoxContainer);
+	operation_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	operation_row->add_theme_constant_override("separation", 5 * EDSCALE);
+	add_child(operation_row);
+
+	operation_icon = memnew(TextureRect);
+	operation_icon->set_custom_minimum_size(Size2(16, 16) * EDSCALE);
+	operation_icon->set_stretch_mode(TextureRect::STRETCH_KEEP_CENTERED);
+	operation_icon->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+	operation_row->add_child(operation_icon);
+
 	operation_label = memnew(Label);
 	operation_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
 	operation_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	add_child(operation_label);
+	operation_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	operation_row->add_child(operation_label);
+
+	operation_progress = memnew(ColorRect);
+	operation_progress->set_color(Color(1, 1, 1, 1));
+	operation_progress->set_material(_make_operation_progress_material());
+	operation_progress->set_custom_minimum_size(Size2(0, 4) * EDSCALE);
+	operation_progress->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	operation_progress->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+	operation_progress->hide();
+	add_child(operation_progress);
 
 	Label *steps = memnew(Label);
 	steps->set_text(TTR("Brief > Plan > Execute > Test > Lock"));
@@ -85,12 +203,12 @@ AINextPanel::AINextPanel() {
 	add_child(brief_actions);
 
 	submit_button = memnew(Button);
-	submit_button->set_text(TTR("Submit Brief"));
+	_setup_icon_button(submit_button, TTR("Submit the NEXT brief."));
 	submit_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_submit_brief_pressed));
 	brief_actions->add_child(submit_button);
 
 	plan_button = memnew(Button);
-	plan_button->set_text(TTR("Generate Milestones"));
+	_setup_icon_button(plan_button, TTR("Generate NEXT milestones."));
 	plan_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_generate_plan_pressed));
 	brief_actions->add_child(plan_button);
 
@@ -115,12 +233,12 @@ AINextPanel::AINextPanel() {
 	add_child(run_actions);
 
 	run_button = memnew(Button);
-	run_button->set_text(TTR("Run Milestone"));
+	_setup_icon_button(run_button, TTR("Run the active milestone."));
 	run_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_run_milestone_pressed));
 	run_actions->add_child(run_button);
 
 	review_button = memnew(Button);
-	review_button->set_text(TTR("Review Milestone"));
+	_setup_icon_button(review_button, TTR("Review the active milestone."));
 	review_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_review_milestone_pressed));
 	run_actions->add_child(review_button);
 
@@ -151,6 +269,7 @@ void AINextPanel::set_next_session(AIAgentNextSession *p_session) {
 	}
 	next_session = p_session;
 	if (next_session) {
+		next_session->connect("workflow_session_changed", callable_mp(this, &AINextPanel::refresh), CONNECT_DEFERRED);
 		next_session->connect("project_state_changed", callable_mp(this, &AINextPanel::refresh), CONNECT_DEFERRED);
 		next_session->connect("agent_progress_changed", callable_mp(this, &AINextPanel::refresh), CONNECT_DEFERRED);
 	}
@@ -167,6 +286,55 @@ void AINextPanel::set_next_session(AIAgentNextSession *p_session) {
 		feedback_panel->set_next_session(next_session);
 	}
 	_refresh();
+}
+
+void AINextPanel::_workflow_selected(int p_index) {
+	if (!next_session || !workflow_selector || p_index < 0) {
+		return;
+	}
+	if (next_session->is_workflow_active()) {
+		_refresh_workflows();
+		return;
+	}
+
+	const String workflow_id = workflow_selector->get_item_metadata(p_index);
+	if (workflow_id.is_empty() || workflow_id == next_session->get_workflow_id()) {
+		return;
+	}
+	if (next_session->load_workflow(workflow_id)) {
+		displayed_workflow_id.clear();
+		_refresh();
+	}
+}
+
+void AINextPanel::_new_workflow_pressed() {
+	if (!next_session) {
+		return;
+	}
+	next_session->start_new_workflow();
+	displayed_workflow_id.clear();
+}
+
+void AINextPanel::_delete_workflow_pressed() {
+	if (!next_session) {
+		return;
+	}
+	next_session->delete_workflow(next_session->get_workflow_id());
+	displayed_workflow_id.clear();
+}
+
+void AINextPanel::_continue_workflow_pressed() {
+	if (!next_session) {
+		return;
+	}
+	next_session->continue_workflow();
+}
+
+void AINextPanel::_terminate_workflow_pressed() {
+	if (!next_session) {
+		return;
+	}
+	next_session->cancel_current_operation();
 }
 
 void AINextPanel::_submit_brief_pressed() {
@@ -200,23 +368,104 @@ void AINextPanel::_review_milestone_pressed() {
 	next_session->review_active_milestone();
 }
 
+void AINextPanel::_refresh_workflows() {
+	if (!workflow_selector || !next_session) {
+		return;
+	}
+
+	workflow_selector->clear();
+	Array workflows = next_session->list_workflows();
+	for (int i = 0; i < workflows.size(); i++) {
+		if (Variant(workflows[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary workflow = workflows[i];
+		const String workflow_id = String(workflow.get("id", String()));
+		if (workflow_id.is_empty()) {
+			continue;
+		}
+		String title = String(workflow.get("title", TTR("New NEXT Workflow")));
+		if (title.length() > 38) {
+			title = title.substr(0, 35) + "...";
+		}
+		const String state = String(workflow.get("session_state", String()));
+		if (!state.is_empty()) {
+			title += "  " + state.replace("_", " ").capitalize();
+		}
+
+		const int index = workflow_selector->get_item_count();
+		workflow_selector->add_item(title);
+		workflow_selector->set_item_metadata(index, workflow_id);
+		if (workflow_id == next_session->get_workflow_id()) {
+			workflow_selector->select(index);
+		}
+	}
+}
+
 void AINextPanel::_update_operation_label() {
 	if (!operation_label) {
 		return;
 	}
 	if (!next_session) {
 		operation_label->set_text(String());
+		if (operation_icon) {
+			operation_icon->set_texture(Ref<Texture2D>());
+			operation_icon->hide();
+		}
+		if (operation_progress) {
+			operation_progress->hide();
+		}
 		return;
 	}
 
 	if (next_session->is_workflow_active()) {
-		static const char *frames[] = { "-", "\\", "|", "/" };
 		const String operation_name = next_session->get_active_operation_name();
-		operation_label->set_text(vformat("%s %s", String(frames[spinner_frame % 4]), operation_name.is_empty() ? String("Running NEXT workflow") : operation_name));
+		operation_label->set_text(operation_name.is_empty() ? TTR("Running NEXT workflow") : operation_name);
+		if (operation_icon) {
+			operation_icon->set_texture(get_editor_theme_icon(StringName(String("Progress") + itos((spinner_frame % 8) + 1))));
+			operation_icon->show();
+		}
+		if (operation_progress) {
+			operation_progress->show();
+		}
 		return;
 	}
 
 	operation_label->set_text(TTR("Ready"));
+	if (operation_icon) {
+		operation_icon->set_texture(get_editor_theme_icon(SNAME("StatusSuccess")));
+		operation_icon->show();
+	}
+	if (operation_progress) {
+		operation_progress->hide();
+	}
+}
+
+void AINextPanel::_refresh_theme_icons() {
+	if (new_workflow_button) {
+		new_workflow_button->set_button_icon(get_editor_theme_icon(SNAME("Add")));
+	}
+	if (delete_workflow_button) {
+		delete_workflow_button->set_button_icon(get_editor_theme_icon(SNAME("Delete")));
+	}
+	if (continue_workflow_button) {
+		continue_workflow_button->set_button_icon(get_editor_theme_icon(SNAME("DebugContinue")));
+	}
+	if (terminate_workflow_button) {
+		terminate_workflow_button->set_button_icon(get_editor_theme_icon(SNAME("Stop")));
+	}
+	if (submit_button) {
+		submit_button->set_button_icon(get_editor_theme_icon(SNAME("VCSCommit")));
+	}
+	if (plan_button) {
+		plan_button->set_button_icon(get_editor_theme_icon(SNAME("Milestone")));
+	}
+	if (run_button) {
+		run_button->set_button_icon(get_editor_theme_icon(SNAME("MainPlay")));
+	}
+	if (review_button) {
+		review_button->set_button_icon(get_editor_theme_icon(SNAME("Search")));
+	}
 }
 
 void AINextPanel::_refresh_activity() {
@@ -293,12 +542,32 @@ void AINextPanel::_refresh() {
 	}
 	const bool running = next_session->is_workflow_active();
 	const bool has_brief = brief_input && (!brief_input->get_text().strip_edges().is_empty() || !next_session->get_project_state()->get_brief().strip_edges().is_empty());
+	_refresh_workflows();
 	if (state_label) {
 		state_label->set_text(next_session->get_project_state()->get_session_state_name().capitalize());
 	}
 	_update_operation_label();
 	if (brief_input) {
 		brief_input->set_editable(!running);
+		if (displayed_workflow_id != next_session->get_workflow_id()) {
+			displayed_workflow_id = next_session->get_workflow_id();
+			brief_input->set_text(next_session->get_project_state()->get_brief());
+		}
+	}
+	if (workflow_selector) {
+		workflow_selector->set_disabled(running);
+	}
+	if (new_workflow_button) {
+		new_workflow_button->set_disabled(running);
+	}
+	if (delete_workflow_button) {
+		delete_workflow_button->set_disabled(running || !workflow_selector || workflow_selector->get_item_count() <= 0);
+	}
+	if (continue_workflow_button) {
+		continue_workflow_button->set_disabled(!next_session->can_continue_workflow());
+	}
+	if (terminate_workflow_button) {
+		terminate_workflow_button->set_disabled(!running);
 	}
 	if (submit_button) {
 		submit_button->set_disabled(running || !brief_input || brief_input->get_text().strip_edges().is_empty());

@@ -12,17 +12,27 @@ class AINextMilestoneList;
 class AINextTaskInspector;
 class AINextTaskTree;
 class Button;
+class ColorRect;
+class OptionButton;
 class VBoxContainer;
 class Label;
 class TextEdit;
+class TextureRect;
 
 class AINextPanel : public VBoxContainer {
 	GDCLASS(AINextPanel, VBoxContainer);
 
 	AIAgentNextSession *next_session = nullptr;
+	OptionButton *workflow_selector = nullptr;
+	Button *new_workflow_button = nullptr;
+	Button *delete_workflow_button = nullptr;
+	Button *continue_workflow_button = nullptr;
+	Button *terminate_workflow_button = nullptr;
 	TextEdit *brief_input = nullptr;
 	Label *state_label = nullptr;
+	TextureRect *operation_icon = nullptr;
 	Label *operation_label = nullptr;
+	ColorRect *operation_progress = nullptr;
 	VBoxContainer *activity_list = nullptr;
 	Button *submit_button = nullptr;
 	Button *plan_button = nullptr;
@@ -34,13 +44,21 @@ class AINextPanel : public VBoxContainer {
 	AINextFeedbackPanel *feedback_panel = nullptr;
 	int spinner_frame = 0;
 	double spinner_elapsed = 0.0;
+	String displayed_workflow_id;
 
 	void _submit_brief_pressed();
+	void _workflow_selected(int p_index);
+	void _new_workflow_pressed();
+	void _delete_workflow_pressed();
+	void _continue_workflow_pressed();
+	void _terminate_workflow_pressed();
 	void _generate_plan_pressed();
 	void _run_milestone_pressed();
 	void _review_milestone_pressed();
 	void _refresh();
+	void _refresh_workflows();
 	void _refresh_activity();
+	void _refresh_theme_icons();
 	void _update_operation_label();
 	Label *_add_section_label(const String &p_text);
 
