@@ -22,6 +22,10 @@ AINextTaskInspector::AINextTaskInspector() {
 	title_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	add_child(title_label);
 
+	status_label = memnew(Label);
+	status_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+	add_child(status_label);
+
 	agent_label = memnew(Label);
 	agent_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
 	add_child(agent_label);
@@ -35,6 +39,11 @@ AINextTaskInspector::AINextTaskInspector() {
 	outputs_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
 	outputs_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	add_child(outputs_label);
+
+	result_label = memnew(Label);
+	result_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+	result_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	add_child(result_label);
 }
 
 void AINextTaskInspector::set_next_session(AIAgentNextSession *p_session) {
@@ -45,24 +54,40 @@ void AINextTaskInspector::set_next_session(AIAgentNextSession *p_session) {
 void AINextTaskInspector::refresh() {
 	Dictionary task;
 	if (next_session && next_session->get_project_state().is_valid()) {
-		const String milestone_id = next_session->get_project_state()->get_active_milestone_id();
-		Dictionary milestone = next_session->get_project_state()->get_milestone(milestone_id);
-		Array tasks = milestone.get("tasks", Array());
-		if (!tasks.is_empty() && Variant(tasks[0]).get_type() == Variant::DICTIONARY) {
-			task = tasks[0];
+		const String selected_task_id = next_session->get_selected_task_id();
+		if (!selected_task_id.is_empty()) {
+			task = next_session->get_project_state()->get_task(selected_task_id);
+		}
+		if (task.is_empty()) {
+			const String milestone_id = next_session->get_project_state()->get_active_milestone_id();
+			Dictionary milestone = next_session->get_project_state()->get_milestone(milestone_id);
+			Array tasks = milestone.get("tasks", Array());
+			if (!tasks.is_empty() && Variant(tasks[0]).get_type() == Variant::DICTIONARY) {
+				Dictionary first_task = tasks[0];
+				task = next_session->get_project_state()->get_task(String(first_task.get("id", String())));
+			}
 		}
 	}
 
 	if (task.is_empty()) {
 		title_label->set_text(TTR("No task selected"));
+		status_label->set_text(String());
 		agent_label->set_text(String());
 		depends_label->set_text(String());
 		outputs_label->set_text(String());
+		result_label->set_text(String());
 		return;
 	}
 
 	title_label->set_text(String(task.get("title", TTR("Task"))));
+	status_label->set_text(vformat(TTR("Status: %s"), String(task.get("status", "pending")).capitalize()));
 	agent_label->set_text(vformat(TTR("Agent: %s"), String(task.get("assigned_agent_id", String()))));
 	depends_label->set_text(vformat(TTR("Depends: %s"), String(", ").join(task.get("depends_on", Array()))));
 	outputs_label->set_text(vformat(TTR("Outputs: %s"), String(", ").join(task.get("output_paths", Array()))));
+	const String error = String(task.get("error", String())).strip_edges();
+	if (!error.is_empty()) {
+		result_label->set_text(vformat(TTR("Error: %s"), error));
+	} else {
+		result_label->set_text(vformat(TTR("Result: %s"), String(task.get("result_summary", String()))));
+	}
 }

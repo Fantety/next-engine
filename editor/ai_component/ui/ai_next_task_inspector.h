@@ -14,9 +14,11 @@ class AINextTaskInspector : public VBoxContainer {
 
 	AIAgentNextSession *next_session = nullptr;
 	Label *title_label = nullptr;
+	Label *status_label = nullptr;
 	Label *agent_label = nullptr;
 	Label *depends_label = nullptr;
 	Label *outputs_label = nullptr;
+	Label *result_label = nullptr;
 
 protected:
 	static void _bind_methods();

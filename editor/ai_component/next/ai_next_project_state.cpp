@@ -45,7 +45,9 @@ void AINextProjectState::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_task", "task_id"), &AINextProjectState::get_task);
 	ClassDB::bind_method(D_METHOD("get_milestone_count"), &AINextProjectState::get_milestone_count);
 	ClassDB::bind_method(D_METHOD("get_task_count", "milestone_id"), &AINextProjectState::get_task_count);
+	ClassDB::bind_method(D_METHOD("has_milestone", "milestone_id"), &AINextProjectState::has_milestone);
 	ClassDB::bind_method(D_METHOD("has_task", "task_id"), &AINextProjectState::has_task);
+	ClassDB::bind_method(D_METHOD("get_task_milestone_id", "task_id"), &AINextProjectState::get_task_milestone_id);
 	ClassDB::bind_method(D_METHOD("can_run_milestone", "milestone_id"), &AINextProjectState::can_run_milestone);
 	ClassDB::bind_method(D_METHOD("register_asset", "path", "source", "protected_from_agent_edits", "parent_asset_id", "baseline_milestone_id", "asset_id"), &AINextProjectState::register_asset, DEFVAL(String()), DEFVAL(String()), DEFVAL(String()));
 	ClassDB::bind_method(D_METHOD("get_asset_count"), &AINextProjectState::get_asset_count);
@@ -664,8 +666,20 @@ int AINextProjectState::get_task_count(const String &p_milestone_id) const {
 	return milestone ? milestone->tasks.size() : 0;
 }
 
+bool AINextProjectState::has_milestone(const String &p_milestone_id) const {
+	return _find_milestone(p_milestone_id) != nullptr;
+}
+
 bool AINextProjectState::has_task(const String &p_task_id) const {
 	return _find_task(p_task_id) != nullptr;
+}
+
+String AINextProjectState::get_task_milestone_id(const String &p_task_id) const {
+	const AINextMilestone *milestone = nullptr;
+	if (!_find_task(p_task_id, &milestone) || !milestone) {
+		return String();
+	}
+	return milestone->id;
 }
 
 bool AINextProjectState::has_dependency_cycle(String &r_error) const {

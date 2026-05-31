@@ -25,6 +25,7 @@ AINextFeedbackPanel::AINextFeedbackPanel() {
 	feedback_input->set_line_wrapping_mode(TextEdit::LINE_WRAPPING_BOUNDARY);
 	feedback_input->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	feedback_input->set_placeholder(TTR("Playtest feedback"));
+	feedback_input->connect(SNAME("text_changed"), callable_mp(this, &AINextFeedbackPanel::refresh));
 	add_child(feedback_input);
 
 	HBoxContainer *actions = memnew(HBoxContainer);
@@ -45,6 +46,7 @@ AINextFeedbackPanel::AINextFeedbackPanel() {
 
 void AINextFeedbackPanel::set_next_session(AIAgentNextSession *p_session) {
 	next_session = p_session;
+	refresh();
 }
 
 void AINextFeedbackPanel::_generate_pressed() {
@@ -59,4 +61,15 @@ void AINextFeedbackPanel::_lock_pressed() {
 		return;
 	}
 	next_session->accept_and_lock_active_milestone();
+}
+
+void AINextFeedbackPanel::refresh() {
+	const bool running = next_session && next_session->is_workflow_active();
+	if (generate_button) {
+		const bool has_feedback = feedback_input && !feedback_input->get_text().strip_edges().is_empty();
+		generate_button->set_disabled(!next_session || running || !has_feedback);
+	}
+	if (lock_button) {
+		lock_button->set_disabled(!next_session || running || !next_session->can_lock_active_milestone());
+	}
 }

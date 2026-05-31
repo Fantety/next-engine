@@ -71,7 +71,9 @@ public:
 	Dictionary get_task(const String &p_task_id) const;
 	int get_milestone_count() const;
 	int get_task_count(const String &p_milestone_id) const;
+	bool has_milestone(const String &p_milestone_id) const;
 	bool has_task(const String &p_task_id) const;
+	String get_task_milestone_id(const String &p_task_id) const;
 	bool has_dependency_cycle(String &r_error) const;
 	bool can_run_milestone(const String &p_milestone_id) const;
 	bool can_lock_milestone(const String &p_milestone_id, String &r_error) const;

@@ -14,6 +14,7 @@ class AINextMilestoneList : public VBoxContainer {
 	AIAgentNextSession *next_session = nullptr;
 
 	void _clear_rows();
+	void _milestone_pressed(const String &p_milestone_id);
 
 protected:
 	static void _bind_methods();

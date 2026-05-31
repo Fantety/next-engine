@@ -27,4 +27,5 @@ protected:
 public:
 	AINextFeedbackPanel();
 	void set_next_session(AIAgentNextSession *p_session);
+	void refresh();
 };

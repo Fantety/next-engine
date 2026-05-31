@@ -14,6 +14,8 @@ class AINextTaskTree : public VBoxContainer {
 	AIAgentNextSession *next_session = nullptr;
 
 	void _clear_rows();
+	void _task_pressed(const String &p_task_id);
+	void _run_task_pressed(const String &p_task_id);
 
 protected:
 	static void _bind_methods();

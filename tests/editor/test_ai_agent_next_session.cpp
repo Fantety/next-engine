@@ -4,6 +4,10 @@
 
 #include "tests/test_macros.h"
 
+#include "core/object/message_queue.h"
+#include "core/os/os.h"
+#include "core/os/semaphore.h"
+#include "core/os/thread.h"
 #include "editor/ai_component/agent/ai_agent_base.h"
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
@@ -45,6 +49,96 @@ public:
 	}
 };
 
+class BlockingNextRuntimeClient : public AIAgentRuntimeClient {
+	GDCLASS(BlockingNextRuntimeClient, AIAgentRuntimeClient);
+
+	Vector<AIAgentRuntimeResponse> responses;
+
+public:
+	Semaphore request_started;
+	Semaphore release_request;
+	bool request_was_on_main_thread = true;
+	int request_count = 0;
+
+	void push_response(const AIAgentRuntimeResponse &p_response) {
+		responses.push_back(p_response);
+	}
+
+	virtual AIAgentRuntimeResponse complete(const Array &p_messages, const Array &p_tool_schemas) override {
+		(void)p_messages;
+		(void)p_tool_schemas;
+
+		request_count++;
+		request_was_on_main_thread = Thread::is_main_thread();
+		request_started.post();
+		if (request_was_on_main_thread) {
+			AIAgentRuntimeResponse response;
+			response.error = "NEXT runtime ran on the main thread.";
+			return response;
+		}
+
+		release_request.wait();
+		if (responses.is_empty()) {
+			AIAgentRuntimeResponse response;
+			response.content = "Done.";
+			return response;
+		}
+		AIAgentRuntimeResponse response = responses[0];
+		responses.remove_at(0);
+		return response;
+	}
+
+	virtual AIAgentRuntimeResponse complete_streaming(const Array &p_messages, const Array &p_tool_schemas, const Callable &p_partial_response_callback) override {
+		(void)p_partial_response_callback;
+		return complete(p_messages, p_tool_schemas);
+	}
+};
+
+class StreamingProgressNextRuntimeClient : public NextScriptedRuntimeClient {
+	GDCLASS(StreamingProgressNextRuntimeClient, NextScriptedRuntimeClient);
+
+public:
+	Semaphore progress_sent;
+	Semaphore release_request;
+	bool wait_for_release = false;
+
+	virtual AIAgentRuntimeResponse complete_streaming(const Array &p_messages, const Array &p_tool_schemas, const Callable &p_partial_response_callback) override {
+		Dictionary partial;
+		partial["content"] = "Working on NEXT task...";
+		p_partial_response_callback.call(partial);
+		progress_sent.post();
+		if (wait_for_release) {
+			release_request.wait();
+		}
+		return NextScriptedRuntimeClient::complete(p_messages, p_tool_schemas);
+	}
+};
+
+static bool wait_for_semaphore(const Semaphore &p_semaphore, uint64_t p_timeout_msec = 1000) {
+	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
+	while (OS::get_singleton()->get_ticks_msec() - start_time < p_timeout_msec) {
+		if (p_semaphore.try_wait()) {
+			return true;
+		}
+		OS::get_singleton()->delay_usec(1000);
+	}
+	return false;
+}
+
+static void flush_message_queue() {
+	if (MessageQueue::get_main_singleton()) {
+		MessageQueue::get_main_singleton()->flush();
+		MessageQueue::get_main_singleton()->flush();
+	}
+}
+
+static void wait_for_next_agent(AIAgentNextSession *p_session, const String &p_agent_id) {
+	Ref<AIAgentBase> agent = p_session->get_agent_for_test(p_agent_id);
+	REQUIRE(agent.is_valid());
+	agent->get_runtime_runner()->wait_to_finish();
+	flush_message_queue();
+}
+
 TEST_CASE("[Editor][AI][NEXT] session initializes independent agents") {
 	AIAgentNextSession *session = memnew(AIAgentNextSession);
 
@@ -56,6 +150,91 @@ TEST_CASE("[Editor][AI][NEXT] session initializes independent agents") {
 	CHECK(session->has_agent("review_agent"));
 
 	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] agent operations run runtime work off the main thread") {
+	{
+		AIAgentNextSession *session = memnew(AIAgentNextSession);
+		Ref<BlockingNextRuntimeClient> client;
+		client.instantiate();
+		session->get_agent_for_test("planning_agent")->set_runtime_client(client);
+
+		session->submit_brief("Build a 2D movement prototype.");
+		session->generate_plan();
+
+		CHECK(wait_for_semaphore(client->request_started));
+		CHECK_FALSE(client->request_was_on_main_thread);
+		CHECK(session->get_project_state()->get_session_state() == AI_NEXT_SESSION_PLANNING);
+
+		client->release_request.post();
+		wait_for_next_agent(session, "planning_agent");
+		memdelete(session);
+	}
+
+	{
+		AIAgentNextSession *session = memnew(AIAgentNextSession);
+		Ref<AINextProjectState> state = session->get_project_state();
+		const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+		const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+
+		Ref<BlockingNextRuntimeClient> client;
+		client.instantiate();
+		session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+		session->run_active_milestone();
+
+		CHECK(wait_for_semaphore(client->request_started));
+		CHECK_FALSE(client->request_was_on_main_thread);
+		CHECK(String(state->get_task(task_id).get("status", "")) == "in_progress");
+
+		client->release_request.post();
+		wait_for_next_agent(session, "script_agent");
+		memdelete(session);
+	}
+
+	{
+		AIAgentNextSession *session = memnew(AIAgentNextSession);
+		Ref<AINextProjectState> state = session->get_project_state();
+		const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+		const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+		state->mark_task_completed(task_id, "Created player_controller.gd", Array());
+
+		Ref<BlockingNextRuntimeClient> client;
+		client.instantiate();
+		session->get_agent_for_test("review_agent")->set_runtime_client(client);
+
+		session->review_active_milestone();
+
+		CHECK(wait_for_semaphore(client->request_started));
+		CHECK_FALSE(client->request_was_on_main_thread);
+		CHECK(state->get_session_state() == AI_NEXT_SESSION_FEEDBACK_PLANNING);
+
+		client->release_request.post();
+		wait_for_next_agent(session, "review_agent");
+		memdelete(session);
+	}
+
+	{
+		AIAgentNextSession *session = memnew(AIAgentNextSession);
+		Ref<AINextProjectState> state = session->get_project_state();
+		const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+		const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+		state->mark_task_completed(task_id, "Created player_controller.gd", Array());
+
+		Ref<BlockingNextRuntimeClient> client;
+		client.instantiate();
+		session->get_agent_for_test("planning_agent")->set_runtime_client(client);
+
+		session->generate_feedback_tasks("Jump is too floaty.");
+
+		CHECK(wait_for_semaphore(client->request_started));
+		CHECK_FALSE(client->request_was_on_main_thread);
+		CHECK(state->get_session_state() == AI_NEXT_SESSION_FEEDBACK_PLANNING);
+
+		client->release_request.post();
+		wait_for_next_agent(session, "planning_agent");
+		memdelete(session);
+	}
 }
 
 TEST_CASE("[Editor][AI][NEXT] session generates structured plan through NEXT tool") {
@@ -94,12 +273,37 @@ TEST_CASE("[Editor][AI][NEXT] session generates structured plan through NEXT too
 	session->get_agent_for_test("planning_agent")->set_runtime_client(client);
 	session->submit_brief("Build a 2D movement prototype.");
 	session->generate_plan();
+	wait_for_next_agent(session, "planning_agent");
 
 	CHECK(session->get_project_state()->get_brief() == "Build a 2D movement prototype.");
 	CHECK(session->get_project_state()->get_milestone_count() == 1);
 	CHECK(session->get_project_state()->get_session_state() == AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
 	CHECK(client->request_count == 2);
 	CHECK(client->last_tool_schemas.size() >= 1);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] session selects milestones and advances after locking") {
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String first_milestone = state->create_milestone("Core Movement", "Build movement.");
+	const String first_task = state->add_task(first_milestone, "Create player script", "script_agent", Array());
+	const String second_milestone = state->create_milestone("Combat", "Build combat.");
+	state->add_task(second_milestone, "Create attack scene", "scene_agent", Array());
+	state->mark_task_completed(first_task, "Created player_controller.gd", Array());
+
+	CHECK(state->get_active_milestone_id() == first_milestone);
+	CHECK(session->select_milestone(second_milestone));
+	CHECK(state->get_active_milestone_id() == second_milestone);
+	CHECK_FALSE(session->select_milestone("missing_milestone"));
+	CHECK(state->get_active_milestone_id() == second_milestone);
+
+	CHECK(session->select_milestone(first_milestone));
+	session->accept_and_lock_active_milestone();
+
+	CHECK(String(state->get_milestone(first_milestone).get("status", String())) == "locked");
+	CHECK(state->get_active_milestone_id() == second_milestone);
 
 	memdelete(session);
 }
@@ -118,12 +322,69 @@ TEST_CASE("[Editor][AI][NEXT] session runs ready milestone tasks serially") {
 	session->get_agent_for_test("script_agent")->set_runtime_client(client);
 
 	session->run_active_milestone();
+	wait_for_next_agent(session, "script_agent");
 
 	Dictionary task = state->get_task(task_id);
 	CHECK(String(task["status"]) == "completed");
 	CHECK(String(task["result_summary"]) == "Created player_controller.gd");
 	CHECK(state->get_session_state() == AI_NEXT_SESSION_WAITING_PLAYTEST);
 	CHECK(client->request_count == 1);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] session runs one task without running the full milestone") {
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String first_task = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+	const String second_task = state->add_task(milestone_id, "Assemble player scene", "scene_agent", Array());
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Created player_controller.gd";
+	client->push_response(final_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+	CHECK(session->run_task(first_task));
+	CHECK(session->is_workflow_active());
+	wait_for_next_agent(session, "script_agent");
+
+	CHECK_FALSE(session->is_workflow_active());
+	CHECK(String(state->get_task(first_task).get("status", String())) == "completed");
+	CHECK(String(state->get_task(second_task).get("status", String())) == "ready");
+	CHECK(client->request_count == 1);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] session exposes runtime progress messages") {
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+
+	Ref<StreamingProgressNextRuntimeClient> client;
+	client.instantiate();
+	client->wait_for_release = true;
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Created player_controller.gd";
+	client->push_response(final_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+	CHECK(session->run_task(task_id));
+	CHECK(wait_for_semaphore(client->progress_sent));
+	flush_message_queue();
+
+	Array progress_messages = session->get_runtime_messages();
+	REQUIRE_FALSE(progress_messages.is_empty());
+	Dictionary first_message = progress_messages[0];
+	CHECK(String(first_message.get("agent_id", String())) == "script_agent");
+	CHECK(String(first_message.get("content", String())).contains("Working on NEXT task"));
+
+	client->release_request.post();
+	wait_for_next_agent(session, "script_agent");
 
 	memdelete(session);
 }
@@ -161,6 +422,9 @@ TEST_CASE("[Editor][AI][NEXT] session batches ready tasks up to the NEXT schedul
 	session->get_agent_for_test("shader_agent")->set_runtime_client(shader_client);
 
 	session->run_active_milestone();
+	wait_for_next_agent(session, "script_agent");
+	wait_for_next_agent(session, "scene_agent");
+	wait_for_next_agent(session, "shader_agent");
 
 	Array events = session->get_event_log()->get_events();
 	Vector<int> batch_sizes;
@@ -211,6 +475,8 @@ TEST_CASE("[Editor][AI][NEXT] session serializes ready tasks with planned output
 	session->get_agent_for_test("scene_agent")->set_runtime_client(scene_client);
 
 	session->run_active_milestone();
+	wait_for_next_agent(session, "script_agent");
+	wait_for_next_agent(session, "scene_agent");
 
 	Array events = session->get_event_log()->get_events();
 	Vector<int> batch_sizes;
@@ -261,6 +527,7 @@ TEST_CASE("[Editor][AI][NEXT] session turns feedback into NEXT tasks") {
 	session->get_agent_for_test("planning_agent")->set_runtime_client(client);
 
 	session->generate_feedback_tasks("Jump is too floaty.");
+	wait_for_next_agent(session, "planning_agent");
 
 	CHECK(state->get_task_count(milestone_id) == 2);
 	CHECK(state->get_session_state() == AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
@@ -284,6 +551,7 @@ TEST_CASE("[Editor][AI][NEXT] session records review agent findings") {
 	session->get_agent_for_test("review_agent")->set_runtime_client(client);
 
 	session->review_active_milestone();
+	wait_for_next_agent(session, "review_agent");
 
 	Array events = session->get_event_log()->get_events();
 	Dictionary review_event;
