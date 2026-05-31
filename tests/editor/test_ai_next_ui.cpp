@@ -4,8 +4,10 @@
 
 #include "tests/test_macros.h"
 
+#include "core/object/message_queue.h"
 #include "editor/ai_component/agent/ai_agent_base.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
+#include "editor/ai_component/next/ai_next_workflow_snapshot.h"
 #include "editor/ai_component/next/ai_next_agent_settings.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
@@ -16,6 +18,8 @@
 #include "editor/ai_component/ui/ai_settings_next_page.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
+#include "scene/gui/label.h"
+#include "scene/gui/option_button.h"
 #include "scene/gui/scroll_container.h"
 
 TEST_FORCE_LINK(test_ai_next_ui);
@@ -35,6 +39,30 @@ static void cleanup_next_workflows(const String &p_project_scope) {
 		Dictionary workflow = workflows[i];
 		store->delete_workflow(String(workflow.get("id", String())));
 	}
+}
+
+static void flush_message_queue() {
+	if (MessageQueue::get_main_singleton()) {
+		MessageQueue::get_main_singleton()->flush();
+		MessageQueue::get_main_singleton()->flush();
+	}
+}
+
+static OptionButton *find_first_option_button(Node *p_root) {
+	if (!p_root) {
+		return nullptr;
+	}
+	OptionButton *option_button = Object::cast_to<OptionButton>(p_root);
+	if (option_button) {
+		return option_button;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		OptionButton *child_option_button = find_first_option_button(p_root->get_child(i));
+		if (child_option_button) {
+			return child_option_button;
+		}
+	}
+	return nullptr;
 }
 
 TEST_CASE("[Editor][AI][NEXT] next dock owns a next session") {
@@ -143,6 +171,84 @@ TEST_CASE("[Editor][AI][NEXT] task tree renders status icons before task titles"
 	}
 
 	memdelete(tree);
+	session->delete_workflow(session->get_workflow_id());
+	memdelete(session);
+	cleanup_next_workflows(project_scope);
+}
+
+TEST_CASE("[Editor][AI][NEXT] progress refresh keeps workflow selector cached") {
+	const String project_scope = "test_next_ui_progress_refresh_cached_workflows";
+	cleanup_next_workflows(project_scope);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+	session->submit_brief("Primary workflow.");
+
+	AINextPanel *panel = memnew(AINextPanel);
+	panel->set_next_session(session);
+
+	OptionButton *workflow_selector = find_first_option_button(panel);
+	REQUIRE(workflow_selector != nullptr);
+	const int initial_workflow_count = workflow_selector->get_item_count();
+	REQUIRE(initial_workflow_count >= 1);
+
+	AINextWorkflowSnapshot external_snapshot;
+	external_snapshot.id = "external_progress_refresh_workflow";
+	external_snapshot.title = "External workflow";
+	external_snapshot.project_state.instantiate();
+	REQUIRE(session->get_workflow_store_for_test()->save_workflow(external_snapshot) == OK);
+
+	session->emit_signal(SNAME("agent_progress_changed"));
+	flush_message_queue();
+
+	CHECK(workflow_selector->get_item_count() == initial_workflow_count);
+
+	memdelete(panel);
+	session->delete_workflow(session->get_workflow_id());
+	session->get_workflow_store_for_test()->delete_workflow(external_snapshot.id);
+	memdelete(session);
+	cleanup_next_workflows(project_scope);
+}
+
+TEST_CASE("[Editor][AI][NEXT] theme refresh rebuilds milestone and task icon rows") {
+	const String project_scope = "test_next_ui_theme_refresh_icon_rows";
+	cleanup_next_workflows(project_scope);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+
+	AINextMilestoneList *milestone_list = memnew(AINextMilestoneList);
+	milestone_list->set_next_session(session);
+	REQUIRE(milestone_list->get_child_count() == 1);
+	CHECK(Object::cast_to<Label>(milestone_list->get_child(0)) != nullptr);
+
+	const String milestone_id = session->get_project_state()->create_milestone("Theme Ready Milestone", "Build after theme readiness.");
+	const String task_id = session->get_project_state()->add_task(milestone_id, "Theme Ready Task", "script_agent", Array());
+	REQUIRE_FALSE(task_id.is_empty());
+	milestone_list->notification(Control::NOTIFICATION_THEME_CHANGED);
+
+	REQUIRE(milestone_list->get_child_count() == 1);
+	HBoxContainer *milestone_row = Object::cast_to<HBoxContainer>(milestone_list->get_child(0));
+	REQUIRE(milestone_row != nullptr);
+	Button *milestone_title = Object::cast_to<Button>(milestone_row->get_child(0));
+	REQUIRE(milestone_title != nullptr);
+	CHECK(milestone_title->get_button_icon().is_valid());
+
+	AINextTaskTree *task_tree = memnew(AINextTaskTree);
+	task_tree->set_next_session(session);
+	REQUIRE(task_tree->get_child_count() == 1);
+	session->get_project_state()->mark_task_completed(task_id, "Done.", Array());
+	task_tree->notification(Control::NOTIFICATION_THEME_CHANGED);
+
+	REQUIRE(task_tree->get_child_count() == 1);
+	HBoxContainer *task_row = Object::cast_to<HBoxContainer>(task_tree->get_child(0));
+	REQUIRE(task_row != nullptr);
+	Button *task_title = Object::cast_to<Button>(task_row->get_child(0));
+	REQUIRE(task_title != nullptr);
+	CHECK(task_title->get_button_icon().is_valid());
+
+	memdelete(task_tree);
+	memdelete(milestone_list);
 	session->delete_workflow(session->get_workflow_id());
 	memdelete(session);
 	cleanup_next_workflows(project_scope);

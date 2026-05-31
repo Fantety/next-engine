@@ -56,6 +56,7 @@ class AINextPanel : public VBoxContainer {
 	void _run_milestone_pressed();
 	void _review_milestone_pressed();
 	void _refresh();
+	void _refresh_progress();
 	void _refresh_workflows();
 	void _refresh_activity();
 	void _refresh_theme_icons();

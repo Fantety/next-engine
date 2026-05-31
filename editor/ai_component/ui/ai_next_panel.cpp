@@ -271,7 +271,7 @@ void AINextPanel::set_next_session(AIAgentNextSession *p_session) {
 	if (next_session) {
 		next_session->connect("workflow_session_changed", callable_mp(this, &AINextPanel::refresh), CONNECT_DEFERRED);
 		next_session->connect("project_state_changed", callable_mp(this, &AINextPanel::refresh), CONNECT_DEFERRED);
-		next_session->connect("agent_progress_changed", callable_mp(this, &AINextPanel::refresh), CONNECT_DEFERRED);
+		next_session->connect("agent_progress_changed", callable_mp(this, &AINextPanel::_refresh_progress), CONNECT_DEFERRED);
 	}
 	if (milestone_list) {
 		milestone_list->set_next_session(next_session);
@@ -593,6 +593,14 @@ void AINextPanel::_refresh() {
 	if (feedback_panel) {
 		feedback_panel->refresh();
 	}
+	_refresh_activity();
+}
+
+void AINextPanel::_refresh_progress() {
+	if (!next_session) {
+		return;
+	}
+	_update_operation_label();
 	_refresh_activity();
 }
 

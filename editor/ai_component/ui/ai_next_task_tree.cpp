@@ -35,6 +35,12 @@ AINextTaskTree::AINextTaskTree() {
 	add_theme_constant_override("separation", 4 * EDSCALE);
 }
 
+void AINextTaskTree::_notification(int p_what) {
+	if (p_what == NOTIFICATION_ENTER_TREE || p_what == NOTIFICATION_THEME_CHANGED) {
+		refresh();
+	}
+}
+
 void AINextTaskTree::_clear_rows() {
 	while (get_child_count() > 0) {
 		Node *child = get_child(0);
