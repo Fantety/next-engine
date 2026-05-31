@@ -113,6 +113,40 @@ TEST_CASE("[Editor][AI][NEXT] manage project tool rejects invalid plans without 
 	CHECK(state->get_milestone_count() == 0);
 }
 
+TEST_CASE("[Editor][AI][NEXT] manage project tool accepts acyclic shared dependencies") {
+	Ref<AINextProjectState> state;
+	state.instantiate();
+	Ref<AINextManageProjectTool> tool;
+	tool.instantiate();
+	tool->set_project_state(state);
+
+	Array build_scene_depends;
+	build_scene_depends.push_back("task_script");
+	Array polish_depends;
+	polish_depends.push_back("task_script");
+	polish_depends.push_back("task_scene");
+
+	Array tasks;
+	tasks.push_back(_make_task("task_script", "Create player script", "script_agent"));
+	tasks.push_back(_make_task("task_scene", "Assemble player scene", "scene_agent", build_scene_depends));
+	tasks.push_back(_make_task("task_polish", "Polish player feedback", "script_agent", polish_depends));
+
+	Dictionary milestone;
+	milestone["title"] = "Core Movement";
+	milestone["tasks"] = tasks;
+
+	Array milestones;
+	milestones.push_back(milestone);
+
+	Dictionary args;
+	args["action"] = "replace_plan";
+	args["milestones"] = milestones;
+
+	AIToolResult result = tool->execute(args);
+	CHECK(result.error.is_empty());
+	CHECK(state->get_milestone_count() == 1);
+}
+
 TEST_CASE("[Editor][AI][NEXT] manage project tool rejects cyclic task updates without partial writes") {
 	Ref<AINextProjectState> state;
 	state.instantiate();

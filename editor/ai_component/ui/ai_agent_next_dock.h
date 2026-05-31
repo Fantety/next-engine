@@ -8,11 +8,13 @@
 
 class AIAgentNextSession;
 class AINextPanel;
+class ScrollContainer;
 
 class AIAgentNextDock : public VBoxContainer {
 	GDCLASS(AIAgentNextDock, VBoxContainer);
 
 	AIAgentNextSession *next_session = nullptr;
+	ScrollContainer *next_scroll = nullptr;
 	AINextPanel *next_panel = nullptr;
 
 	void _apply_agent_model_settings();

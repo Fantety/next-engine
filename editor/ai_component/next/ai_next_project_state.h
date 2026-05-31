@@ -61,6 +61,7 @@ public:
 	bool set_task_status(const String &p_task_id, AINextTaskStatus p_status, const String &p_error = String());
 	bool mark_task_completed(const String &p_task_id, const String &p_result_summary, const Array &p_output_paths);
 	bool mark_task_failed(const String &p_task_id, const String &p_error);
+	bool reset_interrupted_task(const String &p_task_id);
 	bool skip_task(const String &p_task_id, const String &p_reason);
 	bool retry_task(const String &p_task_id);
 	bool reassign_task(const String &p_task_id, const String &p_assigned_agent_id);

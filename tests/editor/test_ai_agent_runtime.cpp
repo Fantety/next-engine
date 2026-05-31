@@ -808,6 +808,52 @@ TEST_CASE("[Editor][AI] Agent runtime reports tool progress before the final res
 	CHECK(String(third_added["content"]) == "Progress complete.");
 }
 
+TEST_CASE("[Editor][AI] Agent runtime reports provider tool argument parse failures without executing the tool") {
+	Ref<EchoRuntimeTool> echo_tool;
+	echo_tool.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_ALLOW));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse tool_response;
+	AIToolCall call;
+	call.id = "call_invalid_args";
+	call.tool_name = "test.echo";
+	call.status = AI_TOOL_CALL_STATUS_FAILED;
+	call.arguments["_provider_tool_arguments_parse_error"] = "Failed to parse provider tool arguments.";
+	call.arguments["_provider_tool_arguments"] = "{\"value\":";
+	tool_response.tool_calls.push_back(call);
+	client->push_response(tool_response);
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "I will retry with valid arguments.";
+	client->push_response(final_response);
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_profile(_make_test_profile(false));
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Use the tool."));
+
+	AIAgentRuntimeResult result = runtime->run(messages);
+
+	CHECK(result.success);
+	CHECK(echo_tool->execute_count == 0);
+	REQUIRE(result.tool_calls.size() == 1);
+	CHECK(result.tool_calls[0].status == AI_TOOL_CALL_STATUS_FAILED);
+	REQUIRE(result.messages.size() == 4);
+	CHECK(result.messages[2].role == AI_AGENT_ROLE_TOOL);
+	CHECK(result.messages[2].content.contains("Failed to parse provider tool arguments"));
+	CHECK(result.messages[3].content == "I will retry with valid arguments.");
+}
+
 TEST_CASE("[Editor][AI] Agent runtime streams assistant message updates before final result") {
 	Ref<ScriptedRuntimeClient> client;
 	client.instantiate();
@@ -1589,6 +1635,21 @@ TEST_CASE("[Editor][AI] OpenAI-compatible stream accumulator assembles content a
 	CHECK(result.response.tool_calls[0].id == "call_read");
 	CHECK(result.response.tool_calls[0].tool_name == "project_read_file");
 	CHECK(String(result.response.tool_calls[0].arguments["path"]) == "res://player.gd");
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible stream accumulator keeps invalid tool arguments as a failed tool call") {
+	AIOpenAICompatibleStreamAccumulator accumulator;
+	AIOpenAIStreamParseResult result;
+
+	CHECK(accumulator.apply_event("{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_plan\",\"type\":\"function\",\"function\":{\"name\":\"ai_next_manage_project\",\"arguments\":\"{\\\"action\\\":\"}}]},\"finish_reason\":null}]}", result));
+	CHECK(accumulator.apply_event("{\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}", result));
+	CHECK(result.done);
+	CHECK(result.error.is_empty());
+	REQUIRE(result.response.tool_calls.size() == 1);
+	CHECK(result.response.tool_calls[0].id == "call_plan");
+	CHECK(result.response.tool_calls[0].tool_name == "ai_next_manage_project");
+	CHECK(result.response.tool_calls[0].status == AI_TOOL_CALL_STATUS_FAILED);
+	CHECK(String(result.response.tool_calls[0].arguments.get("_provider_tool_arguments_parse_error", String())).contains("Failed to parse provider tool arguments"));
 }
 
 TEST_CASE("[Editor][AI] OpenAI-compatible runtime client converts transport responses") {

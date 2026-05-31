@@ -6,6 +6,7 @@
 
 #include "core/object/class_db.h"
 #include "core/os/time.h"
+#include "core/templates/hash_map.h"
 #include "core/variant/variant.h"
 
 namespace {
@@ -22,6 +23,32 @@ String _format_next_id(const String &p_prefix, int p_number) {
 	return p_prefix + "_" + itos(p_number).pad_zeros(3);
 }
 
+bool _visit_task_dependencies_for_cycle(const AINextTask &p_task, const HashMap<String, const AINextTask *> &p_tasks_by_id, HashMap<String, int> &r_visit_state, String &r_error) {
+	const int *state = r_visit_state.getptr(p_task.id);
+	if (state) {
+		if (*state == 1) {
+			r_error = "NEXT task dependencies contain a cycle.";
+			return true;
+		}
+		if (*state == 2) {
+			return false;
+		}
+	}
+
+	r_visit_state.insert(p_task.id, 1);
+	for (const String &dependency_id : p_task.depends_on) {
+		const AINextTask *const *dependency = p_tasks_by_id.getptr(dependency_id);
+		if (!dependency || !*dependency) {
+			continue;
+		}
+		if (_visit_task_dependencies_for_cycle(**dependency, p_tasks_by_id, r_visit_state, r_error)) {
+			return true;
+		}
+	}
+	r_visit_state.insert(p_task.id, 2);
+	return false;
+}
+
 } // namespace
 
 void AINextProjectState::_bind_methods() {
@@ -36,6 +63,7 @@ void AINextProjectState::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("add_task", "milestone_id", "title", "assigned_agent_id", "depends_on", "description", "task_id"), &AINextProjectState::add_task, DEFVAL(String()), DEFVAL(String()));
 	ClassDB::bind_method(D_METHOD("mark_task_completed", "task_id", "result_summary", "output_paths"), &AINextProjectState::mark_task_completed);
 	ClassDB::bind_method(D_METHOD("mark_task_failed", "task_id", "error"), &AINextProjectState::mark_task_failed);
+	ClassDB::bind_method(D_METHOD("reset_interrupted_task", "task_id"), &AINextProjectState::reset_interrupted_task);
 	ClassDB::bind_method(D_METHOD("skip_task", "task_id", "reason"), &AINextProjectState::skip_task);
 	ClassDB::bind_method(D_METHOD("retry_task", "task_id"), &AINextProjectState::retry_task);
 	ClassDB::bind_method(D_METHOD("reassign_task", "task_id", "assigned_agent_id"), &AINextProjectState::reassign_task);
@@ -415,6 +443,9 @@ bool AINextProjectState::update_task(const String &p_task_id, const Dictionary &
 	if (p_patch.has("status")) {
 		task->status = ai_next_task_status_from_string(String(p_patch["status"]));
 	}
+	if (p_patch.has("run_id")) {
+		task->run_id = String(p_patch["run_id"]);
+	}
 	if (p_patch.has("result_summary")) {
 		task->result_summary = String(p_patch["result_summary"]);
 	}
@@ -458,6 +489,22 @@ bool AINextProjectState::mark_task_completed(const String &p_task_id, const Stri
 
 bool AINextProjectState::mark_task_failed(const String &p_task_id, const String &p_error) {
 	return set_task_status(p_task_id, AI_NEXT_TASK_FAILED, p_error);
+}
+
+bool AINextProjectState::reset_interrupted_task(const String &p_task_id) {
+	AINextMilestone *milestone = nullptr;
+	AINextTask *task = _find_task(p_task_id, &milestone);
+	if (!task) {
+		last_error = "Unknown NEXT task.";
+		return false;
+	}
+	if (task->status == AI_NEXT_TASK_IN_PROGRESS) {
+		task->status = AI_NEXT_TASK_PENDING;
+		task->error.clear();
+		_touch_task(*task, milestone);
+	}
+	last_error.clear();
+	return true;
 }
 
 bool AINextProjectState::skip_task(const String &p_task_id, const String &p_reason) {
@@ -683,26 +730,18 @@ String AINextProjectState::get_task_milestone_id(const String &p_task_id) const 
 }
 
 bool AINextProjectState::has_dependency_cycle(String &r_error) const {
+	HashMap<String, const AINextTask *> tasks_by_id;
 	for (const AINextMilestone &milestone : milestones) {
 		for (const AINextTask &task : milestone.tasks) {
-			Vector<String> stack;
-			stack.push_back(task.id);
-			Vector<String> pending = task.depends_on;
-			while (!pending.is_empty()) {
-				String dependency_id = pending[pending.size() - 1];
-				pending.remove_at(pending.size() - 1);
-				if (stack.has(dependency_id)) {
-					r_error = "NEXT task dependencies contain a cycle.";
-					return true;
-				}
-				const AINextTask *dependency = _find_task(dependency_id);
-				if (!dependency) {
-					continue;
-				}
-				stack.push_back(dependency_id);
-				for (const String &nested_dependency_id : dependency->depends_on) {
-					pending.push_back(nested_dependency_id);
-				}
+			tasks_by_id.insert(task.id, &task);
+		}
+	}
+
+	HashMap<String, int> visit_state;
+	for (const AINextMilestone &milestone : milestones) {
+		for (const AINextTask &task : milestone.tasks) {
+			if (_visit_task_dependencies_for_cycle(task, tasks_by_id, visit_state, r_error)) {
+				return true;
 			}
 		}
 	}

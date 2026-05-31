@@ -4,54 +4,17 @@
 
 #include "ai_agent_next_session.h"
 
+#include "core/config/project_settings.h"
 #include "core/object/class_db.h"
 #include "core/object/callable_mp.h"
+#include "core/os/os.h"
+#include "core/os/time.h"
 #include "editor/ai_component/agent/ai_agent_message.h"
-#include "editor/ai_component/next/ai_next_manage_project_tool.h"
-#include "editor/ai_component/next/ai_next_prompts.h"
-#include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_instantiate_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_list_properties_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_move_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_open_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_rename_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_save_current_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_set_property_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_bind_to_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_create_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_delete_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_inspect_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_patch_function_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_unbind_from_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_script_write_tool.h"
-#include "editor/ai_component/tools/editor/ai_shader_apply_to_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_shader_create_tool.h"
-#include "editor/ai_component/tools/editor/ai_shader_delete_tool.h"
-#include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
-#include "editor/ai_component/tools/project/ai_create_folder_tool.h"
-#include "editor/ai_component/tools/project/ai_list_project_tool.h"
-#include "editor/ai_component/tools/project/ai_read_file_tool.h"
-#include "editor/ai_component/tools/project/ai_search_project_tool.h"
+#include "editor/ai_component/next/agents/ai_next_agents.h"
 
 namespace {
 
 const int NEXT_MAX_TASK_BATCH_SIZE = 2;
-
-template <typename T>
-Ref<AITool> _make_tool() {
-	Ref<T> tool;
-	tool.instantiate();
-	return tool;
-}
-
-void _push_tool(Vector<Ref<AITool>> &r_tools, const Ref<AITool> &p_tool) {
-	if (p_tool.is_valid()) {
-		r_tools.push_back(p_tool);
-	}
-}
 
 String _get_last_response_summary(const AIAgentRuntimeResult &p_result) {
 	for (int i = p_result.messages.size() - 1; i >= 0; i--) {
@@ -160,12 +123,52 @@ String _summarize_runtime_message(const Dictionary &p_message) {
 	return String(p_message.get("role", "assistant")).capitalize();
 }
 
+bool _runtime_message_records_completed_next_write(const Dictionary &p_message) {
+	Dictionary metadata = p_message.get("metadata", Dictionary());
+	const String tool_name = String(metadata.get("tool_name", String()));
+	const String status = String(metadata.get("status", String()));
+	if (tool_name == "ai_next.manage_project" && status == "completed") {
+		return true;
+	}
+
+	if (!metadata.has("tool_calls") || Variant(metadata["tool_calls"]).get_type() != Variant::ARRAY) {
+		return false;
+	}
+
+	Array tool_calls = metadata["tool_calls"];
+	for (int i = 0; i < tool_calls.size(); i++) {
+		if (Variant(tool_calls[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary tool_call = tool_calls[i];
+		const String call_tool_name = String(tool_call.get("tool_name", tool_call.get("name", String())));
+		const String call_status = String(tool_call.get("status", String()));
+		if (call_tool_name == "ai_next.manage_project" && call_status == "completed") {
+			return true;
+		}
+	}
+	return false;
+}
+
+AIAgentMessage _make_task_run_message(const Dictionary &p_task) {
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+	user_message.content = vformat("Run NEXT task `%s`.\n\nDescription:\n%s\n\nReturn a concise summary and list produced paths if any.",
+			String(p_task.get("title", String())),
+			String(p_task.get("description", String())));
+	return user_message;
+}
+
 } // namespace
 
 void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_project_state"), &AIAgentNextSession::get_project_state);
 	ClassDB::bind_method(D_METHOD("get_project_store"), &AIAgentNextSession::get_project_store);
 	ClassDB::bind_method(D_METHOD("get_event_log"), &AIAgentNextSession::get_event_log);
+	ClassDB::bind_method(D_METHOD("get_workflow_id"), &AIAgentNextSession::get_workflow_id);
+	ClassDB::bind_method(D_METHOD("get_workflow_title"), &AIAgentNextSession::get_workflow_title);
+	ClassDB::bind_method(D_METHOD("list_workflows"), &AIAgentNextSession::list_workflows);
 	ClassDB::bind_method(D_METHOD("has_agent", "agent_id"), &AIAgentNextSession::has_agent);
 	ClassDB::bind_method(D_METHOD("is_workflow_active"), &AIAgentNextSession::is_workflow_active);
 	ClassDB::bind_method(D_METHOD("get_active_operation_name"), &AIAgentNextSession::get_active_operation_name);
@@ -178,6 +181,11 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_model_profile_id", "model_profile_id"), &AIAgentNextSession::set_model_profile_id);
 	ClassDB::bind_method(D_METHOD("set_agent_model_profile_id", "agent_id", "model_profile_id"), &AIAgentNextSession::set_agent_model_profile_id);
 	ClassDB::bind_method(D_METHOD("submit_brief", "brief"), &AIAgentNextSession::submit_brief);
+	ClassDB::bind_method(D_METHOD("start_new_workflow"), &AIAgentNextSession::start_new_workflow);
+	ClassDB::bind_method(D_METHOD("load_workflow", "workflow_id"), &AIAgentNextSession::load_workflow);
+	ClassDB::bind_method(D_METHOD("delete_workflow", "workflow_id"), &AIAgentNextSession::delete_workflow);
+	ClassDB::bind_method(D_METHOD("can_continue_workflow"), &AIAgentNextSession::can_continue_workflow);
+	ClassDB::bind_method(D_METHOD("continue_workflow"), &AIAgentNextSession::continue_workflow);
 	ClassDB::bind_method(D_METHOD("select_milestone", "milestone_id"), &AIAgentNextSession::select_milestone);
 	ClassDB::bind_method(D_METHOD("select_task", "task_id"), &AIAgentNextSession::select_task);
 	ClassDB::bind_method(D_METHOD("generate_plan"), &AIAgentNextSession::generate_plan);
@@ -190,6 +198,7 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("cancel_current_operation"), &AIAgentNextSession::cancel_current_operation);
 
 	ADD_SIGNAL(MethodInfo("state_changed", PropertyInfo(Variant::STRING, "state")));
+	ADD_SIGNAL(MethodInfo("workflow_session_changed"));
 	ADD_SIGNAL(MethodInfo("project_state_changed"));
 	ADD_SIGNAL(MethodInfo("agent_progress_changed"));
 }
@@ -197,140 +206,76 @@ void AIAgentNextSession::_bind_methods() {
 AIAgentNextSession::AIAgentNextSession() {
 	project_state.instantiate();
 	project_store.instantiate();
+	workflow_store.instantiate();
 	event_log.instantiate();
 
+	Ref<AINextPlanningAgent> planning_agent;
 	planning_agent.instantiate();
+	planning_agent->set_project_state(project_state);
+	_add_agent("planning_agent", planning_agent);
+
+	Ref<AINextScriptAgent> script_agent;
 	script_agent.instantiate();
+	_add_agent("script_agent", script_agent);
+
+	Ref<AINextSceneAgent> scene_agent;
 	scene_agent.instantiate();
+	_add_agent("scene_agent", scene_agent);
+
+	Ref<AINextShaderAgent> shader_agent;
 	shader_agent.instantiate();
+	_add_agent("shader_agent", shader_agent);
+
+	Ref<AINextReviewAgent> review_agent;
 	review_agent.instantiate();
+	_add_agent("review_agent", review_agent);
 
-	Vector<Ref<AITool>> planning_tools;
-	_register_next_tools(planning_agent);
-	_register_shared_read_tools(planning_agent);
-	_configure_agent(planning_agent, "planning_agent", AINextPrompts::get_planning_prompt(), planning_tools);
-
-	Vector<Ref<AITool>> script_tools;
-	_register_shared_read_tools(script_agent);
-	_register_specialist_write_tools(script_agent, "script_agent");
-	_configure_agent(script_agent, "script_agent", AINextPrompts::get_script_prompt(), script_tools);
-
-	Vector<Ref<AITool>> scene_tools;
-	_register_shared_read_tools(scene_agent);
-	_register_specialist_write_tools(scene_agent, "scene_agent");
-	_configure_agent(scene_agent, "scene_agent", AINextPrompts::get_scene_prompt(), scene_tools);
-
-	Vector<Ref<AITool>> shader_tools;
-	_register_shared_read_tools(shader_agent);
-	_register_specialist_write_tools(shader_agent, "shader_agent");
-	_configure_agent(shader_agent, "shader_agent", AINextPrompts::get_shader_prompt(), shader_tools);
-
-	Vector<Ref<AITool>> review_tools;
-	_register_shared_read_tools(review_agent);
-	_configure_agent(review_agent, "review_agent", AINextPrompts::get_review_prompt(), review_tools);
-	review_agent->set_agent_profile_id("review");
-
-	planning_agent->get_runtime_runner()->connect("runtime_finished", callable_mp(this, &AIAgentNextSession::_planning_agent_runtime_finished), CONNECT_DEFERRED);
-	planning_agent->get_runtime_runner()->connect("runtime_message_added", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_added).bind("planning_agent"), CONNECT_DEFERRED);
-	planning_agent->get_runtime_runner()->connect("runtime_message_updated", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_updated).bind("planning_agent"), CONNECT_DEFERRED);
-	script_agent->get_runtime_runner()->connect("runtime_finished", callable_mp(this, &AIAgentNextSession::_script_agent_runtime_finished), CONNECT_DEFERRED);
-	script_agent->get_runtime_runner()->connect("runtime_message_added", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_added).bind("script_agent"), CONNECT_DEFERRED);
-	script_agent->get_runtime_runner()->connect("runtime_message_updated", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_updated).bind("script_agent"), CONNECT_DEFERRED);
-	scene_agent->get_runtime_runner()->connect("runtime_finished", callable_mp(this, &AIAgentNextSession::_scene_agent_runtime_finished), CONNECT_DEFERRED);
-	scene_agent->get_runtime_runner()->connect("runtime_message_added", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_added).bind("scene_agent"), CONNECT_DEFERRED);
-	scene_agent->get_runtime_runner()->connect("runtime_message_updated", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_updated).bind("scene_agent"), CONNECT_DEFERRED);
-	shader_agent->get_runtime_runner()->connect("runtime_finished", callable_mp(this, &AIAgentNextSession::_shader_agent_runtime_finished), CONNECT_DEFERRED);
-	shader_agent->get_runtime_runner()->connect("runtime_message_added", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_added).bind("shader_agent"), CONNECT_DEFERRED);
-	shader_agent->get_runtime_runner()->connect("runtime_message_updated", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_updated).bind("shader_agent"), CONNECT_DEFERRED);
-	review_agent->get_runtime_runner()->connect("runtime_finished", callable_mp(this, &AIAgentNextSession::_review_agent_runtime_finished), CONNECT_DEFERRED);
-	review_agent->get_runtime_runner()->connect("runtime_message_added", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_added).bind("review_agent"), CONNECT_DEFERRED);
-	review_agent->get_runtime_runner()->connect("runtime_message_updated", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_updated).bind("review_agent"), CONNECT_DEFERRED);
+	workflow_store->set_project_scope(_get_project_scope_key());
+	_load_initial_workflow();
 }
 
-void AIAgentNextSession::_configure_agent(const Ref<AIAgentBase> &p_agent, const String &p_agent_id, const String &p_prompt, const Vector<Ref<AITool>> &p_tools) {
+void AIAgentNextSession::_add_agent(const String &p_agent_id, const Ref<AIAgentBase> &p_agent) {
 	ERR_FAIL_COND(p_agent.is_null());
-	p_agent->set_session_id("next:" + p_agent_id);
-	p_agent->set_system_prompt(p_prompt);
-	if (p_agent_id == "review_agent") {
-		p_agent->set_agent_profile_id("review");
-	} else if (p_agent_id == "planning_agent") {
-		p_agent->set_agent_profile_id("plan");
-	} else {
-		p_agent->set_agent_profile_id("write");
-	}
-	for (const Ref<AITool> &tool : p_tools) {
-		p_agent->add_tool(tool, AI_TOOL_PERMISSION_ALLOW);
-	}
+	agents[p_agent_id] = p_agent;
+	_connect_agent_runtime(p_agent_id, p_agent);
 }
 
-void AIAgentNextSession::_register_next_tools(const Ref<AIAgentBase> &p_agent) {
+void AIAgentNextSession::_connect_agent_runtime(const String &p_agent_id, const Ref<AIAgentBase> &p_agent) {
 	ERR_FAIL_COND(p_agent.is_null());
-	Ref<AINextManageProjectTool> manage_project_tool;
-	manage_project_tool.instantiate();
-	manage_project_tool->set_project_state(project_state);
-	p_agent->add_tool(manage_project_tool, AI_TOOL_PERMISSION_ALLOW);
-}
+	ERR_FAIL_COND(p_agent->get_runtime_runner().is_null());
 
-void AIAgentNextSession::_register_shared_read_tools(const Ref<AIAgentBase> &p_agent) {
-	ERR_FAIL_COND(p_agent.is_null());
-	p_agent->add_tool(_make_tool<AIListProjectTool>(), AI_TOOL_PERMISSION_ALLOW);
-	p_agent->add_tool(_make_tool<AIReadFileTool>(), AI_TOOL_PERMISSION_ALLOW);
-	p_agent->add_tool(_make_tool<AISearchProjectTool>(), AI_TOOL_PERMISSION_ALLOW);
-	p_agent->add_tool(_make_tool<AIGetEditorContextTool>(), AI_TOOL_PERMISSION_ALLOW);
-}
-
-void AIAgentNextSession::_register_specialist_write_tools(const Ref<AIAgentBase> &p_agent, const String &p_agent_id) {
-	ERR_FAIL_COND(p_agent.is_null());
-	if (p_agent_id == "script_agent") {
-		p_agent->add_tool(_make_tool<AICreateFolderTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIScriptInspectTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIScriptCreateTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIScriptWriteTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIScriptPatchFunctionTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIScriptBindToNodeTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIScriptUnbindFromNodeTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIScriptDeleteTool>(), AI_TOOL_PERMISSION_ASK);
-		return;
-	}
-	if (p_agent_id == "scene_agent") {
-		p_agent->add_tool(_make_tool<AISceneListPropertiesTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AISceneCreateSceneTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AISceneAddNodeTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AISceneInstantiateSceneTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AISceneRenameNodeTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AISceneMoveNodeTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AISceneSetPropertyTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AISceneSaveCurrentSceneTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AISceneOpenSceneTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AISceneDeleteNodeTool>(), AI_TOOL_PERMISSION_ASK);
-		return;
-	}
-	if (p_agent_id == "shader_agent") {
-		p_agent->add_tool(_make_tool<AICreateFolderTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIShaderCreateTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIShaderEditTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIShaderApplyToNodeTool>(), AI_TOOL_PERMISSION_ALLOW);
-		p_agent->add_tool(_make_tool<AIShaderDeleteTool>(), AI_TOOL_PERMISSION_ASK);
-	}
+	p_agent->get_runtime_runner()->connect("runtime_finished", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_finished).bind(p_agent_id), CONNECT_DEFERRED);
+	p_agent->get_runtime_runner()->connect("runtime_message_added", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_added).bind(p_agent_id), CONNECT_DEFERRED);
+	p_agent->get_runtime_runner()->connect("runtime_message_updated", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_updated).bind(p_agent_id), CONNECT_DEFERRED);
 }
 
 Ref<AIAgentBase> AIAgentNextSession::_get_agent(const String &p_agent_id) const {
-	if (p_agent_id == "planning_agent") {
-		return planning_agent;
-	}
-	if (p_agent_id == "script_agent") {
-		return script_agent;
-	}
-	if (p_agent_id == "scene_agent") {
-		return scene_agent;
-	}
-	if (p_agent_id == "shader_agent") {
-		return shader_agent;
-	}
-	if (p_agent_id == "review_agent") {
-		return review_agent;
+	const Ref<AIAgentBase> *agent = agents.getptr(p_agent_id);
+	if (agent) {
+		return *agent;
 	}
 	return Ref<AIAgentBase>();
+}
+
+String AIAgentNextSession::_get_project_scope_key() const {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (!project_settings) {
+		return "global";
+	}
+
+	const String resource_path = project_settings->get_resource_path();
+	if (resource_path.is_empty()) {
+		return "global";
+	}
+	return resource_path.md5_text();
+}
+
+String AIAgentNextSession::_make_workflow_id() const {
+	return OS::get_singleton()->get_unique_id() + "_" + itos(Time::get_singleton()->get_unix_time_from_system()) + "_" + itos(Math::rand());
+}
+
+String AIAgentNextSession::_make_run_id(const String &p_prefix) const {
+	return p_prefix + "_" + OS::get_singleton()->get_unique_id() + "_" + itos(Time::get_singleton()->get_unix_time_from_system()) + "_" + itos(Math::rand());
 }
 
 bool AIAgentNextSession::_is_workflow_active() const {
@@ -338,8 +283,13 @@ bool AIAgentNextSession::_is_workflow_active() const {
 }
 
 void AIAgentNextSession::_emit_project_state_changed() {
+	_save_current_workflow();
 	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
 	emit_signal(SNAME("project_state_changed"));
+}
+
+void AIAgentNextSession::_emit_workflow_session_changed() {
+	emit_signal(SNAME("workflow_session_changed"));
 }
 
 void AIAgentNextSession::_clear_pending_agent_run() {
@@ -347,7 +297,10 @@ void AIAgentNextSession::_clear_pending_agent_run() {
 	pending_agent_id = String();
 	pending_milestone_id = String();
 	pending_task_id = String();
+	pending_feedback_text.clear();
 	pending_feedback_previous_task_count = 0;
+	active_workflow_run_id.clear();
+	active_agent_run_id.clear();
 }
 
 void AIAgentNextSession::_clear_workflow() {
@@ -358,6 +311,7 @@ void AIAgentNextSession::_clear_workflow() {
 	milestone_run_guard = 0;
 	active_task_batch = Array();
 	active_task_batch_index = 0;
+	_reset_checkpoint();
 }
 
 void AIAgentNextSession::_clear_runtime_messages() {
@@ -366,14 +320,252 @@ void AIAgentNextSession::_clear_runtime_messages() {
 	emit_signal(SNAME("agent_progress_changed"));
 }
 
+void AIAgentNextSession::_reset_checkpoint() {
+	checkpoint = AINextWorkflowCheckpoint();
+}
+
+AINextWorkflowSnapshot AIAgentNextSession::_build_workflow_snapshot() const {
+	AINextWorkflowSnapshot snapshot;
+	snapshot.id = workflow_id;
+	snapshot.title = workflow_title;
+	snapshot.created_at = workflow_created_at;
+	snapshot.updated_at = workflow_updated_at;
+	snapshot.project_state = project_state;
+	snapshot.event_log = event_log.is_valid() ? event_log->to_array() : Array();
+	snapshot.checkpoint = checkpoint;
+	snapshot.agent_runs = agent_runs;
+	return snapshot;
+}
+
+void AIAgentNextSession::_apply_workflow_snapshot(const AINextWorkflowSnapshot &p_snapshot, bool p_normalize_running_checkpoint) {
+	workflow_id = p_snapshot.id;
+	workflow_title = p_snapshot.title.is_empty() ? String("New NEXT Workflow") : p_snapshot.title;
+	workflow_created_at = p_snapshot.created_at;
+	workflow_updated_at = p_snapshot.updated_at;
+	project_state = p_snapshot.project_state;
+	if (project_state.is_null()) {
+		project_state.instantiate();
+	}
+	_sync_agent_project_state();
+	if (event_log.is_null()) {
+		event_log.instantiate();
+	}
+	event_log->load_from_array(p_snapshot.event_log);
+	checkpoint = p_snapshot.checkpoint;
+	agent_runs = p_snapshot.agent_runs;
+
+	workflow_active = false;
+	_clear_pending_agent_run();
+	workflow_milestone_id = checkpoint.milestone_id;
+	selected_task_id = checkpoint.selected_task_id;
+	pending_feedback_text = checkpoint.feedback_text;
+	active_task_batch = checkpoint.active_task_batch.duplicate(true);
+	active_task_batch_index = checkpoint.active_task_batch_index;
+	single_task_run = checkpoint.single_task_run;
+	milestone_run_guard = 0;
+	_clear_runtime_messages();
+
+	if (p_normalize_running_checkpoint && checkpoint.status == "running") {
+		_normalize_interrupted_checkpoint();
+	}
+	if (selected_task_id.is_empty()) {
+		_sync_selected_task_to_active_milestone();
+	}
+}
+
+void AIAgentNextSession::_load_initial_workflow() {
+	String latest_workflow_id;
+	AINextWorkflowSnapshot snapshot;
+	if (workflow_store.is_valid() && workflow_store->get_most_recent_workflow_id(latest_workflow_id) && workflow_store->load_workflow(latest_workflow_id, snapshot)) {
+		_apply_workflow_snapshot(snapshot, true);
+		_save_current_workflow();
+		_emit_workflow_session_changed();
+		_emit_project_state_changed();
+		return;
+	}
+
+	_start_empty_workflow(true);
+}
+
+void AIAgentNextSession::_start_empty_workflow(bool p_save) {
+	project_state.instantiate();
+	_sync_agent_project_state();
+	event_log.instantiate();
+	agent_runs.clear();
+	workflow_id = _make_workflow_id();
+	workflow_title = "New NEXT Workflow";
+	workflow_created_at = Time::get_singleton()->get_unix_time_from_system();
+	workflow_updated_at = workflow_created_at;
+	workflow_active = false;
+	_clear_pending_agent_run();
+	workflow_milestone_id.clear();
+	selected_task_id.clear();
+	pending_feedback_text.clear();
+	milestone_run_guard = 0;
+	active_task_batch = Array();
+	active_task_batch_index = 0;
+	single_task_run = false;
+	_reset_checkpoint();
+	_clear_runtime_messages();
+	if (p_save) {
+		_save_current_workflow();
+	}
+	_emit_workflow_session_changed();
+	_emit_project_state_changed();
+}
+
+void AIAgentNextSession::_save_current_workflow() {
+	if (workflow_store.is_null() || workflow_id.strip_edges().is_empty()) {
+		return;
+	}
+	workflow_updated_at = Time::get_singleton()->get_unix_time_from_system();
+	Error err = workflow_store->save_workflow(_build_workflow_snapshot());
+	if (err != OK) {
+		print_line(vformat("[AI Agent][NEXT] Failed to save workflow %s (error %d).", workflow_id, err));
+	}
+}
+
+void AIAgentNextSession::_sync_agent_project_state() {
+	Ref<AIAgentBase> base_agent = _get_agent("planning_agent");
+	if (base_agent.is_null()) {
+		return;
+	}
+	AINextPlanningAgent *planning_agent = Object::cast_to<AINextPlanningAgent>(*base_agent);
+	if (planning_agent) {
+		planning_agent->set_project_state(project_state);
+	}
+}
+
+void AIAgentNextSession::_normalize_interrupted_checkpoint() {
+	if (checkpoint.operation.is_empty() || checkpoint.operation == "none") {
+		checkpoint.status = "idle";
+		return;
+	}
+
+	checkpoint.status = "user_terminated";
+	if (!checkpoint.task_id.is_empty() && project_state.is_valid()) {
+		project_state->reset_interrupted_task(checkpoint.task_id);
+	}
+	if (!checkpoint.agent_run_id.is_empty()) {
+		AINextAgentRunState *run_state = _find_agent_run(checkpoint.agent_run_id);
+		if (run_state) {
+			run_state->status = "user_terminated";
+			run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+		}
+	}
+	if (project_state.is_valid()) {
+		project_state->set_session_state(AI_NEXT_SESSION_IDLE);
+	}
+}
+
+AINextAgentRunState *AIAgentNextSession::_find_agent_run(const String &p_run_id) {
+	if (p_run_id.is_empty()) {
+		return nullptr;
+	}
+	for (int i = 0; i < agent_runs.size(); i++) {
+		if (agent_runs[i].run_id == p_run_id) {
+			return &agent_runs.write[i];
+		}
+	}
+	return nullptr;
+}
+
+const AINextAgentRunState *AIAgentNextSession::_find_agent_run(const String &p_run_id) const {
+	if (p_run_id.is_empty()) {
+		return nullptr;
+	}
+	for (int i = 0; i < agent_runs.size(); i++) {
+		if (agent_runs[i].run_id == p_run_id) {
+			return &agent_runs[i];
+		}
+	}
+	return nullptr;
+}
+
+Vector<AIAgentMessage> AIAgentNextSession::_get_or_create_agent_run_messages(const String &p_agent_run_id, const Vector<AIAgentMessage> &p_default_messages) const {
+	const AINextAgentRunState *run_state = _find_agent_run(p_agent_run_id);
+	if (run_state && !run_state->messages.is_empty()) {
+		return run_state->messages;
+	}
+	return p_default_messages;
+}
+
+void AIAgentNextSession::_upsert_agent_run(const AINextAgentRunState &p_run_state) {
+	for (int i = 0; i < agent_runs.size(); i++) {
+		if (agent_runs[i].run_id == p_run_state.run_id) {
+			agent_runs.write[i] = p_run_state;
+			return;
+		}
+	}
+	agent_runs.push_back(p_run_state);
+}
+
+void AIAgentNextSession::_mark_active_agent_run_started(const String &p_run_id, const String &p_agent_id, PendingOperation p_operation, const String &p_milestone_id, const String &p_task_id, const Vector<AIAgentMessage> &p_messages) {
+	AINextAgentRunState run_state;
+	AINextAgentRunState *existing = _find_agent_run(p_run_id);
+	if (existing) {
+		run_state = *existing;
+	}
+
+	const uint64_t now = Time::get_singleton()->get_unix_time_from_system();
+	run_state.run_id = p_run_id;
+	run_state.workflow_id = workflow_id;
+	run_state.agent_id = p_agent_id;
+	run_state.operation = _get_checkpoint_operation_name(p_operation);
+	run_state.milestone_id = p_milestone_id;
+	run_state.task_id = p_task_id;
+	run_state.status = "running";
+	run_state.messages = p_messages;
+	run_state.runtime_base_message_count = p_messages.size();
+	if (run_state.created_at == 0) {
+		run_state.created_at = now;
+	}
+	run_state.updated_at = now;
+	_upsert_agent_run(run_state);
+}
+
+void AIAgentNextSession::_store_active_agent_run_progress_message(int p_index, const Dictionary &p_message) {
+	if (p_index < 0 || active_agent_run_id.is_empty()) {
+		return;
+	}
+
+	AINextAgentRunState *run_state = _find_agent_run(active_agent_run_id);
+	if (!run_state) {
+		return;
+	}
+
+	AIAgentMessage message = AIAgentMessage::from_dict(p_message);
+	while (run_state->messages.size() <= p_index) {
+		run_state->messages.push_back(AIAgentMessage());
+	}
+	run_state->messages.write[p_index] = message;
+	run_state->runtime_base_message_count = run_state->messages.size();
+	run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+}
+
+void AIAgentNextSession::_store_active_agent_run_result(const AIAgentRuntimeResult &p_result) {
+	AINextAgentRunState *run_state = _find_agent_run(active_agent_run_id);
+	if (!run_state) {
+		return;
+	}
+
+	run_state->status = p_result.success ? String("completed") : String("failed");
+	run_state->messages = p_result.messages;
+	run_state->runtime_base_message_count = p_result.messages.size();
+	run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+}
+
 void AIAgentNextSession::_fail_workflow(const String &p_event_type, const String &p_milestone_id, const String &p_task_id, const String &p_agent_id, const String &p_error) {
+	AINextWorkflowCheckpoint failed_checkpoint = checkpoint;
+	failed_checkpoint.status = "failed";
 	_clear_workflow();
+	checkpoint = failed_checkpoint;
 	project_state->set_session_state(AI_NEXT_SESSION_FAILED);
 	event_log->record_event(p_event_type, p_milestone_id, p_task_id, p_agent_id, p_error);
 	_emit_project_state_changed();
 }
 
-bool AIAgentNextSession::_begin_agent_run(PendingOperation p_operation, const String &p_agent_id, const Vector<AIAgentMessage> &p_messages, const String &p_milestone_id, const String &p_task_id) {
+bool AIAgentNextSession::_begin_agent_run(PendingOperation p_operation, const String &p_agent_id, const Vector<AIAgentMessage> &p_messages, const String &p_milestone_id, const String &p_task_id, const String &p_existing_agent_run_id) {
 	if (pending_operation != PENDING_OPERATION_NONE) {
 		return false;
 	}
@@ -383,41 +575,58 @@ bool AIAgentNextSession::_begin_agent_run(PendingOperation p_operation, const St
 		return false;
 	}
 
+	const String agent_run_id = p_existing_agent_run_id.is_empty() ? _make_run_id("agent_run") : p_existing_agent_run_id;
+	Vector<AIAgentMessage> run_messages = _get_or_create_agent_run_messages(agent_run_id, p_messages);
+	active_workflow_run_id = _make_run_id("workflow_run");
+	active_agent_run_id = agent_run_id;
 	pending_operation = p_operation;
 	pending_agent_id = p_agent_id;
 	pending_milestone_id = p_milestone_id;
 	pending_task_id = p_task_id;
-	if (!agent->start(p_messages)) {
+
+	checkpoint.status = "running";
+	checkpoint.operation = _get_checkpoint_operation_name(p_operation);
+	checkpoint.workflow_run_id = active_workflow_run_id;
+	checkpoint.agent_run_id = active_agent_run_id;
+	checkpoint.agent_id = p_agent_id;
+	checkpoint.milestone_id = p_milestone_id;
+	checkpoint.task_id = p_task_id;
+	checkpoint.single_task_run = single_task_run;
+	checkpoint.feedback_text = pending_feedback_text;
+	checkpoint.feedback_previous_task_count = pending_feedback_previous_task_count;
+	checkpoint.selected_task_id = selected_task_id;
+	checkpoint.active_task_batch = active_task_batch.duplicate(true);
+	checkpoint.active_task_batch_index = active_task_batch_index;
+
+	if (!p_task_id.is_empty() && project_state.is_valid()) {
+		Dictionary patch;
+		patch["run_id"] = active_agent_run_id;
+		String error;
+		project_state->update_task(p_task_id, patch, error);
+	}
+	_mark_active_agent_run_started(active_agent_run_id, p_agent_id, p_operation, p_milestone_id, p_task_id, run_messages);
+	_save_current_workflow();
+
+	if (!agent->start(run_messages)) {
+		AINextAgentRunState *run_state = _find_agent_run(active_agent_run_id);
+		if (run_state) {
+			run_state->status = "failed";
+			run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+		}
+		checkpoint.status = "failed";
+		_save_current_workflow();
 		_clear_pending_agent_run();
 		return false;
 	}
 	return true;
 }
 
-void AIAgentNextSession::_planning_agent_runtime_finished() {
-	_on_agent_runtime_finished("planning_agent");
-}
-
-void AIAgentNextSession::_script_agent_runtime_finished() {
-	_on_agent_runtime_finished("script_agent");
-}
-
-void AIAgentNextSession::_scene_agent_runtime_finished() {
-	_on_agent_runtime_finished("scene_agent");
-}
-
-void AIAgentNextSession::_shader_agent_runtime_finished() {
-	_on_agent_runtime_finished("shader_agent");
-}
-
-void AIAgentNextSession::_review_agent_runtime_finished() {
-	_on_agent_runtime_finished("review_agent");
-}
-
 void AIAgentNextSession::_on_agent_runtime_message_added(int p_index, const Dictionary &p_message, const String &p_agent_id) {
-	if (p_agent_id != pending_agent_id && _is_workflow_active()) {
+	if (!_is_workflow_active() || p_agent_id != pending_agent_id || checkpoint.status != "running") {
 		return;
 	}
+
+	_store_active_agent_run_progress_message(p_index, p_message);
 
 	Dictionary progress_message;
 	progress_message["agent_id"] = p_agent_id;
@@ -430,13 +639,18 @@ void AIAgentNextSession::_on_agent_runtime_message_added(int p_index, const Dict
 
 	runtime_to_progress_indices[p_index] = runtime_messages.size();
 	runtime_messages.push_back(progress_message);
+	if (_runtime_message_records_completed_next_write(p_message)) {
+		_emit_project_state_changed();
+	}
 	emit_signal(SNAME("agent_progress_changed"));
 }
 
 void AIAgentNextSession::_on_agent_runtime_message_updated(int p_index, const Dictionary &p_message, const String &p_agent_id) {
-	if (p_agent_id != pending_agent_id && _is_workflow_active()) {
+	if (!_is_workflow_active() || p_agent_id != pending_agent_id || checkpoint.status != "running") {
 		return;
 	}
+
+	_store_active_agent_run_progress_message(p_index, p_message);
 
 	const int *progress_index = runtime_to_progress_indices.getptr(p_index);
 	if (!progress_index || *progress_index < 0 || *progress_index >= runtime_messages.size()) {
@@ -453,11 +667,18 @@ void AIAgentNextSession::_on_agent_runtime_message_updated(int p_index, const Di
 	progress_message["content"] = _summarize_runtime_message(p_message);
 	progress_message["message"] = p_message.duplicate(true);
 	runtime_messages[*progress_index] = progress_message;
+	if (_runtime_message_records_completed_next_write(p_message)) {
+		_emit_project_state_changed();
+	}
 	emit_signal(SNAME("agent_progress_changed"));
 }
 
 void AIAgentNextSession::_on_agent_runtime_finished(const String &p_agent_id) {
 	if (!_is_workflow_active() || pending_operation == PENDING_OPERATION_NONE || pending_agent_id != p_agent_id) {
+		return;
+	}
+	if (checkpoint.status != "running" || checkpoint.workflow_run_id != active_workflow_run_id || checkpoint.agent_run_id != active_agent_run_id) {
+		print_line(vformat("[AI Agent][NEXT] Ignored stale runtime result. workflow=%s agent=%s", workflow_id, p_agent_id));
 		return;
 	}
 
@@ -473,6 +694,8 @@ void AIAgentNextSession::_on_agent_runtime_finished(const String &p_agent_id) {
 	const String finished_agent_id = pending_agent_id;
 	const int previous_task_count = pending_feedback_previous_task_count;
 	AIAgentRuntimeResult result = agent->get_runtime_runner()->get_last_result();
+	_store_active_agent_run_result(result);
+	_save_current_workflow();
 	_clear_pending_agent_run();
 
 	switch (finished_operation) {
@@ -607,14 +830,8 @@ void AIAgentNextSession::_start_next_task_from_batch() {
 		event_log->record_event("task_started", milestone_id, task_id, agent_id, String(task.get("title", String())));
 		_emit_project_state_changed();
 
-		AIAgentMessage user_message;
-		user_message.role = AI_AGENT_ROLE_USER;
-		user_message.content = vformat("Run NEXT task `%s`.\n\nDescription:\n%s\n\nReturn a concise summary and list produced paths if any.",
-				String(task.get("title", String())),
-				String(task.get("description", String())));
-
-		Vector<AIAgentMessage> messages;
-		messages.push_back(user_message);
+	Vector<AIAgentMessage> messages;
+		messages.push_back(_make_task_run_message(task));
 		if (!_begin_agent_run(PENDING_OPERATION_RUN_TASK, agent_id, messages, milestone_id, task_id)) {
 			project_state->mark_task_failed(task_id, "Failed to start NEXT agent runtime.");
 			event_log->record_event("task_failed", milestone_id, task_id, agent_id, "Failed to start NEXT agent runtime.");
@@ -734,6 +951,22 @@ void AIAgentNextSession::_set_idle_state_for_active_milestone() {
 	}
 }
 
+String AIAgentNextSession::_get_checkpoint_operation_name(PendingOperation p_operation) const {
+	switch (p_operation) {
+		case PENDING_OPERATION_GENERATE_PLAN:
+			return "generate_plan";
+		case PENDING_OPERATION_RUN_TASK:
+			return single_task_run ? String("run_task") : String("run_milestone");
+		case PENDING_OPERATION_REVIEW:
+			return "review";
+		case PENDING_OPERATION_FEEDBACK_TASKS:
+			return "feedback_tasks";
+		case PENDING_OPERATION_NONE:
+		default:
+			return "none";
+	}
+}
+
 Ref<AINextProjectState> AIAgentNextSession::get_project_state() const {
 	return project_state;
 }
@@ -744,6 +977,18 @@ Ref<AINextProjectStore> AIAgentNextSession::get_project_store() const {
 
 Ref<AINextEventLog> AIAgentNextSession::get_event_log() const {
 	return event_log;
+}
+
+String AIAgentNextSession::get_workflow_id() const {
+	return workflow_id;
+}
+
+String AIAgentNextSession::get_workflow_title() const {
+	return workflow_title;
+}
+
+Array AIAgentNextSession::list_workflows() const {
+	return workflow_store.is_valid() ? workflow_store->list_workflows() : Array();
 }
 
 bool AIAgentNextSession::has_agent(const String &p_agent_id) const {
@@ -826,11 +1071,11 @@ bool AIAgentNextSession::can_lock_active_milestone() const {
 }
 
 void AIAgentNextSession::set_model_profile_id(const String &p_model_profile_id) {
-	planning_agent->set_model_profile_id(p_model_profile_id);
-	script_agent->set_model_profile_id(p_model_profile_id);
-	scene_agent->set_model_profile_id(p_model_profile_id);
-	shader_agent->set_model_profile_id(p_model_profile_id);
-	review_agent->set_model_profile_id(p_model_profile_id);
+	for (const KeyValue<String, Ref<AIAgentBase>> &E : agents) {
+		if (E.value.is_valid()) {
+			E.value->set_model_profile_id(p_model_profile_id);
+		}
+	}
 }
 
 void AIAgentNextSession::set_agent_model_profile_id(const String &p_agent_id, const String &p_model_profile_id) {
@@ -842,10 +1087,184 @@ void AIAgentNextSession::set_agent_model_profile_id(const String &p_agent_id, co
 
 void AIAgentNextSession::submit_brief(const String &p_brief) {
 	project_state->set_brief(p_brief);
+	const String title = p_brief.strip_edges();
+	if (!title.is_empty() && (workflow_title.is_empty() || workflow_title == "New NEXT Workflow")) {
+		workflow_title = title.substr(0, 80);
+	}
 	project_state->set_session_state(AI_NEXT_SESSION_BRIEFING);
 	event_log->record_event("brief_submitted", String(), String(), "user", "NEXT brief submitted.");
-	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
-	emit_signal(SNAME("project_state_changed"));
+	_emit_workflow_session_changed();
+	_emit_project_state_changed();
+}
+
+void AIAgentNextSession::start_new_workflow() {
+	if (_is_workflow_active()) {
+		cancel_current_operation();
+	}
+	_save_current_workflow();
+	_start_empty_workflow(true);
+}
+
+bool AIAgentNextSession::load_workflow(const String &p_workflow_id) {
+	if (p_workflow_id.strip_edges().is_empty() || workflow_store.is_null()) {
+		return false;
+	}
+	if (p_workflow_id == workflow_id) {
+		return true;
+	}
+	if (_is_workflow_active()) {
+		cancel_current_operation();
+	}
+	_save_current_workflow();
+
+	AINextWorkflowSnapshot snapshot;
+	if (!workflow_store->load_workflow(p_workflow_id, snapshot)) {
+		return false;
+	}
+	_apply_workflow_snapshot(snapshot, true);
+	_save_current_workflow();
+	_emit_workflow_session_changed();
+	_emit_project_state_changed();
+	return true;
+}
+
+bool AIAgentNextSession::delete_workflow(const String &p_workflow_id) {
+	if (p_workflow_id.strip_edges().is_empty() || workflow_store.is_null()) {
+		return false;
+	}
+	if (_is_workflow_active()) {
+		cancel_current_operation();
+	}
+
+	const bool deleting_current = p_workflow_id == workflow_id;
+	if (!workflow_store->delete_workflow(p_workflow_id)) {
+		return false;
+	}
+
+	if (deleting_current) {
+		String latest_workflow_id;
+		AINextWorkflowSnapshot snapshot;
+		if (workflow_store->get_most_recent_workflow_id(latest_workflow_id) && workflow_store->load_workflow(latest_workflow_id, snapshot)) {
+			_apply_workflow_snapshot(snapshot, true);
+			_save_current_workflow();
+			_emit_workflow_session_changed();
+			_emit_project_state_changed();
+		} else {
+			_start_empty_workflow(true);
+		}
+	}
+	return true;
+}
+
+bool AIAgentNextSession::can_continue_workflow() const {
+	return !_is_workflow_active() && checkpoint.is_resumable();
+}
+
+bool AIAgentNextSession::continue_workflow() {
+	if (!can_continue_workflow()) {
+		return false;
+	}
+
+	if (checkpoint.operation == "run_task" || checkpoint.operation == "run_milestone") {
+		const String task_id = checkpoint.task_id;
+		const String milestone_id = checkpoint.milestone_id.is_empty() && project_state.is_valid() ? project_state->get_task_milestone_id(task_id) : checkpoint.milestone_id;
+		Dictionary task = project_state->get_task(task_id);
+		const String agent_id = checkpoint.agent_id.is_empty() ? String(task.get("assigned_agent_id", String())) : checkpoint.agent_id;
+		if (task_id.is_empty() || milestone_id.is_empty() || task.is_empty() || _get_agent(agent_id).is_null()) {
+			checkpoint.status = "failed";
+			_save_current_workflow();
+			return false;
+		}
+
+		workflow_active = true;
+		single_task_run = checkpoint.operation == "run_task" ? true : checkpoint.single_task_run;
+		workflow_milestone_id = milestone_id;
+		selected_task_id = task_id;
+		active_task_batch = checkpoint.active_task_batch.duplicate(true);
+		active_task_batch_index = checkpoint.active_task_batch_index;
+		_clear_runtime_messages();
+		project_state->set_active_milestone_id(milestone_id);
+		project_state->set_session_state(AI_NEXT_SESSION_EXECUTING);
+		project_state->set_task_status(task_id, AI_NEXT_TASK_IN_PROGRESS);
+		event_log->record_event("workflow_resumed", milestone_id, task_id, agent_id, "NEXT workflow resumed.");
+		_emit_project_state_changed();
+
+		Vector<AIAgentMessage> messages;
+		messages.push_back(_make_task_run_message(task));
+		if (!_begin_agent_run(PENDING_OPERATION_RUN_TASK, agent_id, messages, milestone_id, task_id, checkpoint.agent_run_id)) {
+			project_state->mark_task_failed(task_id, "Failed to resume NEXT agent runtime.");
+			event_log->record_event("task_failed", milestone_id, task_id, agent_id, "Failed to resume NEXT agent runtime.");
+			_complete_single_task_run(true, milestone_id, task_id);
+			return false;
+		}
+		return true;
+	}
+
+	if (checkpoint.operation == "generate_plan") {
+		workflow_active = true;
+		_clear_runtime_messages();
+		project_state->set_session_state(AI_NEXT_SESSION_PLANNING);
+		event_log->record_event("workflow_resumed", String(), String(), "planning_agent", "NEXT planning resumed.");
+		_emit_project_state_changed();
+
+		AIAgentMessage user_message;
+		user_message.role = AI_AGENT_ROLE_USER;
+		user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+		user_message.content = "Create a NEXT milestone plan for this brief:\n\n" + project_state->get_brief().strip_edges();
+		Vector<AIAgentMessage> messages;
+		messages.push_back(user_message);
+		if (!_begin_agent_run(PENDING_OPERATION_GENERATE_PLAN, "planning_agent", messages, String(), String(), checkpoint.agent_run_id)) {
+			_fail_workflow("planning_failed", String(), String(), "planning_agent", "Failed to resume NEXT planning agent runtime.");
+			return false;
+		}
+		return true;
+	}
+
+	if (checkpoint.operation == "review") {
+		workflow_active = true;
+		workflow_milestone_id = checkpoint.milestone_id;
+		_clear_runtime_messages();
+		project_state->set_session_state(AI_NEXT_SESSION_FEEDBACK_PLANNING);
+		event_log->record_event("workflow_resumed", workflow_milestone_id, String(), "review_agent", "NEXT review resumed.");
+		_emit_project_state_changed();
+
+		AIAgentMessage user_message;
+		user_message.role = AI_AGENT_ROLE_USER;
+		user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+		user_message.content = vformat("Review NEXT milestone `%s`. Inspect project context and pending changes. Return findings only; do not edit files.", workflow_milestone_id);
+		Vector<AIAgentMessage> messages;
+		messages.push_back(user_message);
+		if (!_begin_agent_run(PENDING_OPERATION_REVIEW, "review_agent", messages, workflow_milestone_id, String(), checkpoint.agent_run_id)) {
+			_fail_workflow("review_failed", workflow_milestone_id, String(), "review_agent", "Failed to resume NEXT review agent runtime.");
+			return false;
+		}
+		return true;
+	}
+
+	if (checkpoint.operation == "feedback_tasks") {
+		workflow_active = true;
+		workflow_milestone_id = checkpoint.milestone_id;
+		pending_feedback_text = checkpoint.feedback_text;
+		pending_feedback_previous_task_count = checkpoint.feedback_previous_task_count;
+		_clear_runtime_messages();
+		project_state->set_session_state(AI_NEXT_SESSION_FEEDBACK_PLANNING);
+		event_log->record_event("workflow_resumed", workflow_milestone_id, String(), "planning_agent", "NEXT feedback planning resumed.");
+		_emit_project_state_changed();
+
+		AIAgentMessage user_message;
+		user_message.role = AI_AGENT_ROLE_USER;
+		user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+		user_message.content = vformat("Turn this playtest feedback into additional NEXT tasks for milestone `%s` by calling ai_next.manage_project with append_tasks:\n\n%s", workflow_milestone_id, pending_feedback_text);
+		Vector<AIAgentMessage> messages;
+		messages.push_back(user_message);
+		if (!_begin_agent_run(PENDING_OPERATION_FEEDBACK_TASKS, "planning_agent", messages, workflow_milestone_id, String(), checkpoint.agent_run_id)) {
+			_fail_workflow("feedback_planning_failed", workflow_milestone_id, String(), "planning_agent", "Failed to resume NEXT planning agent runtime.");
+			return false;
+		}
+		return true;
+	}
+
+	return false;
 }
 
 bool AIAgentNextSession::select_milestone(const String &p_milestone_id) {
@@ -899,6 +1318,7 @@ void AIAgentNextSession::generate_plan() {
 
 	AIAgentMessage user_message;
 	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
 	user_message.content = "Create a NEXT milestone plan for this brief:\n\n" + brief;
 
 	Vector<AIAgentMessage> messages;
@@ -911,8 +1331,7 @@ void AIAgentNextSession::generate_plan() {
 void AIAgentNextSession::approve_plan() {
 	project_state->set_session_state(AI_NEXT_SESSION_EXECUTING);
 	event_log->record_event("plan_approved", project_state->get_active_milestone_id(), String(), "user", "NEXT plan approved.");
-	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
-	emit_signal(SNAME("project_state_changed"));
+	_emit_project_state_changed();
 }
 
 void AIAgentNextSession::run_active_milestone() {
@@ -973,14 +1392,8 @@ bool AIAgentNextSession::run_task(const String &p_task_id) {
 	event_log->record_event("task_started", milestone_id, p_task_id, agent_id, String(task.get("title", String())));
 	_emit_project_state_changed();
 
-	AIAgentMessage user_message;
-	user_message.role = AI_AGENT_ROLE_USER;
-	user_message.content = vformat("Run NEXT task `%s`.\n\nDescription:\n%s\n\nReturn a concise summary and list produced paths if any.",
-			String(task.get("title", String())),
-			String(task.get("description", String())));
-
 	Vector<AIAgentMessage> messages;
-	messages.push_back(user_message);
+	messages.push_back(_make_task_run_message(task));
 	if (!_begin_agent_run(PENDING_OPERATION_RUN_TASK, agent_id, messages, milestone_id, p_task_id)) {
 		project_state->mark_task_failed(p_task_id, "Failed to start NEXT agent runtime.");
 		event_log->record_event("task_failed", milestone_id, p_task_id, agent_id, "Failed to start NEXT agent runtime.");
@@ -1011,6 +1424,7 @@ void AIAgentNextSession::review_active_milestone() {
 
 	AIAgentMessage user_message;
 	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
 	user_message.content = vformat("Review NEXT milestone `%s`. Inspect project context and pending changes. Return findings only; do not edit files.", milestone_id);
 
 	Vector<AIAgentMessage> messages;
@@ -1044,8 +1458,10 @@ void AIAgentNextSession::generate_feedback_tasks(const String &p_feedback) {
 
 	const int previous_task_count = project_state->get_task_count(milestone_id);
 	pending_feedback_previous_task_count = previous_task_count;
+	pending_feedback_text = feedback;
 	AIAgentMessage user_message;
 	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
 	user_message.content = vformat("Turn this playtest feedback into additional NEXT tasks for milestone `%s` by calling ai_next.manage_project with append_tasks:\n\n%s", milestone_id, feedback);
 
 	Vector<AIAgentMessage> messages;
@@ -1076,8 +1492,75 @@ void AIAgentNextSession::accept_and_lock_active_milestone() {
 }
 
 void AIAgentNextSession::cancel_current_operation() {
-	_clear_workflow();
+	if (!_is_workflow_active() && !checkpoint.is_resumable()) {
+		return;
+	}
+
+	if (checkpoint.operation.is_empty() || checkpoint.operation == "none") {
+		checkpoint.operation = _get_checkpoint_operation_name(pending_operation);
+		checkpoint.agent_id = pending_agent_id;
+		checkpoint.milestone_id = pending_milestone_id;
+		checkpoint.task_id = pending_task_id;
+		checkpoint.single_task_run = single_task_run;
+		checkpoint.selected_task_id = selected_task_id;
+		checkpoint.active_task_batch = active_task_batch.duplicate(true);
+		checkpoint.active_task_batch_index = active_task_batch_index;
+		checkpoint.feedback_text = pending_feedback_text;
+		checkpoint.feedback_previous_task_count = pending_feedback_previous_task_count;
+	}
+	checkpoint.status = "user_terminated";
+	if (checkpoint.agent_run_id.is_empty()) {
+		checkpoint.agent_run_id = active_agent_run_id;
+	}
+	if (checkpoint.workflow_run_id.is_empty()) {
+		checkpoint.workflow_run_id = active_workflow_run_id;
+	}
+
+	if (!checkpoint.task_id.is_empty()) {
+		project_state->reset_interrupted_task(checkpoint.task_id);
+	}
+	AINextAgentRunState *run_state = _find_agent_run(checkpoint.agent_run_id);
+	if (run_state) {
+		run_state->status = "user_terminated";
+		run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+	}
+
+	workflow_active = false;
+	_clear_pending_agent_run();
+	workflow_milestone_id.clear();
+	single_task_run = false;
+	milestone_run_guard = 0;
+	active_task_batch = Array();
+	active_task_batch_index = 0;
+	_clear_runtime_messages();
 	project_state->set_session_state(AI_NEXT_SESSION_IDLE);
-	event_log->record_event("operation_cancelled", project_state->get_active_milestone_id(), String(), "user", "NEXT operation cancelled.");
+	event_log->record_event("operation_cancelled", checkpoint.milestone_id, checkpoint.task_id, "user", "NEXT operation cancelled.");
 	_emit_project_state_changed();
+}
+
+void AIAgentNextSession::set_workflow_project_scope_for_test(const String &p_project_scope_key) {
+	if (_is_workflow_active()) {
+		cancel_current_operation();
+	}
+	if (workflow_store.is_null()) {
+		workflow_store.instantiate();
+	}
+	workflow_store->set_project_scope(p_project_scope_key);
+	_load_initial_workflow();
+}
+
+Ref<AINextWorkflowStore> AIAgentNextSession::get_workflow_store_for_test() const {
+	return workflow_store;
+}
+
+Dictionary AIAgentNextSession::get_workflow_checkpoint_for_test() const {
+	return checkpoint.to_dict();
+}
+
+Error AIAgentNextSession::save_workflow_for_test() {
+	if (workflow_store.is_null() || workflow_id.is_empty()) {
+		return ERR_UNCONFIGURED;
+	}
+	workflow_updated_at = Time::get_singleton()->get_unix_time_from_system();
+	return workflow_store->save_workflow(_build_workflow_snapshot());
 }

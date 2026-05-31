@@ -8,6 +8,59 @@
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 
+namespace {
+
+const char *PROVIDER_TOOL_ARGUMENTS_PARSE_ERROR_KEY = "_provider_tool_arguments_parse_error";
+const char *PROVIDER_TOOL_ARGUMENTS_RAW_KEY = "_provider_tool_arguments";
+const int PROVIDER_TOOL_ARGUMENTS_PREVIEW_MAX_CHARS = 4096;
+
+String _make_arguments_preview(const String &p_arguments_text) {
+	String preview = p_arguments_text;
+	if (preview.length() > PROVIDER_TOOL_ARGUMENTS_PREVIEW_MAX_CHARS) {
+		preview = preview.substr(0, PROVIDER_TOOL_ARGUMENTS_PREVIEW_MAX_CHARS);
+	}
+	return preview;
+}
+
+Dictionary _make_invalid_provider_tool_arguments(const String &p_arguments_text) {
+	Dictionary arguments;
+	arguments[PROVIDER_TOOL_ARGUMENTS_PARSE_ERROR_KEY] = "Failed to parse provider tool arguments.";
+	arguments[PROVIDER_TOOL_ARGUMENTS_RAW_KEY] = _make_arguments_preview(p_arguments_text);
+	return arguments;
+}
+
+bool _parse_provider_tool_arguments_text(const String &p_arguments_text, Dictionary &r_arguments) {
+	r_arguments = Dictionary();
+	if (p_arguments_text.strip_edges().is_empty()) {
+		return true;
+	}
+
+	Ref<JSON> arguments_parser;
+	arguments_parser.instantiate();
+	Error arguments_err = arguments_parser->parse(p_arguments_text);
+	if (arguments_err != OK || arguments_parser->get_data().get_type() != Variant::DICTIONARY) {
+		r_arguments = _make_invalid_provider_tool_arguments(p_arguments_text);
+		return false;
+	}
+
+	r_arguments = arguments_parser->get_data();
+	return true;
+}
+
+bool _parse_provider_tool_arguments_value(const Variant &p_arguments_value, Dictionary &r_arguments) {
+	r_arguments = Dictionary();
+	if (p_arguments_value.get_type() == Variant::NIL) {
+		return true;
+	}
+	if (p_arguments_value.get_type() == Variant::DICTIONARY) {
+		r_arguments = Dictionary(p_arguments_value).duplicate(true);
+		return true;
+	}
+	return _parse_provider_tool_arguments_text(String(p_arguments_value), r_arguments);
+}
+
+} // namespace
+
 void AIOpenAICompatibleStreamAccumulator::_ensure_tool_call_index(int p_index) {
 	while (tool_calls.size() <= p_index) {
 		tool_calls.push_back(AIOpenAIStreamToolCallState());
@@ -166,14 +219,11 @@ AIAgentRuntimeResponse AIOpenAICompatibleStreamAccumulator::get_response(String 
 		call.id = tool_call.id;
 		call.tool_name = tool_call.tool_name;
 		if (!tool_call.arguments_json.strip_edges().is_empty()) {
-			Ref<JSON> arguments_parser;
-			arguments_parser.instantiate();
-			Error arguments_err = arguments_parser->parse(tool_call.arguments_json);
-			if (arguments_err != OK || arguments_parser->get_data().get_type() != Variant::DICTIONARY) {
-				r_error = "Failed to parse provider tool arguments.";
-				return AIAgentRuntimeResponse();
+			Dictionary parsed_arguments;
+			if (!_parse_provider_tool_arguments_text(tool_call.arguments_json, parsed_arguments)) {
+				call.status = AI_TOOL_CALL_STATUS_FAILED;
 			}
-			call.arguments = arguments_parser->get_data();
+			call.arguments = parsed_arguments;
 		}
 		response.tool_calls.push_back(call);
 	}
@@ -319,15 +369,11 @@ bool AIOpenAICompatibleCodec::_parse_chat_completion(const String &p_response_te
 		}
 
 		if (function_dict.has("arguments")) {
-			String arguments_text = String(function_dict["arguments"]);
-			Ref<JSON> arguments_parser;
-			arguments_parser.instantiate();
-			Error arguments_err = arguments_parser->parse(arguments_text);
-			if (arguments_err != OK || arguments_parser->get_data().get_type() != Variant::DICTIONARY) {
-				r_error = "Failed to parse provider tool arguments.";
-				return false;
+			Dictionary parsed_arguments;
+			if (!_parse_provider_tool_arguments_value(function_dict["arguments"], parsed_arguments)) {
+				call.status = AI_TOOL_CALL_STATUS_FAILED;
 			}
-			call.arguments = arguments_parser->get_data();
+			call.arguments = parsed_arguments;
 		}
 
 		if (!call.tool_name.is_empty()) {

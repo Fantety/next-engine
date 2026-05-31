@@ -8,7 +8,8 @@
 #include "editor/ai_component/next/ai_next_event_log.h"
 #include "editor/ai_component/next/ai_next_project_state.h"
 #include "editor/ai_component/next/ai_next_project_store.h"
-#include "editor/ai_component/tools/ai_tool.h"
+#include "editor/ai_component/next/ai_next_workflow_snapshot.h"
+#include "editor/ai_component/next/ai_next_workflow_store.h"
 #include "core/templates/hash_map.h"
 #include "scene/main/node.h"
 
@@ -25,14 +26,19 @@ class AIAgentNextSession : public Node {
 
 	Ref<AINextProjectState> project_state;
 	Ref<AINextProjectStore> project_store;
+	Ref<AINextWorkflowStore> workflow_store;
 	Ref<AINextEventLog> event_log;
 
-	Ref<AIAgentBase> planning_agent;
-	Ref<AIAgentBase> script_agent;
-	Ref<AIAgentBase> scene_agent;
-	Ref<AIAgentBase> shader_agent;
-	Ref<AIAgentBase> review_agent;
+	HashMap<String, Ref<AIAgentBase>> agents;
+	Vector<AINextAgentRunState> agent_runs;
 
+	String workflow_id;
+	String workflow_title = "New NEXT Workflow";
+	uint64_t workflow_created_at = 0;
+	uint64_t workflow_updated_at = 0;
+	AINextWorkflowCheckpoint checkpoint;
+	String active_workflow_run_id;
+	String active_agent_run_id;
 	bool workflow_active = false;
 	PendingOperation pending_operation = PENDING_OPERATION_NONE;
 	String pending_agent_id;
@@ -40,6 +46,7 @@ class AIAgentNextSession : public Node {
 	String pending_task_id;
 	String workflow_milestone_id;
 	String selected_task_id;
+	String pending_feedback_text;
 	int pending_feedback_previous_task_count = 0;
 	int milestone_run_guard = 0;
 	Array active_task_batch;
@@ -48,26 +55,38 @@ class AIAgentNextSession : public Node {
 	Array runtime_messages;
 	HashMap<int, int> runtime_to_progress_indices;
 
-	void _configure_agent(const Ref<AIAgentBase> &p_agent, const String &p_agent_id, const String &p_prompt, const Vector<Ref<AITool>> &p_tools);
-	void _register_next_tools(const Ref<AIAgentBase> &p_agent);
-	void _register_shared_read_tools(const Ref<AIAgentBase> &p_agent);
-	void _register_specialist_write_tools(const Ref<AIAgentBase> &p_agent, const String &p_agent_id);
+	void _add_agent(const String &p_agent_id, const Ref<AIAgentBase> &p_agent);
+	void _connect_agent_runtime(const String &p_agent_id, const Ref<AIAgentBase> &p_agent);
 	Ref<AIAgentBase> _get_agent(const String &p_agent_id) const;
+	String _get_project_scope_key() const;
+	String _make_workflow_id() const;
+	String _make_run_id(const String &p_prefix) const;
 	bool _is_workflow_active() const;
 	void _emit_project_state_changed();
+	void _emit_workflow_session_changed();
 	void _clear_pending_agent_run();
 	void _clear_workflow();
 	void _clear_runtime_messages();
+	void _reset_checkpoint();
+	AINextWorkflowSnapshot _build_workflow_snapshot() const;
+	void _apply_workflow_snapshot(const AINextWorkflowSnapshot &p_snapshot, bool p_normalize_running_checkpoint);
+	void _load_initial_workflow();
+	void _start_empty_workflow(bool p_save);
+	void _save_current_workflow();
+	void _sync_agent_project_state();
+	void _normalize_interrupted_checkpoint();
+	AINextAgentRunState *_find_agent_run(const String &p_run_id);
+	const AINextAgentRunState *_find_agent_run(const String &p_run_id) const;
+	Vector<AIAgentMessage> _get_or_create_agent_run_messages(const String &p_agent_run_id, const Vector<AIAgentMessage> &p_default_messages) const;
+	void _upsert_agent_run(const AINextAgentRunState &p_run_state);
+	void _mark_active_agent_run_started(const String &p_run_id, const String &p_agent_id, PendingOperation p_operation, const String &p_milestone_id, const String &p_task_id, const Vector<AIAgentMessage> &p_messages);
+	void _store_active_agent_run_progress_message(int p_index, const Dictionary &p_message);
+	void _store_active_agent_run_result(const AIAgentRuntimeResult &p_result);
 	void _fail_workflow(const String &p_event_type, const String &p_milestone_id, const String &p_task_id, const String &p_agent_id, const String &p_error);
-	bool _begin_agent_run(PendingOperation p_operation, const String &p_agent_id, const Vector<AIAgentMessage> &p_messages, const String &p_milestone_id = String(), const String &p_task_id = String());
+	bool _begin_agent_run(PendingOperation p_operation, const String &p_agent_id, const Vector<AIAgentMessage> &p_messages, const String &p_milestone_id = String(), const String &p_task_id = String(), const String &p_existing_agent_run_id = String());
 	void _on_agent_runtime_finished(const String &p_agent_id);
 	void _on_agent_runtime_message_added(int p_index, const Dictionary &p_message, const String &p_agent_id);
 	void _on_agent_runtime_message_updated(int p_index, const Dictionary &p_message, const String &p_agent_id);
-	void _planning_agent_runtime_finished();
-	void _script_agent_runtime_finished();
-	void _scene_agent_runtime_finished();
-	void _shader_agent_runtime_finished();
-	void _review_agent_runtime_finished();
 	void _finish_generate_plan(const AIAgentRuntimeResult &p_result);
 	void _finish_review_active_milestone(const AIAgentRuntimeResult &p_result, const String &p_milestone_id);
 	void _finish_feedback_tasks(const AIAgentRuntimeResult &p_result, const String &p_milestone_id, int p_previous_task_count);
@@ -79,6 +98,7 @@ class AIAgentNextSession : public Node {
 	void _sync_selected_task_to_active_milestone();
 	String _find_next_unlocked_milestone_id(const String &p_after_milestone_id) const;
 	void _set_idle_state_for_active_milestone();
+	String _get_checkpoint_operation_name(PendingOperation p_operation) const;
 
 protected:
 	static void _bind_methods();
@@ -89,6 +109,9 @@ public:
 	Ref<AINextProjectState> get_project_state() const;
 	Ref<AINextProjectStore> get_project_store() const;
 	Ref<AINextEventLog> get_event_log() const;
+	String get_workflow_id() const;
+	String get_workflow_title() const;
+	Array list_workflows() const;
 	bool has_agent(const String &p_agent_id) const;
 	Ref<AIAgentBase> get_agent_for_test(const String &p_agent_id) const;
 	bool is_workflow_active() const;
@@ -103,6 +126,11 @@ public:
 	void set_model_profile_id(const String &p_model_profile_id);
 	void set_agent_model_profile_id(const String &p_agent_id, const String &p_model_profile_id);
 	void submit_brief(const String &p_brief);
+	void start_new_workflow();
+	bool load_workflow(const String &p_workflow_id);
+	bool delete_workflow(const String &p_workflow_id);
+	bool can_continue_workflow() const;
+	bool continue_workflow();
 	bool select_milestone(const String &p_milestone_id);
 	bool select_task(const String &p_task_id);
 	void generate_plan();
@@ -113,4 +141,9 @@ public:
 	void generate_feedback_tasks(const String &p_feedback);
 	void accept_and_lock_active_milestone();
 	void cancel_current_operation();
+
+	void set_workflow_project_scope_for_test(const String &p_project_scope_key);
+	Ref<AINextWorkflowStore> get_workflow_store_for_test() const;
+	Dictionary get_workflow_checkpoint_for_test() const;
+	Error save_workflow_for_test();
 };

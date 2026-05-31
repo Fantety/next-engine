@@ -72,6 +72,7 @@ void AINextMilestoneList::refresh() {
 		Button *title = memnew(Button);
 		title->set_flat(true);
 		title->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		title->set_button_icon(get_editor_theme_icon(SNAME("Milestone")));
 		title->set_text(vformat("%s%02d %s", active ? "> " : "", i + 1, String(milestone.get("title", TTR("Milestone")))));
 		title->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 		title->set_tooltip_text(String(milestone.get("description", String())));

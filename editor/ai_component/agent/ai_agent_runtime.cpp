@@ -14,6 +14,9 @@
 
 namespace {
 
+const char *PROVIDER_TOOL_ARGUMENTS_PARSE_ERROR_KEY = "_provider_tool_arguments_parse_error";
+const char *PROVIDER_TOOL_ARGUMENTS_RAW_KEY = "_provider_tool_arguments";
+
 int _estimate_tokens_from_chars(int p_chars) {
 	if (p_chars <= 0) {
 		return 0;
@@ -368,6 +371,30 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 				call.created_at = now;
 			}
 			call.updated_at = now;
+			const String provider_tool_arguments_parse_error = String(call.arguments.get(PROVIDER_TOOL_ARGUMENTS_PARSE_ERROR_KEY, String()));
+			if (!provider_tool_arguments_parse_error.is_empty()) {
+				call.status = AI_TOOL_CALL_STATUS_FAILED;
+				if (assistant_tool_call_message.metadata.has("tool_calls") && Variant(assistant_tool_call_message.metadata["tool_calls"]).get_type() == Variant::ARRAY) {
+					Array failed_tool_calls = assistant_tool_call_message.metadata["tool_calls"];
+					if (i < failed_tool_calls.size()) {
+						failed_tool_calls[i] = call.to_dict();
+						assistant_tool_call_message.metadata["tool_calls"] = failed_tool_calls;
+						result.messages.write[assistant_tool_call_message_index] = assistant_tool_call_message;
+						_emit_message_updated(assistant_tool_call_message_index, assistant_tool_call_message);
+					}
+				}
+
+				Dictionary result_metadata;
+				result_metadata["provider_tool_arguments_parse_error"] = provider_tool_arguments_parse_error;
+				result_metadata["provider_tool_arguments"] = String(call.arguments.get(PROVIDER_TOOL_ARGUMENTS_RAW_KEY, String()));
+				result.tool_calls.push_back(call);
+				AIAgentMessage tool_message = _make_tool_result_message(call, _make_tool_failure_message(call.tool_name, provider_tool_arguments_parse_error), AIToolCall::status_to_string(call.status), result_metadata);
+				result.messages.push_back(tool_message);
+				_emit_message_added(result.messages.size() - 1, tool_message);
+				executed_tool_calls++;
+				print_line(vformat("[AI Agent][Runtime] Tool call failed before execution: %s name=%s executed_tools=%d", provider_tool_arguments_parse_error, call.tool_name, executed_tool_calls));
+				continue;
+			}
 			call.status = AI_TOOL_CALL_STATUS_RUNNING;
 			if (assistant_tool_call_message.metadata.has("tool_calls") && Variant(assistant_tool_call_message.metadata["tool_calls"]).get_type() == Variant::ARRAY) {
 				Array running_tool_calls = assistant_tool_call_message.metadata["tool_calls"];

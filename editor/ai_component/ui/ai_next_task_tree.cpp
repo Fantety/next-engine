@@ -9,9 +9,22 @@
 #include "editor/ai_component/next/ai_agent_next_session.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
-#include "scene/gui/color_rect.h"
 #include "scene/gui/label.h"
 #include "servers/text/text_server.h"
+
+namespace {
+
+StringName _get_task_status_icon_name(const String &p_status) {
+	if (p_status == "completed" || p_status == "skipped") {
+		return SNAME("TaskGreen");
+	}
+	if (p_status == "failed" || p_status == "blocked") {
+		return SNAME("TaskRed");
+	}
+	return SNAME("TaskYellow");
+}
+
+} // namespace
 
 void AINextTaskTree::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("refresh"), &AINextTaskTree::refresh);
@@ -81,23 +94,10 @@ void AINextTaskTree::refresh() {
 		row->add_theme_constant_override("separation", 6 * EDSCALE);
 		add_child(row);
 
-		ColorRect *dot = memnew(ColorRect);
-		dot->set_custom_minimum_size(Size2(7, 7) * EDSCALE);
-		dot->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
-		if (status_text == "completed") {
-			dot->set_color(Color(0.24, 0.78, 0.43));
-		} else if (status_text == "failed" || status_text == "blocked") {
-			dot->set_color(Color(0.92, 0.25, 0.25));
-		} else if (status_text == "in_progress" || status_text == "ready") {
-			dot->set_color(Color(0.96, 0.69, 0.20));
-		} else {
-			dot->set_color(Color(0.45, 0.45, 0.45));
-		}
-		row->add_child(dot);
-
 		Button *title = memnew(Button);
 		title->set_flat(true);
 		title->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		title->set_button_icon(get_editor_theme_icon(_get_task_status_icon_name(status_text)));
 		title->set_text((selected ? "> " : "") + String(task.get("title", TTR("Task"))));
 		title->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 		title->set_tooltip_text(String(task.get("description", String())));

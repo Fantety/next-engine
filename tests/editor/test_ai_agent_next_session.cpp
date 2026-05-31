@@ -10,7 +10,14 @@
 #include "core/os/thread.h"
 #include "editor/ai_component/agent/ai_agent_base.h"
 #include "editor/ai_component/agent/ai_agent_runtime.h"
+#include "editor/ai_component/next/agents/ai_next_planning_agent.h"
+#include "editor/ai_component/next/agents/ai_next_review_agent.h"
+#include "editor/ai_component/next/agents/ai_next_scene_agent.h"
+#include "editor/ai_component/next/agents/ai_next_script_agent.h"
+#include "editor/ai_component/next/agents/ai_next_shader_agent.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
+#include "editor/ai_component/next/ai_next_workflow_snapshot.h"
+#include "editor/ai_component/next/ai_next_workflow_store.h"
 
 TEST_FORCE_LINK(test_ai_agent_next_session);
 
@@ -23,6 +30,7 @@ class NextScriptedRuntimeClient : public AIAgentRuntimeClient {
 
 public:
 	int request_count = 0;
+	Array last_messages;
 	Array last_tool_schemas;
 
 	void push_response(const AIAgentRuntimeResponse &p_response) {
@@ -30,8 +38,8 @@ public:
 	}
 
 	virtual AIAgentRuntimeResponse complete(const Array &p_messages, const Array &p_tool_schemas) override {
-		(void)p_messages;
 		request_count++;
+		last_messages = p_messages;
 		last_tool_schemas = p_tool_schemas;
 		if (responses.is_empty()) {
 			AIAgentRuntimeResponse response;
@@ -114,6 +122,48 @@ public:
 	}
 };
 
+class BlockingSecondTurnNextRuntimeClient : public AIAgentRuntimeClient {
+	GDCLASS(BlockingSecondTurnNextRuntimeClient, AIAgentRuntimeClient);
+
+	Vector<AIAgentRuntimeResponse> responses;
+
+public:
+	Semaphore second_request_started;
+	Semaphore release_second_request;
+	int request_count = 0;
+	Array last_messages;
+	Array last_tool_schemas;
+
+	void push_response(const AIAgentRuntimeResponse &p_response) {
+		responses.push_back(p_response);
+	}
+
+	virtual AIAgentRuntimeResponse complete(const Array &p_messages, const Array &p_tool_schemas) override {
+		request_count++;
+		last_messages = p_messages;
+		last_tool_schemas = p_tool_schemas;
+
+		if (request_count == 2) {
+			second_request_started.post();
+			release_second_request.wait();
+		}
+
+		if (responses.is_empty()) {
+			AIAgentRuntimeResponse response;
+			response.error = "No scripted NEXT response.";
+			return response;
+		}
+		AIAgentRuntimeResponse response = responses[0];
+		responses.remove_at(0);
+		return response;
+	}
+
+	virtual AIAgentRuntimeResponse complete_streaming(const Array &p_messages, const Array &p_tool_schemas, const Callable &p_partial_response_callback) override {
+		(void)p_partial_response_callback;
+		return complete(p_messages, p_tool_schemas);
+	}
+};
+
 static bool wait_for_semaphore(const Semaphore &p_semaphore, uint64_t p_timeout_msec = 1000) {
 	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
 	while (OS::get_singleton()->get_ticks_msec() - start_time < p_timeout_msec) {
@@ -139,8 +189,40 @@ static void wait_for_next_agent(AIAgentNextSession *p_session, const String &p_a
 	flush_message_queue();
 }
 
-TEST_CASE("[Editor][AI][NEXT] session initializes independent agents") {
+static AIAgentMessage _make_next_session_message(AIAgentRole p_role, const String &p_content) {
+	AIAgentMessage message;
+	message.role = p_role;
+	message.content = p_content;
+	return message;
+}
+
+static void cleanup_next_workflows(const String &p_project_scope) {
+	Ref<AINextWorkflowStore> store;
+	store.instantiate();
+	store->set_project_scope(p_project_scope);
+
+	Array workflows = store->list_workflows();
+	for (int i = 0; i < workflows.size(); i++) {
+		if (Variant(workflows[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary workflow = workflows[i];
+		store->delete_workflow(String(workflow.get("id", String())));
+	}
+}
+
+static AIAgentNextSession *make_isolated_next_session() {
+	static int isolated_scope_counter = 0;
+	const String project_scope = "test_next_session_isolated_" + itos(++isolated_scope_counter);
+	cleanup_next_workflows(project_scope);
+
 	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+	return session;
+}
+
+TEST_CASE("[Editor][AI][NEXT] session initializes independent agents") {
+	AIAgentNextSession *session = make_isolated_next_session();
 
 	CHECK(session->get_project_state().is_valid());
 	CHECK(session->has_agent("planning_agent"));
@@ -148,13 +230,173 @@ TEST_CASE("[Editor][AI][NEXT] session initializes independent agents") {
 	CHECK(session->has_agent("scene_agent"));
 	CHECK(session->has_agent("shader_agent"));
 	CHECK(session->has_agent("review_agent"));
+	CHECK(Object::cast_to<AINextPlanningAgent>(*session->get_agent_for_test("planning_agent")) != nullptr);
+	CHECK(Object::cast_to<AINextScriptAgent>(*session->get_agent_for_test("script_agent")) != nullptr);
+	CHECK(Object::cast_to<AINextSceneAgent>(*session->get_agent_for_test("scene_agent")) != nullptr);
+	CHECK(Object::cast_to<AINextShaderAgent>(*session->get_agent_for_test("shader_agent")) != nullptr);
+	CHECK(Object::cast_to<AINextReviewAgent>(*session->get_agent_for_test("review_agent")) != nullptr);
 
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] session manages multiple persisted workflows per project") {
+	const String project_scope = "test_next_session_multi_workflows";
+	cleanup_next_workflows(project_scope);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+
+	const String first_workflow_id = session->get_workflow_id();
+	session->submit_brief("First persisted NEXT workflow.");
+	CHECK(session->get_workflow_title() == "First persisted NEXT workflow.");
+
+	session->start_new_workflow();
+	const String second_workflow_id = session->get_workflow_id();
+	session->submit_brief("Second persisted NEXT workflow.");
+
+	CHECK(first_workflow_id != second_workflow_id);
+	Array workflows = session->list_workflows();
+	CHECK(workflows.size() >= 2);
+
+	CHECK(session->load_workflow(first_workflow_id));
+	CHECK(session->get_workflow_id() == first_workflow_id);
+	CHECK(session->get_project_state()->get_brief() == "First persisted NEXT workflow.");
+
+	CHECK(session->load_workflow(second_workflow_id));
+	CHECK(session->get_workflow_id() == second_workflow_id);
+	CHECK(session->get_project_state()->get_brief() == "Second persisted NEXT workflow.");
+
+	CHECK(session->delete_workflow(second_workflow_id));
+	CHECK(session->get_workflow_id() == first_workflow_id);
+	CHECK(session->get_project_state()->get_brief() == "First persisted NEXT workflow.");
+
+	session->delete_workflow(first_workflow_id);
+	memdelete(session);
+	cleanup_next_workflows(project_scope);
+}
+
+TEST_CASE("[Editor][AI][NEXT] user termination persists resumable checkpoint and ignores late task result") {
+	const String project_scope = "test_next_session_user_termination";
+	cleanup_next_workflows(project_scope);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+
+	Ref<BlockingNextRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Created player_controller.gd";
+	client->push_response(final_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+	CHECK(session->run_task(task_id));
+	CHECK(wait_for_semaphore(client->request_started));
+	CHECK(String(state->get_task(task_id).get("status", String())) == "in_progress");
+
+	session->cancel_current_operation();
+
+	Dictionary checkpoint = session->get_workflow_checkpoint_for_test();
+	CHECK(String(checkpoint.get("status", String())) == "user_terminated");
+	CHECK(String(checkpoint.get("operation", String())) == "run_task");
+	CHECK(String(state->get_task(task_id).get("status", String())) == "ready");
+	CHECK(session->can_continue_workflow());
+
+	client->release_request.post();
+	wait_for_next_agent(session, "script_agent");
+
+	CHECK(String(state->get_task(task_id).get("status", String())) == "ready");
+	CHECK_FALSE(session->is_workflow_active());
+
+	const String workflow_id = session->get_workflow_id();
+	memdelete(session);
+
+	AIAgentNextSession *restored_session = memnew(AIAgentNextSession);
+	restored_session->set_workflow_project_scope_for_test(project_scope);
+	CHECK(restored_session->get_workflow_id() == workflow_id);
+	CHECK(restored_session->can_continue_workflow());
+	CHECK(String(restored_session->get_project_state()->get_task(task_id).get("status", String())) == "ready");
+
+	restored_session->delete_workflow(workflow_id);
+	memdelete(restored_session);
+	cleanup_next_workflows(project_scope);
+}
+
+TEST_CASE("[Editor][AI][NEXT] continue workflow resumes sub-agent messages from persisted run state") {
+	const String project_scope = "test_next_session_resume_agent_messages";
+	cleanup_next_workflows(project_scope);
+
+	Ref<AINextWorkflowStore> store;
+	store.instantiate();
+	store->set_project_scope(project_scope);
+
+	AINextWorkflowSnapshot snapshot;
+	snapshot.id = "workflow_resume_messages";
+	snapshot.title = "Resume messages";
+	snapshot.created_at = 100;
+	snapshot.updated_at = 200;
+	snapshot.project_state.instantiate();
+	const String milestone_id = snapshot.project_state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = snapshot.project_state->add_task(milestone_id, "Create player script", "script_agent", Array());
+	snapshot.project_state->set_task_status(task_id, AI_NEXT_TASK_IN_PROGRESS);
+
+	snapshot.checkpoint.status = "user_terminated";
+	snapshot.checkpoint.operation = "run_task";
+	snapshot.checkpoint.agent_id = "script_agent";
+	snapshot.checkpoint.agent_run_id = "agent_run_resume";
+	snapshot.checkpoint.milestone_id = milestone_id;
+	snapshot.checkpoint.task_id = task_id;
+	snapshot.checkpoint.single_task_run = true;
+	snapshot.checkpoint.selected_task_id = task_id;
+
+	AINextAgentRunState run_state;
+	run_state.run_id = "agent_run_resume";
+	run_state.workflow_id = snapshot.id;
+	run_state.agent_id = "script_agent";
+	run_state.operation = "run_task";
+	run_state.milestone_id = milestone_id;
+	run_state.task_id = task_id;
+	run_state.status = "user_terminated";
+	run_state.messages.push_back(_make_next_session_message(AI_AGENT_ROLE_USER, "Run the original task."));
+	run_state.messages.push_back(_make_next_session_message(AI_AGENT_ROLE_ASSISTANT, "I inspected existing files."));
+	run_state.messages.push_back(_make_next_session_message(AI_AGENT_ROLE_TOOL, "Prior tool result."));
+	snapshot.agent_runs.push_back(run_state);
+	CHECK(store->save_workflow(snapshot) == OK);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Created player_controller.gd";
+	client->push_response(final_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+	CHECK(session->continue_workflow());
+	wait_for_next_agent(session, "script_agent");
+
+	bool saw_persisted_agent_context = false;
+	for (int i = 0; i < client->last_messages.size(); i++) {
+		Dictionary message = client->last_messages[i];
+		const String content = String(message.get("content", String()));
+		if (content.contains("I inspected existing files.") || content.contains("Prior tool result.")) {
+			saw_persisted_agent_context = true;
+		}
+	}
+	CHECK(saw_persisted_agent_context);
+	CHECK(String(session->get_project_state()->get_task(task_id).get("status", String())) == "completed");
+
+	session->delete_workflow(snapshot.id);
+	memdelete(session);
+	cleanup_next_workflows(project_scope);
+}
+
 TEST_CASE("[Editor][AI][NEXT] agent operations run runtime work off the main thread") {
 	{
-		AIAgentNextSession *session = memnew(AIAgentNextSession);
+		AIAgentNextSession *session = make_isolated_next_session();
 		Ref<BlockingNextRuntimeClient> client;
 		client.instantiate();
 		session->get_agent_for_test("planning_agent")->set_runtime_client(client);
@@ -172,7 +414,7 @@ TEST_CASE("[Editor][AI][NEXT] agent operations run runtime work off the main thr
 	}
 
 	{
-		AIAgentNextSession *session = memnew(AIAgentNextSession);
+		AIAgentNextSession *session = make_isolated_next_session();
 		Ref<AINextProjectState> state = session->get_project_state();
 		const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 		const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -193,7 +435,7 @@ TEST_CASE("[Editor][AI][NEXT] agent operations run runtime work off the main thr
 	}
 
 	{
-		AIAgentNextSession *session = memnew(AIAgentNextSession);
+		AIAgentNextSession *session = make_isolated_next_session();
 		Ref<AINextProjectState> state = session->get_project_state();
 		const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 		const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -215,7 +457,7 @@ TEST_CASE("[Editor][AI][NEXT] agent operations run runtime work off the main thr
 	}
 
 	{
-		AIAgentNextSession *session = memnew(AIAgentNextSession);
+		AIAgentNextSession *session = make_isolated_next_session();
 		Ref<AINextProjectState> state = session->get_project_state();
 		const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 		const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -238,7 +480,7 @@ TEST_CASE("[Editor][AI][NEXT] agent operations run runtime work off the main thr
 }
 
 TEST_CASE("[Editor][AI][NEXT] session generates structured plan through NEXT tool") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 
 	Ref<NextScriptedRuntimeClient> client;
 	client.instantiate();
@@ -284,13 +526,66 @@ TEST_CASE("[Editor][AI][NEXT] session generates structured plan through NEXT too
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] session saves planning tool writes before final provider response") {
+	AIAgentNextSession *session = make_isolated_next_session();
+
+	Ref<BlockingSecondTurnNextRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse tool_response;
+	AIToolCall call;
+	call.id = "call_replace_plan";
+	call.tool_name = "ai_next.manage_project";
+	call.arguments["action"] = "replace_plan";
+
+	Dictionary first_milestone;
+	first_milestone["title"] = "Core Movement";
+	first_milestone["description"] = "Build movement.";
+	first_milestone["tasks"] = Array();
+
+	Dictionary second_milestone;
+	second_milestone["title"] = "Combat";
+	second_milestone["description"] = "Build combat.";
+	second_milestone["tasks"] = Array();
+
+	Array milestones;
+	milestones.push_back(first_milestone);
+	milestones.push_back(second_milestone);
+	call.arguments["milestones"] = milestones;
+	tool_response.tool_calls.push_back(call);
+	client->push_response(tool_response);
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Plan generated.";
+	client->push_response(final_response);
+
+	session->get_agent_for_test("planning_agent")->set_runtime_client(client);
+	session->submit_brief("Build a 2D movement prototype.");
+	session->generate_plan();
+
+	CHECK(wait_for_semaphore(client->second_request_started));
+	flush_message_queue();
+
+	AINextWorkflowSnapshot snapshot;
+	CHECK(session->get_workflow_store_for_test()->load_workflow(session->get_workflow_id(), snapshot));
+	CHECK(snapshot.project_state.is_valid());
+	if (snapshot.project_state.is_valid()) {
+		CHECK(snapshot.project_state->get_milestone_count() == 2);
+	}
+
+	client->release_second_request.post();
+	wait_for_next_agent(session, "planning_agent");
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI][NEXT] session selects milestones and advances after locking") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String first_milestone = state->create_milestone("Core Movement", "Build movement.");
 	const String first_task = state->add_task(first_milestone, "Create player script", "script_agent", Array());
 	const String second_milestone = state->create_milestone("Combat", "Build combat.");
-	state->add_task(second_milestone, "Create attack scene", "scene_agent", Array());
+	const String second_task = state->add_task(second_milestone, "Create attack scene", "scene_agent", Array());
+	CHECK_FALSE(second_task.is_empty());
 	state->mark_task_completed(first_task, "Created player_controller.gd", Array());
 
 	CHECK(state->get_active_milestone_id() == first_milestone);
@@ -309,7 +604,7 @@ TEST_CASE("[Editor][AI][NEXT] session selects milestones and advances after lock
 }
 
 TEST_CASE("[Editor][AI][NEXT] session runs ready milestone tasks serially") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -334,7 +629,7 @@ TEST_CASE("[Editor][AI][NEXT] session runs ready milestone tasks serially") {
 }
 
 TEST_CASE("[Editor][AI][NEXT] session runs one task without running the full milestone") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 	const String first_task = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -360,7 +655,7 @@ TEST_CASE("[Editor][AI][NEXT] session runs one task without running the full mil
 }
 
 TEST_CASE("[Editor][AI][NEXT] session exposes runtime progress messages") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -390,7 +685,7 @@ TEST_CASE("[Editor][AI][NEXT] session exposes runtime progress messages") {
 }
 
 TEST_CASE("[Editor][AI][NEXT] session batches ready tasks up to the NEXT scheduling limit") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 	const String script_task = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -446,7 +741,7 @@ TEST_CASE("[Editor][AI][NEXT] session batches ready tasks up to the NEXT schedul
 }
 
 TEST_CASE("[Editor][AI][NEXT] session serializes ready tasks with planned output conflicts") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 	const String script_task = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -495,7 +790,7 @@ TEST_CASE("[Editor][AI][NEXT] session serializes ready tasks with planned output
 }
 
 TEST_CASE("[Editor][AI][NEXT] session turns feedback into NEXT tasks") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -537,7 +832,7 @@ TEST_CASE("[Editor][AI][NEXT] session turns feedback into NEXT tasks") {
 }
 
 TEST_CASE("[Editor][AI][NEXT] session records review agent findings") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
@@ -571,7 +866,7 @@ TEST_CASE("[Editor][AI][NEXT] session records review agent findings") {
 }
 
 TEST_CASE("[Editor][AI][NEXT] session locks completed active milestone") {
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());

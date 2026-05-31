@@ -7,10 +7,19 @@
 #include "editor/ai_component/next/ai_next_event_log.h"
 #include "editor/ai_component/next/ai_next_project_state.h"
 #include "editor/ai_component/next/ai_next_project_store.h"
+#include "editor/ai_component/next/ai_next_workflow_snapshot.h"
+#include "editor/ai_component/next/ai_next_workflow_store.h"
 
 TEST_FORCE_LINK(test_ai_next_project_state);
 
 namespace TestAINextProjectState {
+
+static AIAgentMessage _make_next_test_message(AIAgentRole p_role, const String &p_content) {
+	AIAgentMessage message;
+	message.role = p_role;
+	message.content = p_content;
+	return message;
+}
 
 TEST_CASE("[Editor][AI][NEXT] project state marks tasks ready only after dependencies complete") {
 	Ref<AINextProjectState> state;
@@ -49,6 +58,129 @@ TEST_CASE("[Editor][AI][NEXT] project store round trips milestones") {
 	CHECK(loaded->get_milestone_count() == 1);
 
 	CHECK(store->delete_project_for_test("test_project"));
+}
+
+TEST_CASE("[Editor][AI][NEXT] workflow snapshot round trips project state event log checkpoint and agent runs") {
+	Ref<AINextProjectState> state;
+	state.instantiate();
+	const String milestone_id = state->create_milestone("Inventory", "Basic inventory loop.");
+	const String task_id = state->add_task(milestone_id, "Create inventory script", "script_agent", Array());
+	state->set_task_status(task_id, AI_NEXT_TASK_IN_PROGRESS);
+
+	AINextWorkflowSnapshot snapshot;
+	snapshot.id = "workflow_roundtrip";
+	snapshot.title = "Inventory workflow";
+	snapshot.created_at = 100;
+	snapshot.updated_at = 200;
+	snapshot.project_state = state;
+
+	snapshot.event_log.push_back(Dictionary());
+	Dictionary event = snapshot.event_log[0];
+	event["event_type"] = "task_started";
+	event["milestone_id"] = milestone_id;
+	event["task_id"] = task_id;
+	event["agent_id"] = "script_agent";
+	event["message"] = "Started.";
+	snapshot.event_log.set(0, event);
+
+	snapshot.checkpoint.status = "running";
+	snapshot.checkpoint.operation = "run_task";
+	snapshot.checkpoint.workflow_run_id = "workflow_run_1";
+	snapshot.checkpoint.agent_run_id = "agent_run_1";
+	snapshot.checkpoint.agent_id = "script_agent";
+	snapshot.checkpoint.milestone_id = milestone_id;
+	snapshot.checkpoint.task_id = task_id;
+	snapshot.checkpoint.single_task_run = true;
+	snapshot.checkpoint.selected_task_id = task_id;
+
+	AINextAgentRunState agent_run;
+	agent_run.run_id = "agent_run_1";
+	agent_run.workflow_id = snapshot.id;
+	agent_run.agent_id = "script_agent";
+	agent_run.operation = "run_task";
+	agent_run.milestone_id = milestone_id;
+	agent_run.task_id = task_id;
+	agent_run.status = "running";
+	agent_run.messages.push_back(_make_next_test_message(AI_AGENT_ROLE_USER, "Run the task."));
+	snapshot.agent_runs.push_back(agent_run);
+
+	Dictionary serialized = snapshot.to_dict();
+	AINextWorkflowSnapshot restored;
+	CHECK(restored.load_from_dict(serialized));
+
+	REQUIRE(restored.project_state.is_valid());
+	CHECK(restored.id == snapshot.id);
+	CHECK(restored.title == snapshot.title);
+	CHECK(restored.project_state->get_milestone_count() == 1);
+	CHECK(String(restored.project_state->get_task(task_id).get("status", String())) == "in_progress");
+	REQUIRE(restored.event_log.size() == 1);
+	CHECK(String(Dictionary(restored.event_log[0]).get("event_type", String())) == "task_started");
+	CHECK(restored.checkpoint.operation == "run_task");
+	CHECK(restored.checkpoint.agent_run_id == "agent_run_1");
+	REQUIRE(restored.agent_runs.size() == 1);
+	CHECK(restored.agent_runs[0].messages.size() == 1);
+	CHECK(restored.agent_runs[0].messages[0].content == "Run the task.");
+
+	Dictionary metadata = restored.to_metadata().to_dict();
+	CHECK(String(metadata.get("id", String())) == snapshot.id);
+	CHECK(String(metadata.get("title", String())) == snapshot.title);
+	CHECK(bool(metadata.get("has_resumable_checkpoint", false)));
+	CHECK((int)metadata.get("milestone_count", 0) == 1);
+	CHECK((int)metadata.get("task_count", 0) == 1);
+}
+
+TEST_CASE("[Editor][AI][NEXT] workflow store isolates workflows by project scope and lists most recent first") {
+	Ref<AINextWorkflowStore> first_store;
+	first_store.instantiate();
+	first_store->set_project_scope("test_next_workflow_scope_a");
+
+	Ref<AINextWorkflowStore> second_store;
+	second_store.instantiate();
+	second_store->set_project_scope("test_next_workflow_scope_b");
+
+	first_store->delete_workflow("workflow_old");
+	first_store->delete_workflow("workflow_new");
+	second_store->delete_workflow("workflow_old");
+	second_store->delete_workflow("workflow_new");
+
+	AINextWorkflowSnapshot old_snapshot;
+	old_snapshot.id = "workflow_old";
+	old_snapshot.title = "Old workflow";
+	old_snapshot.created_at = 100;
+	old_snapshot.updated_at = 100;
+	old_snapshot.project_state.instantiate();
+	CHECK_FALSE(old_snapshot.project_state->create_milestone("Old", "Old milestone.").is_empty());
+
+	AINextWorkflowSnapshot new_snapshot;
+	new_snapshot.id = "workflow_new";
+	new_snapshot.title = "New workflow";
+	new_snapshot.created_at = 200;
+	new_snapshot.updated_at = 300;
+	new_snapshot.project_state.instantiate();
+	CHECK_FALSE(new_snapshot.project_state->create_milestone("New", "New milestone.").is_empty());
+
+	CHECK(first_store->save_workflow(old_snapshot) == OK);
+	CHECK(first_store->save_workflow(new_snapshot) == OK);
+	CHECK(second_store->save_workflow(old_snapshot) == OK);
+
+	AINextWorkflowSnapshot loaded;
+	CHECK(first_store->load_workflow("workflow_new", loaded));
+	CHECK(loaded.title == "New workflow");
+	CHECK_FALSE(second_store->load_workflow("workflow_new", loaded));
+	CHECK(first_store->get_base_dir_for_test() != second_store->get_base_dir_for_test());
+
+	Array listed = first_store->list_workflows();
+	REQUIRE(listed.size() >= 2);
+	Dictionary first = listed[0];
+	CHECK(String(first.get("id", String())) == "workflow_new");
+
+	String most_recent_id;
+	CHECK(first_store->get_most_recent_workflow_id(most_recent_id));
+	CHECK(most_recent_id == "workflow_new");
+
+	CHECK(first_store->delete_workflow("workflow_old"));
+	CHECK(first_store->delete_workflow("workflow_new"));
+	CHECK(second_store->delete_workflow("workflow_old"));
 }
 
 TEST_CASE("[Editor][AI][NEXT] event log records structured events") {
