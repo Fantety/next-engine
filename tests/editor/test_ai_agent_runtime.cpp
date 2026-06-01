@@ -315,6 +315,10 @@ TEST_CASE("[Editor][AI] System prompt prioritizes clarification planning and pro
 	const String prompt = String(AIAgentPrompts::SYSTEM_PROMPT);
 
 	CHECK(prompt.contains("Clarify before acting"));
+	CHECK(prompt.contains("Ask mode"));
+	CHECK(prompt.contains("Auto mode"));
+	CHECK_FALSE(prompt.contains("Review mode"));
+	CHECK_FALSE(prompt.contains("Write mode"));
 	CHECK(prompt.contains("confirm design"));
 	CHECK(prompt.contains("agent.manage_plan"));
 	CHECK(prompt.contains("in_progress"));
@@ -454,7 +458,7 @@ TEST_CASE("[Editor][AI] Main agent owns the current editor tool set") {
 	Ref<AIMainAgent> agent;
 	agent.instantiate();
 
-	CHECK(agent->get_profile().id == "plan");
+	CHECK(agent->get_profile().id == "ask");
 	Ref<AIToolRegistry> registry = agent->get_tool_registry();
 	REQUIRE(registry.is_valid());
 	CHECK(registry->has_tool("project.read_file"));
@@ -467,13 +471,13 @@ TEST_CASE("[Editor][AI] Main agent owns the current editor tool set") {
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_available_tool_schemas().size() < registry->get_tool_schemas().size());
 
-	agent->set_agent_profile_id("write");
-	CHECK(agent->get_profile().id == "write");
+	agent->set_agent_profile_id("auto");
+	CHECK(agent->get_profile().id == "auto");
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
 
 	agent->set_agent_profile_id("unknown");
-	CHECK(agent->get_profile().id == "plan");
+	CHECK(agent->get_profile().id == "ask");
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 }
 
@@ -1170,7 +1174,7 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	AIAgentSession *session = memnew(AIAgentSession);
 	session->set_conversation_project_scope_for_test("test_project_scope_dependencies");
 
-	CHECK(session->get_agent_profile_id() == "plan");
+	CHECK(session->get_agent_profile_id() == "ask");
 	REQUIRE(session->get_main_agent().is_valid());
 	REQUIRE(session->get_agent_runtime().is_valid());
 	REQUIRE(session->get_agent_runtime_runner().is_valid());
@@ -1187,23 +1191,18 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	CHECK(session->get_tool_registry()->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(session->get_tool_registry()->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 
-	session->set_agent_profile_id("build");
-	CHECK(session->get_agent_profile_id() == "build");
-	CHECK(session->get_agent_runtime()->get_profile().id == "build");
-
-	session->set_agent_profile_id("write");
-	CHECK(session->get_agent_profile_id() == "write");
-	CHECK(session->get_agent_runtime()->get_profile().id == "write");
+	session->set_agent_profile_id("auto");
+	CHECK(session->get_agent_profile_id() == "auto");
+	CHECK(session->get_agent_runtime()->get_profile().id == "auto");
+	CHECK(session->get_agent_runtime()->get_profile().review_changes);
 	CHECK(session->get_tool_registry()->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(session->get_tool_registry()->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
 
-	session->set_agent_profile_id("review");
-	CHECK(session->get_agent_profile_id() == "review");
-	CHECK(session->get_agent_runtime()->get_profile().id == "review");
-
 	session->set_agent_profile_id("unknown");
-	CHECK(session->get_agent_profile_id() == "plan");
-	CHECK(session->get_agent_runtime()->get_profile().id == "plan");
+	CHECK(session->get_agent_profile_id() == "ask");
+	CHECK(session->get_agent_runtime()->get_profile().id == "ask");
+	CHECK_FALSE(session->get_agent_runtime()->get_profile().review_changes);
+	CHECK(session->get_tool_registry()->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 
 	memdelete(session);
 }

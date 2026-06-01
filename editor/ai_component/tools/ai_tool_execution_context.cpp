@@ -45,6 +45,10 @@ String AIToolExecutionContext::get_tool_call_id() const {
 	return tool_call_id;
 }
 
-bool AIToolExecutionContext::is_review_mode() const {
-	return agent_profile_id == "review";
+void AIToolExecutionContext::set_review_changes(bool p_review_changes) {
+	review_changes = p_review_changes;
+}
+
+bool AIToolExecutionContext::should_review_changes() const {
+	return review_changes;
 }

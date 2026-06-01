@@ -43,7 +43,7 @@ static String _ai_indent_function_source(const String &p_source) {
 
 static void _ai_register_script_review_change(const String &p_title, const String &p_path, const String &p_change_type, const String &p_old_text, const String &p_new_text, Dictionary &r_metadata) {
 	Ref<AIToolExecutionContext> context = AIToolExecutionContext::get_current();
-	if (context.is_null() || !context->is_review_mode()) {
+	if (context.is_null() || !context->should_review_changes()) {
 		return;
 	}
 
@@ -581,15 +581,15 @@ AIScriptEditingResult AIScriptEditingService::inspect_script(const String &p_pat
 		return result;
 	}
 
-	Dictionary metadata;
-	if (!_parse_gdscript(p_path, source, metadata, error)) {
+	Dictionary parsed_metadata;
+	if (!_parse_gdscript(p_path, source, parsed_metadata, error)) {
 		result.error = error;
 		return result;
 	}
 
 	result.success = true;
-	result.message = vformat("Inspected script `%s`. Functions: %d.", p_path, int(metadata.get("function_count", 0)));
-	result.metadata = metadata;
+	result.message = vformat("Inspected script `%s`. Functions: %d.", p_path, int(parsed_metadata.get("function_count", 0)));
+	result.metadata = parsed_metadata;
 	return result;
 }
 
@@ -616,8 +616,8 @@ AIScriptEditingResult AIScriptEditingService::_create_script_main_thread(const S
 		result.error = error;
 		return result;
 	}
-	Dictionary metadata;
-	if (!_parse_gdscript(p_path, source, metadata, error)) {
+	Dictionary parsed_metadata;
+	if (!_parse_gdscript(p_path, source, parsed_metadata, error)) {
 		result.error = error;
 		return result;
 	}
@@ -628,7 +628,7 @@ AIScriptEditingResult AIScriptEditingService::_create_script_main_thread(const S
 
 	result.success = true;
 	result.message = vformat("Created script `%s`.", p_path);
-	result.metadata = metadata;
+	result.metadata = parsed_metadata;
 	result.metadata["path"] = p_path;
 	result.metadata["created"] = !existed_before;
 	result.metadata["overwritten"] = existed_before && p_overwrite;
@@ -659,8 +659,8 @@ AIScriptEditingResult AIScriptEditingService::_write_script_main_thread(const St
 	}
 
 	String source = p_source.strip_edges() + "\n";
-	Dictionary metadata;
-	if (!_parse_gdscript(p_path, source, metadata, error)) {
+	Dictionary parsed_metadata;
+	if (!_parse_gdscript(p_path, source, parsed_metadata, error)) {
 		result.error = error;
 		return result;
 	}
@@ -671,7 +671,7 @@ AIScriptEditingResult AIScriptEditingService::_write_script_main_thread(const St
 
 	result.success = true;
 	result.message = vformat("Wrote script `%s`.", p_path);
-	result.metadata = metadata;
+	result.metadata = parsed_metadata;
 	result.metadata["path"] = p_path;
 	result.metadata["created"] = !existed_before;
 	result.metadata["overwritten"] = existed_before;
@@ -700,8 +700,8 @@ AIScriptEditingResult AIScriptEditingService::_patch_function_main_thread(const 
 		return result;
 	}
 
-	Dictionary metadata;
-	if (!_parse_gdscript(p_path, new_source, metadata, error)) {
+	Dictionary parsed_metadata;
+	if (!_parse_gdscript(p_path, new_source, parsed_metadata, error)) {
 		result.error = error;
 		return result;
 	}
@@ -712,7 +712,7 @@ AIScriptEditingResult AIScriptEditingService::_patch_function_main_thread(const 
 
 	result.success = true;
 	result.message = vformat("Patched function `%s` in `%s`.", p_function_name, p_path);
-	result.metadata = metadata;
+	result.metadata = parsed_metadata;
 	result.metadata["path"] = p_path;
 	result.metadata["function_name"] = p_function_name;
 	result.metadata["patch"] = patch_metadata;

@@ -36,7 +36,7 @@ void AINextPlanningAgent::_bind_methods() {
 }
 
 AINextPlanningAgent::AINextPlanningAgent() {
-	_configure_next_agent(this, "planning_agent", AINextPrompts::get_planning_prompt(), "plan");
+	_configure_next_agent(this, "planning_agent", AINextPrompts::get_planning_prompt(), "ask");
 	_rebuild_tools();
 }
 
@@ -59,7 +59,7 @@ void AINextScriptAgent::_bind_methods() {
 }
 
 AINextScriptAgent::AINextScriptAgent() {
-	_configure_next_agent(this, "script_agent", AINextPrompts::get_script_prompt(), "write");
+	_configure_next_agent(this, "script_agent", AINextPrompts::get_script_prompt(), "auto");
 	AIToolFactory::register_shared_project_tools(this);
 	AIToolFactory::register_project_write_tools(this, AI_TOOL_PERMISSION_ALLOW);
 	AIToolFactory::register_script_inspection_tools(this, AI_TOOL_PERMISSION_ALLOW);
@@ -70,7 +70,7 @@ void AINextSceneAgent::_bind_methods() {
 }
 
 AINextSceneAgent::AINextSceneAgent() {
-	_configure_next_agent(this, "scene_agent", AINextPrompts::get_scene_prompt(), "write");
+	_configure_next_agent(this, "scene_agent", AINextPrompts::get_scene_prompt(), "auto");
 	AIToolFactory::register_shared_project_tools(this);
 	AIToolFactory::register_scene_inspection_tools(this, AI_TOOL_PERMISSION_ALLOW);
 	AIToolFactory::register_scene_write_tools(this, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ASK);
@@ -80,7 +80,7 @@ void AINextShaderAgent::_bind_methods() {
 }
 
 AINextShaderAgent::AINextShaderAgent() {
-	_configure_next_agent(this, "shader_agent", AINextPrompts::get_shader_prompt(), "write");
+	_configure_next_agent(this, "shader_agent", AINextPrompts::get_shader_prompt(), "auto");
 	AIToolFactory::register_shared_project_tools(this);
 	AIToolFactory::register_project_write_tools(this, AI_TOOL_PERMISSION_ALLOW);
 	AIToolFactory::register_shader_tools(this, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ASK);
@@ -90,6 +90,6 @@ void AINextReviewAgent::_bind_methods() {
 }
 
 AINextReviewAgent::AINextReviewAgent() {
-	_configure_next_agent(this, "review_agent", AINextPrompts::get_review_prompt(), "review");
+	_configure_next_agent(this, "review_agent", AINextPrompts::get_review_prompt(), "ask");
 	AIToolFactory::register_shared_project_tools(this);
 }

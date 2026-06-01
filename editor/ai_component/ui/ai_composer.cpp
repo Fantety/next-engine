@@ -51,11 +51,9 @@ AIComposer::AIComposer() {
 	mode_selector = memnew(OptionButton);
 	mode_selector->set_custom_minimum_size(Size2(80, 0) * EDSCALE);
 	mode_selector->add_item(TTR("Ask"));
-	mode_selector->set_item_metadata(0, "plan");
-	mode_selector->add_item(TTR("Review"));
-	mode_selector->set_item_metadata(1, "review");
-	mode_selector->add_item(TTR("Write"));
-	mode_selector->set_item_metadata(2, "write");
+	mode_selector->set_item_metadata(0, "ask");
+	mode_selector->add_item(TTR("Auto"));
+	mode_selector->set_item_metadata(1, "auto");
 	mode_selector->select(0);
 	bar->add_child(mode_selector);
 
@@ -93,7 +91,7 @@ String AIComposer::get_selected_model() const {
 
 String AIComposer::get_selected_agent_profile_id() const {
 	if (!mode_selector || mode_selector->get_item_count() == 0 || mode_selector->get_selected() < 0) {
-		return "plan";
+		return "ask";
 	}
 	return String(mode_selector->get_item_metadata(mode_selector->get_selected()));
 }

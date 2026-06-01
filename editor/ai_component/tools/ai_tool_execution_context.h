@@ -13,6 +13,7 @@ class AIToolExecutionContext : public RefCounted {
 	String session_id;
 	String agent_profile_id;
 	String tool_call_id;
+	bool review_changes = false;
 
 	static thread_local Ref<AIToolExecutionContext> current;
 
@@ -33,5 +34,6 @@ public:
 	void set_tool_call_id(const String &p_tool_call_id);
 	String get_tool_call_id() const;
 
-	bool is_review_mode() const;
+	void set_review_changes(bool p_review_changes);
+	bool should_review_changes() const;
 };

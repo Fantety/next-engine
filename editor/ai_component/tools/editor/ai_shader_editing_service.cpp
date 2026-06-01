@@ -49,7 +49,7 @@ bool _get_property_names_for_assignment(Object *p_object, const String &p_proper
 void _register_shader_review_change(const String &p_title, const String &p_path, const String &p_change_type, const String &p_old_text, const String &p_new_text,
 		Dictionary &r_metadata) {
 	Ref<AIToolExecutionContext> context = AIToolExecutionContext::get_current();
-	if (context.is_null() || !context->is_review_mode()) {
+	if (context.is_null() || !context->should_review_changes()) {
 		return;
 	}
 

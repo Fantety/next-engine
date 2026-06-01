@@ -614,20 +614,25 @@ TEST_CASE("[Editor][AI] Tool calls serialize stable execution state") {
 	CHECK(String(restored.arguments["path"]) == "res://player.gd");
 }
 
-TEST_CASE("[Editor][AI] Agent profiles only describe agent identity") {
-	AIAgentProfile plan = AIAgentProfile::get_plan_profile();
-	AIAgentProfile build = AIAgentProfile::get_build_profile();
-	AIAgentProfile review = AIAgentProfile::get_review_profile();
-	AIAgentProfile write = AIAgentProfile::get_write_profile();
+TEST_CASE("[Editor][AI] Agent profiles describe tool denylist and review behavior") {
+	AIAgentProfile ask = AIAgentProfile::get_ask_profile();
+	AIAgentProfile auto_profile = AIAgentProfile::get_auto_profile();
 
-	CHECK(plan.id == "plan");
-	CHECK(plan.display_name == "Plan");
-	CHECK(build.id == "build");
-	CHECK(build.display_name == "Build");
-	CHECK(review.id == "review");
-	CHECK(review.display_name == "Review");
-	CHECK(write.id == "write");
-	CHECK(write.display_name == "Write");
+	CHECK(ask.id == "ask");
+	CHECK(ask.display_name == "Ask");
+	CHECK_FALSE(ask.review_changes);
+	CHECK_FALSE(ask.denies_tool("project.read_file"));
+	CHECK(ask.denies_tool("project.create_folder"));
+	CHECK(ask.denies_tool("scene.instantiate_scene"));
+	CHECK(ask.denies_tool("script.write"));
+	CHECK(ask.denies_tool("shader.delete"));
+
+	CHECK(auto_profile.id == "auto");
+	CHECK(auto_profile.display_name == "Auto");
+	CHECK(auto_profile.review_changes);
+	CHECK_FALSE(auto_profile.denies_tool("project.create_folder"));
+	CHECK_FALSE(auto_profile.denies_tool("script.write"));
+	CHECK_FALSE(auto_profile.denies_tool("shader.delete"));
 }
 
 TEST_CASE("[Editor][AI] Prompt registry preserves Normal and NEXT prompt entrypoints") {
@@ -698,22 +703,8 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("unknown.tool") == AI_TOOL_PERMISSION_DENY);
 
-	agent->set_agent_profile_id("build");
-	CHECK(registry->get_tool_permission("project.list_tree") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
-
-	agent->set_agent_profile_id("review");
-	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
-	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("shader.edit") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_ASK);
-	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
-
-	agent->set_agent_profile_id("write");
+	agent->set_agent_profile_id("auto");
+	CHECK(agent->get_profile().id == "auto");
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_ALLOW);
@@ -736,7 +727,8 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_ASK);
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
 
-	agent->set_profile(AIAgentProfile::get_plan_profile());
+	agent->set_agent_profile_id("unknown");
+	CHECK(agent->get_profile().id == "ask");
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_DENY);
@@ -764,22 +756,29 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 TEST_CASE("[Editor][AI] NEXT agents expose Markdown creation tool") {
 	Ref<AINextPlanningAgent> planning_agent;
 	planning_agent.instantiate();
+	CHECK(planning_agent->get_profile().id == "ask");
 	CHECK(planning_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 
 	Ref<AINextScriptAgent> script_agent;
 	script_agent.instantiate();
+	CHECK(script_agent->get_profile().id == "auto");
+	CHECK(script_agent->get_profile().review_changes);
 	CHECK(script_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 
 	Ref<AINextSceneAgent> scene_agent;
 	scene_agent.instantiate();
+	CHECK(scene_agent->get_profile().id == "auto");
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 
 	Ref<AINextShaderAgent> shader_agent;
 	shader_agent.instantiate();
+	CHECK(shader_agent->get_profile().id == "auto");
+	CHECK(shader_agent->get_profile().review_changes);
 	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 
 	Ref<AINextReviewAgent> review_agent;
 	review_agent.instantiate();
+	CHECK(review_agent->get_profile().id == "ask");
 	CHECK(review_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 }
 

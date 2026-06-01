@@ -13,14 +13,6 @@ namespace {
 
 const String MAIN_AGENT_TOOL_LOG_PREFIX = "[AI Agent][MainAgent]";
 
-bool _is_write_capable_profile(const String &p_profile_id) {
-	return p_profile_id == "write" || p_profile_id == "review";
-}
-
-AIToolPermission _allow_when(bool p_condition) {
-	return p_condition ? AI_TOOL_PERMISSION_ALLOW : AI_TOOL_PERMISSION_DENY;
-}
-
 } // namespace
 
 void AIMainAgent::_bind_methods() {
@@ -31,19 +23,35 @@ AIMainAgent::AIMainAgent() {
 }
 
 void AIMainAgent::_register_local_tools() {
-	const bool write_capable = _is_write_capable_profile(get_profile().id);
-	const AIToolPermission write_permission = _allow_when(write_capable);
-	const AIToolPermission destructive_permission = write_capable ? AI_TOOL_PERMISSION_ASK : AI_TOOL_PERMISSION_DENY;
-
 	AIToolFactory::register_shared_project_tools(this, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_tool<AIActivateSkillTool>(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_tool<AIManagePlanTool>(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
-	AIToolFactory::register_project_write_tools(this, write_permission, MAIN_AGENT_TOOL_LOG_PREFIX);
+	AIToolFactory::register_project_write_tools(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_scene_inspection_tools(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
-	AIToolFactory::register_scene_write_tools(this, write_permission, write_permission, MAIN_AGENT_TOOL_LOG_PREFIX);
+	AIToolFactory::register_scene_write_tools(this, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_script_inspection_tools(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
-	AIToolFactory::register_script_write_tools(this, write_permission, destructive_permission, MAIN_AGENT_TOOL_LOG_PREFIX);
-	AIToolFactory::register_shader_tools(this, write_permission, destructive_permission, MAIN_AGENT_TOOL_LOG_PREFIX);
+	AIToolFactory::register_script_write_tools(this, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ASK, MAIN_AGENT_TOOL_LOG_PREFIX);
+	AIToolFactory::register_shader_tools(this, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ASK, MAIN_AGENT_TOOL_LOG_PREFIX);
+
+	_apply_profile_denylist();
+}
+
+void AIMainAgent::_apply_profile_denylist() {
+	Ref<AIToolRegistry> registry = get_tool_registry();
+	if (registry.is_null()) {
+		return;
+	}
+
+	// Force profile-disabled tools to DENY while preserving each tool's
+	// registered baseline permission otherwise.
+	const AIAgentProfile active_profile = get_profile();
+	const Vector<String> tool_names = registry->get_tool_names();
+	for (int i = 0; i < tool_names.size(); i++) {
+		const String &tool_name = tool_names[i];
+		if (active_profile.denies_tool(tool_name)) {
+			registry->set_tool_permission(tool_name, AI_TOOL_PERMISSION_DENY, vformat("Tool `%s` is disabled in the `%s` mode.", tool_name, active_profile.display_name));
+		}
+	}
 }
 
 void AIMainAgent::_register_mcp_tools() {
@@ -62,7 +70,6 @@ void AIMainAgent::set_profile(const AIAgentProfile &p_profile) {
 void AIMainAgent::set_agent_profile_id(const String &p_profile_id) {
 	AIAgentBase::set_agent_profile_id(p_profile_id);
 }
-
 void AIMainAgent::reload_tools() {
 	clear_tools();
 	_register_local_tools();

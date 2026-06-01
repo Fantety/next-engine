@@ -76,7 +76,7 @@ void AIAgentRuntime::_bind_methods() {
 }
 
 AIAgentRuntime::AIAgentRuntime() {
-	profile = AIAgentProfile::get_plan_profile();
+	profile = AIAgentProfile::get_ask_profile();
 	system_prompt = AIAgentPrompts::SYSTEM_PROMPT;
 	context_manager.instantiate();
 }
@@ -474,6 +474,7 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			Ref<AIToolExecutionContext> tool_context;
 			tool_context.instantiate();
 			tool_context->set_agent_profile_id(profile.id);
+			tool_context->set_review_changes(profile.review_changes);
 			tool_context->set_session_id(session_id);
 			tool_context->set_tool_call_id(call.id);
 			AIToolExecutionContext::set_current(tool_context);
