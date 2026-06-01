@@ -4,6 +4,7 @@
 
 #include "ai_composer.h"
 
+#include "core/input/input_event.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
@@ -38,6 +39,7 @@ AIComposer::AIComposer() {
 	input->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	input->set_placeholder(TTR("Ask about this project..."));
 	input->connect("text_changed", callable_mp(this, &AIComposer::_input_text_changed));
+	input->connect("gui_input", callable_mp(this, &AIComposer::_input_gui_input));
 	add_child(input);
 
 	HBoxContainer *bar = memnew(HBoxContainer);
@@ -50,10 +52,10 @@ AIComposer::AIComposer() {
 
 	mode_selector = memnew(OptionButton);
 	mode_selector->set_custom_minimum_size(Size2(80, 0) * EDSCALE);
-	mode_selector->add_item(TTR("Ask"));
-	mode_selector->set_item_metadata(0, "ask");
 	mode_selector->add_item(TTR("Auto"));
-	mode_selector->set_item_metadata(1, "auto");
+	mode_selector->set_item_metadata(0, "auto");
+	mode_selector->add_item(TTR("Ask"));
+	mode_selector->set_item_metadata(1, "ask");
 	mode_selector->select(0);
 	bar->add_child(mode_selector);
 
@@ -140,6 +142,22 @@ void AIComposer::reload_models() {
 	has_model = true;
 	model_selector->set_disabled(false);
 	_update_action_button();
+}
+
+void AIComposer::_input_gui_input(const Ref<InputEvent> &p_event) {
+	Ref<InputEventKey> key_event = p_event;
+	if (key_event.is_null() || !key_event->is_pressed()) {
+		return;
+	}
+	if (key_event->get_keycode() != Key::ENTER && key_event->get_keycode() != Key::KP_ENTER) {
+		return;
+	}
+	// Enter alone sends; Shift+Enter or Ctrl+Enter inserts a newline.
+	if (key_event->is_shift_pressed() || key_event->is_ctrl_pressed()) {
+		return;
+	}
+	input->accept_event();
+	_action_pressed();
 }
 
 void AIComposer::_action_pressed() {

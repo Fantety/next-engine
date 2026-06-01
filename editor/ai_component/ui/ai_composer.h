@@ -25,6 +25,7 @@ class AIComposer : public VBoxContainer {
 
 	void _action_pressed();
 	void _input_text_changed();
+	void _input_gui_input(const Ref<InputEvent> &p_event);
 	void _update_action_button();
 
 protected:
