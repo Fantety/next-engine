@@ -35,14 +35,6 @@
 
 namespace {
 
-bool _is_write_capable_profile(const String &p_profile_id) {
-	return p_profile_id == "write" || p_profile_id == "review";
-}
-
-AIToolPermission _allow_when(bool p_condition) {
-	return p_condition ? AI_TOOL_PERMISSION_ALLOW : AI_TOOL_PERMISSION_DENY;
-}
-
 struct MainAgentToolFactory {
 	Ref<AITool> (*create)();
 };
@@ -82,10 +74,6 @@ AIMainAgent::AIMainAgent() {
 }
 
 void AIMainAgent::_register_local_tools() {
-	const bool write_capable = _is_write_capable_profile(get_profile().id);
-	const AIToolPermission write_permission = _allow_when(write_capable);
-	const AIToolPermission destructive_permission = write_capable ? AI_TOOL_PERMISSION_ASK : AI_TOOL_PERMISSION_DENY;
-
 	const MainAgentToolFactory read_tools[] = {
 		{ _create_main_agent_tool<AIListProjectTool> },
 		{ _create_main_agent_tool<AIReadFileTool> },
@@ -121,8 +109,28 @@ void AIMainAgent::_register_local_tools() {
 	};
 
 	_register_main_agent_tool_group(this, read_tools, AI_TOOL_PERMISSION_ALLOW);
-	_register_main_agent_tool_group(this, write_tools, write_permission);
-	_register_main_agent_tool_group(this, explicit_approval_tools, destructive_permission);
+	_register_main_agent_tool_group(this, write_tools, AI_TOOL_PERMISSION_ALLOW);
+	_register_main_agent_tool_group(this, explicit_approval_tools, AI_TOOL_PERMISSION_ASK);
+
+	_apply_profile_denylist();
+}
+
+void AIMainAgent::_apply_profile_denylist() {
+	Ref<AIToolRegistry> registry = get_tool_registry();
+	if (registry.is_null()) {
+		return;
+	}
+
+	// 当前 profile 禁用的工具强制设为 DENY
+	// 未列出的工具保持原有权限不变
+	const AIAgentProfile active_profile = get_profile();
+	const Vector<String> tool_names = registry->get_tool_names();
+	for (int i = 0; i < tool_names.size(); i++) {
+		const String &tool_name = tool_names[i];
+		if (active_profile.denies_tool(tool_name)) {
+			registry->set_tool_permission(tool_name, AI_TOOL_PERMISSION_DENY, vformat("Tool `%s` is disabled in the `%s` mode.", tool_name, active_profile.display_name));
+		}
+	}
 }
 
 void AIMainAgent::_register_mcp_tools() {
@@ -141,7 +149,6 @@ void AIMainAgent::set_profile(const AIAgentProfile &p_profile) {
 void AIMainAgent::set_agent_profile_id(const String &p_profile_id) {
 	AIAgentBase::set_agent_profile_id(p_profile_id);
 }
-
 void AIMainAgent::reload_tools() {
 	clear_tools();
 	_register_local_tools();

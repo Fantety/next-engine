@@ -11,6 +11,7 @@ class AIMainAgent : public AIAgentBase {
 
 	void _register_local_tools();
 	void _register_mcp_tools();
+	void _apply_profile_denylist();
 
 protected:
 	static void _bind_methods();

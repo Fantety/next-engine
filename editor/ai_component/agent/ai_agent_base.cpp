@@ -10,7 +10,7 @@ void AIAgentBase::_bind_methods() {
 }
 
 AIAgentBase::AIAgentBase() {
-	profile = AIAgentProfile::get_plan_profile();
+	profile = AIAgentProfile::get_ask_profile();
 	system_prompt = AIAgentPrompts::SYSTEM_PROMPT;
 
 	runtime.instantiate();
@@ -62,14 +62,10 @@ void AIAgentBase::_apply_provider_config() {
 }
 
 void AIAgentBase::set_agent_profile_id(const String &p_profile_id) {
-	if (p_profile_id == "write") {
-		set_profile(AIAgentProfile::get_write_profile());
-	} else if (p_profile_id == "review") {
-		set_profile(AIAgentProfile::get_review_profile());
-	} else if (p_profile_id == "build") {
-		set_profile(AIAgentProfile::get_build_profile());
-	} else {
-		set_profile(AIAgentProfile::get_plan_profile());
+	if (p_profile_id == "auto") {
+		set_profile(AIAgentProfile::get_auto_profile());
+	} else if (p_profile_id == "ask") {
+		set_profile(AIAgentProfile::get_ask_profile());
 	}
 }
 
