@@ -148,6 +148,16 @@ bool _runtime_message_records_completed_next_write(const Dictionary &p_message) 
 	return false;
 }
 
+bool _runtime_message_should_checkpoint(const Dictionary &p_message) {
+	const String role = String(p_message.get("role", String()));
+	if (role == "tool" || role == "error") {
+		return true;
+	}
+
+	Dictionary metadata = p_message.get("metadata", Dictionary());
+	return metadata.has("tool_calls") && Variant(metadata["tool_calls"]).get_type() == Variant::ARRAY;
+}
+
 AIAgentMessage _make_task_run_message(const Dictionary &p_task) {
 	AIAgentMessage user_message;
 	user_message.role = AI_AGENT_ROLE_USER;
@@ -161,6 +171,8 @@ AIAgentMessage _make_task_run_message(const Dictionary &p_task) {
 } // namespace
 
 void AIAgentNextSession::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("_emit_agent_progress_changed_deferred"), &AIAgentNextSession::_emit_agent_progress_changed_deferred);
+
 	ClassDB::bind_method(D_METHOD("get_project_state"), &AIAgentNextSession::get_project_state);
 	ClassDB::bind_method(D_METHOD("get_project_store"), &AIAgentNextSession::get_project_store);
 	ClassDB::bind_method(D_METHOD("get_event_log"), &AIAgentNextSession::get_event_log);
@@ -268,14 +280,29 @@ bool AIAgentNextSession::_is_workflow_active() const {
 	return workflow_active || pending_operation != PENDING_OPERATION_NONE;
 }
 
-void AIAgentNextSession::_emit_project_state_changed() {
-	_save_current_workflow();
+void AIAgentNextSession::_emit_project_state_changed(bool p_save) {
+	if (p_save) {
+		_save_current_workflow();
+	}
 	emit_signal(SNAME("state_changed"), project_state->get_session_state_name());
 	emit_signal(SNAME("project_state_changed"));
 }
 
 void AIAgentNextSession::_emit_workflow_session_changed() {
 	emit_signal(SNAME("workflow_session_changed"));
+}
+
+void AIAgentNextSession::_queue_agent_progress_changed() {
+	if (agent_progress_change_queued) {
+		return;
+	}
+	agent_progress_change_queued = true;
+	call_deferred(SNAME("_emit_agent_progress_changed_deferred"));
+}
+
+void AIAgentNextSession::_emit_agent_progress_changed_deferred() {
+	agent_progress_change_queued = false;
+	emit_signal(SNAME("agent_progress_changed"));
 }
 
 void AIAgentNextSession::_clear_pending_agent_run() {
@@ -303,7 +330,7 @@ void AIAgentNextSession::_clear_workflow() {
 void AIAgentNextSession::_clear_runtime_messages() {
 	runtime_messages.clear();
 	runtime_to_progress_indices.clear();
-	emit_signal(SNAME("agent_progress_changed"));
+	_queue_agent_progress_changed();
 }
 
 void AIAgentNextSession::_reset_checkpoint() {
@@ -366,7 +393,7 @@ void AIAgentNextSession::_load_initial_workflow() {
 		_apply_workflow_snapshot(snapshot, true);
 		_save_current_workflow();
 		_emit_workflow_session_changed();
-		_emit_project_state_changed();
+		_emit_project_state_changed(false);
 		return;
 	}
 
@@ -397,7 +424,7 @@ void AIAgentNextSession::_start_empty_workflow(bool p_save) {
 		_save_current_workflow();
 	}
 	_emit_workflow_session_changed();
-	_emit_project_state_changed();
+	_emit_project_state_changed(!p_save);
 }
 
 void AIAgentNextSession::_save_current_workflow() {
@@ -612,7 +639,9 @@ void AIAgentNextSession::_on_agent_runtime_message_added(int p_index, const Dict
 		return;
 	}
 
-	_store_active_agent_run_progress_message(p_index, p_message);
+	if (_runtime_message_should_checkpoint(p_message)) {
+		_store_active_agent_run_progress_message(p_index, p_message);
+	}
 
 	Dictionary progress_message;
 	progress_message["agent_id"] = p_agent_id;
@@ -621,14 +650,15 @@ void AIAgentNextSession::_on_agent_runtime_message_added(int p_index, const Dict
 	progress_message["runtime_index"] = p_index;
 	progress_message["role"] = String(p_message.get("role", String()));
 	progress_message["content"] = _summarize_runtime_message(p_message);
-	progress_message["message"] = p_message.duplicate(true);
+	progress_message["message"] = p_message;
 
 	runtime_to_progress_indices[p_index] = runtime_messages.size();
 	runtime_messages.push_back(progress_message);
 	if (_runtime_message_records_completed_next_write(p_message)) {
-		_emit_project_state_changed();
+		_save_current_workflow();
+		_emit_project_state_changed(false);
 	}
-	emit_signal(SNAME("agent_progress_changed"));
+	_queue_agent_progress_changed();
 }
 
 void AIAgentNextSession::_on_agent_runtime_message_updated(int p_index, const Dictionary &p_message, const String &p_agent_id) {
@@ -636,7 +666,9 @@ void AIAgentNextSession::_on_agent_runtime_message_updated(int p_index, const Di
 		return;
 	}
 
-	_store_active_agent_run_progress_message(p_index, p_message);
+	if (_runtime_message_should_checkpoint(p_message)) {
+		_store_active_agent_run_progress_message(p_index, p_message);
+	}
 
 	const int *progress_index = runtime_to_progress_indices.getptr(p_index);
 	if (!progress_index || *progress_index < 0 || *progress_index >= runtime_messages.size()) {
@@ -651,12 +683,13 @@ void AIAgentNextSession::_on_agent_runtime_message_updated(int p_index, const Di
 	progress_message["runtime_index"] = p_index;
 	progress_message["role"] = String(p_message.get("role", String()));
 	progress_message["content"] = _summarize_runtime_message(p_message);
-	progress_message["message"] = p_message.duplicate(true);
+	progress_message["message"] = p_message;
 	runtime_messages[*progress_index] = progress_message;
 	if (_runtime_message_records_completed_next_write(p_message)) {
-		_emit_project_state_changed();
+		_save_current_workflow();
+		_emit_project_state_changed(false);
 	}
-	emit_signal(SNAME("agent_progress_changed"));
+	_queue_agent_progress_changed();
 }
 
 void AIAgentNextSession::_on_agent_runtime_finished(const String &p_agent_id) {
@@ -681,7 +714,6 @@ void AIAgentNextSession::_on_agent_runtime_finished(const String &p_agent_id) {
 	const int previous_task_count = pending_feedback_previous_task_count;
 	AIAgentRuntimeResult result = agent->get_runtime_runner()->get_last_result();
 	_store_active_agent_run_result(result);
-	_save_current_workflow();
 	_clear_pending_agent_run();
 
 	switch (finished_operation) {
@@ -1020,6 +1052,24 @@ Array AIAgentNextSession::get_runtime_messages() const {
 	return runtime_messages.duplicate(true);
 }
 
+Array AIAgentNextSession::get_recent_runtime_messages(int p_limit) const {
+	Array messages;
+	if (p_limit <= 0) {
+		return messages;
+	}
+
+	const int start = MAX(0, runtime_messages.size() - p_limit);
+	for (int i = start; i < runtime_messages.size(); i++) {
+		if (Variant(runtime_messages[i]).get_type() == Variant::DICTIONARY) {
+			Dictionary message = runtime_messages[i];
+			messages.push_back(message.duplicate(true));
+		} else {
+			messages.push_back(runtime_messages[i]);
+		}
+	}
+	return messages;
+}
+
 String AIAgentNextSession::get_selected_task_id() const {
 	return selected_task_id;
 }
@@ -1110,7 +1160,7 @@ bool AIAgentNextSession::load_workflow(const String &p_workflow_id) {
 	_apply_workflow_snapshot(snapshot, true);
 	_save_current_workflow();
 	_emit_workflow_session_changed();
-	_emit_project_state_changed();
+	_emit_project_state_changed(false);
 	return true;
 }
 
@@ -1134,7 +1184,7 @@ bool AIAgentNextSession::delete_workflow(const String &p_workflow_id) {
 			_apply_workflow_snapshot(snapshot, true);
 			_save_current_workflow();
 			_emit_workflow_session_changed();
-			_emit_project_state_changed();
+			_emit_project_state_changed(false);
 		} else {
 			_start_empty_workflow(true);
 		}

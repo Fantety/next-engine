@@ -14,6 +14,7 @@ Fix NEXT agent operations so planning, task execution, review, and feedback plan
 - [complete] Phase 8: Design NEXT workflow persistence, interruption, and resume infrastructure based on `AIAgentSession`.
 - [complete] Phase 9: Implement NEXT workflow persistence core with TDD: snapshot/store, multi-workflow session APIs, interruption checkpoints, stale-result guards, sub-agent conversation resume, and minimal workflow management UI.
 - [complete] Phase 10: Fix NEXT planning freeze and partial milestone restore by tracing `ai_next.manage_project` writes and adding durable mid-run persistence.
+- [complete] Phase 11: Comprehensive NEXT stutter audit: runtime callbacks, persistence writes, UI refresh, and main-thread tool execution.
 
 ## Decisions
 - Preserve unrelated user/worktree changes.

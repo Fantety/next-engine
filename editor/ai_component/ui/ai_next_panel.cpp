@@ -269,7 +269,7 @@ void AINextPanel::set_next_session(AIAgentNextSession *p_session) {
 	}
 	next_session = p_session;
 	if (next_session) {
-		next_session->connect("workflow_session_changed", callable_mp(this, &AINextPanel::refresh), CONNECT_DEFERRED);
+		next_session->connect("workflow_session_changed", callable_mp(this, &AINextPanel::_refresh_workflow_session), CONNECT_DEFERRED);
 		next_session->connect("project_state_changed", callable_mp(this, &AINextPanel::refresh), CONNECT_DEFERRED);
 		next_session->connect("agent_progress_changed", callable_mp(this, &AINextPanel::_refresh_progress), CONNECT_DEFERRED);
 	}
@@ -285,6 +285,7 @@ void AINextPanel::set_next_session(AIAgentNextSession *p_session) {
 	if (feedback_panel) {
 		feedback_panel->set_next_session(next_session);
 	}
+	_refresh_workflows();
 	_refresh();
 }
 
@@ -484,9 +485,8 @@ void AINextPanel::_refresh_activity() {
 	}
 
 	int rows_added = 0;
-	Array runtime_messages = next_session->get_runtime_messages();
-	const int runtime_start = MAX(0, runtime_messages.size() - 3);
-	for (int i = runtime_start; i < runtime_messages.size(); i++) {
+	Array runtime_messages = next_session->get_recent_runtime_messages(3);
+	for (int i = 0; i < runtime_messages.size(); i++) {
 		if (Variant(runtime_messages[i]).get_type() != Variant::DICTIONARY) {
 			continue;
 		}
@@ -502,9 +502,8 @@ void AINextPanel::_refresh_activity() {
 	}
 
 	if (next_session->get_event_log().is_valid()) {
-		Array events = next_session->get_event_log()->get_events();
-		const int event_start = MAX(0, events.size() - (6 - rows_added));
-		for (int i = event_start; i < events.size() && rows_added < 6; i++) {
+		Array events = next_session->get_event_log()->get_recent_events(6 - rows_added);
+		for (int i = 0; i < events.size() && rows_added < 6; i++) {
 			if (Variant(events[i]).get_type() != Variant::DICTIONARY) {
 				continue;
 			}
@@ -542,7 +541,6 @@ void AINextPanel::_refresh() {
 	}
 	const bool running = next_session->is_workflow_active();
 	const bool has_brief = brief_input && (!brief_input->get_text().strip_edges().is_empty() || !next_session->get_project_state()->get_brief().strip_edges().is_empty());
-	_refresh_workflows();
 	if (state_label) {
 		state_label->set_text(next_session->get_project_state()->get_session_state_name().capitalize());
 	}
@@ -594,6 +592,11 @@ void AINextPanel::_refresh() {
 		feedback_panel->refresh();
 	}
 	_refresh_activity();
+}
+
+void AINextPanel::_refresh_workflow_session() {
+	_refresh_workflows();
+	_refresh();
 }
 
 void AINextPanel::_refresh_progress() {

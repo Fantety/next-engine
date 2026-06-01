@@ -35,6 +35,24 @@ Array AINextEventLog::get_events() const {
 	return to_array();
 }
 
+Array AINextEventLog::get_recent_events(int p_limit) const {
+	Array recent_events;
+	if (p_limit <= 0) {
+		return recent_events;
+	}
+
+	const int start = MAX(0, events.size() - p_limit);
+	for (int i = start; i < events.size(); i++) {
+		if (Variant(events[i]).get_type() == Variant::DICTIONARY) {
+			Dictionary event = events[i];
+			recent_events.push_back(event.duplicate(true));
+		} else {
+			recent_events.push_back(events[i]);
+		}
+	}
+	return recent_events;
+}
+
 Array AINextEventLog::to_array() const {
 	return events.duplicate(true);
 }

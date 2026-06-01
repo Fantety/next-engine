@@ -5,8 +5,11 @@
 #include "ai_agent_runtime_runner.h"
 
 #include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
 
 void AIAgentRuntimeRunner::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("_flush_runtime_message_updates"), &AIAgentRuntimeRunner::_flush_runtime_message_updates);
+
 	ADD_SIGNAL(MethodInfo("runtime_finished"));
 	ADD_SIGNAL(MethodInfo("runtime_message_added", PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::DICTIONARY, "message")));
 	ADD_SIGNAL(MethodInfo("runtime_message_updated", PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::DICTIONARY, "message")));
@@ -92,5 +95,47 @@ void AIAgentRuntimeRunner::_on_runtime_message_added(int p_index, const Dictiona
 }
 
 void AIAgentRuntimeRunner::_on_runtime_message_updated(int p_index, const Dictionary &p_message) {
-	call_deferred("emit_signal", SNAME("runtime_message_updated"), p_index, p_message.duplicate(true));
+	bool queue_flush = false;
+	{
+		MutexLock lock(progress_mutex);
+		int pending_index = -1;
+		for (int i = 0; i < pending_runtime_message_updates.size(); i++) {
+			if (pending_runtime_message_updates[i].index == p_index) {
+				pending_index = i;
+				break;
+			}
+		}
+
+		PendingRuntimeMessageUpdate update;
+		update.index = p_index;
+		update.message = p_message.duplicate(true);
+		if (pending_index >= 0) {
+			pending_runtime_message_updates.write[pending_index] = update;
+		} else {
+			pending_runtime_message_updates.push_back(update);
+		}
+
+		if (!runtime_message_update_flush_queued) {
+			runtime_message_update_flush_queued = true;
+			queue_flush = true;
+		}
+	}
+
+	if (queue_flush) {
+		call_deferred(SNAME("_flush_runtime_message_updates"));
+	}
+}
+
+void AIAgentRuntimeRunner::_flush_runtime_message_updates() {
+	Vector<PendingRuntimeMessageUpdate> updates;
+	{
+		MutexLock lock(progress_mutex);
+		updates = pending_runtime_message_updates;
+		pending_runtime_message_updates.clear();
+		runtime_message_update_flush_queued = false;
+	}
+
+	for (int i = 0; i < updates.size(); i++) {
+		emit_signal(SNAME("runtime_message_updated"), updates[i].index, updates[i].message);
+	}
 }

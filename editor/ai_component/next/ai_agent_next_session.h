@@ -54,6 +54,7 @@ class AIAgentNextSession : public AISessionBase {
 	bool single_task_run = false;
 	Array runtime_messages;
 	HashMap<int, int> runtime_to_progress_indices;
+	bool agent_progress_change_queued = false;
 
 	void _add_agent(const String &p_agent_id, const Ref<AIAgentBase> &p_agent);
 	void _connect_agent_runtime(const String &p_agent_id, const Ref<AIAgentBase> &p_agent);
@@ -61,8 +62,10 @@ class AIAgentNextSession : public AISessionBase {
 	String _make_workflow_id() const;
 	String _make_run_id(const String &p_prefix) const;
 	bool _is_workflow_active() const;
-	void _emit_project_state_changed();
+	void _emit_project_state_changed(bool p_save = true);
 	void _emit_workflow_session_changed();
+	void _queue_agent_progress_changed();
+	void _emit_agent_progress_changed_deferred();
 	void _clear_pending_agent_run();
 	void _clear_workflow();
 	void _clear_runtime_messages();
@@ -116,6 +119,7 @@ public:
 	bool is_workflow_active() const;
 	String get_active_operation_name() const;
 	Array get_runtime_messages() const;
+	Array get_recent_runtime_messages(int p_limit) const;
 	String get_selected_task_id() const;
 	bool can_run_active_milestone() const;
 	bool can_run_task(const String &p_task_id) const;

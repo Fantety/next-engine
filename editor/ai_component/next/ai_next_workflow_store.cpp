@@ -116,11 +116,66 @@ bool AINextWorkflowStore::load_workflow(const String &p_workflow_id, AINextWorkf
 }
 
 bool AINextWorkflowStore::load_workflow_metadata(const String &p_workflow_id, Dictionary &r_metadata) const {
-	AINextWorkflowSnapshot snapshot;
-	if (!load_workflow(p_workflow_id, snapshot)) {
+	if (p_workflow_id.strip_edges().is_empty()) {
 		return false;
 	}
-	r_metadata = snapshot.to_metadata().to_dict();
+
+	const String path = _get_workflow_path(p_workflow_id);
+	if (!FileAccess::exists(path)) {
+		return false;
+	}
+
+	Error err = OK;
+	Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ, &err);
+	if (file.is_null() || err != OK) {
+		return false;
+	}
+
+	Ref<JSON> json;
+	json.instantiate();
+	err = json->parse(file->get_as_text());
+	if (err != OK || json->get_data().get_type() != Variant::DICTIONARY) {
+		return false;
+	}
+
+	Dictionary root = json->get_data();
+	Dictionary project_state;
+	if (root.has("project_state") && Variant(root["project_state"]).get_type() == Variant::DICTIONARY) {
+		project_state = root["project_state"];
+	}
+	Dictionary checkpoint;
+	if (root.has("checkpoint") && Variant(root["checkpoint"]).get_type() == Variant::DICTIONARY) {
+		checkpoint = root["checkpoint"];
+	}
+
+	int task_count = 0;
+	Array milestones;
+	if (project_state.has("milestones") && Variant(project_state["milestones"]).get_type() == Variant::ARRAY) {
+		milestones = project_state["milestones"];
+		for (int i = 0; i < milestones.size(); i++) {
+			if (Variant(milestones[i]).get_type() != Variant::DICTIONARY) {
+				continue;
+			}
+			Dictionary milestone = milestones[i];
+			if (milestone.has("tasks") && Variant(milestone["tasks"]).get_type() == Variant::ARRAY) {
+				Array tasks = milestone["tasks"];
+				task_count += tasks.size();
+			}
+		}
+	}
+
+	const String checkpoint_operation = String(checkpoint.get("operation", "none"));
+	const String checkpoint_status = String(checkpoint.get("status", "idle"));
+	r_metadata.clear();
+	r_metadata["id"] = String(root.get("id", p_workflow_id));
+	r_metadata["title"] = String(root.get("title", "New NEXT Workflow"));
+	r_metadata["created_at"] = (uint64_t)(int64_t)root.get("created_at", 0);
+	r_metadata["updated_at"] = (uint64_t)(int64_t)root.get("updated_at", 0);
+	r_metadata["session_state"] = String(project_state.get("session_state", "idle"));
+	r_metadata["active_milestone_id"] = String(project_state.get("active_milestone_id", String()));
+	r_metadata["milestone_count"] = milestones.size();
+	r_metadata["task_count"] = task_count;
+	r_metadata["has_resumable_checkpoint"] = checkpoint_operation != "none" && !checkpoint_operation.is_empty() && (checkpoint_status == "running" || checkpoint_status == "user_terminated");
 	return true;
 }
 

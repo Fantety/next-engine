@@ -38,6 +38,8 @@
 - Added NEXT panel workflow management controls for selecting, creating, deleting, continuing, and terminating workflows.
 - Fixed workflow-switch state ownership by rebinding the planning agent to the active `AINextProjectState`.
 - Verification passed: `scons platform=windows target=editor tests=yes -j4`; `bin\next.windows.editor.x86_64.console.exe --test --test-case="*[Editor][AI][NEXT]*"`; `git diff --check`.
+
+## 2026-06-01
 - Added milestone/task row icon UI: milestone rows use `Milestone`, task rows use `TaskGreen` for completed/skipped, `TaskYellow` for pending/ready/in-progress, and `TaskRed` for failed/blocked.
 - Added UI regression coverage for NEXT row icons. Verification passed: `scons platform=windows target=editor tests=yes -j4`; `bin\next.windows.editor.x86_64.console.exe --test --test-case="*[Editor][AI][NEXT]*"`; `git diff --check`.
 - Started Phase 10 after user reported milestone generation can freeze mid-run and reopening shows only one milestone.
@@ -47,3 +49,10 @@
 - Added a red regression test proving planning tool writes must be saved before the final provider response. It failed with a saved milestone count of 0 while runtime was blocked on the second provider turn.
 - Stored runtime progress messages into active NEXT agent-run state and checkpointed workflow immediately after completed `ai_next.manage_project` tool writes. The mid-run persistence regression now passes.
 - Verification passed: `scons platform=windows target=editor tests=yes -j4`; `bin\next.windows.editor.x86_64.console.exe --test --test-case="*[Editor][AI][NEXT]*"`; `git diff --check`.
+- Started Phase 11 after user reported NEXT mode still causes frequent Agent-operation stutters and main engine process stalls.
+- Investigation scope: traced NEXT runtime callbacks, synchronous persistence, UI refresh cadence, workflow listing, activity rendering, logging, and editor file-system refresh paths.
+- Reduced main-thread churn by coalescing streamed runtime-message updates in `AIAgentRuntimeRunner`, coalescing NEXT progress signals, avoiding persisted checkpoints for every plain streamed assistant chunk, and removing per-chunk streaming log output.
+- Reduced synchronous persistence/UI cost by avoiding duplicate workflow saves, saving immediately only after completed `ai_next.manage_project` writes, refreshing workflow lists only on workflow-session changes, and loading workflow metadata without constructing full project snapshots.
+- Reduced panel refresh copy cost by keeping public deep-copy accessors intact while adding recent-message/event accessors for the activity feed.
+- Deferred expensive editor file-system scans after script/shader writes.
+- Verification passed: `scons platform=windows target=editor tests=yes dev_build=yes -j4`; `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AI][NEXT]*"`; focused runtime runner/streaming/progress tests; `git diff --check`.

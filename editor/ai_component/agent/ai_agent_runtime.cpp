@@ -251,7 +251,6 @@ void AIAgentRuntime::_on_provider_partial_response(const Dictionary &p_response)
 	assistant_message.metadata = partial_response.metadata;
 	streaming_result->messages.write[streaming_assistant_message_index] = assistant_message;
 	_emit_message_updated(streaming_assistant_message_index, assistant_message);
-	print_line(vformat("[AI Agent][Runtime] Streaming assistant message updated. index=%d chars=%d", streaming_assistant_message_index, partial_response.content.length()));
 }
 
 AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents) {

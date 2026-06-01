@@ -450,7 +450,7 @@ void AIShaderEditingService::_refresh_file_system(const String &p_path) const {
 	}
 	if (EditorFileSystem::get_singleton()) {
 		EditorFileSystem::get_singleton()->update_file(p_path);
-		EditorFileSystem::get_singleton()->scan_changes();
+		EditorFileSystem::get_singleton()->call_deferred("scan_changes");
 	}
 }
 
