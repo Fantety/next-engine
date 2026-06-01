@@ -5,16 +5,16 @@
 #pragma once
 
 #include "editor/ai_component/agent/ai_agent_base.h"
+#include "editor/ai_component/agent/ai_session_base.h"
 #include "editor/ai_component/next/ai_next_event_log.h"
 #include "editor/ai_component/next/ai_next_project_state.h"
 #include "editor/ai_component/next/ai_next_project_store.h"
 #include "editor/ai_component/next/ai_next_workflow_snapshot.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
 #include "core/templates/hash_map.h"
-#include "scene/main/node.h"
 
-class AIAgentNextSession : public Node {
-	GDCLASS(AIAgentNextSession, Node);
+class AIAgentNextSession : public AISessionBase {
+	GDCLASS(AIAgentNextSession, AISessionBase);
 
 	enum PendingOperation {
 		PENDING_OPERATION_NONE,
@@ -58,7 +58,6 @@ class AIAgentNextSession : public Node {
 	void _add_agent(const String &p_agent_id, const Ref<AIAgentBase> &p_agent);
 	void _connect_agent_runtime(const String &p_agent_id, const Ref<AIAgentBase> &p_agent);
 	Ref<AIAgentBase> _get_agent(const String &p_agent_id) const;
-	String _get_project_scope_key() const;
 	String _make_workflow_id() const;
 	String _make_run_id(const String &p_prefix) const;
 	bool _is_workflow_active() const;

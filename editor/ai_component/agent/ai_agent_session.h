@@ -6,11 +6,11 @@
 
 #include "core/object/class_db.h"
 #include "core/templates/hash_map.h"
-#include "scene/main/node.h"
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
 #include "editor/ai_component/agent/ai_main_agent.h"
+#include "editor/ai_component/agent/ai_session_base.h"
 #include "editor/ai_component/context/ai_best_practices_context_provider.h"
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
@@ -21,8 +21,8 @@
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 
-class AIAgentSession : public Node {
-	GDCLASS(AIAgentSession, Node);
+class AIAgentSession : public AISessionBase {
+	GDCLASS(AIAgentSession, AISessionBase);
 
 	String session_id;
 	String title = "New Chat";
@@ -50,7 +50,6 @@ class AIAgentSession : public Node {
 	int runtime_progress_message_count = 0;
 	HashMap<int, int> runtime_to_local_message_indices;
 
-	String _get_project_scope_key() const;
 	void _configure_tool_runtime();
 	void _mcp_tools_changed();
 	void _load_initial_session();

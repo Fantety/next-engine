@@ -23,28 +23,16 @@ void AINextWorkflowStore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("delete_workflow", "workflow_id"), &AINextWorkflowStore::delete_workflow);
 }
 
-Error AINextWorkflowStore::_ensure_base_dir() const {
-	return DirAccess::make_dir_recursive_absolute(base_dir);
+AINextWorkflowStore::AINextWorkflowStore() {
+	base_dir = "user://ai_agent/projects/global/next_workflows";
 }
 
 String AINextWorkflowStore::_get_workflow_path(const String &p_workflow_id) const {
-	return base_dir.path_join(_sanitize_workflow_id(p_workflow_id) + ".json");
-}
-
-String AINextWorkflowStore::_sanitize_scope_key(const String &p_scope_key) {
-	String scope_key = p_scope_key.strip_edges();
-	if (scope_key.is_empty()) {
-		scope_key = "global";
-	}
-	return scope_key.validate_filename();
-}
-
-String AINextWorkflowStore::_sanitize_workflow_id(const String &p_workflow_id) {
-	return p_workflow_id.strip_edges().validate_filename();
+	return _get_file_path(p_workflow_id);
 }
 
 void AINextWorkflowStore::set_project_scope(const String &p_project_scope_key) {
-	base_dir = String("user://ai_agent/projects").path_join(_sanitize_scope_key(p_project_scope_key)).path_join("next_workflows");
+	base_dir = String("user://ai_agent/projects").path_join(_sanitize_path_segment(p_project_scope_key)).path_join("next_workflows");
 }
 
 void AINextWorkflowStore::set_base_dir_for_test(const String &p_base_dir) {

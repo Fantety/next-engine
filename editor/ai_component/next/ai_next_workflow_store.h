@@ -4,27 +4,24 @@
 
 #pragma once
 
-#include "core/object/ref_counted.h"
 #include "core/string/ustring.h"
 #include "core/variant/array.h"
 #include "core/variant/dictionary.h"
 
 #include "editor/ai_component/next/ai_next_workflow_snapshot.h"
+#include "editor/ai_component/storage/ai_storage_base.h"
 
-class AINextWorkflowStore : public RefCounted {
-	GDCLASS(AINextWorkflowStore, RefCounted);
+class AINextWorkflowStore : public AIStorageBase {
+	GDCLASS(AINextWorkflowStore, AIStorageBase);
 
-	String base_dir = "user://ai_agent/projects/global/next_workflows";
-
-	Error _ensure_base_dir() const;
 	String _get_workflow_path(const String &p_workflow_id) const;
-	static String _sanitize_scope_key(const String &p_scope_key);
-	static String _sanitize_workflow_id(const String &p_workflow_id);
 
 protected:
 	static void _bind_methods();
 
 public:
+	AINextWorkflowStore();
+
 	void set_project_scope(const String &p_project_scope_key);
 	void set_base_dir_for_test(const String &p_base_dir);
 	String get_base_dir_for_test() const;

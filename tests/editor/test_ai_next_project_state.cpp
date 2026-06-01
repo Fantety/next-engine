@@ -9,16 +9,45 @@
 #include "editor/ai_component/next/ai_next_project_store.h"
 #include "editor/ai_component/next/ai_next_workflow_snapshot.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
+#include "editor/ai_component/storage/ai_storage_base.h"
 
 TEST_FORCE_LINK(test_ai_next_project_state);
 
 namespace TestAINextProjectState {
+
+class ExposedAIStorageBase : public AIStorageBase {
+	GDCLASS(ExposedAIStorageBase, AIStorageBase);
+
+public:
+	void set_base_dir_for_test(const String &p_base_dir) {
+		base_dir = p_base_dir;
+	}
+
+	String sanitize_for_test(const String &p_segment, const String &p_fallback = "global") const {
+		return _sanitize_path_segment(p_segment, p_fallback);
+	}
+
+	String get_file_path_for_test(const String &p_id) const {
+		return _get_file_path(p_id);
+	}
+};
 
 static AIAgentMessage _make_next_test_message(AIAgentRole p_role, const String &p_content) {
 	AIAgentMessage message;
 	message.role = p_role;
 	message.content = p_content;
 	return message;
+}
+
+TEST_CASE("[Editor][AI] Storage base sanitizes path segments and builds JSON paths") {
+	Ref<ExposedAIStorageBase> store;
+	store.instantiate();
+	store->set_base_dir_for_test("user://ai_agent/test_store");
+
+	CHECK(store->sanitize_for_test("") == "global");
+	CHECK(store->sanitize_for_test("  ") == "global");
+	CHECK(store->sanitize_for_test("bad/name") == String("bad/name").validate_filename());
+	CHECK(store->get_file_path_for_test("bad/name").ends_with(String("bad/name").validate_filename() + ".json"));
 }
 
 TEST_CASE("[Editor][AI][NEXT] project state marks tasks ready only after dependencies complete") {

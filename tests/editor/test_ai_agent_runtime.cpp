@@ -11,6 +11,7 @@
 #include "editor/ai_component/agent/ai_agent_runtime.h"
 #include "editor/ai_component/agent/ai_agent_runtime_runner.h"
 #include "editor/ai_component/agent/ai_agent_session.h"
+#include "editor/ai_component/agent/ai_session_base.h"
 #include "editor/ai_component/agent/ai_main_agent.h"
 #include "editor/ai_component/context/ai_best_practices_context_provider.h"
 #include "editor/ai_component/prompts/agent_system_prompt.h"
@@ -26,6 +27,19 @@
 TEST_FORCE_LINK(test_ai_agent_runtime);
 
 namespace TestAIAgentRuntime {
+
+class ExposedAISessionBase : public AISessionBase {
+	GDCLASS(ExposedAISessionBase, AISessionBase);
+
+public:
+	String get_project_scope_key_for_test() const {
+		return _get_project_scope_key();
+	}
+
+	String make_unique_id_for_test(const String &p_prefix = String()) const {
+		return _make_unique_id(p_prefix);
+	}
+};
 
 class EchoRuntimeTool : public AITool {
 	GDCLASS(EchoRuntimeTool, AITool);
@@ -308,6 +322,21 @@ TEST_CASE("[Editor][AI] System prompt prioritizes clarification planning and pro
 	CHECK(prompt.contains("one scene"));
 	CHECK(prompt.contains("one script"));
 	CHECK_FALSE(prompt.contains("For scene.set_property, use property_path exactly"));
+}
+
+TEST_CASE("[Editor][AI] Session base exposes project scoped unique identifiers") {
+	ExposedAISessionBase *session = memnew(ExposedAISessionBase);
+
+	const String scope_key = session->get_project_scope_key_for_test();
+	const String id = session->make_unique_id_for_test();
+	const String prefixed_id = session->make_unique_id_for_test("agent_run");
+
+	CHECK_FALSE(scope_key.is_empty());
+	CHECK_FALSE(id.is_empty());
+	CHECK(prefixed_id.begins_with("agent_run_"));
+	CHECK(prefixed_id != id);
+
+	memdelete(session);
 }
 
 TEST_CASE("[Editor][AI] Context manager trims history and tool output within budget") {

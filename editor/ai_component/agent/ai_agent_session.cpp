@@ -4,9 +4,7 @@
 
 #include "ai_agent_session.h"
 
-#include "core/config/project_settings.h"
 #include "core/object/callable_mp.h"
-#include "core/os/os.h"
 #include "core/os/time.h"
 #include "core/templates/local_vector.h"
 
@@ -58,9 +56,11 @@ AIAgentSession::AIAgentSession() {
 	_configure_tool_runtime();
 	store->set_project_scope(_get_project_scope_key());
 
-	runtime_runner->connect("runtime_finished", callable_mp(this, &AIAgentSession::_on_runtime_finished), CONNECT_DEFERRED);
-	runtime_runner->connect("runtime_message_added", callable_mp(this, &AIAgentSession::_on_runtime_message_added), CONNECT_DEFERRED);
-	runtime_runner->connect("runtime_message_updated", callable_mp(this, &AIAgentSession::_on_runtime_message_updated), CONNECT_DEFERRED);
+	_connect_runtime_signals(
+			runtime_runner,
+			callable_mp(this, &AIAgentSession::_on_runtime_finished),
+			callable_mp(this, &AIAgentSession::_on_runtime_message_added),
+			callable_mp(this, &AIAgentSession::_on_runtime_message_updated));
 
 	_load_initial_session();
 }
@@ -176,7 +176,7 @@ void AIAgentSession::start_new_session() {
 	if (state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
 		pending_tool_approval.clear();
 	}
-	session_id = OS::get_singleton()->get_unique_id() + "_" + itos(Time::get_singleton()->get_unix_time_from_system()) + "_" + itos(Math::rand());
+	session_id = _make_unique_id();
 	title = "New Chat";
 	messages.clear();
 	active_assistant_index = -1;
@@ -330,19 +330,6 @@ Dictionary AIAgentSession::get_token_usage() const {
 
 Array AIAgentSession::list_sessions() const {
 	return store->list_conversations();
-}
-
-String AIAgentSession::_get_project_scope_key() const {
-	ProjectSettings *project_settings = ProjectSettings::get_singleton();
-	if (!project_settings) {
-		return "global";
-	}
-
-	String resource_path = project_settings->get_resource_path();
-	if (resource_path.is_empty()) {
-		return "global";
-	}
-	return resource_path.md5_text();
 }
 
 void AIAgentSession::_load_initial_session() {

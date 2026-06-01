@@ -4,10 +4,8 @@
 
 #include "ai_agent_next_session.h"
 
-#include "core/config/project_settings.h"
 #include "core/object/class_db.h"
 #include "core/object/callable_mp.h"
-#include "core/os/os.h"
 #include "core/os/time.h"
 #include "editor/ai_component/agent/ai_agent_message.h"
 #include "editor/ai_component/next/agents/ai_next_agents.h"
@@ -242,11 +240,12 @@ void AIAgentNextSession::_add_agent(const String &p_agent_id, const Ref<AIAgentB
 
 void AIAgentNextSession::_connect_agent_runtime(const String &p_agent_id, const Ref<AIAgentBase> &p_agent) {
 	ERR_FAIL_COND(p_agent.is_null());
-	ERR_FAIL_COND(p_agent->get_runtime_runner().is_null());
 
-	p_agent->get_runtime_runner()->connect("runtime_finished", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_finished).bind(p_agent_id), CONNECT_DEFERRED);
-	p_agent->get_runtime_runner()->connect("runtime_message_added", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_added).bind(p_agent_id), CONNECT_DEFERRED);
-	p_agent->get_runtime_runner()->connect("runtime_message_updated", callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_updated).bind(p_agent_id), CONNECT_DEFERRED);
+	_connect_runtime_signals(
+			p_agent->get_runtime_runner(),
+			callable_mp(this, &AIAgentNextSession::_on_agent_runtime_finished).bind(p_agent_id),
+			callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_added).bind(p_agent_id),
+			callable_mp(this, &AIAgentNextSession::_on_agent_runtime_message_updated).bind(p_agent_id));
 }
 
 Ref<AIAgentBase> AIAgentNextSession::_get_agent(const String &p_agent_id) const {
@@ -257,25 +256,12 @@ Ref<AIAgentBase> AIAgentNextSession::_get_agent(const String &p_agent_id) const 
 	return Ref<AIAgentBase>();
 }
 
-String AIAgentNextSession::_get_project_scope_key() const {
-	ProjectSettings *project_settings = ProjectSettings::get_singleton();
-	if (!project_settings) {
-		return "global";
-	}
-
-	const String resource_path = project_settings->get_resource_path();
-	if (resource_path.is_empty()) {
-		return "global";
-	}
-	return resource_path.md5_text();
-}
-
 String AIAgentNextSession::_make_workflow_id() const {
-	return OS::get_singleton()->get_unique_id() + "_" + itos(Time::get_singleton()->get_unix_time_from_system()) + "_" + itos(Math::rand());
+	return _make_unique_id();
 }
 
 String AIAgentNextSession::_make_run_id(const String &p_prefix) const {
-	return p_prefix + "_" + OS::get_singleton()->get_unique_id() + "_" + itos(Time::get_singleton()->get_unix_time_from_system()) + "_" + itos(Math::rand());
+	return _make_unique_id(p_prefix);
 }
 
 bool AIAgentNextSession::_is_workflow_active() const {

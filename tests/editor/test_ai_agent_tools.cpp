@@ -12,6 +12,7 @@
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
 #include "editor/ai_component/next/agents/ai_next_agents.h"
+#include "editor/ai_component/next/ai_next_prompts.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
 #include "editor/ai_component/providers/ai_mcp_protocol.h"
@@ -21,6 +22,8 @@
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/planning/ai_manage_plan_tool.h"
 #include "editor/ai_component/planning/ai_plan_manager.h"
+#include "editor/ai_component/prompts/ai_prompt_registry.h"
+#include "editor/ai_component/prompts/agent_system_prompt.h"
 #include "editor/ai_component/review/ai_change_set_store.h"
 #include "editor/ai_component/review/ai_diff_service.h"
 #include "editor/ai_component/rules/ai_rule_settings.h"
@@ -30,6 +33,7 @@
 #include "editor/ai_component/skills/ai_skill_settings.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
+#include "editor/ai_component/tools/ai_tool_factory.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 #include "editor/ai_component/tools/ai_mcp_tool.h"
@@ -624,6 +628,48 @@ TEST_CASE("[Editor][AI] Agent profiles only describe agent identity") {
 	CHECK(review.display_name == "Review");
 	CHECK(write.id == "write");
 	CHECK(write.display_name == "Write");
+}
+
+TEST_CASE("[Editor][AI] Prompt registry preserves Normal and NEXT prompt entrypoints") {
+	CHECK(String(AIPrompts::get_system_prompt()) == String(AIAgentPrompts::SYSTEM_PROMPT));
+	CHECK(String(AIPrompts::get_planning_prompt()) == String(AINextPrompts::get_planning_prompt()));
+	CHECK(String(AIPrompts::get_script_prompt()) == String(AINextPrompts::get_script_prompt()));
+	CHECK(String(AIPrompts::get_scene_prompt()) == String(AINextPrompts::get_scene_prompt()));
+	CHECK(String(AIPrompts::get_shader_prompt()) == String(AINextPrompts::get_shader_prompt()));
+	CHECK(String(AIPrompts::get_review_prompt()) == String(AINextPrompts::get_review_prompt()));
+	CHECK(String(AIPrompts::get_system_prompt()).contains("Godot Editor"));
+	CHECK(String(AIPrompts::get_planning_prompt()).contains("NEXT planning agent"));
+}
+
+TEST_CASE("[Editor][AI] Tool factory registers shared tool groups") {
+	Ref<AIAgentBase> agent;
+	agent.instantiate();
+	Ref<AIToolRegistry> registry = agent->get_tool_registry();
+	REQUIRE(registry.is_valid());
+
+	AIToolFactory::register_shared_project_tools(*agent);
+	AIToolFactory::register_project_write_tools(*agent, AI_TOOL_PERMISSION_DENY);
+	AIToolFactory::register_scene_inspection_tools(*agent, AI_TOOL_PERMISSION_ALLOW);
+	AIToolFactory::register_scene_write_tools(*agent, AI_TOOL_PERMISSION_DENY, AI_TOOL_PERMISSION_ASK);
+	AIToolFactory::register_script_inspection_tools(*agent, AI_TOOL_PERMISSION_ALLOW);
+	AIToolFactory::register_script_write_tools(*agent, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ASK);
+	AIToolFactory::register_shader_tools(*agent, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ASK);
+
+	CHECK(registry->get_tool_permission("project.list_tree") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.search_text") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("editor.get_context") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission("script.inspect") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
 }
 
 TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {

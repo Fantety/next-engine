@@ -19,20 +19,12 @@ void AINextProjectStore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("load", "project_key"), &AINextProjectStore::load);
 }
 
-Error AINextProjectStore::_ensure_base_dir() const {
-	return DirAccess::make_dir_recursive_absolute(base_dir);
-}
-
-String AINextProjectStore::_sanitize_project_key(const String &p_project_key) const {
-	String project_key = p_project_key.strip_edges();
-	if (project_key.is_empty()) {
-		project_key = "global";
-	}
-	return project_key.validate_filename();
+AINextProjectStore::AINextProjectStore() {
+	base_dir = "user://ai_agent/next";
 }
 
 String AINextProjectStore::_get_project_path(const String &p_project_key) const {
-	return base_dir.path_join(_sanitize_project_key(p_project_key) + ".json");
+	return _get_file_path(p_project_key);
 }
 
 void AINextProjectStore::set_base_dir_for_test(const String &p_base_dir) {
