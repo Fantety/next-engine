@@ -16,6 +16,7 @@
 #include "scene/gui/color_rect.h"
 #include "scene/gui/foldable_container.h"
 #include "scene/gui/label.h"
+#include "scene/gui/markdown_viewer.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/scroll_container.h"
 #include "scene/gui/separator.h"
@@ -349,11 +350,14 @@ AINextPanel::AINextPanel() {
 	review_findings_scroll->set_custom_minimum_size(Size2(0, 144) * EDSCALE);
 	review_findings_section->add_child(review_findings_scroll);
 
-	review_findings_list = memnew(VBoxContainer);
-	review_findings_list->set_name(SNAME("ReviewFindingsList"));
-	review_findings_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	review_findings_list->add_theme_constant_override("separation", 4 * EDSCALE);
-	review_findings_scroll->add_child(review_findings_list);
+	review_findings_viewer = memnew(MarkdownViewer);
+	review_findings_viewer->set_name(SNAME("ReviewFindingsMarkdown"));
+	review_findings_viewer->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	review_findings_viewer->set_remote_images_enabled(false);
+	review_findings_viewer->set_open_links_enabled(false);
+	review_findings_viewer->set_scroll_enabled(false);
+	review_findings_viewer->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+	review_findings_scroll->add_child(review_findings_viewer);
 
 	add_child(memnew(HSeparator));
 	activity_section = memnew(FoldableContainer(TTR("Activity")));
@@ -642,19 +646,12 @@ void AINextPanel::_refresh_activity_summary() {
 }
 
 void AINextPanel::_refresh_review_findings() {
-	if (!review_findings_summary && !review_findings_list) {
+	if (!review_findings_summary && !review_findings_viewer) {
 		return;
 	}
 
-	if (review_findings_list) {
-		while (review_findings_list->get_child_count() > 0) {
-			Node *child = review_findings_list->get_child(0);
-			review_findings_list->remove_child(child);
-			memdelete(child);
-		}
-	}
-
 	String summary = TTR("No review findings");
+	String findings_markdown = TTR("No review findings");
 	int rows_added = 0;
 
 	if (next_session && next_session->get_project_state().is_valid() && next_session->get_event_log().is_valid()) {
@@ -679,32 +676,23 @@ void AINextPanel::_refresh_review_findings() {
 
 			if (rows_added == 0) {
 				summary = _trim_panel_summary(findings);
+				findings_markdown.clear();
 			}
-			if (review_findings_list) {
-				Label *row = memnew(Label);
-				row->set_name(SNAME("ReviewFindingRow"));
-				row->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
-				row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-				row->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
-				row->set_text(findings);
-				row->set_tooltip_text(findings);
-				review_findings_list->add_child(row);
+			if (!findings_markdown.is_empty()) {
+				findings_markdown += "\n\n---\n\n";
 			}
+			findings_markdown += findings;
 			rows_added++;
 		}
-	}
-
-	if (rows_added == 0 && review_findings_list) {
-		Label *empty = memnew(Label);
-		empty->set_name(SNAME("ReviewFindingEmpty"));
-		empty->set_text(TTR("No review findings"));
-		empty->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
-		review_findings_list->add_child(empty);
 	}
 
 	if (review_findings_summary) {
 		review_findings_summary->set_text(summary);
 		review_findings_summary->set_tooltip_text(summary);
+	}
+	if (review_findings_viewer) {
+		review_findings_viewer->set_markdown(findings_markdown);
+		review_findings_viewer->set_tooltip_text(summary);
 	}
 }
 

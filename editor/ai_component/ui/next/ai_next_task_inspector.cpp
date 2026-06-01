@@ -7,8 +7,61 @@
 #include "core/object/class_db.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
 #include "editor/themes/editor_scale.h"
-#include "scene/gui/label.h"
-#include "servers/text/text_server.h"
+#include "scene/gui/markdown_viewer.h"
+
+namespace {
+
+String _join_or_none(const Array &p_values) {
+	String joined;
+	for (int i = 0; i < p_values.size(); i++) {
+		const String value = String(p_values[i]).strip_edges();
+		if (value.is_empty()) {
+			continue;
+		}
+		if (!joined.is_empty()) {
+			joined += ", ";
+		}
+		joined += value;
+	}
+	return joined.is_empty() ? TTR("None") : joined;
+}
+
+String _format_task_inspector_markdown(const Dictionary &p_task) {
+	if (p_task.is_empty()) {
+		return TTR("No task selected");
+	}
+
+	String markdown = vformat("### %s\n\n", String(p_task.get("title", TTR("Task"))));
+	markdown += vformat("- **Status:** %s\n", String(p_task.get("status", "pending")).capitalize());
+	markdown += vformat("- **Agent:** %s\n", String(p_task.get("assigned_agent_id", String())));
+	markdown += vformat("- **Depends:** %s\n", _join_or_none(p_task.get("depends_on", Array())));
+	markdown += vformat("- **Outputs:** %s\n", _join_or_none(p_task.get("output_paths", Array())));
+
+	const String description = String(p_task.get("description", String())).strip_edges();
+	if (!description.is_empty()) {
+		markdown += "\n#### Description\n\n";
+		markdown += description;
+		markdown += "\n";
+	}
+
+	const String error = String(p_task.get("error", String())).strip_edges();
+	if (!error.is_empty()) {
+		markdown += "\n#### Error\n\n";
+		markdown += error;
+		markdown += "\n";
+		return markdown;
+	}
+
+	const String result = String(p_task.get("result_summary", String())).strip_edges();
+	if (!result.is_empty()) {
+		markdown += "\n#### Result\n\n";
+		markdown += result;
+		markdown += "\n";
+	}
+	return markdown;
+}
+
+} // namespace
 
 void AINextTaskInspector::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("refresh"), &AINextTaskInspector::refresh);
@@ -18,32 +71,16 @@ AINextTaskInspector::AINextTaskInspector() {
 	set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	add_theme_constant_override("separation", 3 * EDSCALE);
 
-	title_label = memnew(Label);
-	title_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	add_child(title_label);
-
-	status_label = memnew(Label);
-	status_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
-	add_child(status_label);
-
-	agent_label = memnew(Label);
-	agent_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
-	add_child(agent_label);
-
-	depends_label = memnew(Label);
-	depends_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
-	depends_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	add_child(depends_label);
-
-	outputs_label = memnew(Label);
-	outputs_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
-	outputs_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	add_child(outputs_label);
-
-	result_label = memnew(Label);
-	result_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
-	result_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	add_child(result_label);
+	detail_viewer = memnew(MarkdownViewer);
+	detail_viewer->set_name(SNAME("TaskInspectorMarkdown"));
+	detail_viewer->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	detail_viewer->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	detail_viewer->set_custom_minimum_size(Size2(0, 156) * EDSCALE);
+	detail_viewer->set_remote_images_enabled(false);
+	detail_viewer->set_open_links_enabled(false);
+	detail_viewer->set_scroll_enabled(true);
+	detail_viewer->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+	add_child(detail_viewer);
 }
 
 void AINextTaskInspector::set_next_session(AIAgentNextSession *p_session) {
@@ -69,25 +106,7 @@ void AINextTaskInspector::refresh() {
 		}
 	}
 
-	if (task.is_empty()) {
-		title_label->set_text(TTR("No task selected"));
-		status_label->set_text(String());
-		agent_label->set_text(String());
-		depends_label->set_text(String());
-		outputs_label->set_text(String());
-		result_label->set_text(String());
-		return;
-	}
-
-	title_label->set_text(String(task.get("title", TTR("Task"))));
-	status_label->set_text(vformat(TTR("Status: %s"), String(task.get("status", "pending")).capitalize()));
-	agent_label->set_text(vformat(TTR("Agent: %s"), String(task.get("assigned_agent_id", String()))));
-	depends_label->set_text(vformat(TTR("Depends: %s"), String(", ").join(task.get("depends_on", Array()))));
-	outputs_label->set_text(vformat(TTR("Outputs: %s"), String(", ").join(task.get("output_paths", Array()))));
-	const String error = String(task.get("error", String())).strip_edges();
-	if (!error.is_empty()) {
-		result_label->set_text(vformat(TTR("Error: %s"), error));
-	} else {
-		result_label->set_text(vformat(TTR("Result: %s"), String(task.get("result_summary", String()))));
+	if (detail_viewer) {
+		detail_viewer->set_markdown(_format_task_inspector_markdown(task));
 	}
 }

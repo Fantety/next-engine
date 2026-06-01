@@ -14,6 +14,7 @@ class AINextTaskTree;
 class Button;
 class ColorRect;
 class FoldableContainer;
+class MarkdownViewer;
 class OptionButton;
 class VBoxContainer;
 class Label;
@@ -40,7 +41,7 @@ class AINextPanel : public VBoxContainer {
 	Label *task_inspector_summary = nullptr;
 	Label *review_findings_summary = nullptr;
 	Label *activity_summary = nullptr;
-	VBoxContainer *review_findings_list = nullptr;
+	MarkdownViewer *review_findings_viewer = nullptr;
 	VBoxContainer *activity_list = nullptr;
 	Button *submit_button = nullptr;
 	Button *plan_button = nullptr;

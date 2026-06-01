@@ -22,6 +22,7 @@
 #include "scene/gui/check_button.h"
 #include "scene/gui/foldable_container.h"
 #include "scene/gui/label.h"
+#include "scene/gui/markdown_viewer.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/scroll_container.h"
 #include "servers/text/text_server.h"
@@ -215,6 +216,23 @@ static Label *find_label_by_name(Node *p_root, const StringName &p_name) {
 		Label *child_label = find_label_by_name(p_root->get_child(i), p_name);
 		if (child_label) {
 			return child_label;
+		}
+	}
+	return nullptr;
+}
+
+static MarkdownViewer *find_markdown_viewer_by_name(Node *p_root, const StringName &p_name) {
+	if (!p_root) {
+		return nullptr;
+	}
+	MarkdownViewer *viewer = Object::cast_to<MarkdownViewer>(p_root);
+	if (viewer && viewer->get_name() == p_name) {
+		return viewer;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		MarkdownViewer *child_viewer = find_markdown_viewer_by_name(p_root->get_child(i), p_name);
+		if (child_viewer) {
+			return child_viewer;
 		}
 	}
 	return nullptr;
@@ -557,6 +575,9 @@ TEST_CASE("[Editor][AI][NEXT] long detail sections use compact collapsed foldabl
 	CHECK(review_summary->get_text() == "No review findings");
 	CHECK(activity_summary->get_text() == "No activity yet");
 
+	CHECK(find_markdown_viewer_by_name(task_section, SNAME("TaskInspectorMarkdown")) != nullptr);
+	CHECK(find_markdown_viewer_by_name(review_section, SNAME("ReviewFindingsMarkdown")) != nullptr);
+
 	memdelete(panel);
 	session->delete_workflow(session->get_workflow_id());
 	memdelete(session);
@@ -589,6 +610,19 @@ TEST_CASE("[Editor][AI][NEXT] collapsed task inspector summarizes selected task"
 	CHECK(task_summary->get_text().contains("Implement dash controller"));
 	CHECK(task_summary->get_text().contains("Ready"));
 	CHECK(task_summary->get_text().contains("script"));
+
+	MarkdownViewer *task_markdown = find_markdown_viewer_by_name(panel, SNAME("TaskInspectorMarkdown"));
+	CHECK(task_markdown != nullptr);
+	if (!task_markdown) {
+		memdelete(panel);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+	CHECK(task_markdown->get_markdown().contains("Implement dash controller"));
+	CHECK(task_markdown->get_markdown().contains("**Status:** Ready"));
+	CHECK(task_markdown->get_markdown().contains("**Agent:** script_agent"));
 
 	memdelete(panel);
 	session->delete_workflow(session->get_workflow_id());
@@ -649,18 +683,18 @@ TEST_CASE("[Editor][AI][NEXT] review findings summarize active milestone review"
 		CHECK(review_scroll->get_custom_minimum_size().y <= 180);
 	}
 
-	Label *review_row = find_label_by_name(review_section, SNAME("ReviewFindingRow"));
-	CHECK(review_row != nullptr);
-	if (!review_row) {
+	MarkdownViewer *review_markdown = find_markdown_viewer_by_name(review_section, SNAME("ReviewFindingsMarkdown"));
+	CHECK(review_markdown != nullptr);
+	if (!review_markdown) {
 		memdelete(panel);
 		session->delete_workflow(session->get_workflow_id());
 		memdelete(session);
 		cleanup_next_workflows(project_scope);
 		return;
 	}
-	CHECK(review_row->get_text().contains("Jump landing feedback"));
-	CHECK(review_row->get_text().contains("Recommendation"));
-	CHECK_FALSE(review_row->get_text().contains("Boss arena"));
+	CHECK(review_markdown->get_markdown().contains("Jump landing feedback"));
+	CHECK(review_markdown->get_markdown().contains("Recommendation"));
+	CHECK_FALSE(review_markdown->get_markdown().contains("Boss arena"));
 
 	memdelete(panel);
 	session->delete_workflow(session->get_workflow_id());
