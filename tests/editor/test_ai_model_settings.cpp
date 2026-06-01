@@ -10,6 +10,7 @@
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/rules/ai_rule_settings.h"
 #include "editor/ai_component/skills/ai_skill_settings.h"
+#include "editor/ai_component/ui/ai_next_marquee_settings.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
@@ -165,6 +166,57 @@ TEST_CASE("[Editor][AI] Agent settings dialog exposes rule rows") {
 	dialog.save_settings_for_test();
 
 	AIRuleSettings::set_rule_storage_for_test(original_rules);
+}
+
+TEST_CASE("[Editor][AI] NEXT marquee settings provide read-only presets and custom shader") {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	REQUIRE(settings != nullptr);
+
+	const String original_preset = AINextMarqueeSettings::get_current_preset_id();
+	const String original_custom_shader = AINextMarqueeSettings::get_custom_shader_code();
+
+	Vector<AINextMarqueePreset> presets = AINextMarqueeSettings::get_presets();
+	CHECK(presets.size() >= 5);
+	REQUIRE(!presets.is_empty());
+	CHECK_FALSE(presets[0].custom);
+	CHECK(presets[0].shader_code.contains("shader_type canvas_item"));
+	CHECK(AINextMarqueeSettings::get_preset("caution").shader_code.contains("stripe_count"));
+
+	CHECK(AINextMarqueeSettings::set_current_preset_id(presets[0].id));
+	CHECK(AINextMarqueeSettings::get_effective_shader_code() == presets[0].shader_code);
+
+	const String custom_shader = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(UV.x, UV.y, 1.0, 1.0); }\n";
+	CHECK(AINextMarqueeSettings::set_custom_shader_code(custom_shader));
+	CHECK(AINextMarqueeSettings::set_current_preset_id(AINextMarqueeSettings::CUSTOM_PRESET_ID));
+	CHECK(AINextMarqueeSettings::get_effective_shader_code() == custom_shader);
+	CHECK_FALSE(AINextMarqueeSettings::set_current_preset_id("missing_marquee"));
+
+	AINextMarqueeSettings::set_custom_shader_code(original_custom_shader);
+	AINextMarqueeSettings::set_current_preset_id(original_preset);
+}
+
+TEST_CASE("[Editor][AI] NEXT marquee settings dialog hides shader text until custom edit") {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	REQUIRE(settings != nullptr);
+
+	const String original_preset = AINextMarqueeSettings::get_current_preset_id();
+	const String original_custom_shader = AINextMarqueeSettings::get_custom_shader_code();
+
+	AIAgentSettingsDialog dialog;
+	dialog.build_for_test();
+	CHECK(dialog.get_next_marquee_preset_count_for_test() >= 5);
+
+	dialog.select_next_marquee_preset_for_test("aurora");
+	CHECK_FALSE(dialog.is_next_marquee_shader_editor_visible_for_test());
+
+	dialog.select_next_marquee_preset_for_test(AINextMarqueeSettings::CUSTOM_PRESET_ID);
+	CHECK_FALSE(dialog.is_next_marquee_shader_editor_visible_for_test());
+
+	dialog.edit_next_marquee_custom_for_test();
+	CHECK(dialog.is_next_marquee_shader_editor_visible_for_test());
+
+	AINextMarqueeSettings::set_custom_shader_code(original_custom_shader);
+	AINextMarqueeSettings::set_current_preset_id(original_preset);
 }
 
 TEST_CASE("[Editor][AI] MCP settings import stdio and HTTP servers from JSON") {

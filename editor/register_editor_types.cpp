@@ -173,6 +173,7 @@
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_change_review_panel.h"
 #include "editor/ai_component/ui/ai_composer.h"
+#include "editor/ai_component/ui/ai_settings_next_marquee_page.h"
 #include "editor/ai_component/ui/ai_mcp_server_dialog.h"
 #include "editor/ai_component/ui/ai_model_profile_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
@@ -329,6 +330,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AISkillDialog);
 	GDREGISTER_CLASS(AISettingsMCPPage);
 	GDREGISTER_CLASS(AISettingsModelsPage);
+	GDREGISTER_CLASS(AISettingsNextMarqueePage);
 	GDREGISTER_CLASS(AISettingsNextPage);
 	GDREGISTER_CLASS(AISettingsPlaceholderPage);
 	GDREGISTER_CLASS(AISettingsRulesPage);

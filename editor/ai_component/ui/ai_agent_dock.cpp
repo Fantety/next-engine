@@ -15,6 +15,7 @@
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/skills/ai_skill_settings.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
+#include "editor/ai_component/ui/ai_next_marquee_settings.h"
 #include "editor/ai_component/ui/next/ai_agent_next_dock.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/settings/editor_command_palette.h"
@@ -87,6 +88,17 @@ void _setup_status_item_list(ItemList *p_list) {
 	p_list->set_auto_height(false);
 	p_list->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	p_list->set_allow_search(false);
+}
+
+Ref<ShaderMaterial> _make_request_progress_material() {
+	Ref<Shader> shader;
+	shader.instantiate();
+	shader->set_code(AINextMarqueeSettings::get_effective_shader_code());
+
+	Ref<ShaderMaterial> material;
+	material.instantiate();
+	material->set_shader(shader);
+	return material;
 }
 
 } // namespace
@@ -230,44 +242,9 @@ AIAgentDock::AIAgentDock() {
 	request_status_row->hide();
 	main->add_child(request_status_row);
 
-	Ref<Shader> request_progress_shader;
-	request_progress_shader.instantiate();
-	request_progress_shader->set_code(R"(
-shader_type canvas_item;
-render_mode unshaded;
-
-uniform vec4 color_a : source_color = vec4(0.09, 0.68, 1.0, 1.0);
-uniform vec4 color_b : source_color = vec4(0.53, 0.36, 1.0, 1.0);
-uniform vec4 color_c : source_color = vec4(1.0, 0.33, 0.67, 1.0);
-uniform vec4 color_d : source_color = vec4(0.18, 0.92, 0.78, 1.0);
-uniform float speed = 0.95;
-
-vec3 palette(float t) {
-	vec3 a = color_a.rgb;
-	vec3 b = color_b.rgb;
-	vec3 c = color_c.rgb;
-	vec3 d = color_d.rgb;
-	return a + b * cos(TAU * (c * t + d));
-}
-
-void fragment() {
-	float phase = TIME * speed;
-	float wave = UV.x * 2.4 - phase;
-	vec3 color = palette(wave);
-	color += 0.08 * palette(wave + 0.17);
-	color += 0.05 * palette(wave + 0.41);
-	float edge = smoothstep(0.0, 0.08, min(UV.y, 1.0 - UV.y));
-	COLOR = vec4(clamp(color, 0.0, 1.0), edge);
-}
-)");
-
-	Ref<ShaderMaterial> request_progress_material;
-	request_progress_material.instantiate();
-	request_progress_material->set_shader(request_progress_shader);
-
 	request_progress = memnew(ColorRect);
 	request_progress->set_color(Color(1, 1, 1, 1));
-	request_progress->set_material(request_progress_material);
+	request_progress->set_material(_make_request_progress_material());
 	request_progress->set_custom_minimum_size(Size2(0, 4) * EDSCALE);
 	request_progress->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	request_progress->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
@@ -289,6 +266,7 @@ void fragment() {
 	if (AIAgentSettingsDialog::get_singleton()) {
 		AIAgentSettingsDialog::get_singleton()->connect("ai_settings_changed", callable_mp(this, &AIAgentDock::_settings_changed));
 		AIAgentSettingsDialog::get_singleton()->connect("ai_next_settings_changed", callable_mp(this, &AIAgentDock::_settings_changed));
+		AIAgentSettingsDialog::get_singleton()->connect("ai_next_marquee_settings_changed", callable_mp(this, &AIAgentDock::_next_marquee_settings_changed));
 		AIAgentSettingsDialog::get_singleton()->connect("ai_mcp_settings_changed", callable_mp(this, &AIAgentDock::_mcp_settings_changed));
 		AIAgentSettingsDialog::get_singleton()->connect("ai_skill_settings_changed", callable_mp(this, &AIAgentDock::_skill_settings_changed));
 	}
@@ -435,6 +413,11 @@ void AIAgentDock::_settings_changed() {
 	if (next_panel) {
 		next_panel->apply_settings();
 	}
+	_refresh_request_progress_material();
+}
+
+void AIAgentDock::_next_marquee_settings_changed() {
+	_refresh_request_progress_material();
 }
 
 void AIAgentDock::_mcp_settings_changed() {
@@ -842,6 +825,13 @@ void AIAgentDock::_refresh_token_usage() {
 		text += vformat(TTR("  Context ~%s"), _format_token_count(estimated_input_tokens));
 	}
 	token_usage_label->set_text(text);
+}
+
+void AIAgentDock::_refresh_request_progress_material() {
+	if (!request_progress) {
+		return;
+	}
+	request_progress->set_material(_make_request_progress_material());
 }
 
 String AIAgentDock::_format_token_count(int p_tokens) const {

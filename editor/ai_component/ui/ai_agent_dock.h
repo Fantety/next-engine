@@ -61,6 +61,7 @@ class AIAgentDock : public EditorDock {
 	void _mcp_status_changed(const Array &p_statuses, const Dictionary &p_summary);
 	void _tool_approval_requested(const Dictionary &p_approval);
 	void _settings_changed();
+	void _next_marquee_settings_changed();
 	void _mcp_settings_changed();
 	void _mcp_status_pressed();
 	void _skill_settings_changed();
@@ -81,6 +82,7 @@ class AIAgentDock : public EditorDock {
 	void _refresh_skill_status_button();
 	void _refresh_skill_status_popup();
 	void _refresh_token_usage();
+	void _refresh_request_progress_material();
 	String _format_token_count(int p_tokens) const;
 	AIProviderConfig _get_provider_config(const String &p_model_id) const;
 	void _activate_mode(const StringName &p_mode_name);
