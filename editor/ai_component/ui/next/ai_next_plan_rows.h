@@ -17,6 +17,11 @@ Control *make_ai_next_plan_drag_preview(const String &p_text);
 class AINextMilestoneRow : public HBoxContainer {
 	GDCLASS(AINextMilestoneRow, HBoxContainer);
 
+	double pulse_phase = 0.0;
+
+protected:
+	void _notification(int p_what);
+
 public:
 	struct Callbacks {
 		Callable select;
@@ -35,6 +40,11 @@ public:
 
 class AINextTaskRow : public HBoxContainer {
 	GDCLASS(AINextTaskRow, HBoxContainer);
+
+	double pulse_phase = 0.0;
+
+protected:
+	void _notification(int p_what);
 
 public:
 	struct Callbacks {

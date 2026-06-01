@@ -14,8 +14,51 @@
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
 #include "scene/gui/option_button.h"
+#include "scene/gui/scroll_container.h"
 #include "scene/gui/text_edit.h"
 #include "servers/text/text_server.h"
+
+namespace {
+
+ScrollContainer *_make_milestone_rows_scroll(int p_row_count) {
+	ScrollContainer *scroll = memnew(ScrollContainer);
+	scroll->set_name(SNAME("MilestoneRowsScroll"));
+	scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	scroll->set_v_size_flags(Control::SIZE_SHRINK_BEGIN);
+	const int row_count = MAX(1, p_row_count);
+	const int max_height = 148;
+	const int height = MIN(max_height, row_count * 34 + 6);
+	scroll->set_custom_minimum_size(Size2(0, height) * EDSCALE);
+	scroll->set_horizontal_scroll_mode(ScrollContainer::SCROLL_MODE_DISABLED);
+	scroll->set_vertical_scroll_mode(ScrollContainer::SCROLL_MODE_AUTO);
+	return scroll;
+}
+
+VBoxContainer *_make_milestone_rows_container() {
+	VBoxContainer *rows = memnew(VBoxContainer);
+	rows->set_name(SNAME("MilestoneRows"));
+	rows->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	rows->add_theme_constant_override("separation", 3 * EDSCALE);
+	return rows;
+}
+
+Node *_find_node_by_name(Node *p_root, const StringName &p_name) {
+	if (!p_root) {
+		return nullptr;
+	}
+	if (p_root->get_name() == p_name) {
+		return p_root;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		Node *node = _find_node_by_name(p_root->get_child(i), p_name);
+		if (node) {
+			return node;
+		}
+	}
+	return nullptr;
+}
+
+} // namespace
 
 void AINextMilestoneList::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("refresh"), &AINextMilestoneList::refresh);
@@ -272,13 +315,19 @@ int AINextMilestoneList::_get_drop_slot(const Point2 &p_point, const Control *p_
 		return index + (p_point.y > p_from->get_size().y * 0.5 ? 1 : 0);
 	}
 
+	const Node *rows_root = _find_node_by_name(const_cast<AINextMilestoneList *>(this), SNAME("MilestoneRows"));
+	if (!rows_root) {
+		rows_root = this;
+	}
+	const float point_y = p_from && p_from != this ? p_from->get_global_position().y - get_global_position().y + p_point.y : p_point.y;
 	int slot = 0;
-	for (int i = 0; i < get_child_count(); i++) {
-		Control *row = Object::cast_to<Control>(get_child(i));
+	for (int i = 0; i < rows_root->get_child_count(); i++) {
+		Control *row = Object::cast_to<Control>(rows_root->get_child(i));
 		if (!row || !String(row->get_name()).begins_with("MilestoneRow")) {
 			continue;
 		}
-		if (p_point.y < row->get_position().y + row->get_size().y * 0.5) {
+		const float row_y = row->get_global_position().y - get_global_position().y;
+		if (point_y < row_y + row->get_size().y * 0.5) {
 			return slot;
 		}
 		slot++;
@@ -319,11 +368,17 @@ void AINextMilestoneList::refresh() {
 
 	const String active_milestone_id = next_session->get_project_state()->get_active_milestone_id();
 	Array milestones = next_session->get_project_state()->get_milestones_as_array();
+	ScrollContainer *rows_scroll = _make_milestone_rows_scroll(milestones.size());
+	add_child(rows_scroll, true);
+
+	VBoxContainer *rows = _make_milestone_rows_container();
+	rows_scroll->add_child(rows);
+
 	if (milestones.is_empty()) {
 		Label *empty = memnew(Label);
 		empty->set_text(TTR("No milestones"));
 		empty->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
-		add_child(empty);
+		rows->add_child(empty);
 		return;
 	}
 
@@ -346,7 +401,7 @@ void AINextMilestoneList::refresh() {
 		callbacks.drop_data = callable_mp(this, &AINextMilestoneList::_drop_data_fw);
 
 		AINextMilestoneRow *row = memnew(AINextMilestoneRow);
-		add_child(row, true);
+		rows->add_child(row, true);
 		row->setup(milestone, i, milestones.size(), active, can_edit, next_session->is_workflow_active(), callbacks);
 	}
 }

@@ -7,6 +7,7 @@
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
 #include "scene/gui/label.h"
+#include "scene/resources/style_box_flat.h"
 #include "servers/text/text_server.h"
 
 namespace {
@@ -23,6 +24,102 @@ Label *_make_compact_label(const String &p_text) {
 void _set_plan_drag_forwarding(Control *p_control, const Callable &p_get_drag_data, const Callable &p_can_drop_data, const Callable &p_drop_data) {
 	ERR_FAIL_NULL(p_control);
 	p_control->set_drag_forwarding(p_get_drag_data.bind(p_control), p_can_drop_data.bind(p_control), p_drop_data.bind(p_control));
+}
+
+void _connect_row_button_pressed(Button *p_button, const Callable &p_callable) {
+	ERR_FAIL_NULL(p_button);
+	p_button->connect(SceneStringName(pressed), p_callable, Object::CONNECT_DEFERRED);
+}
+
+String _get_milestone_visual_state(const String &p_status) {
+	if (p_status == "locked" || p_status == "ready_to_lock") {
+		return "completed";
+	}
+	if (p_status == "executing" || p_status == "waiting_playtest") {
+		return "running";
+	}
+	return "pending";
+}
+
+String _get_task_visual_state(const String &p_status) {
+	if (p_status == "completed" || p_status == "skipped") {
+		return "completed";
+	}
+	if (p_status == "in_progress") {
+		return "running";
+	}
+	return "pending";
+}
+
+Color _get_editor_theme_color(const Control *p_control, const StringName &p_name, const Color &p_fallback) {
+	if (!p_control) {
+		return p_fallback;
+	}
+	const Color color = p_control->get_theme_color(p_name, SNAME("Editor"));
+	return color.a > 0.0f ? color : p_fallback;
+}
+
+void _configure_plan_row_visual(Control *p_row, const String &p_visual_state, double &r_pulse_phase) {
+	ERR_FAIL_NULL(p_row);
+	p_row->set_meta(SNAME("ai_next_visual_state"), p_visual_state);
+	r_pulse_phase = 0.0;
+	p_row->set_custom_minimum_size(Size2(0, 30) * EDSCALE);
+	p_row->set_process(p_visual_state == "running");
+	p_row->queue_redraw();
+}
+
+void _draw_plan_row_visual(Control *p_row, double p_pulse_phase) {
+	ERR_FAIL_NULL(p_row);
+	const String visual_state = String(p_row->get_meta(SNAME("ai_next_visual_state"), "pending"));
+	const Color success = _get_editor_theme_color(p_row, SNAME("success_color"), Color(0.34, 0.86, 0.45));
+	const Color dark_base = _get_editor_theme_color(p_row, SNAME("dark_color_2"), Color(0.09, 0.095, 0.105));
+	const Color font_color = _get_editor_theme_color(p_row, SceneStringName(font_color), Color(0.86, 0.88, 0.9));
+
+	Color bg = dark_base.darkened(0.22);
+	bg.a = 0.92;
+	Color border = font_color;
+	border.a = 0.13;
+
+	if (visual_state == "completed") {
+		bg = success.darkened(0.70);
+		bg.a = 0.78;
+		border = success;
+		border.a = 0.40;
+	} else if (visual_state == "running") {
+		const float pulse = 0.5f + 0.5f * Math::sin(p_pulse_phase);
+		border = success;
+		border.a = 0.35f + 0.35f * pulse;
+	}
+
+	Ref<StyleBoxFlat> panel;
+	panel.instantiate();
+	panel->set_bg_color(bg);
+	panel->set_border_color(border);
+	panel->set_border_width_all(MAX(1, int(EDSCALE)));
+	panel->set_corner_radius_all(6 * EDSCALE);
+
+	const Rect2 panel_rect = Rect2(Point2(0, 1 * EDSCALE), p_row->get_size() - Size2(0, 2 * EDSCALE));
+	p_row->draw_style_box(panel, panel_rect);
+
+	if (visual_state == "running") {
+		const float pulse = 0.5f + 0.5f * Math::sin(p_pulse_phase);
+		Color glow = success;
+		glow.a = 0.20f + 0.34f * pulse;
+		Color core = success;
+		core.a = 0.75f;
+		const Point2 center = Point2(8 * EDSCALE, p_row->get_size().y * 0.5);
+		p_row->draw_circle(center, (4.5f + 2.5f * pulse) * EDSCALE, glow);
+		p_row->draw_circle(center, 2.5f * EDSCALE, core);
+	}
+}
+
+void _process_plan_row_visual(Control *p_row, double &r_pulse_phase) {
+	ERR_FAIL_NULL(p_row);
+	r_pulse_phase += p_row->get_process_delta_time() * 3.2;
+	if (r_pulse_phase > Math::TAU) {
+		r_pulse_phase -= Math::TAU;
+	}
+	p_row->queue_redraw();
 }
 
 } // namespace
@@ -47,13 +144,15 @@ Control *make_ai_next_plan_drag_preview(const String &p_text) {
 
 void AINextMilestoneRow::setup(const Dictionary &p_milestone, int p_index, int p_milestone_count, bool p_active, bool p_can_edit, bool p_workflow_active, const Callbacks &p_callbacks) {
 	const String milestone_id = String(p_milestone.get("id", String()));
-	const bool locked = String(p_milestone.get("status", String())) == "locked";
+	const String milestone_status = String(p_milestone.get("status", String()));
+	const bool locked = milestone_status == "locked";
 
 	set_name(SNAME("MilestoneRow"));
 	set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	add_theme_constant_override("separation", 4 * EDSCALE);
 	set_meta(SNAME("ai_next_milestone_id"), milestone_id);
 	set_meta(SNAME("ai_next_index"), p_index);
+	_configure_plan_row_visual(this, _get_milestone_visual_state(milestone_status), pulse_phase);
 	_set_plan_drag_forwarding(this, p_callbacks.get_drag_data, p_callbacks.can_drop_data, p_callbacks.drop_data);
 
 	Button *title = memnew(Button);
@@ -65,7 +164,7 @@ void AINextMilestoneRow::setup(const Dictionary &p_milestone, int p_index, int p
 	title->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	title->set_tooltip_text(String(p_milestone.get("description", String())));
 	title->set_disabled(p_workflow_active);
-	title->connect(SceneStringName(pressed), p_callbacks.select);
+	_connect_row_button_pressed(title, p_callbacks.select);
 	add_child(title);
 
 	Button *drag = memnew(Button);
@@ -88,36 +187,44 @@ void AINextMilestoneRow::setup(const Dictionary &p_milestone, int p_index, int p
 	edit->set_name(SNAME("AIPlanEditMilestoneButton"));
 	setup_ai_next_plan_icon_button(this, edit, SNAME("AIPlanEdit"), TTR("Edit milestone."));
 	edit->set_disabled(!p_can_edit || locked);
-	edit->connect(SceneStringName(pressed), p_callbacks.edit);
+	_connect_row_button_pressed(edit, p_callbacks.edit);
 	add_child(edit);
 
 	Button *merge = memnew(Button);
 	merge->set_name(SNAME("AIPlanMergeMilestoneButton"));
 	setup_ai_next_plan_icon_button(this, merge, SNAME("AIPlanMerge"), TTR("Merge milestone."));
 	merge->set_disabled(!p_can_edit || locked || p_milestone_count < 2);
-	merge->connect(SceneStringName(pressed), p_callbacks.merge);
+	_connect_row_button_pressed(merge, p_callbacks.merge);
 	add_child(merge);
 
 	Button *move_up = memnew(Button);
 	move_up->set_name(SNAME("AIPlanMoveUpMilestoneButton"));
 	setup_ai_next_plan_icon_button(this, move_up, SNAME("AIPlanMoveUp"), TTR("Move milestone up."));
 	move_up->set_disabled(!p_can_edit || locked || p_index == 0);
-	move_up->connect(SceneStringName(pressed), p_callbacks.move_up);
+	_connect_row_button_pressed(move_up, p_callbacks.move_up);
 	add_child(move_up);
 
 	Button *move_down = memnew(Button);
 	move_down->set_name(SNAME("AIPlanMoveDownMilestoneButton"));
 	setup_ai_next_plan_icon_button(this, move_down, SNAME("AIPlanMoveDown"), TTR("Move milestone down."));
 	move_down->set_disabled(!p_can_edit || locked || p_index >= p_milestone_count - 1);
-	move_down->connect(SceneStringName(pressed), p_callbacks.move_down);
+	_connect_row_button_pressed(move_down, p_callbacks.move_down);
 	add_child(move_down);
 
 	Button *remove = memnew(Button);
 	remove->set_name(SNAME("AIPlanDeleteMilestoneButton"));
 	setup_ai_next_plan_icon_button(this, remove, SNAME("AIPlanDelete"), TTR("Delete milestone."));
 	remove->set_disabled(!p_can_edit || locked);
-	remove->connect(SceneStringName(pressed), p_callbacks.remove);
+	_connect_row_button_pressed(remove, p_callbacks.remove);
 	add_child(remove);
+}
+
+void AINextMilestoneRow::_notification(int p_what) {
+	if (p_what == NOTIFICATION_DRAW) {
+		_draw_plan_row_visual(this, pulse_phase);
+	} else if (p_what == NOTIFICATION_PROCESS) {
+		_process_plan_row_visual(this, pulse_phase);
+	}
 }
 
 void AINextTaskRow::setup(const Dictionary &p_task, int p_index, int p_task_count, const String &p_status_text, bool p_selected, bool p_locked, bool p_can_edit, bool p_workflow_active, bool p_can_run, const Callbacks &p_callbacks) {
@@ -128,6 +235,7 @@ void AINextTaskRow::setup(const Dictionary &p_task, int p_index, int p_task_coun
 	add_theme_constant_override("separation", 4 * EDSCALE);
 	set_meta(SNAME("ai_next_task_id"), task_id);
 	set_meta(SNAME("ai_next_index"), p_index);
+	_configure_plan_row_visual(this, _get_task_visual_state(p_status_text), pulse_phase);
 	_set_plan_drag_forwarding(this, p_callbacks.get_drag_data, p_callbacks.can_drop_data, p_callbacks.drop_data);
 
 	Button *title = memnew(Button);
@@ -139,7 +247,7 @@ void AINextTaskRow::setup(const Dictionary &p_task, int p_index, int p_task_coun
 	title->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	title->set_tooltip_text(String(p_task.get("description", String())));
 	title->set_disabled(p_workflow_active);
-	title->connect(SceneStringName(pressed), p_callbacks.select);
+	_connect_row_button_pressed(title, p_callbacks.select);
 	add_child(title);
 
 	Button *drag = memnew(Button);
@@ -161,41 +269,49 @@ void AINextTaskRow::setup(const Dictionary &p_task, int p_index, int p_task_coun
 	edit->set_name(SNAME("AIPlanEditTaskButton"));
 	setup_ai_next_plan_icon_button(this, edit, SNAME("AIPlanEdit"), TTR("Edit task."));
 	edit->set_disabled(!p_can_edit || p_locked);
-	edit->connect(SceneStringName(pressed), p_callbacks.edit);
+	_connect_row_button_pressed(edit, p_callbacks.edit);
 	add_child(edit);
 
 	Button *dependencies = memnew(Button);
 	dependencies->set_name(SNAME("AIPlanDependencyTaskButton"));
 	setup_ai_next_plan_icon_button(this, dependencies, SNAME("AIPlanDependency"), TTR("Edit dependencies."));
 	dependencies->set_disabled(!p_can_edit || p_locked);
-	dependencies->connect(SceneStringName(pressed), p_callbacks.dependencies);
+	_connect_row_button_pressed(dependencies, p_callbacks.dependencies);
 	add_child(dependencies);
 
 	Button *move_up = memnew(Button);
 	move_up->set_name(SNAME("AIPlanMoveUpTaskButton"));
 	setup_ai_next_plan_icon_button(this, move_up, SNAME("AIPlanMoveUp"), TTR("Move task up."));
 	move_up->set_disabled(!p_can_edit || p_locked || p_index == 0);
-	move_up->connect(SceneStringName(pressed), p_callbacks.move_up);
+	_connect_row_button_pressed(move_up, p_callbacks.move_up);
 	add_child(move_up);
 
 	Button *move_down = memnew(Button);
 	move_down->set_name(SNAME("AIPlanMoveDownTaskButton"));
 	setup_ai_next_plan_icon_button(this, move_down, SNAME("AIPlanMoveDown"), TTR("Move task down."));
 	move_down->set_disabled(!p_can_edit || p_locked || p_index >= p_task_count - 1);
-	move_down->connect(SceneStringName(pressed), p_callbacks.move_down);
+	_connect_row_button_pressed(move_down, p_callbacks.move_down);
 	add_child(move_down);
 
 	Button *remove = memnew(Button);
 	remove->set_name(SNAME("AIPlanDeleteTaskButton"));
 	setup_ai_next_plan_icon_button(this, remove, SNAME("AIPlanDelete"), TTR("Delete task."));
 	remove->set_disabled(!p_can_edit || p_locked);
-	remove->connect(SceneStringName(pressed), p_callbacks.remove);
+	_connect_row_button_pressed(remove, p_callbacks.remove);
 	add_child(remove);
 
 	Button *run = memnew(Button);
 	run->set_name(SNAME("AIPlanRunTaskButton"));
 	setup_ai_next_plan_icon_button(this, run, SNAME("MainPlay"), p_status_text == "in_progress" ? TTR("Running task.") : TTR("Run task."));
 	run->set_disabled(!p_can_run);
-	run->connect(SceneStringName(pressed), p_callbacks.run);
+	_connect_row_button_pressed(run, p_callbacks.run);
 	add_child(run);
+}
+
+void AINextTaskRow::_notification(int p_what) {
+	if (p_what == NOTIFICATION_DRAW) {
+		_draw_plan_row_visual(this, pulse_phase);
+	} else if (p_what == NOTIFICATION_PROCESS) {
+		_process_plan_row_visual(this, pulse_phase);
+	}
 }

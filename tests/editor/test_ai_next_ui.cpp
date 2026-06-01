@@ -103,6 +103,20 @@ static Button *find_button_by_name(Node *p_root, const StringName &p_name) {
 	return nullptr;
 }
 
+static bool has_deferred_pressed_connection(Button *p_button) {
+	if (!p_button) {
+		return false;
+	}
+	List<Object::Connection> connections;
+	p_button->get_signal_connection_list(SceneStringName(pressed), &connections);
+	for (const Object::Connection &connection : connections) {
+		if (connection.flags & Object::CONNECT_DEFERRED) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static HBoxContainer *find_direct_hbox_by_name(Node *p_root, const StringName &p_name) {
 	if (!p_root) {
 		return nullptr;
@@ -111,6 +125,62 @@ static HBoxContainer *find_direct_hbox_by_name(Node *p_root, const StringName &p
 		HBoxContainer *row = Object::cast_to<HBoxContainer>(p_root->get_child(i));
 		if (row && String(row->get_name()).begins_with(String(p_name))) {
 			return row;
+		}
+		HBoxContainer *child_row = find_direct_hbox_by_name(p_root->get_child(i), p_name);
+		if (child_row) {
+			return child_row;
+		}
+	}
+	return nullptr;
+}
+
+static ScrollContainer *find_scroll_by_name(Node *p_root, const StringName &p_name) {
+	if (!p_root) {
+		return nullptr;
+	}
+	ScrollContainer *scroll = Object::cast_to<ScrollContainer>(p_root);
+	if (scroll && scroll->get_name() == p_name) {
+		return scroll;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		ScrollContainer *child_scroll = find_scroll_by_name(p_root->get_child(i), p_name);
+		if (child_scroll) {
+			return child_scroll;
+		}
+	}
+	return nullptr;
+}
+
+static int count_hboxes_by_name(Node *p_root, const StringName &p_name) {
+	if (!p_root) {
+		return 0;
+	}
+	int count = 0;
+	HBoxContainer *row = Object::cast_to<HBoxContainer>(p_root);
+	if (row && String(row->get_name()).begins_with(String(p_name))) {
+		count++;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		count += count_hboxes_by_name(p_root->get_child(i), p_name);
+	}
+	return count;
+}
+
+static HBoxContainer *find_row_by_title(Node *p_root, const StringName &p_row_name, const String &p_title) {
+	if (!p_root) {
+		return nullptr;
+	}
+	HBoxContainer *row = Object::cast_to<HBoxContainer>(p_root);
+	if (row && String(row->get_name()).begins_with(String(p_row_name))) {
+		Button *title = Object::cast_to<Button>(row->get_child_count() > 0 ? row->get_child(0) : nullptr);
+		if (title && title->get_text().contains(p_title)) {
+			return row;
+		}
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		HBoxContainer *child_row = find_row_by_title(p_root->get_child(i), p_row_name, p_title);
+		if (child_row) {
+			return child_row;
 		}
 	}
 	return nullptr;
@@ -229,6 +299,12 @@ TEST_CASE("[Editor][AI][NEXT] milestone list renders compact editable rows") {
 	AIAgentNextSession *session = memnew(AIAgentNextSession);
 	session->set_workflow_project_scope_for_test(project_scope);
 	CHECK_FALSE(session->get_project_state()->create_milestone("Core Movement", "Build movement.").is_empty());
+	const String completed_milestone_id = session->get_project_state()->create_milestone("Locked Polish", "Completed polish.");
+	const String completed_task_id = session->get_project_state()->add_task(completed_milestone_id, "Completed polish task", "script_agent", Array());
+	REQUIRE_FALSE(completed_task_id.is_empty());
+	CHECK(session->get_project_state()->mark_task_completed(completed_task_id, "Done.", Array()));
+	String lock_error;
+	CHECK(session->get_project_state()->lock_milestone(completed_milestone_id, lock_error));
 
 	AINextMilestoneList *list = memnew(AINextMilestoneList);
 	list->set_next_session(session);
@@ -237,8 +313,24 @@ TEST_CASE("[Editor][AI][NEXT] milestone list renders compact editable rows") {
 	REQUIRE(add != nullptr);
 	CHECK(add->get_text().is_empty());
 
+	ScrollContainer *rows_scroll = find_scroll_by_name(list, SNAME("MilestoneRowsScroll"));
+	CHECK(rows_scroll != nullptr);
+	if (!rows_scroll) {
+		memdelete(list);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+	CHECK(rows_scroll->get_horizontal_scroll_mode() == ScrollContainer::SCROLL_MODE_DISABLED);
+	CHECK(rows_scroll->get_vertical_scroll_mode() == ScrollContainer::SCROLL_MODE_AUTO);
+	CHECK(rows_scroll->get_custom_minimum_size().y > 0);
+	CHECK(rows_scroll->get_custom_minimum_size().y <= 260);
+
 	HBoxContainer *row = find_direct_hbox_by_name(list, SNAME("MilestoneRow"));
 	REQUIRE(row != nullptr);
+	CHECK(String(row->get_meta(SNAME("ai_next_visual_state"), String())) == "pending");
+	CHECK_FALSE(row->is_processing());
 	Button *title = Object::cast_to<Button>(row->get_child(0));
 	REQUIRE(title != nullptr);
 	CHECK(title->get_name() == SNAME("AIPlanMilestoneTitle"));
@@ -248,14 +340,27 @@ TEST_CASE("[Editor][AI][NEXT] milestone list renders compact editable rows") {
 	Button *drag = find_button_by_name(row, SNAME("AIPlanDragMilestoneHandle"));
 	Button *remove = find_button_by_name(row, SNAME("AIPlanDeleteMilestoneButton"));
 	Button *move_up = find_button_by_name(row, SNAME("AIPlanMoveUpMilestoneButton"));
+	Button *move_down = find_button_by_name(row, SNAME("AIPlanMoveDownMilestoneButton"));
 	REQUIRE(edit != nullptr);
 	REQUIRE(drag != nullptr);
 	REQUIRE(remove != nullptr);
 	REQUIRE(move_up != nullptr);
+	REQUIRE(move_down != nullptr);
 	CHECK(edit->get_text().is_empty());
 	CHECK(drag->get_text().is_empty());
 	CHECK(remove->get_text().is_empty());
 	CHECK(move_up->get_text().is_empty());
+	CHECK(move_down->get_text().is_empty());
+	CHECK(has_deferred_pressed_connection(title));
+	CHECK(has_deferred_pressed_connection(edit));
+	CHECK(has_deferred_pressed_connection(remove));
+	CHECK(has_deferred_pressed_connection(move_up));
+	CHECK(has_deferred_pressed_connection(move_down));
+
+	HBoxContainer *completed_row = find_row_by_title(list, SNAME("MilestoneRow"), "Locked Polish");
+	REQUIRE(completed_row != nullptr);
+	CHECK(String(completed_row->get_meta(SNAME("ai_next_visual_state"), String())) == "completed");
+	CHECK_FALSE(completed_row->is_processing());
 
 	memdelete(list);
 	session->delete_workflow(session->get_workflow_id());
@@ -273,12 +378,15 @@ TEST_CASE("[Editor][AI][NEXT] task tree renders compact editable rows") {
 	const String completed_task = session->get_project_state()->add_task(milestone_id, "Completed script", "script_agent", Array());
 	const String ready_task = session->get_project_state()->add_task(milestone_id, "Ready scene", "scene_agent", Array());
 	const String failed_task = session->get_project_state()->add_task(milestone_id, "Failed shader", "shader_agent", Array());
+	const String running_task = session->get_project_state()->add_task(milestone_id, "Running tool", "script_agent", Array());
 	REQUIRE_FALSE(completed_task.is_empty());
 	REQUIRE_FALSE(ready_task.is_empty());
 	REQUIRE_FALSE(failed_task.is_empty());
+	REQUIRE_FALSE(running_task.is_empty());
 	session->get_project_state()->mark_task_completed(completed_task, "Done.", Array());
 	session->get_project_state()->mark_task_failed(failed_task, "Failed.");
-	CHECK(session->get_project_state()->get_task_count(milestone_id) == 3);
+	CHECK(session->get_project_state()->set_task_status(running_task, AI_NEXT_TASK_IN_PROGRESS));
+	CHECK(session->get_project_state()->get_task_count(milestone_id) == 4);
 
 	AINextTaskTree *tree = memnew(AINextTaskTree);
 	tree->set_next_session(session);
@@ -287,13 +395,31 @@ TEST_CASE("[Editor][AI][NEXT] task tree renders compact editable rows") {
 	REQUIRE(add != nullptr);
 	CHECK(add->get_text().is_empty());
 
-	int row_count = 0;
-	for (int i = 0; i < tree->get_child_count(); i++) {
-		HBoxContainer *row = Object::cast_to<HBoxContainer>(tree->get_child(i));
-		if (!row || !String(row->get_name()).begins_with("TaskRow")) {
-			continue;
+	ScrollContainer *rows_scroll = find_scroll_by_name(tree, SNAME("TaskRowsScroll"));
+	CHECK(rows_scroll != nullptr);
+	if (!rows_scroll) {
+		memdelete(tree);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+	CHECK(rows_scroll->get_horizontal_scroll_mode() == ScrollContainer::SCROLL_MODE_DISABLED);
+	CHECK(rows_scroll->get_vertical_scroll_mode() == ScrollContainer::SCROLL_MODE_AUTO);
+	CHECK(rows_scroll->get_custom_minimum_size().y > 0);
+	CHECK(rows_scroll->get_custom_minimum_size().y <= 320);
+
+	for (int i = 0; i < 4; i++) {
+		HBoxContainer *row = nullptr;
+		if (i == 0) {
+			row = find_row_by_title(tree, SNAME("TaskRow"), "Completed script");
+		} else if (i == 1) {
+			row = find_row_by_title(tree, SNAME("TaskRow"), "Ready scene");
+		} else if (i == 2) {
+			row = find_row_by_title(tree, SNAME("TaskRow"), "Failed shader");
+		} else {
+			row = find_row_by_title(tree, SNAME("TaskRow"), "Running tool");
 		}
-		row_count++;
 		REQUIRE(row != nullptr);
 		Button *title = Object::cast_to<Button>(row->get_child(0));
 		REQUIRE(title != nullptr);
@@ -302,20 +428,46 @@ TEST_CASE("[Editor][AI][NEXT] task tree renders compact editable rows") {
 		Button *edit = find_button_by_name(row, SNAME("AIPlanEditTaskButton"));
 		Button *dependencies = find_button_by_name(row, SNAME("AIPlanDependencyTaskButton"));
 		Button *remove = find_button_by_name(row, SNAME("AIPlanDeleteTaskButton"));
+		Button *move_up = find_button_by_name(row, SNAME("AIPlanMoveUpTaskButton"));
+		Button *move_down = find_button_by_name(row, SNAME("AIPlanMoveDownTaskButton"));
 		Button *run = find_button_by_name(row, SNAME("AIPlanRunTaskButton"));
 		REQUIRE(drag != nullptr);
 		REQUIRE(edit != nullptr);
 		REQUIRE(dependencies != nullptr);
 		REQUIRE(remove != nullptr);
+		REQUIRE(move_up != nullptr);
+		REQUIRE(move_down != nullptr);
 		REQUIRE(run != nullptr);
 		CHECK(drag->get_text().is_empty());
 		CHECK_FALSE(drag->is_disabled());
 		CHECK(edit->get_text().is_empty());
 		CHECK(dependencies->get_text().is_empty());
 		CHECK(remove->get_text().is_empty());
+		CHECK(move_up->get_text().is_empty());
+		CHECK(move_down->get_text().is_empty());
 		CHECK(run->get_text().is_empty());
+		CHECK(has_deferred_pressed_connection(title));
+		CHECK(has_deferred_pressed_connection(edit));
+		CHECK(has_deferred_pressed_connection(dependencies));
+		CHECK(has_deferred_pressed_connection(remove));
+		CHECK(has_deferred_pressed_connection(move_up));
+		CHECK(has_deferred_pressed_connection(move_down));
+		CHECK(has_deferred_pressed_connection(run));
 	}
-	CHECK(row_count == 3);
+	CHECK(count_hboxes_by_name(tree, SNAME("TaskRow")) == 4);
+
+	HBoxContainer *completed_row = find_row_by_title(tree, SNAME("TaskRow"), "Completed script");
+	HBoxContainer *ready_row = find_row_by_title(tree, SNAME("TaskRow"), "Ready scene");
+	HBoxContainer *running_row = find_row_by_title(tree, SNAME("TaskRow"), "Running tool");
+	REQUIRE(completed_row != nullptr);
+	REQUIRE(ready_row != nullptr);
+	REQUIRE(running_row != nullptr);
+	CHECK(String(completed_row->get_meta(SNAME("ai_next_visual_state"), String())) == "completed");
+	CHECK(String(ready_row->get_meta(SNAME("ai_next_visual_state"), String())) == "pending");
+	CHECK(String(running_row->get_meta(SNAME("ai_next_visual_state"), String())) == "running");
+	CHECK_FALSE(completed_row->is_processing());
+	CHECK_FALSE(ready_row->is_processing());
+	CHECK(running_row->is_processing());
 
 	memdelete(tree);
 	session->delete_workflow(session->get_workflow_id());
