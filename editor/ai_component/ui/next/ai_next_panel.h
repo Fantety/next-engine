@@ -35,9 +35,12 @@ class AINextPanel : public VBoxContainer {
 	Label *operation_label = nullptr;
 	ColorRect *operation_progress = nullptr;
 	FoldableContainer *task_inspector_section = nullptr;
+	FoldableContainer *review_findings_section = nullptr;
 	FoldableContainer *activity_section = nullptr;
 	Label *task_inspector_summary = nullptr;
+	Label *review_findings_summary = nullptr;
 	Label *activity_summary = nullptr;
+	VBoxContainer *review_findings_list = nullptr;
 	VBoxContainer *activity_list = nullptr;
 	Button *submit_button = nullptr;
 	Button *plan_button = nullptr;
@@ -65,6 +68,7 @@ class AINextPanel : public VBoxContainer {
 	void _refresh_progress();
 	void _refresh_workflows();
 	void _refresh_activity();
+	void _refresh_review_findings();
 	void _refresh_task_inspector_summary();
 	void _refresh_activity_summary();
 	void _refresh_theme_icons();

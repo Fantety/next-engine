@@ -520,10 +520,12 @@ TEST_CASE("[Editor][AI][NEXT] long detail sections use compact collapsed foldabl
 	panel->set_next_session(session);
 
 	FoldableContainer *task_section = find_foldable_by_title(panel, "Task Inspector");
+	FoldableContainer *review_section = find_foldable_by_title(panel, "Review Findings");
 	FoldableContainer *activity_section = find_foldable_by_title(panel, "Activity");
 	CHECK(task_section != nullptr);
+	CHECK(review_section != nullptr);
 	CHECK(activity_section != nullptr);
-	if (!task_section || !activity_section) {
+	if (!task_section || !review_section || !activity_section) {
 		memdelete(panel);
 		session->delete_workflow(session->get_workflow_id());
 		memdelete(session);
@@ -532,15 +534,19 @@ TEST_CASE("[Editor][AI][NEXT] long detail sections use compact collapsed foldabl
 	}
 
 	CHECK(task_section->is_folded());
+	CHECK(review_section->is_folded());
 	CHECK(activity_section->is_folded());
 	CHECK(task_section->get_title_text_overrun_behavior() == TextServer::OVERRUN_TRIM_ELLIPSIS);
+	CHECK(review_section->get_title_text_overrun_behavior() == TextServer::OVERRUN_TRIM_ELLIPSIS);
 	CHECK(activity_section->get_title_text_overrun_behavior() == TextServer::OVERRUN_TRIM_ELLIPSIS);
 
 	Label *task_summary = find_label_by_name(task_section, SNAME("TaskInspectorSummary"));
+	Label *review_summary = find_label_by_name(review_section, SNAME("ReviewFindingsSummary"));
 	Label *activity_summary = find_label_by_name(activity_section, SNAME("ActivitySummary"));
 	CHECK(task_summary != nullptr);
+	CHECK(review_summary != nullptr);
 	CHECK(activity_summary != nullptr);
-	if (!task_summary || !activity_summary) {
+	if (!task_summary || !review_summary || !activity_summary) {
 		memdelete(panel);
 		session->delete_workflow(session->get_workflow_id());
 		memdelete(session);
@@ -548,6 +554,7 @@ TEST_CASE("[Editor][AI][NEXT] long detail sections use compact collapsed foldabl
 		return;
 	}
 	CHECK(task_summary->get_text() == "No task selected");
+	CHECK(review_summary->get_text() == "No review findings");
 	CHECK(activity_summary->get_text() == "No activity yet");
 
 	memdelete(panel);
@@ -582,6 +589,78 @@ TEST_CASE("[Editor][AI][NEXT] collapsed task inspector summarizes selected task"
 	CHECK(task_summary->get_text().contains("Implement dash controller"));
 	CHECK(task_summary->get_text().contains("Ready"));
 	CHECK(task_summary->get_text().contains("script"));
+
+	memdelete(panel);
+	session->delete_workflow(session->get_workflow_id());
+	memdelete(session);
+	cleanup_next_workflows(project_scope);
+}
+
+TEST_CASE("[Editor][AI][NEXT] review findings summarize active milestone review") {
+	const String project_scope = "test_next_ui_review_findings";
+	cleanup_next_workflows(project_scope);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+	const String active_milestone_id = session->get_project_state()->create_milestone("Core Movement", "Build movement.");
+	const String other_milestone_id = session->get_project_state()->create_milestone("Boss Arena", "Build boss arena.");
+	REQUIRE_FALSE(active_milestone_id.is_empty());
+	REQUIRE_FALSE(other_milestone_id.is_empty());
+
+	Dictionary other_metadata;
+	other_metadata["findings"] = "Finding: Boss arena pacing is unclear.";
+	session->get_event_log()->record_event("review_completed", other_milestone_id, String(), "review_agent", "Finding: Boss arena pacing is unclear.", other_metadata);
+
+	Dictionary active_metadata;
+	active_metadata["findings"] = "Finding: Jump landing feedback is unclear.\nRecommendation: add landing dust.";
+	session->get_event_log()->record_event("review_completed", active_milestone_id, String(), "review_agent", "Finding: Jump landing feedback is unclear.", active_metadata);
+
+	AINextPanel *panel = memnew(AINextPanel);
+	panel->set_next_session(session);
+
+	FoldableContainer *review_section = find_foldable_by_title(panel, "Review Findings");
+	CHECK(review_section != nullptr);
+	if (!review_section) {
+		memdelete(panel);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+
+	Label *review_summary = find_label_by_name(review_section, SNAME("ReviewFindingsSummary"));
+	CHECK(review_summary != nullptr);
+	if (!review_summary) {
+		memdelete(panel);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+	CHECK(review_summary->get_text().contains("Jump landing feedback"));
+	CHECK_FALSE(review_summary->get_text().contains("Boss arena"));
+
+	ScrollContainer *review_scroll = find_scroll_by_name(review_section, SNAME("ReviewFindingsScroll"));
+	CHECK(review_scroll != nullptr);
+	if (review_scroll) {
+		CHECK(review_scroll->get_horizontal_scroll_mode() == ScrollContainer::SCROLL_MODE_DISABLED);
+		CHECK(review_scroll->get_vertical_scroll_mode() == ScrollContainer::SCROLL_MODE_AUTO);
+		CHECK(review_scroll->get_custom_minimum_size().y > 0);
+		CHECK(review_scroll->get_custom_minimum_size().y <= 180);
+	}
+
+	Label *review_row = find_label_by_name(review_section, SNAME("ReviewFindingRow"));
+	CHECK(review_row != nullptr);
+	if (!review_row) {
+		memdelete(panel);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+	CHECK(review_row->get_text().contains("Jump landing feedback"));
+	CHECK(review_row->get_text().contains("Recommendation"));
+	CHECK_FALSE(review_row->get_text().contains("Boss arena"));
 
 	memdelete(panel);
 	session->delete_workflow(session->get_workflow_id());

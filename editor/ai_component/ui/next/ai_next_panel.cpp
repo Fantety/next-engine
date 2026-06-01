@@ -17,6 +17,7 @@
 #include "scene/gui/foldable_container.h"
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
+#include "scene/gui/scroll_container.h"
 #include "scene/gui/separator.h"
 #include "scene/gui/text_edit.h"
 #include "scene/gui/texture_rect.h"
@@ -99,6 +100,19 @@ String _format_event_activity_summary(const Dictionary &p_event) {
 		return message.is_empty() ? type : vformat("%s: %s", type, message);
 	}
 	return message.is_empty() ? vformat("%s [%s]", type, agent) : vformat("%s [%s]: %s", type, agent, message);
+}
+
+String _get_review_findings_from_event(const Dictionary &p_event) {
+	String findings;
+	Variant metadata_value = p_event.get("metadata", Dictionary());
+	if (metadata_value.get_type() == Variant::DICTIONARY) {
+		Dictionary metadata = metadata_value;
+		findings = String(metadata.get("findings", String())).strip_edges();
+	}
+	if (findings.is_empty()) {
+		findings = String(p_event.get("message", String())).strip_edges();
+	}
+	return findings;
 }
 
 Ref<ShaderMaterial> _make_operation_progress_material() {
@@ -316,6 +330,30 @@ AINextPanel::AINextPanel() {
 	_setup_icon_button(review_button, TTR("Review the active milestone."));
 	review_button->connect(SceneStringName(pressed), callable_mp(this, &AINextPanel::_review_milestone_pressed));
 	run_actions->add_child(review_button);
+
+	add_child(memnew(HSeparator));
+	review_findings_section = memnew(FoldableContainer(TTR("Review Findings")));
+	review_findings_section->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	review_findings_section->set_title_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	review_findings_section->set_folded(true);
+	review_findings_summary = memnew(Label);
+	_setup_foldable_summary_label(review_findings_summary, SNAME("ReviewFindingsSummary"));
+	review_findings_section->add_title_bar_control(review_findings_summary);
+	add_child(review_findings_section);
+
+	ScrollContainer *review_findings_scroll = memnew(ScrollContainer);
+	review_findings_scroll->set_name(SNAME("ReviewFindingsScroll"));
+	review_findings_scroll->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	review_findings_scroll->set_horizontal_scroll_mode(ScrollContainer::SCROLL_MODE_DISABLED);
+	review_findings_scroll->set_vertical_scroll_mode(ScrollContainer::SCROLL_MODE_AUTO);
+	review_findings_scroll->set_custom_minimum_size(Size2(0, 144) * EDSCALE);
+	review_findings_section->add_child(review_findings_scroll);
+
+	review_findings_list = memnew(VBoxContainer);
+	review_findings_list->set_name(SNAME("ReviewFindingsList"));
+	review_findings_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	review_findings_list->add_theme_constant_override("separation", 4 * EDSCALE);
+	review_findings_scroll->add_child(review_findings_list);
 
 	add_child(memnew(HSeparator));
 	activity_section = memnew(FoldableContainer(TTR("Activity")));
@@ -603,6 +641,73 @@ void AINextPanel::_refresh_activity_summary() {
 	activity_summary->set_tooltip_text(summary);
 }
 
+void AINextPanel::_refresh_review_findings() {
+	if (!review_findings_summary && !review_findings_list) {
+		return;
+	}
+
+	if (review_findings_list) {
+		while (review_findings_list->get_child_count() > 0) {
+			Node *child = review_findings_list->get_child(0);
+			review_findings_list->remove_child(child);
+			memdelete(child);
+		}
+	}
+
+	String summary = TTR("No review findings");
+	int rows_added = 0;
+
+	if (next_session && next_session->get_project_state().is_valid() && next_session->get_event_log().is_valid()) {
+		const String active_milestone_id = next_session->get_project_state()->get_active_milestone_id();
+		Array events = next_session->get_event_log()->get_events();
+		for (int i = events.size() - 1; i >= 0; i--) {
+			if (Variant(events[i]).get_type() != Variant::DICTIONARY) {
+				continue;
+			}
+			Dictionary event = events[i];
+			if (String(event.get("event_type", String())) != "review_completed") {
+				continue;
+			}
+			if (String(event.get("milestone_id", String())) != active_milestone_id) {
+				continue;
+			}
+
+			const String findings = _get_review_findings_from_event(event);
+			if (findings.is_empty()) {
+				continue;
+			}
+
+			if (rows_added == 0) {
+				summary = _trim_panel_summary(findings);
+			}
+			if (review_findings_list) {
+				Label *row = memnew(Label);
+				row->set_name(SNAME("ReviewFindingRow"));
+				row->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+				row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+				row->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
+				row->set_text(findings);
+				row->set_tooltip_text(findings);
+				review_findings_list->add_child(row);
+			}
+			rows_added++;
+		}
+	}
+
+	if (rows_added == 0 && review_findings_list) {
+		Label *empty = memnew(Label);
+		empty->set_name(SNAME("ReviewFindingEmpty"));
+		empty->set_text(TTR("No review findings"));
+		empty->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+		review_findings_list->add_child(empty);
+	}
+
+	if (review_findings_summary) {
+		review_findings_summary->set_text(summary);
+		review_findings_summary->set_tooltip_text(summary);
+	}
+}
+
 void AINextPanel::_refresh_activity() {
 	if (!activity_list) {
 		return;
@@ -669,6 +774,7 @@ void AINextPanel::_refresh() {
 			operation_label->set_text(String());
 		}
 		_refresh_task_inspector_summary();
+		_refresh_review_findings();
 		_refresh_activity();
 		return;
 	}
@@ -722,6 +828,7 @@ void AINextPanel::_refresh() {
 		task_inspector->refresh();
 	}
 	_refresh_task_inspector_summary();
+	_refresh_review_findings();
 	if (feedback_panel) {
 		feedback_panel->refresh();
 	}
@@ -738,6 +845,7 @@ void AINextPanel::_refresh_progress() {
 		return;
 	}
 	_update_operation_label();
+	_refresh_review_findings();
 	_refresh_activity();
 }
 
