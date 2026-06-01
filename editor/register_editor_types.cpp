@@ -169,25 +169,26 @@
 #include "editor/ai_component/tools/editor/ai_script_editing_service.h"
 #include "editor/ai_component/tools/editor/ai_shader_editing_service.h"
 #include "editor/ai_component/ui/ai_agent_dock.h"
-#include "editor/ai_component/ui/ai_agent_next_dock.h"
+#include "editor/ai_component/ui/next/ai_agent_next_dock.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_change_review_panel.h"
 #include "editor/ai_component/ui/ai_composer.h"
 #include "editor/ai_component/ui/ai_mcp_server_dialog.h"
 #include "editor/ai_component/ui/ai_model_profile_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
+#include "editor/ai_component/ui/ai_mode_panel.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/ai_component/ui/ai_message_list.h"
-#include "editor/ai_component/ui/ai_next_feedback_panel.h"
-#include "editor/ai_component/ui/ai_next_milestone_list.h"
-#include "editor/ai_component/ui/ai_next_panel.h"
-#include "editor/ai_component/ui/ai_next_task_inspector.h"
-#include "editor/ai_component/ui/ai_next_task_tree.h"
+#include "editor/ai_component/ui/next/ai_next_feedback_panel.h"
+#include "editor/ai_component/ui/next/ai_next_milestone_list.h"
+#include "editor/ai_component/ui/next/ai_next_panel.h"
+#include "editor/ai_component/ui/next/ai_next_task_inspector.h"
+#include "editor/ai_component/ui/next/ai_next_task_tree.h"
 #include "editor/ai_component/ui/ai_plan_panel.h"
 #include "editor/ai_component/ui/ai_skill_dialog.h"
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_models_page.h"
-#include "editor/ai_component/ui/ai_settings_next_page.h"
+#include "editor/ai_component/ui/next/ai_settings_next_page.h"
 #include "editor/ai_component/ui/ai_settings_placeholder_page.h"
 #include "editor/ai_component/ui/ai_settings_rules_page.h"
 #include "editor/ai_component/ui/ai_settings_skills_page.h"
@@ -316,6 +317,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIMCPServerDialog);
 	GDREGISTER_CLASS(AIModelProfileDialog);
 	GDREGISTER_CLASS(AIMarkdownLabel);
+	GDREGISTER_CLASS(AIModePanel);
 	GDREGISTER_CLASS(AIMessageBubble);
 	GDREGISTER_CLASS(AIMessageList);
 	GDREGISTER_CLASS(AINextFeedbackPanel);

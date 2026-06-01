@@ -6,7 +6,7 @@
 
 #include "editor/ai_component/ui/ai_settings_models_page.h"
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
-#include "editor/ai_component/ui/ai_settings_next_page.h"
+#include "editor/ai_component/ui/next/ai_settings_next_page.h"
 #include "editor/ai_component/ui/ai_settings_rules_page.h"
 #include "editor/ai_component/ui/ai_settings_skills_page.h"
 

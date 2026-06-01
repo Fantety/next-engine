@@ -4,14 +4,14 @@
 
 #pragma once
 
-#include "scene/gui/box_container.h"
+#include "editor/ai_component/ui/ai_mode_panel.h"
 
 class AIAgentNextSession;
 class AINextPanel;
 class ScrollContainer;
 
-class AIAgentNextDock : public VBoxContainer {
-	GDCLASS(AIAgentNextDock, VBoxContainer);
+class AIAgentNextDock : public AIModePanel {
+	GDCLASS(AIAgentNextDock, AIModePanel);
 
 	AIAgentNextSession *next_session = nullptr;
 	ScrollContainer *next_scroll = nullptr;
@@ -25,5 +25,6 @@ protected:
 public:
 	AIAgentNextDock();
 	void apply_agent_model_settings();
+	void apply_settings() override;
 	AIAgentNextSession *get_next_session_for_test() const;
 };

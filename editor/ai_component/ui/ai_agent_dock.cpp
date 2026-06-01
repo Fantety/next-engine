@@ -14,8 +14,8 @@
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/skills/ai_skill_settings.h"
-#include "editor/ai_component/ui/ai_agent_next_dock.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
+#include "editor/ai_component/ui/next/ai_agent_next_dock.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/settings/editor_command_palette.h"
 #include "editor/themes/editor_scale.h"
@@ -126,15 +126,15 @@ AIAgentDock::AIAgentDock() {
 	set_dock_shortcut(ED_SHORTCUT_AND_COMMAND("docks/open_ai_agent", TTRC("Open AI Agent Dock")));
 	set_default_slot(EditorDock::DOCK_SLOT_RIGHT_UL);
 
-	chat_root = memnew(VBoxContainer);
-	chat_root->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	chat_root->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	chat_root->add_theme_constant_override("separation", 8 * EDSCALE);
-	add_child(chat_root);
+	normal_panel = memnew(AIModePanel);
+	normal_panel->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	normal_panel->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	normal_panel->add_theme_constant_override("separation", 8 * EDSCALE);
+	add_child(normal_panel);
 
 	HBoxContainer *session_bar = memnew(HBoxContainer);
 	session_bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	chat_root->add_child(session_bar);
+	normal_panel->add_child(session_bar);
 
 	session_selector = memnew(OptionButton);
 	session_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -215,7 +215,7 @@ AIAgentDock::AIAgentDock() {
 	main->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	main->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	main->add_theme_constant_override("separation", 8 * EDSCALE);
-	chat_root->add_child(main);
+	normal_panel->add_child(main);
 
 	change_review_panel = memnew(AIChangeReviewPanel);
 	main->add_child(change_review_panel);
@@ -304,11 +304,12 @@ void fragment() {
 	_refresh_mcp_status_button();
 	_refresh_skill_status_button();
 
-	next_dock = memnew(AIAgentNextDock);
-	next_dock->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	next_dock->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	next_dock->hide();
-	add_child(next_dock);
+	next_panel = memnew(AIAgentNextDock);
+	next_panel->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	next_panel->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	next_panel->hide();
+	add_child(next_panel);
+	_activate_mode(SNAME("normal"));
 }
 
 AIAgentDock *AIAgentDock::get_singleton() {
@@ -316,20 +317,43 @@ AIAgentDock *AIAgentDock::get_singleton() {
 }
 
 void AIAgentDock::set_next_mode_enabled(bool p_enabled) {
-	next_mode_enabled = p_enabled;
-	if (chat_root) {
-		chat_root->set_visible(!p_enabled);
-	}
-	if (next_dock) {
-		next_dock->set_visible(p_enabled);
-	}
+	_activate_mode(p_enabled ? SNAME("next") : SNAME("normal"));
 	if (p_enabled) {
 		make_visible();
 	}
 }
 
 bool AIAgentDock::is_next_mode_enabled() const {
-	return next_mode_enabled;
+	return active_mode_name == SNAME("next");
+}
+
+void AIAgentDock::_activate_mode(const StringName &p_mode_name) {
+	if (active_mode_name == p_mode_name) {
+		return;
+	}
+
+	AIModePanel *target_panel = nullptr;
+	if (p_mode_name == SNAME("next")) {
+		target_panel = next_panel;
+	} else if (p_mode_name == SNAME("normal")) {
+		target_panel = normal_panel;
+	}
+	ERR_FAIL_NULL(target_panel);
+
+	AIModePanel *previous_panel = nullptr;
+	if (active_mode_name == SNAME("next")) {
+		previous_panel = next_panel;
+	} else if (active_mode_name == SNAME("normal")) {
+		previous_panel = normal_panel;
+	}
+	if (previous_panel) {
+		previous_panel->on_deactivated();
+		previous_panel->hide();
+	}
+
+	active_mode_name = p_mode_name;
+	target_panel->show();
+	target_panel->on_activated();
 }
 
 void AIAgentDock::_send_requested(const String &p_message, const String &p_model, const String &p_agent_profile_id) {
@@ -408,8 +432,8 @@ void AIAgentDock::_mcp_status_changed(const Array &p_statuses, const Dictionary 
 
 void AIAgentDock::_settings_changed() {
 	composer->reload_models();
-	if (next_dock) {
-		next_dock->apply_agent_model_settings();
+	if (next_panel) {
+		next_panel->apply_settings();
 	}
 }
 

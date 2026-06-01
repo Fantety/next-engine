@@ -9,15 +9,14 @@
 #include "editor/ai_component/agent/ai_agent_session.h"
 #include "editor/ai_component/ui/ai_change_review_panel.h"
 #include "editor/ai_component/ui/ai_composer.h"
+#include "editor/ai_component/ui/ai_mode_panel.h"
 #include "editor/ai_component/ui/ai_message_list.h"
 #include "scene/gui/button.h"
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
 
-class AIAgentNextDock;
 class ConfirmationDialog;
 class HBoxContainer;
-class VBoxContainer;
 class ColorRect;
 class ItemList;
 class PopupPanel;
@@ -43,12 +42,12 @@ class AIAgentDock : public EditorDock {
 	Label *token_usage_label = nullptr;
 	AIComposer *composer = nullptr;
 	AIAgentSession *session = nullptr;
-	VBoxContainer *chat_root = nullptr;
-	AIAgentNextDock *next_dock = nullptr;
+	AIModePanel *normal_panel = nullptr;
+	AIModePanel *next_panel = nullptr;
 	String pending_delete_session_id;
 	Dictionary pending_tool_approval;
 	bool mcp_failure_toast_visible = false;
-	bool next_mode_enabled = false;
+	StringName active_mode_name;
 
 	static inline AIAgentDock *singleton = nullptr;
 
@@ -84,6 +83,7 @@ class AIAgentDock : public EditorDock {
 	void _refresh_token_usage();
 	String _format_token_count(int p_tokens) const;
 	AIProviderConfig _get_provider_config(const String &p_model_id) const;
+	void _activate_mode(const StringName &p_mode_name);
 
 protected:
 	static void _bind_methods();

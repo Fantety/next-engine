@@ -56,3 +56,7 @@
 - Reduced panel refresh copy cost by keeping public deep-copy accessors intact while adding recent-message/event accessors for the activity feed.
 - Deferred expensive editor file-system scans after script/shader writes.
 - Verification passed: `scons platform=windows target=editor tests=yes dev_build=yes -j4`; `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AI][NEXT]*"`; focused runtime runner/streaming/progress tests; `git diff --check`.
+- Deferred 2.3 plan-management unification per user direction.
+- Implemented 2.5 by moving NEXT UI files into `editor/ai_component/ui/next/` and adding the subdirectory to `ui/SCsub`.
+- Implemented 2.6 by adding `AIModePanel`, making `AIAgentNextDock` a mode panel, and changing `AIAgentDock` to switch through mode-panel interfaces instead of holding `AIAgentNextDock *next_dock` / a `next_mode_enabled` member.
+- Verification passed: `scons platform=windows target=editor tests=yes dev_build=yes -j4`; `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AI][NEXT]*"`; `git diff --check`.

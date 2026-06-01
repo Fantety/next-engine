@@ -7,13 +7,14 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
-#include "editor/ai_component/ui/ai_next_feedback_panel.h"
-#include "editor/ai_component/ui/ai_next_milestone_list.h"
-#include "editor/ai_component/ui/ai_next_task_inspector.h"
-#include "editor/ai_component/ui/ai_next_task_tree.h"
 #include "editor/themes/editor_scale.h"
+#include "ai_next_feedback_panel.h"
+#include "ai_next_milestone_list.h"
+#include "ai_next_task_inspector.h"
+#include "ai_next_task_tree.h"
 #include "scene/gui/button.h"
 #include "scene/gui/color_rect.h"
+#include "scene/gui/foldable_container.h"
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/separator.h"
@@ -31,6 +32,73 @@ void _setup_icon_button(Button *p_button, const String &p_tooltip) {
 	p_button->set_tooltip_text(p_tooltip);
 	p_button->set_accessibility_name(p_tooltip.trim_suffix("."));
 	p_button->set_custom_minimum_size(Size2(28, 0) * EDSCALE);
+}
+
+void _setup_foldable_summary_label(Label *p_label, const StringName &p_name) {
+	ERR_FAIL_NULL(p_label);
+	p_label->set_name(p_name);
+	p_label->set_custom_minimum_size(Size2(150, 0) * EDSCALE);
+	p_label->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+	p_label->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_RIGHT);
+	p_label->set_clip_text(true);
+	p_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	p_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+}
+
+String _trim_panel_summary(const String &p_text, int p_max_chars = 96) {
+	String summary = p_text.strip_edges().replace("\r", " ").replace("\n", " ");
+	if (summary.length() > p_max_chars) {
+		summary = summary.substr(0, p_max_chars - 3).strip_edges() + "...";
+	}
+	return summary;
+}
+
+String _format_next_agent_name(const String &p_agent_id) {
+	return p_agent_id.replace("_agent", "");
+}
+
+Dictionary _get_inspected_task(AIAgentNextSession *p_session) {
+	if (!p_session || p_session->get_project_state().is_null()) {
+		return Dictionary();
+	}
+
+	const String selected_task_id = p_session->get_selected_task_id();
+	if (!selected_task_id.is_empty()) {
+		Dictionary selected_task = p_session->get_project_state()->get_task(selected_task_id);
+		if (!selected_task.is_empty()) {
+			return selected_task;
+		}
+	}
+
+	const String milestone_id = p_session->get_project_state()->get_active_milestone_id();
+	Dictionary milestone = p_session->get_project_state()->get_milestone(milestone_id);
+	Array tasks = milestone.get("tasks", Array());
+	if (!tasks.is_empty() && Variant(tasks[0]).get_type() == Variant::DICTIONARY) {
+		Dictionary first_task = tasks[0];
+		return p_session->get_project_state()->get_task(String(first_task.get("id", String())));
+	}
+
+	return Dictionary();
+}
+
+String _format_runtime_activity_summary(const Dictionary &p_message) {
+	const String agent = _format_next_agent_name(String(p_message.get("agent_id", String())));
+	const String content = _trim_panel_summary(String(p_message.get("content", String())));
+	if (content.is_empty()) {
+		return agent.is_empty() ? TTR("Runtime update") : vformat("%s: %s", agent, TTR("Runtime update"));
+	}
+	return agent.is_empty() ? content : vformat("%s: %s", agent, content);
+}
+
+String _format_event_activity_summary(const Dictionary &p_event) {
+	const String type = String(p_event.get("event_type", String())).replace("_", " ").capitalize();
+	const String agent = _format_next_agent_name(String(p_event.get("agent_id", String())));
+	const String message = _trim_panel_summary(String(p_event.get("message", String())));
+
+	if (agent.is_empty()) {
+		return message.is_empty() ? type : vformat("%s: %s", type, message);
+	}
+	return message.is_empty() ? vformat("%s [%s]", type, agent) : vformat("%s [%s]: %s", type, agent, message);
 }
 
 Ref<ShaderMaterial> _make_operation_progress_material() {
@@ -223,9 +291,16 @@ AINextPanel::AINextPanel() {
 	add_child(task_tree);
 
 	add_child(memnew(HSeparator));
-	_add_section_label(TTR("Task Inspector"));
+	task_inspector_section = memnew(FoldableContainer(TTR("Task Inspector")));
+	task_inspector_section->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	task_inspector_section->set_title_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	task_inspector_section->set_folded(true);
+	task_inspector_summary = memnew(Label);
+	_setup_foldable_summary_label(task_inspector_summary, SNAME("TaskInspectorSummary"));
+	task_inspector_section->add_title_bar_control(task_inspector_summary);
+	add_child(task_inspector_section);
 	task_inspector = memnew(AINextTaskInspector);
-	add_child(task_inspector);
+	task_inspector_section->add_child(task_inspector);
 
 	HBoxContainer *run_actions = memnew(HBoxContainer);
 	run_actions->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -243,11 +318,18 @@ AINextPanel::AINextPanel() {
 	run_actions->add_child(review_button);
 
 	add_child(memnew(HSeparator));
-	_add_section_label(TTR("Activity"));
+	activity_section = memnew(FoldableContainer(TTR("Activity")));
+	activity_section->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	activity_section->set_title_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	activity_section->set_folded(true);
+	activity_summary = memnew(Label);
+	_setup_foldable_summary_label(activity_summary, SNAME("ActivitySummary"));
+	activity_section->add_title_bar_control(activity_summary);
+	add_child(activity_section);
 	activity_list = memnew(VBoxContainer);
 	activity_list->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	activity_list->add_theme_constant_override("separation", 3 * EDSCALE);
-	add_child(activity_list);
+	activity_section->add_child(activity_list);
 
 	add_child(memnew(HSeparator));
 	_add_section_label(TTR("Playtest Feedback"));
@@ -469,6 +551,58 @@ void AINextPanel::_refresh_theme_icons() {
 	}
 }
 
+void AINextPanel::_refresh_task_inspector_summary() {
+	if (!task_inspector_summary) {
+		return;
+	}
+
+	Dictionary task = _get_inspected_task(next_session);
+	if (task.is_empty()) {
+		task_inspector_summary->set_text(TTR("No task selected"));
+		task_inspector_summary->set_tooltip_text(TTR("No task selected"));
+		return;
+	}
+
+	const String title = _trim_panel_summary(String(task.get("title", TTR("Task"))), 48);
+	const String status = String(task.get("status", "pending")).capitalize();
+	const String agent = _format_next_agent_name(String(task.get("assigned_agent_id", String())));
+
+	String summary = title;
+	if (!status.is_empty()) {
+		summary += "  " + status;
+	}
+	if (!agent.is_empty()) {
+		summary += "  " + agent;
+	}
+	summary = _trim_panel_summary(summary);
+	task_inspector_summary->set_text(summary);
+	task_inspector_summary->set_tooltip_text(summary);
+}
+
+void AINextPanel::_refresh_activity_summary() {
+	if (!activity_summary) {
+		return;
+	}
+
+	String summary = TTR("No activity yet");
+	if (next_session) {
+		Array runtime_messages = next_session->get_recent_runtime_messages(1);
+		if (!runtime_messages.is_empty() && Variant(runtime_messages[runtime_messages.size() - 1]).get_type() == Variant::DICTIONARY) {
+			Dictionary message = runtime_messages[runtime_messages.size() - 1];
+			summary = _format_runtime_activity_summary(message);
+		} else if (next_session->get_event_log().is_valid()) {
+			Array events = next_session->get_event_log()->get_recent_events(1);
+			if (!events.is_empty() && Variant(events[events.size() - 1]).get_type() == Variant::DICTIONARY) {
+				Dictionary event = events[events.size() - 1];
+				summary = _format_event_activity_summary(event);
+			}
+		}
+	}
+
+	activity_summary->set_text(summary);
+	activity_summary->set_tooltip_text(summary);
+}
+
 void AINextPanel::_refresh_activity() {
 	if (!activity_list) {
 		return;
@@ -481,6 +615,7 @@ void AINextPanel::_refresh_activity() {
 	}
 
 	if (!next_session) {
+		_refresh_activity_summary();
 		return;
 	}
 
@@ -494,9 +629,7 @@ void AINextPanel::_refresh_activity() {
 		Label *row = memnew(Label);
 		row->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
 		row->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-		row->set_text(vformat("%s: %s",
-				String(message.get("agent_id", String())).replace("_agent", ""),
-				String(message.get("content", String()))));
+		row->set_text(_format_runtime_activity_summary(message));
 		activity_list->add_child(row);
 		rows_added++;
 	}
@@ -508,14 +641,11 @@ void AINextPanel::_refresh_activity() {
 				continue;
 			}
 			Dictionary event = events[i];
-			const String type = String(event.get("event_type", String())).replace("_", " ").capitalize();
-			const String agent = String(event.get("agent_id", String())).replace("_agent", "");
-			const String message = String(event.get("message", String())).strip_edges();
 
 			Label *row = memnew(Label);
 			row->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
 			row->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-			row->set_text(agent.is_empty() ? vformat("%s: %s", type, message) : vformat("%s [%s]: %s", type, agent, message));
+			row->set_text(_format_event_activity_summary(event));
 			activity_list->add_child(row);
 			rows_added++;
 		}
@@ -527,6 +657,7 @@ void AINextPanel::_refresh_activity() {
 		empty->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
 		activity_list->add_child(empty);
 	}
+	_refresh_activity_summary();
 }
 
 void AINextPanel::_refresh() {
@@ -537,6 +668,8 @@ void AINextPanel::_refresh() {
 		if (operation_label) {
 			operation_label->set_text(String());
 		}
+		_refresh_task_inspector_summary();
+		_refresh_activity();
 		return;
 	}
 	const bool running = next_session->is_workflow_active();
@@ -588,6 +721,7 @@ void AINextPanel::_refresh() {
 	if (task_inspector) {
 		task_inspector->refresh();
 	}
+	_refresh_task_inspector_summary();
 	if (feedback_panel) {
 		feedback_panel->refresh();
 	}

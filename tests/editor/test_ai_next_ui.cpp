@@ -11,18 +11,20 @@
 #include "editor/ai_component/next/ai_next_agent_settings.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
-#include "editor/ai_component/ui/ai_agent_next_dock.h"
-#include "editor/ai_component/ui/ai_next_panel.h"
-#include "editor/ai_component/ui/ai_next_milestone_list.h"
-#include "editor/ai_component/ui/ai_next_task_tree.h"
-#include "editor/ai_component/ui/ai_settings_next_page.h"
+#include "editor/ai_component/ui/next/ai_agent_next_dock.h"
+#include "editor/ai_component/ui/next/ai_next_panel.h"
+#include "editor/ai_component/ui/next/ai_next_milestone_list.h"
+#include "editor/ai_component/ui/next/ai_next_task_tree.h"
+#include "editor/ai_component/ui/next/ai_settings_next_page.h"
 #include "editor/run/editor_run_bar.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
 #include "scene/gui/check_button.h"
+#include "scene/gui/foldable_container.h"
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/scroll_container.h"
+#include "servers/text/text_server.h"
 
 TEST_FORCE_LINK(test_ai_next_ui);
 
@@ -79,6 +81,40 @@ static Button *find_button_by_text(Node *p_root, const String &p_text) {
 		Button *child_button = find_button_by_text(p_root->get_child(i), p_text);
 		if (child_button) {
 			return child_button;
+		}
+	}
+	return nullptr;
+}
+
+static FoldableContainer *find_foldable_by_title(Node *p_root, const String &p_title) {
+	if (!p_root) {
+		return nullptr;
+	}
+	FoldableContainer *foldable = Object::cast_to<FoldableContainer>(p_root);
+	if (foldable && foldable->get_title() == p_title) {
+		return foldable;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		FoldableContainer *child_foldable = find_foldable_by_title(p_root->get_child(i), p_title);
+		if (child_foldable) {
+			return child_foldable;
+		}
+	}
+	return nullptr;
+}
+
+static Label *find_label_by_name(Node *p_root, const StringName &p_name) {
+	if (!p_root) {
+		return nullptr;
+	}
+	Label *label = Object::cast_to<Label>(p_root);
+	if (label && label->get_name() == p_name) {
+		return label;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		Label *child_label = find_label_by_name(p_root->get_child(i), p_name);
+		if (child_label) {
+			return child_label;
 		}
 	}
 	return nullptr;
@@ -241,6 +277,118 @@ TEST_CASE("[Editor][AI][NEXT] progress refresh keeps workflow selector cached") 
 	memdelete(panel);
 	session->delete_workflow(session->get_workflow_id());
 	session->get_workflow_store_for_test()->delete_workflow(external_snapshot.id);
+	memdelete(session);
+	cleanup_next_workflows(project_scope);
+}
+
+TEST_CASE("[Editor][AI][NEXT] long detail sections use compact collapsed foldables") {
+	const String project_scope = "test_next_ui_compact_foldable_sections";
+	cleanup_next_workflows(project_scope);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+
+	AINextPanel *panel = memnew(AINextPanel);
+	panel->set_next_session(session);
+
+	FoldableContainer *task_section = find_foldable_by_title(panel, "Task Inspector");
+	FoldableContainer *activity_section = find_foldable_by_title(panel, "Activity");
+	CHECK(task_section != nullptr);
+	CHECK(activity_section != nullptr);
+	if (!task_section || !activity_section) {
+		memdelete(panel);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+
+	CHECK(task_section->is_folded());
+	CHECK(activity_section->is_folded());
+	CHECK(task_section->get_title_text_overrun_behavior() == TextServer::OVERRUN_TRIM_ELLIPSIS);
+	CHECK(activity_section->get_title_text_overrun_behavior() == TextServer::OVERRUN_TRIM_ELLIPSIS);
+
+	Label *task_summary = find_label_by_name(task_section, SNAME("TaskInspectorSummary"));
+	Label *activity_summary = find_label_by_name(activity_section, SNAME("ActivitySummary"));
+	CHECK(task_summary != nullptr);
+	CHECK(activity_summary != nullptr);
+	if (!task_summary || !activity_summary) {
+		memdelete(panel);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+	CHECK(task_summary->get_text() == "No task selected");
+	CHECK(activity_summary->get_text() == "No activity yet");
+
+	memdelete(panel);
+	session->delete_workflow(session->get_workflow_id());
+	memdelete(session);
+	cleanup_next_workflows(project_scope);
+}
+
+TEST_CASE("[Editor][AI][NEXT] collapsed task inspector summarizes selected task") {
+	const String project_scope = "test_next_ui_task_summary";
+	cleanup_next_workflows(project_scope);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+	const String milestone_id = session->get_project_state()->create_milestone("Core Movement", "Build movement.");
+	const String task_id = session->get_project_state()->add_task(milestone_id, "Implement dash controller", "script_agent", Array());
+	REQUIRE_FALSE(task_id.is_empty());
+	REQUIRE(session->select_task(task_id));
+
+	AINextPanel *panel = memnew(AINextPanel);
+	panel->set_next_session(session);
+
+	Label *task_summary = find_label_by_name(panel, SNAME("TaskInspectorSummary"));
+	CHECK(task_summary != nullptr);
+	if (!task_summary) {
+		memdelete(panel);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+	CHECK(task_summary->get_text().contains("Implement dash controller"));
+	CHECK(task_summary->get_text().contains("Ready"));
+	CHECK(task_summary->get_text().contains("script"));
+
+	memdelete(panel);
+	session->delete_workflow(session->get_workflow_id());
+	memdelete(session);
+	cleanup_next_workflows(project_scope);
+}
+
+TEST_CASE("[Editor][AI][NEXT] collapsed activity summarizes recent event") {
+	const String project_scope = "test_next_ui_activity_summary";
+	cleanup_next_workflows(project_scope);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+	const String milestone_id = session->get_project_state()->create_milestone("Core Movement", "Build movement.");
+	const String task_id = session->get_project_state()->add_task(milestone_id, "Implement dash controller", "script_agent", Array());
+	session->get_event_log()->record_event("task_started", milestone_id, task_id, "script_agent", "Writing movement controller.");
+
+	AINextPanel *panel = memnew(AINextPanel);
+	panel->set_next_session(session);
+
+	Label *activity_summary = find_label_by_name(panel, SNAME("ActivitySummary"));
+	CHECK(activity_summary != nullptr);
+	if (!activity_summary) {
+		memdelete(panel);
+		session->delete_workflow(session->get_workflow_id());
+		memdelete(session);
+		cleanup_next_workflows(project_scope);
+		return;
+	}
+	CHECK(activity_summary->get_text().contains("Task Started"));
+	CHECK(activity_summary->get_text().contains("script"));
+	CHECK(activity_summary->get_text().contains("Writing movement controller."));
+
+	memdelete(panel);
+	session->delete_workflow(session->get_workflow_id());
 	memdelete(session);
 	cleanup_next_workflows(project_scope);
 }

@@ -13,6 +13,7 @@ class AINextTaskInspector;
 class AINextTaskTree;
 class Button;
 class ColorRect;
+class FoldableContainer;
 class OptionButton;
 class VBoxContainer;
 class Label;
@@ -33,6 +34,10 @@ class AINextPanel : public VBoxContainer {
 	TextureRect *operation_icon = nullptr;
 	Label *operation_label = nullptr;
 	ColorRect *operation_progress = nullptr;
+	FoldableContainer *task_inspector_section = nullptr;
+	FoldableContainer *activity_section = nullptr;
+	Label *task_inspector_summary = nullptr;
+	Label *activity_summary = nullptr;
 	VBoxContainer *activity_list = nullptr;
 	Button *submit_button = nullptr;
 	Button *plan_button = nullptr;
@@ -60,6 +65,8 @@ class AINextPanel : public VBoxContainer {
 	void _refresh_progress();
 	void _refresh_workflows();
 	void _refresh_activity();
+	void _refresh_task_inspector_summary();
+	void _refresh_activity_summary();
 	void _refresh_theme_icons();
 	void _update_operation_label();
 	Label *_add_section_label(const String &p_text);

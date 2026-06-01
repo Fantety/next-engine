@@ -7,8 +7,8 @@
 #include "core/object/class_db.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
 #include "editor/ai_component/next/ai_next_agent_settings.h"
-#include "editor/ai_component/ui/ai_next_panel.h"
 #include "editor/themes/editor_scale.h"
+#include "ai_next_panel.h"
 #include "scene/gui/scroll_container.h"
 
 void AIAgentNextDock::_bind_methods() {
@@ -51,6 +51,10 @@ void AIAgentNextDock::_apply_agent_model_settings() {
 }
 
 void AIAgentNextDock::apply_agent_model_settings() {
+	_apply_agent_model_settings();
+}
+
+void AIAgentNextDock::apply_settings() {
 	_apply_agent_model_settings();
 }
 
