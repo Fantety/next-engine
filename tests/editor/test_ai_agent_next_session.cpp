@@ -603,6 +603,89 @@ TEST_CASE("[Editor][AI][NEXT] session selects milestones and advances after lock
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] session user plan edits persist and record events") {
+	AIAgentNextSession *session = make_isolated_next_session();
+
+	const String first_milestone = session->create_user_milestone("Core Movement", "Build movement.");
+	const String second_milestone = session->create_user_milestone("Combat", "Build combat.");
+	REQUIRE_FALSE(first_milestone.is_empty());
+	REQUIRE_FALSE(second_milestone.is_empty());
+	CHECK(session->edit_user_milestone(first_milestone, "Movement Foundation", "Build responsive movement."));
+
+	const String script_task = session->create_user_task(first_milestone, "Create movement script", "script_agent", Array(), "Implement velocity movement.");
+	Array dependencies;
+	dependencies.push_back(script_task);
+	const String scene_task = session->create_user_task(first_milestone, "Assemble movement scene", "scene_agent", dependencies, "Wire the controller into a scene.");
+	REQUIRE_FALSE(script_task.is_empty());
+	REQUIRE_FALSE(scene_task.is_empty());
+
+	CHECK(session->move_user_task(scene_task, second_milestone, 0));
+	CHECK(session->move_user_milestone(second_milestone, 0));
+	CHECK(session->set_user_task_dependencies(scene_task, Array()));
+
+	AINextWorkflowSnapshot snapshot;
+	CHECK(session->get_workflow_store_for_test()->load_workflow(session->get_workflow_id(), snapshot));
+	REQUIRE(snapshot.project_state.is_valid());
+	CHECK(snapshot.project_state->get_milestone_count() == 2);
+	CHECK(snapshot.project_state->get_task_milestone_id(scene_task) == second_milestone);
+	CHECK(String(snapshot.project_state->get_milestone(first_milestone).get("title", String())) == "Movement Foundation");
+
+	Array events = session->get_event_log()->get_events();
+	bool saw_plan_edit = false;
+	for (int i = 0; i < events.size(); i++) {
+		Dictionary event = events[i];
+		if (String(event.get("event_type", String())) == "plan_edited") {
+			saw_plan_edit = true;
+			break;
+		}
+	}
+	CHECK(saw_plan_edit);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] session blocks user plan edits while workflow is active") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create movement script", "script_agent", Array());
+
+	Ref<BlockingNextRuntimeClient> client;
+	client.instantiate();
+	session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+	CHECK(session->run_task(task_id));
+	CHECK(wait_for_semaphore(client->request_started));
+	CHECK(session->is_workflow_active());
+
+	CHECK(session->create_user_milestone("Combat", "Build combat.").is_empty());
+	CHECK_FALSE(session->edit_user_milestone(milestone_id, "Edited", "Edited."));
+	CHECK(session->create_user_task(milestone_id, "New task", "script_agent", Array(), "New task.").is_empty());
+	CHECK_FALSE(session->delete_user_task(task_id));
+
+	client->release_request.post();
+	wait_for_next_agent(session, "script_agent");
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] session blocks user edits on locked milestones") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create movement script", "script_agent", Array());
+	CHECK(state->mark_task_completed(task_id, "Done.", Array()));
+
+	session->accept_and_lock_active_milestone();
+	CHECK(String(state->get_milestone(milestone_id).get("status", String())) == "locked");
+
+	CHECK(session->can_edit_plan());
+	CHECK_FALSE(session->edit_user_milestone(milestone_id, "Edited", "Edited."));
+	CHECK(session->create_user_task(milestone_id, "New task", "script_agent", Array(), "New task.").is_empty());
+	CHECK_FALSE(session->delete_user_task(task_id));
+
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI][NEXT] session runs ready milestone tasks serially") {
 	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();

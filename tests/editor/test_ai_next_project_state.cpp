@@ -264,4 +264,108 @@ TEST_CASE("[Editor][AI][NEXT] project state supports failed task recovery") {
 	CHECK(String(state->get_task(task_id)["status"]) == "skipped");
 }
 
+TEST_CASE("[Editor][AI][NEXT] project state supports user plan editing operations") {
+	Ref<AINextProjectState> state;
+	state.instantiate();
+
+	const String first_milestone = state->create_milestone("Core Movement", "Build movement.");
+	const String second_milestone = state->create_milestone("Combat", "Build combat.");
+	const String third_milestone = state->create_milestone("Polish", "Add juice.");
+	const String script_task = state->add_task(first_milestone, "Create movement script", "script_agent", Array());
+	Array scene_dependencies;
+	scene_dependencies.push_back(script_task);
+	const String scene_task = state->add_task(first_milestone, "Assemble movement scene", "scene_agent", scene_dependencies);
+	const String combat_task = state->add_task(second_milestone, "Create attack scene", "scene_agent", Array());
+	CHECK_FALSE(third_milestone.is_empty());
+	CHECK_FALSE(combat_task.is_empty());
+
+	String error;
+	CHECK(state->move_task(scene_task, first_milestone, 0, error));
+	CHECK(error.is_empty());
+	CHECK(String(Dictionary(Array(state->get_milestone(first_milestone).get("tasks", Array()))[0]).get("id", String())) == scene_task);
+
+	CHECK(state->move_task(scene_task, first_milestone, 1, error));
+	CHECK(error.is_empty());
+	CHECK(String(Dictionary(Array(state->get_milestone(first_milestone).get("tasks", Array()))[1]).get("id", String())) == scene_task);
+
+	CHECK(state->move_task(scene_task, second_milestone, 0, error));
+	CHECK(error.is_empty());
+	CHECK(state->get_task_milestone_id(scene_task) == second_milestone);
+	CHECK(String(Dictionary(Array(state->get_milestone(second_milestone).get("tasks", Array()))[0]).get("id", String())) == scene_task);
+
+	CHECK(state->move_milestone(second_milestone, 0, error));
+	CHECK(error.is_empty());
+	Array milestones = state->get_milestones_as_array();
+	REQUIRE(milestones.size() == 3);
+	CHECK(String(Dictionary(milestones[0]).get("id", String())) == second_milestone);
+	CHECK(state->get_active_milestone_id() == first_milestone);
+
+	CHECK(state->set_task_dependencies(scene_task, Array(), error));
+	CHECK(error.is_empty());
+	CHECK(Array(state->get_task(scene_task).get("depends_on", Array())).is_empty());
+
+	Array reverse_dependencies;
+	reverse_dependencies.push_back(scene_task);
+	CHECK(state->set_task_dependencies(script_task, reverse_dependencies, error));
+	CHECK(error.is_empty());
+
+	Array cyclic_dependencies;
+	cyclic_dependencies.push_back(script_task);
+	CHECK_FALSE(state->set_task_dependencies(scene_task, cyclic_dependencies, error));
+	CHECK(error.contains("cycle"));
+	CHECK(Array(state->get_task(scene_task).get("depends_on", Array())).is_empty());
+
+	CHECK(state->delete_task(script_task, error));
+	CHECK(error.is_empty());
+	CHECK_FALSE(state->has_task(script_task));
+	CHECK_FALSE(Array(state->get_task(scene_task).get("depends_on", Array())).has(script_task));
+
+	CHECK(state->merge_milestones(second_milestone, first_milestone, error));
+	CHECK(error.is_empty());
+	CHECK_FALSE(state->has_milestone(first_milestone));
+	CHECK(state->get_task_milestone_id(scene_task) == second_milestone);
+	CHECK(state->get_milestone_count() == 2);
+
+	CHECK(state->delete_milestone(third_milestone, error));
+	CHECK(error.is_empty());
+	CHECK_FALSE(state->has_milestone(third_milestone));
+	CHECK(state->get_milestone_count() == 1);
+}
+
+TEST_CASE("[Editor][AI][NEXT] project state rejects edits to locked milestones") {
+	Ref<AINextProjectState> state;
+	state.instantiate();
+
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create movement script", "script_agent", Array());
+	CHECK(state->mark_task_completed(task_id, "Done.", Array()));
+
+	String error;
+	CHECK(state->lock_milestone(milestone_id, error));
+	CHECK(error.is_empty());
+
+	Dictionary milestone_patch;
+	milestone_patch["title"] = "Edited movement";
+	CHECK_FALSE(state->update_milestone(milestone_id, milestone_patch, error));
+	CHECK(error.contains("locked"));
+	CHECK(String(state->get_milestone(milestone_id).get("title", String())) == "Core Movement");
+
+	Dictionary task_patch;
+	task_patch["title"] = "Edited task";
+	CHECK_FALSE(state->update_task(task_id, task_patch, error));
+	CHECK(error.contains("locked"));
+	CHECK(String(state->get_task(task_id).get("title", String())) == "Create movement script");
+
+	CHECK(state->add_task(milestone_id, "New locked task", "script_agent", Array()).is_empty());
+	CHECK(state->get_last_error().contains("locked"));
+	CHECK(state->get_task_count(milestone_id) == 1);
+
+	CHECK_FALSE(state->delete_task(task_id, error));
+	CHECK(error.contains("locked"));
+	CHECK_FALSE(state->delete_milestone(milestone_id, error));
+	CHECK(error.contains("locked"));
+	CHECK_FALSE(state->move_milestone(milestone_id, 0, error));
+	CHECK(error.contains("locked"));
+}
+
 } // namespace TestAINextProjectState

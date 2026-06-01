@@ -28,12 +28,18 @@ class AINextProjectState : public RefCounted {
 	String _make_task_id();
 	String _make_asset_id();
 	uint64_t _now() const;
+	int _find_milestone_index(const String &p_milestone_id) const;
+	int _find_task_index(const String &p_task_id, int *r_milestone_index = nullptr) const;
 	AINextMilestone *_find_milestone(const String &p_milestone_id);
 	const AINextMilestone *_find_milestone(const String &p_milestone_id) const;
 	AINextTask *_find_task(const String &p_task_id, AINextMilestone **r_milestone = nullptr);
 	const AINextTask *_find_task(const String &p_task_id, const AINextMilestone **r_milestone = nullptr) const;
 	bool _are_dependencies_satisfied(const AINextTask &p_task) const;
 	bool _has_unfinished_dependency(const AINextTask &p_task) const;
+	bool _is_milestone_locked(const String &p_milestone_id) const;
+	bool _is_task_milestone_locked(const String &p_task_id) const;
+	bool _validate_task_dependencies(const String &p_task_id, const Vector<String> &p_depends_on, String &r_error) const;
+	void _remove_task_dependency_references(const String &p_task_id);
 	void _touch_task(AINextTask &r_task, AINextMilestone *p_milestone);
 	void _refresh_milestone_status(AINextMilestone &r_milestone);
 	void _sync_id_counters();
@@ -55,9 +61,15 @@ public:
 
 	String create_milestone(const String &p_title, const String &p_description);
 	bool update_milestone(const String &p_milestone_id, const Dictionary &p_patch, String &r_error);
+	bool delete_milestone(const String &p_milestone_id, String &r_error);
+	bool move_milestone(const String &p_milestone_id, int p_to_index, String &r_error);
+	bool merge_milestones(const String &p_target_milestone_id, const String &p_source_milestone_id, String &r_error);
 	String add_task(const String &p_milestone_id, const String &p_title, const String &p_assigned_agent_id, const Array &p_depends_on, const String &p_description = String(), const String &p_task_id = String());
 	bool append_tasks(const String &p_milestone_id, const Array &p_tasks, String &r_error);
 	bool update_task(const String &p_task_id, const Dictionary &p_patch, String &r_error);
+	bool delete_task(const String &p_task_id, String &r_error);
+	bool move_task(const String &p_task_id, const String &p_target_milestone_id, int p_to_index, String &r_error);
+	bool set_task_dependencies(const String &p_task_id, const Array &p_depends_on, String &r_error);
 	bool set_task_status(const String &p_task_id, AINextTaskStatus p_status, const String &p_error = String());
 	bool mark_task_completed(const String &p_task_id, const String &p_result_summary, const Array &p_output_paths);
 	bool mark_task_failed(const String &p_task_id, const String &p_error);

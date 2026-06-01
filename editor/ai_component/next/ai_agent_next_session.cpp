@@ -188,6 +188,7 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("can_run_task", "task_id"), &AIAgentNextSession::can_run_task);
 	ClassDB::bind_method(D_METHOD("can_review_active_milestone"), &AIAgentNextSession::can_review_active_milestone);
 	ClassDB::bind_method(D_METHOD("can_lock_active_milestone"), &AIAgentNextSession::can_lock_active_milestone);
+	ClassDB::bind_method(D_METHOD("can_edit_plan"), &AIAgentNextSession::can_edit_plan);
 	ClassDB::bind_method(D_METHOD("set_model_profile_id", "model_profile_id"), &AIAgentNextSession::set_model_profile_id);
 	ClassDB::bind_method(D_METHOD("set_agent_model_profile_id", "agent_id", "model_profile_id"), &AIAgentNextSession::set_agent_model_profile_id);
 	ClassDB::bind_method(D_METHOD("submit_brief", "brief"), &AIAgentNextSession::submit_brief);
@@ -198,6 +199,16 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("continue_workflow"), &AIAgentNextSession::continue_workflow);
 	ClassDB::bind_method(D_METHOD("select_milestone", "milestone_id"), &AIAgentNextSession::select_milestone);
 	ClassDB::bind_method(D_METHOD("select_task", "task_id"), &AIAgentNextSession::select_task);
+	ClassDB::bind_method(D_METHOD("create_user_milestone", "title", "description"), &AIAgentNextSession::create_user_milestone);
+	ClassDB::bind_method(D_METHOD("edit_user_milestone", "milestone_id", "title", "description"), &AIAgentNextSession::edit_user_milestone);
+	ClassDB::bind_method(D_METHOD("delete_user_milestone", "milestone_id"), &AIAgentNextSession::delete_user_milestone);
+	ClassDB::bind_method(D_METHOD("move_user_milestone", "milestone_id", "to_index"), &AIAgentNextSession::move_user_milestone);
+	ClassDB::bind_method(D_METHOD("merge_user_milestones", "target_milestone_id", "source_milestone_id"), &AIAgentNextSession::merge_user_milestones);
+	ClassDB::bind_method(D_METHOD("create_user_task", "milestone_id", "title", "assigned_agent_id", "depends_on", "description"), &AIAgentNextSession::create_user_task);
+	ClassDB::bind_method(D_METHOD("edit_user_task", "task_id", "title", "description", "assigned_agent_id"), &AIAgentNextSession::edit_user_task);
+	ClassDB::bind_method(D_METHOD("delete_user_task", "task_id"), &AIAgentNextSession::delete_user_task);
+	ClassDB::bind_method(D_METHOD("move_user_task", "task_id", "target_milestone_id", "to_index"), &AIAgentNextSession::move_user_task);
+	ClassDB::bind_method(D_METHOD("set_user_task_dependencies", "task_id", "depends_on"), &AIAgentNextSession::set_user_task_dependencies);
 	ClassDB::bind_method(D_METHOD("generate_plan"), &AIAgentNextSession::generate_plan);
 	ClassDB::bind_method(D_METHOD("approve_plan"), &AIAgentNextSession::approve_plan);
 	ClassDB::bind_method(D_METHOD("run_active_milestone"), &AIAgentNextSession::run_active_milestone);
@@ -1106,6 +1117,50 @@ bool AIAgentNextSession::can_lock_active_milestone() const {
 	return project_state->can_lock_milestone(project_state->get_active_milestone_id(), error);
 }
 
+bool AIAgentNextSession::_can_edit_plan_target(const String &p_milestone_id) const {
+	if (project_state.is_null() || _is_workflow_active()) {
+		return false;
+	}
+
+	if (p_milestone_id.is_empty()) {
+		return true;
+	}
+
+	Dictionary milestone = project_state->get_milestone(p_milestone_id);
+	if (milestone.is_empty()) {
+		return false;
+	}
+	return String(milestone.get("status", String())) != "locked";
+}
+
+bool AIAgentNextSession::_finish_user_plan_edit(const String &p_action, const String &p_milestone_id, const String &p_task_id, const String &p_message) {
+	if (project_state.is_null() || event_log.is_null()) {
+		return false;
+	}
+
+	if (!p_task_id.is_empty() && !project_state->has_task(p_task_id)) {
+		selected_task_id.clear();
+	}
+	if (!project_state->has_task(selected_task_id)) {
+		_sync_selected_task_to_active_milestone();
+	}
+
+	const AINextSessionState state = project_state->get_session_state();
+	if (state == AI_NEXT_SESSION_IDLE || state == AI_NEXT_SESSION_BRIEFING || state == AI_NEXT_SESSION_PLANNING) {
+		project_state->set_session_state(AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
+	}
+
+	Dictionary edit_metadata;
+	edit_metadata["action"] = p_action;
+	event_log->record_event("plan_edited", p_milestone_id, p_task_id, "user", p_message, edit_metadata);
+	_emit_project_state_changed();
+	return true;
+}
+
+bool AIAgentNextSession::can_edit_plan() const {
+	return project_state.is_valid() && !_is_workflow_active();
+}
+
 void AIAgentNextSession::set_model_profile_id(const String &p_model_profile_id) {
 	for (const KeyValue<String, Ref<AIAgentBase>> &E : agents) {
 		if (E.value.is_valid()) {
@@ -1332,6 +1387,157 @@ bool AIAgentNextSession::select_task(const String &p_task_id) {
 	selected_task_id = p_task_id;
 	_emit_project_state_changed();
 	return true;
+}
+
+String AIAgentNextSession::create_user_milestone(const String &p_title, const String &p_description) {
+	if (!_can_edit_plan_target()) {
+		return String();
+	}
+
+	const String milestone_id = project_state->create_milestone(p_title.strip_edges(), p_description);
+	if (milestone_id.is_empty()) {
+		return String();
+	}
+	_finish_user_plan_edit("create_milestone", milestone_id, String(), "NEXT milestone created by user.");
+	return milestone_id;
+}
+
+bool AIAgentNextSession::edit_user_milestone(const String &p_milestone_id, const String &p_title, const String &p_description) {
+	if (!_can_edit_plan_target(p_milestone_id)) {
+		return false;
+	}
+
+	Dictionary patch;
+	patch["title"] = p_title.strip_edges();
+	patch["description"] = p_description;
+	String error;
+	if (!project_state->update_milestone(p_milestone_id, patch, error)) {
+		event_log->record_event("plan_edit_failed", p_milestone_id, String(), "user", error);
+		return false;
+	}
+	return _finish_user_plan_edit("edit_milestone", p_milestone_id, String(), "NEXT milestone edited by user.");
+}
+
+bool AIAgentNextSession::delete_user_milestone(const String &p_milestone_id) {
+	if (!_can_edit_plan_target(p_milestone_id)) {
+		return false;
+	}
+
+	String error;
+	if (!project_state->delete_milestone(p_milestone_id, error)) {
+		event_log->record_event("plan_edit_failed", p_milestone_id, String(), "user", error);
+		return false;
+	}
+	return _finish_user_plan_edit("delete_milestone", p_milestone_id, String(), "NEXT milestone deleted by user.");
+}
+
+bool AIAgentNextSession::move_user_milestone(const String &p_milestone_id, int p_to_index) {
+	if (!_can_edit_plan_target(p_milestone_id)) {
+		return false;
+	}
+
+	String error;
+	if (!project_state->move_milestone(p_milestone_id, p_to_index, error)) {
+		event_log->record_event("plan_edit_failed", p_milestone_id, String(), "user", error);
+		return false;
+	}
+	return _finish_user_plan_edit("move_milestone", p_milestone_id, String(), "NEXT milestone reordered by user.");
+}
+
+bool AIAgentNextSession::merge_user_milestones(const String &p_target_milestone_id, const String &p_source_milestone_id) {
+	if (!_can_edit_plan_target(p_target_milestone_id) || !_can_edit_plan_target(p_source_milestone_id)) {
+		return false;
+	}
+
+	String error;
+	if (!project_state->merge_milestones(p_target_milestone_id, p_source_milestone_id, error)) {
+		event_log->record_event("plan_edit_failed", p_source_milestone_id, String(), "user", error);
+		return false;
+	}
+	return _finish_user_plan_edit("merge_milestones", p_target_milestone_id, String(), "NEXT milestones merged by user.");
+}
+
+String AIAgentNextSession::create_user_task(const String &p_milestone_id, const String &p_title, const String &p_assigned_agent_id, const Array &p_depends_on, const String &p_description) {
+	if (!_can_edit_plan_target(p_milestone_id)) {
+		return String();
+	}
+
+	const String task_id = project_state->add_task(p_milestone_id, p_title.strip_edges(), p_assigned_agent_id.strip_edges(), p_depends_on, p_description);
+	if (task_id.is_empty()) {
+		event_log->record_event("plan_edit_failed", p_milestone_id, String(), "user", project_state->get_last_error());
+		return String();
+	}
+	selected_task_id = task_id;
+	_finish_user_plan_edit("create_task", p_milestone_id, task_id, "NEXT task created by user.");
+	return task_id;
+}
+
+bool AIAgentNextSession::edit_user_task(const String &p_task_id, const String &p_title, const String &p_description, const String &p_assigned_agent_id) {
+	if (project_state.is_null() || !_can_edit_plan_target(project_state->get_task_milestone_id(p_task_id))) {
+		return false;
+	}
+
+	Dictionary patch;
+	patch["title"] = p_title.strip_edges();
+	patch["description"] = p_description;
+	patch["assigned_agent_id"] = p_assigned_agent_id.strip_edges();
+	String error;
+	if (!project_state->update_task(p_task_id, patch, error)) {
+		event_log->record_event("plan_edit_failed", project_state->get_task_milestone_id(p_task_id), p_task_id, "user", error);
+		return false;
+	}
+	selected_task_id = p_task_id;
+	return _finish_user_plan_edit("edit_task", project_state->get_task_milestone_id(p_task_id), p_task_id, "NEXT task edited by user.");
+}
+
+bool AIAgentNextSession::delete_user_task(const String &p_task_id) {
+	if (project_state.is_null() || !_can_edit_plan_target(project_state->get_task_milestone_id(p_task_id))) {
+		return false;
+	}
+
+	const String milestone_id = project_state->get_task_milestone_id(p_task_id);
+	String error;
+	if (!project_state->delete_task(p_task_id, error)) {
+		event_log->record_event("plan_edit_failed", milestone_id, p_task_id, "user", error);
+		return false;
+	}
+	if (selected_task_id == p_task_id) {
+		selected_task_id.clear();
+	}
+	return _finish_user_plan_edit("delete_task", milestone_id, p_task_id, "NEXT task deleted by user.");
+}
+
+bool AIAgentNextSession::move_user_task(const String &p_task_id, const String &p_target_milestone_id, int p_to_index) {
+	if (project_state.is_null()) {
+		return false;
+	}
+	const String source_milestone_id = project_state->get_task_milestone_id(p_task_id);
+	if (!_can_edit_plan_target(source_milestone_id) || !_can_edit_plan_target(p_target_milestone_id)) {
+		return false;
+	}
+
+	String error;
+	if (!project_state->move_task(p_task_id, p_target_milestone_id, p_to_index, error)) {
+		event_log->record_event("plan_edit_failed", source_milestone_id, p_task_id, "user", error);
+		return false;
+	}
+	selected_task_id = p_task_id;
+	return _finish_user_plan_edit("move_task", p_target_milestone_id, p_task_id, "NEXT task moved by user.");
+}
+
+bool AIAgentNextSession::set_user_task_dependencies(const String &p_task_id, const Array &p_depends_on) {
+	if (project_state.is_null() || !_can_edit_plan_target(project_state->get_task_milestone_id(p_task_id))) {
+		return false;
+	}
+
+	const String milestone_id = project_state->get_task_milestone_id(p_task_id);
+	String error;
+	if (!project_state->set_task_dependencies(p_task_id, p_depends_on, error)) {
+		event_log->record_event("plan_edit_failed", milestone_id, p_task_id, "user", error);
+		return false;
+	}
+	selected_task_id = p_task_id;
+	return _finish_user_plan_edit("edit_task_dependencies", milestone_id, p_task_id, "NEXT task dependencies edited by user.");
 }
 
 void AIAgentNextSession::generate_plan() {

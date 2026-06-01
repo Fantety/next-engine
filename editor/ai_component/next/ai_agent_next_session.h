@@ -101,6 +101,8 @@ class AIAgentNextSession : public AISessionBase {
 	String _find_next_unlocked_milestone_id(const String &p_after_milestone_id) const;
 	void _set_idle_state_for_active_milestone();
 	String _get_checkpoint_operation_name(PendingOperation p_operation) const;
+	bool _can_edit_plan_target(const String &p_milestone_id = String()) const;
+	bool _finish_user_plan_edit(const String &p_action, const String &p_milestone_id, const String &p_task_id, const String &p_message);
 
 protected:
 	static void _bind_methods();
@@ -125,6 +127,7 @@ public:
 	bool can_run_task(const String &p_task_id) const;
 	bool can_review_active_milestone() const;
 	bool can_lock_active_milestone() const;
+	bool can_edit_plan() const;
 
 	void set_model_profile_id(const String &p_model_profile_id);
 	void set_agent_model_profile_id(const String &p_agent_id, const String &p_model_profile_id);
@@ -136,6 +139,16 @@ public:
 	bool continue_workflow();
 	bool select_milestone(const String &p_milestone_id);
 	bool select_task(const String &p_task_id);
+	String create_user_milestone(const String &p_title, const String &p_description);
+	bool edit_user_milestone(const String &p_milestone_id, const String &p_title, const String &p_description);
+	bool delete_user_milestone(const String &p_milestone_id);
+	bool move_user_milestone(const String &p_milestone_id, int p_to_index);
+	bool merge_user_milestones(const String &p_target_milestone_id, const String &p_source_milestone_id);
+	String create_user_task(const String &p_milestone_id, const String &p_title, const String &p_assigned_agent_id, const Array &p_depends_on, const String &p_description);
+	bool edit_user_task(const String &p_task_id, const String &p_title, const String &p_description, const String &p_assigned_agent_id);
+	bool delete_user_task(const String &p_task_id);
+	bool move_user_task(const String &p_task_id, const String &p_target_milestone_id, int p_to_index);
+	bool set_user_task_dependencies(const String &p_task_id, const Array &p_depends_on);
 	void generate_plan();
 	void approve_plan();
 	void run_active_milestone();

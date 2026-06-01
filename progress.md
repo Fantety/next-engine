@@ -60,3 +60,12 @@
 - Implemented 2.5 by moving NEXT UI files into `editor/ai_component/ui/next/` and adding the subdirectory to `ui/SCsub`.
 - Implemented 2.6 by adding `AIModePanel`, making `AIAgentNextDock` a mode panel, and changing `AIAgentDock` to switch through mode-panel interfaces instead of holding `AIAgentNextDock *next_dock` / a `next_mode_enabled` member.
 - Verification passed: `scons platform=windows target=editor tests=yes dev_build=yes -j4`; `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AI][NEXT]*"`; `git diff --check`.
+- Started Phase 12 for editable NEXT plans and compact plan UI polish.
+- Added project-state editing operations for deleting, moving, and merging milestones; deleting/moving tasks; and editing task dependencies, with dependency validation and locked-milestone guards.
+- Added session-level user edit APIs so UI edits are blocked during active workflows, blocked for locked milestones, logged as `plan_edited` / `plan_edit_failed`, and persisted through workflow snapshots.
+- Reworked milestone/task plan rows into compact icon-button toolbars using direct `AIPlanAdd`, `AIPlanEdit`, `AIPlanDelete`, `AIPlanMerge`, `AIPlanMoveUp`, `AIPlanMoveDown`, `AIPlanDependency`, `AIPlanMilestone`, `AIPlanTask`, and `AIPlanDrag` icon names.
+- Added edit/delete/merge/dependency dialogs, compact row metadata, and drag reordering for milestones and active-milestone tasks. Kept 2.3 plan-management unification untouched.
+- Fixed same-milestone task reorder semantics so `move_task(..., to_index)` uses the final target index, matching milestone moves, toolbar arrows, and drag reorder.
+- Verification passed: `scons platform=windows target=editor tests=yes dev_build=yes -j4`; `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AI][NEXT]*"`; `git diff --check`.
+- Extracted milestone/task row UI into focused `AINextMilestoneRow` and `AINextTaskRow` components under `editor/ai_component/ui/next/ai_next_plan_rows.*`, while keeping dialogs, session mutations, and drop execution in the parent list/tree.
+- Verification passed: `scons platform=windows target=editor tests=yes dev_build=yes -j4`; `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AI][NEXT]*"`; `git diff --check`.

@@ -119,6 +119,32 @@ uint64_t AINextProjectState::_now() const {
 	return Time::get_singleton()->get_unix_time_from_system();
 }
 
+int AINextProjectState::_find_milestone_index(const String &p_milestone_id) const {
+	for (int i = 0; i < milestones.size(); i++) {
+		if (milestones[i].id == p_milestone_id) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+int AINextProjectState::_find_task_index(const String &p_task_id, int *r_milestone_index) const {
+	for (int i = 0; i < milestones.size(); i++) {
+		for (int j = 0; j < milestones[i].tasks.size(); j++) {
+			if (milestones[i].tasks[j].id == p_task_id) {
+				if (r_milestone_index) {
+					*r_milestone_index = i;
+				}
+				return j;
+			}
+		}
+	}
+	if (r_milestone_index) {
+		*r_milestone_index = -1;
+	}
+	return -1;
+}
+
 AINextMilestone *AINextProjectState::_find_milestone(const String &p_milestone_id) {
 	for (AINextMilestone &milestone : milestones) {
 		if (milestone.id == p_milestone_id) {
@@ -183,6 +209,59 @@ bool AINextProjectState::_has_unfinished_dependency(const AINextTask &p_task) co
 		}
 	}
 	return false;
+}
+
+bool AINextProjectState::_is_milestone_locked(const String &p_milestone_id) const {
+	const AINextMilestone *milestone = _find_milestone(p_milestone_id);
+	return milestone && milestone->status == AI_NEXT_MILESTONE_LOCKED;
+}
+
+bool AINextProjectState::_is_task_milestone_locked(const String &p_task_id) const {
+	const AINextMilestone *milestone = nullptr;
+	_find_task(p_task_id, &milestone);
+	return milestone && milestone->status == AI_NEXT_MILESTONE_LOCKED;
+}
+
+bool AINextProjectState::_validate_task_dependencies(const String &p_task_id, const Vector<String> &p_depends_on, String &r_error) const {
+	if (!_find_task(p_task_id)) {
+		r_error = "Unknown NEXT task.";
+		return false;
+	}
+
+	for (const String &dependency_id : p_depends_on) {
+		const String clean_dependency_id = dependency_id.strip_edges();
+		if (clean_dependency_id.is_empty()) {
+			continue;
+		}
+		if (clean_dependency_id == p_task_id) {
+			r_error = "NEXT task cannot depend on itself.";
+			return false;
+		}
+		if (!_find_task(clean_dependency_id)) {
+			r_error = "Unknown NEXT task dependency.";
+			return false;
+		}
+	}
+	return true;
+}
+
+void AINextProjectState::_remove_task_dependency_references(const String &p_task_id) {
+	for (AINextMilestone &milestone : milestones) {
+		bool changed = false;
+		for (AINextTask &task : milestone.tasks) {
+			for (int i = task.depends_on.size() - 1; i >= 0; i--) {
+				if (task.depends_on[i] == p_task_id) {
+					task.depends_on.remove_at(i);
+					task.updated_at = _now();
+					changed = true;
+				}
+			}
+		}
+		if (changed) {
+			milestone.updated_at = _now();
+			_refresh_milestone_status(milestone);
+		}
+	}
 }
 
 void AINextProjectState::_touch_task(AINextTask &r_task, AINextMilestone *p_milestone) {
@@ -315,6 +394,12 @@ bool AINextProjectState::update_milestone(const String &p_milestone_id, const Di
 	AINextMilestone *milestone = _find_milestone(p_milestone_id);
 	if (!milestone) {
 		r_error = "Unknown NEXT milestone.";
+		last_error = r_error;
+		return false;
+	}
+	if (milestone->status == AI_NEXT_MILESTONE_LOCKED) {
+		r_error = "locked NEXT milestones cannot be edited.";
+		last_error = r_error;
 		return false;
 	}
 	if (p_patch.has("title")) {
@@ -330,6 +415,114 @@ bool AINextProjectState::update_milestone(const String &p_milestone_id, const Di
 		milestone->feedback_iteration = (int)p_patch["feedback_iteration"];
 	}
 	milestone->updated_at = _now();
+	last_error.clear();
+	return true;
+}
+
+bool AINextProjectState::delete_milestone(const String &p_milestone_id, String &r_error) {
+	const int milestone_index = _find_milestone_index(p_milestone_id);
+	if (milestone_index < 0) {
+		r_error = "Unknown NEXT milestone.";
+		last_error = r_error;
+		return false;
+	}
+	if (milestones[milestone_index].status == AI_NEXT_MILESTONE_LOCKED) {
+		r_error = "locked NEXT milestones cannot be edited.";
+		last_error = r_error;
+		return false;
+	}
+
+	Vector<String> removed_task_ids;
+	for (const AINextTask &task : milestones[milestone_index].tasks) {
+		removed_task_ids.push_back(task.id);
+	}
+
+	milestones.remove_at(milestone_index);
+	for (const String &task_id : removed_task_ids) {
+		_remove_task_dependency_references(task_id);
+	}
+
+	if (active_milestone_id == p_milestone_id) {
+		if (milestones.is_empty()) {
+			active_milestone_id.clear();
+		} else {
+			active_milestone_id = milestones[MIN(milestone_index, milestones.size() - 1)].id;
+		}
+	}
+	_sync_id_counters();
+	last_error.clear();
+	r_error.clear();
+	return true;
+}
+
+bool AINextProjectState::move_milestone(const String &p_milestone_id, int p_to_index, String &r_error) {
+	const int from_index = _find_milestone_index(p_milestone_id);
+	if (from_index < 0) {
+		r_error = "Unknown NEXT milestone.";
+		last_error = r_error;
+		return false;
+	}
+	if (milestones[from_index].status == AI_NEXT_MILESTONE_LOCKED) {
+		r_error = "locked NEXT milestones cannot be edited.";
+		last_error = r_error;
+		return false;
+	}
+	if (milestones.size() <= 1) {
+		r_error = "NEXT milestone order is already stable.";
+		last_error = r_error;
+		return false;
+	}
+
+	const int to_index = CLAMP(p_to_index, 0, milestones.size() - 1);
+	if (from_index == to_index) {
+		r_error.clear();
+		last_error.clear();
+		return true;
+	}
+
+	AINextMilestone milestone = milestones[from_index];
+	milestones.remove_at(from_index);
+	milestone.updated_at = _now();
+	milestones.insert(to_index, milestone);
+	last_error.clear();
+	r_error.clear();
+	return true;
+}
+
+bool AINextProjectState::merge_milestones(const String &p_target_milestone_id, const String &p_source_milestone_id, String &r_error) {
+	if (p_target_milestone_id == p_source_milestone_id) {
+		r_error = "Cannot merge a NEXT milestone into itself.";
+		last_error = r_error;
+		return false;
+	}
+
+	AINextMilestone *target = _find_milestone(p_target_milestone_id);
+	AINextMilestone *source = _find_milestone(p_source_milestone_id);
+	if (!target || !source) {
+		r_error = "Unknown NEXT milestone.";
+		last_error = r_error;
+		return false;
+	}
+	if (target->status == AI_NEXT_MILESTONE_LOCKED || source->status == AI_NEXT_MILESTONE_LOCKED) {
+		r_error = "locked NEXT milestones cannot be edited.";
+		last_error = r_error;
+		return false;
+	}
+
+	const int source_index = _find_milestone_index(p_source_milestone_id);
+	for (const AINextTask &task : source->tasks) {
+		target->tasks.push_back(task);
+	}
+	target->updated_at = _now();
+	_refresh_milestone_status(*target);
+	milestones.remove_at(source_index);
+
+	if (active_milestone_id == p_source_milestone_id) {
+		active_milestone_id = p_target_milestone_id;
+	}
+	_sync_id_counters();
+	last_error.clear();
+	r_error.clear();
 	return true;
 }
 
@@ -337,6 +530,10 @@ String AINextProjectState::add_task(const String &p_milestone_id, const String &
 	AINextMilestone *milestone = _find_milestone(p_milestone_id);
 	if (!milestone) {
 		last_error = "Unknown NEXT milestone.";
+		return String();
+	}
+	if (milestone->status == AI_NEXT_MILESTONE_LOCKED) {
+		last_error = "locked NEXT milestones cannot be edited.";
 		return String();
 	}
 
@@ -354,9 +551,16 @@ String AINextProjectState::add_task(const String &p_milestone_id, const String &
 	task.depends_on = ai_next_array_to_string_vector(p_depends_on);
 	task.created_at = _now();
 	task.updated_at = task.created_at;
+	const Dictionary snapshot = to_dict();
 	milestone->tasks.push_back(task);
 	milestone->updated_at = task.created_at;
 	_refresh_milestone_status(*milestone);
+	String dependency_error;
+	if (!_validate_task_dependencies(task.id, task.depends_on, dependency_error) || has_dependency_cycle(dependency_error)) {
+		load_from_dict(snapshot);
+		last_error = dependency_error;
+		return String();
+	}
 	last_error.clear();
 	return task.id;
 }
@@ -365,13 +569,21 @@ bool AINextProjectState::append_tasks(const String &p_milestone_id, const Array 
 	AINextMilestone *milestone = _find_milestone(p_milestone_id);
 	if (!milestone) {
 		r_error = "Unknown NEXT milestone.";
+		last_error = r_error;
+		return false;
+	}
+	if (milestone->status == AI_NEXT_MILESTONE_LOCKED) {
+		r_error = "locked NEXT milestones cannot be edited.";
+		last_error = r_error;
 		return false;
 	}
 
+	const Dictionary snapshot = to_dict();
 	Vector<AINextTask> new_tasks;
 	for (int i = 0; i < p_tasks.size(); i++) {
 		if (Variant(p_tasks[i]).get_type() != Variant::DICTIONARY) {
 			r_error = "Task entries must be dictionaries.";
+			last_error = r_error;
 			return false;
 		}
 		Dictionary task_dict = p_tasks[i];
@@ -381,19 +593,23 @@ bool AINextProjectState::append_tasks(const String &p_milestone_id, const Array 
 		}
 		if (task.title.strip_edges().is_empty()) {
 			r_error = "Task title is required.";
+			last_error = r_error;
 			return false;
 		}
 		if (task.assigned_agent_id.strip_edges().is_empty()) {
 			r_error = "Task assigned_agent_id is required.";
+			last_error = r_error;
 			return false;
 		}
 		if (_find_task(task.id)) {
 			r_error = "Duplicate NEXT task id.";
+			last_error = r_error;
 			return false;
 		}
 		for (const AINextTask &queued_task : new_tasks) {
 			if (queued_task.id == task.id) {
 				r_error = "Duplicate NEXT task id.";
+				last_error = r_error;
 				return false;
 			}
 		}
@@ -410,7 +626,21 @@ bool AINextProjectState::append_tasks(const String &p_milestone_id, const Array 
 	}
 	milestone->updated_at = _now();
 	_refresh_milestone_status(*milestone);
+	for (const AINextTask &task : new_tasks) {
+		if (!_validate_task_dependencies(task.id, task.depends_on, r_error)) {
+			load_from_dict(snapshot);
+			last_error = r_error;
+			return false;
+		}
+	}
+	if (has_dependency_cycle(r_error)) {
+		load_from_dict(snapshot);
+		last_error = r_error;
+		return false;
+	}
 	_sync_id_counters();
+	last_error.clear();
+	r_error.clear();
 	return true;
 }
 
@@ -419,9 +649,16 @@ bool AINextProjectState::update_task(const String &p_task_id, const Dictionary &
 	AINextTask *task = _find_task(p_task_id, &milestone);
 	if (!task) {
 		r_error = "Unknown NEXT task.";
+		last_error = r_error;
+		return false;
+	}
+	if (milestone && milestone->status == AI_NEXT_MILESTONE_LOCKED) {
+		r_error = "locked NEXT milestones cannot be edited.";
+		last_error = r_error;
 		return false;
 	}
 
+	const Dictionary snapshot = p_patch.has("depends_on") ? to_dict() : Dictionary();
 	if (p_patch.has("title")) {
 		task->title = String(p_patch["title"]);
 	}
@@ -432,7 +669,12 @@ bool AINextProjectState::update_task(const String &p_task_id, const Dictionary &
 		task->assigned_agent_id = String(p_patch["assigned_agent_id"]);
 	}
 	if (p_patch.has("depends_on") && Variant(p_patch["depends_on"]).get_type() == Variant::ARRAY) {
-		task->depends_on = ai_next_array_to_string_vector(p_patch["depends_on"]);
+		Vector<String> depends_on = ai_next_array_to_string_vector(p_patch["depends_on"]);
+		if (!_validate_task_dependencies(p_task_id, depends_on, r_error)) {
+			last_error = r_error;
+			return false;
+		}
+		task->depends_on = depends_on;
 	}
 	if (p_patch.has("asset_refs") && Variant(p_patch["asset_refs"]).get_type() == Variant::ARRAY) {
 		task->asset_refs = ai_next_array_to_string_vector(p_patch["asset_refs"]);
@@ -453,7 +695,83 @@ bool AINextProjectState::update_task(const String &p_task_id, const Dictionary &
 		task->error = String(p_patch["error"]);
 	}
 	_touch_task(*task, milestone);
+	if (p_patch.has("depends_on") && has_dependency_cycle(r_error)) {
+		load_from_dict(snapshot);
+		last_error = r_error;
+		return false;
+	}
+	last_error.clear();
+	r_error.clear();
 	return true;
+}
+
+bool AINextProjectState::delete_task(const String &p_task_id, String &r_error) {
+	int milestone_index = -1;
+	const int task_index = _find_task_index(p_task_id, &milestone_index);
+	if (task_index < 0 || milestone_index < 0) {
+		r_error = "Unknown NEXT task.";
+		last_error = r_error;
+		return false;
+	}
+	AINextMilestone &milestone = milestones.write[milestone_index];
+	if (milestone.status == AI_NEXT_MILESTONE_LOCKED) {
+		r_error = "locked NEXT milestones cannot be edited.";
+		last_error = r_error;
+		return false;
+	}
+
+	milestone.tasks.remove_at(task_index);
+	milestone.updated_at = _now();
+	_refresh_milestone_status(milestone);
+	_remove_task_dependency_references(p_task_id);
+	_sync_id_counters();
+	last_error.clear();
+	r_error.clear();
+	return true;
+}
+
+bool AINextProjectState::move_task(const String &p_task_id, const String &p_target_milestone_id, int p_to_index, String &r_error) {
+	int source_milestone_index = -1;
+	const int source_task_index = _find_task_index(p_task_id, &source_milestone_index);
+	const int target_milestone_index = _find_milestone_index(p_target_milestone_id);
+	if (source_task_index < 0 || source_milestone_index < 0 || target_milestone_index < 0) {
+		r_error = "Unknown NEXT task or milestone.";
+		last_error = r_error;
+		return false;
+	}
+	if (milestones[source_milestone_index].status == AI_NEXT_MILESTONE_LOCKED || milestones[target_milestone_index].status == AI_NEXT_MILESTONE_LOCKED) {
+		r_error = "locked NEXT milestones cannot be edited.";
+		last_error = r_error;
+		return false;
+	}
+
+	AINextTask task = milestones[source_milestone_index].tasks[source_task_index];
+	milestones.write[source_milestone_index].tasks.remove_at(source_task_index);
+
+	AINextMilestone &target_milestone = milestones.write[target_milestone_index];
+	int to_index = CLAMP(p_to_index, 0, target_milestone.tasks.size());
+
+	task.updated_at = _now();
+	target_milestone.tasks.insert(to_index, task);
+	milestones.write[source_milestone_index].updated_at = _now();
+	target_milestone.updated_at = _now();
+	_refresh_milestone_status(milestones.write[source_milestone_index]);
+	_refresh_milestone_status(target_milestone);
+	last_error.clear();
+	r_error.clear();
+	return true;
+}
+
+bool AINextProjectState::set_task_dependencies(const String &p_task_id, const Array &p_depends_on, String &r_error) {
+	if (_is_task_milestone_locked(p_task_id)) {
+		r_error = "locked NEXT milestones cannot be edited.";
+		last_error = r_error;
+		return false;
+	}
+
+	Dictionary patch;
+	patch["depends_on"] = p_depends_on;
+	return update_task(p_task_id, patch, r_error);
 }
 
 bool AINextProjectState::set_task_status(const String &p_task_id, AINextTaskStatus p_status, const String &p_error) {
