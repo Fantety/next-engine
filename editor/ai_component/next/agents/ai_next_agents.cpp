@@ -29,6 +29,7 @@
 #include "editor/ai_component/tools/editor/ai_shader_delete_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
+#include "editor/ai_component/tools/project/ai_create_markdown_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
@@ -51,13 +52,14 @@ void _configure_next_agent(AIAgentBase *p_agent, const String &p_agent_id, const
 	p_agent->set_agent_profile_id(p_profile_id);
 }
 
-void _register_shared_read_tools(AIAgentBase *p_agent) {
+void _register_shared_project_tools(AIAgentBase *p_agent) {
 	if (!p_agent) {
 		return;
 	}
 	p_agent->add_tool(_make_tool<AIListProjectTool>(), AI_TOOL_PERMISSION_ALLOW);
 	p_agent->add_tool(_make_tool<AIReadFileTool>(), AI_TOOL_PERMISSION_ALLOW);
 	p_agent->add_tool(_make_tool<AISearchProjectTool>(), AI_TOOL_PERMISSION_ALLOW);
+	p_agent->add_tool(_make_tool<AICreateMarkdownTool>(), AI_TOOL_PERMISSION_ALLOW);
 	p_agent->add_tool(_make_tool<AIGetEditorContextTool>(), AI_TOOL_PERMISSION_ALLOW);
 }
 
@@ -126,7 +128,7 @@ AINextPlanningAgent::AINextPlanningAgent() {
 void AINextPlanningAgent::_rebuild_tools() {
 	clear_tools();
 	_register_next_tools(this, project_state);
-	_register_shared_read_tools(this);
+	_register_shared_project_tools(this);
 }
 
 void AINextPlanningAgent::set_project_state(const Ref<AINextProjectState> &p_project_state) {
@@ -143,7 +145,7 @@ void AINextScriptAgent::_bind_methods() {
 
 AINextScriptAgent::AINextScriptAgent() {
 	_configure_next_agent(this, "script_agent", AINextPrompts::get_script_prompt(), "write");
-	_register_shared_read_tools(this);
+	_register_shared_project_tools(this);
 	_register_script_tools(this);
 }
 
@@ -152,7 +154,7 @@ void AINextSceneAgent::_bind_methods() {
 
 AINextSceneAgent::AINextSceneAgent() {
 	_configure_next_agent(this, "scene_agent", AINextPrompts::get_scene_prompt(), "write");
-	_register_shared_read_tools(this);
+	_register_shared_project_tools(this);
 	_register_scene_tools(this);
 }
 
@@ -161,7 +163,7 @@ void AINextShaderAgent::_bind_methods() {
 
 AINextShaderAgent::AINextShaderAgent() {
 	_configure_next_agent(this, "shader_agent", AINextPrompts::get_shader_prompt(), "write");
-	_register_shared_read_tools(this);
+	_register_shared_project_tools(this);
 	_register_shader_tools(this);
 }
 
@@ -170,5 +172,5 @@ void AINextReviewAgent::_bind_methods() {
 
 AINextReviewAgent::AINextReviewAgent() {
 	_configure_next_agent(this, "review_agent", AINextPrompts::get_review_prompt(), "review");
-	_register_shared_read_tools(this);
+	_register_shared_project_tools(this);
 }

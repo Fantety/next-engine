@@ -80,6 +80,7 @@ public:
 	static String get_default_scene_for_test();
 	static String get_default_service_for_test();
 	static Dictionary build_phone_code_login_body_for_test(const String &p_phone, const String &p_code, const String &p_device_id);
+	static String describe_token_for_debug_for_test(const String &p_token);
 	static bool parse_auth_response_for_test(const String &p_json, AuthResult &r_result);
 	static bool parse_user_response_for_test(const String &p_json, AuthResult &r_result);
 

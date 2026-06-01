@@ -36,6 +36,7 @@
 
 class AcceptDialog;
 class Button;
+class CheckButton;
 class EditorExportPreset;
 class EditorRunNative;
 class HBoxContainer;
@@ -72,7 +73,7 @@ class EditorRunBar : public MarginContainer {
 	AcceptDialog *recovery_mode_popup = nullptr;
 
 	Button *play_button = nullptr;
-	Button *next_mode_button = nullptr;
+	CheckButton *next_mode_button = nullptr;
 	Button *pause_button = nullptr;
 	Button *stop_button = nullptr;
 	Button *play_scene_button = nullptr;

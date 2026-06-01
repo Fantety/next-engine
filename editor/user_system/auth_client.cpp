@@ -4,6 +4,7 @@
 
 #include "auth_client.h"
 
+#include "core/crypto/crypto_core.h"
 #include "core/error/error_macros.h"
 #include "core/io/json.h"
 #include "core/math/math_funcs.h"
@@ -143,6 +144,58 @@ void _append_security_headers(Vector<String> &r_headers, const String &p_token) 
 	r_headers.push_back("sec-sign: 1");
 }
 
+String _decode_base64url_utf8(const String &p_value, bool &r_ok) {
+	r_ok = false;
+	if (p_value.is_empty()) {
+		return String();
+	}
+
+	String encoded = p_value.strip_edges().replace("-", "+").replace("_", "/");
+	const int remainder = encoded.length() % 4;
+	if (remainder == 1) {
+		return String();
+	}
+	if (remainder > 0) {
+		encoded += String("=").repeat(4 - remainder);
+	}
+
+	const int encoded_length = encoded.length();
+	CharString cstr = encoded.ascii();
+	Vector<uint8_t> buffer;
+	buffer.resize(encoded_length / 4 * 3 + 2);
+
+	size_t decoded_length = 0;
+	if (CryptoCore::b64_decode(buffer.ptrw(), buffer.size(), &decoded_length, (unsigned char *)cstr.get_data(), encoded_length) != OK) {
+		return String();
+	}
+
+	r_ok = true;
+	return String::utf8(reinterpret_cast<const char *>(buffer.ptr()), decoded_length);
+}
+
+String _describe_token_for_debug(const String &p_token) {
+	const String token = p_token.strip_edges();
+	if (token.is_empty()) {
+		return "token_empty=true";
+	}
+
+	const Vector<String> parts = token.split(".");
+	if (parts.size() < 2) {
+		return vformat("jwt_parts=%d decode=not_jwt", parts.size());
+	}
+
+	bool header_ok = false;
+	bool payload_ok = false;
+	const String header = _decode_base64url_utf8(parts[0], header_ok);
+	const String payload = _decode_base64url_utf8(parts[1], payload_ok);
+	return vformat("jwt_parts=%d jwt_header_ok=%s jwt_header=%s jwt_payload_ok=%s jwt_payload=%s", parts.size(), header_ok ? "true" : "false", header, payload_ok ? "true" : "false", payload);
+}
+
+void _print_token_debug(const String &p_context, const String &p_token) {
+	print_line(vformat("[User Auth] %s token=%s", p_context, p_token));
+	print_line(vformat("[User Auth] %s token_details=%s", p_context, _describe_token_for_debug(p_token)));
+}
+
 } // namespace
 
 void AuthTransport::_bind_methods() {
@@ -272,6 +325,7 @@ Dictionary AuthClient::_build_phone_code_login_body(const String &p_phone, const
 	body["phone"] = p_phone.strip_edges();
 	body["code"] = p_code.strip_edges();
 	body["scene"] = get_default_scene();
+	body["service"] = get_default_service();
 	body["deviceId"] = p_device_id;
 	return body;
 }
@@ -282,6 +336,7 @@ Dictionary AuthClient::_build_password_login_body(const String &p_phone, const S
 	body["password"] = p_password;
 	body["twoFactorAuth"] = "";
 	body["scene"] = get_default_scene();
+	body["service"] = get_default_service();
 	body["deviceId"] = p_device_id;
 	return body;
 }
@@ -439,6 +494,10 @@ Dictionary AuthClient::build_phone_code_login_body_for_test(const String &p_phon
 	return _build_phone_code_login_body(p_phone, p_code, p_device_id);
 }
 
+String AuthClient::describe_token_for_debug_for_test(const String &p_token) {
+	return _describe_token_for_debug(p_token);
+}
+
 bool AuthClient::parse_auth_response_for_test(const String &p_json, AuthResult &r_result) {
 	r_result = _parse_auth_response(p_json);
 	return r_result.success;
@@ -499,7 +558,8 @@ AuthResult AuthClient::logout(const AuthSessionData &p_session, bool p_all) {
 
 AuthResult AuthClient::get_user(const String &p_token) {
 	AuthResult result;
-	if (p_token.strip_edges().is_empty()) {
+	const String token = p_token.strip_edges();
+	if (token.is_empty()) {
 		result.error = "Authentication token is empty.";
 		return result;
 	}
@@ -510,12 +570,13 @@ AuthResult AuthClient::get_user(const String &p_token) {
 	}
 
 	Vector<String> headers;
-	_append_security_headers(headers, p_token);
+	_append_security_headers(headers, token);
 
 	String response;
 	String error;
 	int http_code = 0;
 	const String path = "/user/info";
+	_print_token_debug("get_user", token);
 	const bool request_ok = transport->request_json(HTTPClient::METHOD_GET, path, String(), headers, response, http_code, error);
 	print_line(vformat("[User Auth] raw response path=%s transport_ok=%s http_code=%d error=%s body=%s", path, request_ok ? "true" : "false", http_code, error, response));
 	if (!request_ok) {

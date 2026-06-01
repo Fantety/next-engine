@@ -16,8 +16,10 @@
 #include "editor/ai_component/ui/ai_next_milestone_list.h"
 #include "editor/ai_component/ui/ai_next_task_tree.h"
 #include "editor/ai_component/ui/ai_settings_next_page.h"
+#include "editor/run/editor_run_bar.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
+#include "scene/gui/check_button.h"
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/scroll_container.h"
@@ -63,6 +65,39 @@ static OptionButton *find_first_option_button(Node *p_root) {
 		}
 	}
 	return nullptr;
+}
+
+static Button *find_button_by_text(Node *p_root, const String &p_text) {
+	if (!p_root) {
+		return nullptr;
+	}
+	Button *button = Object::cast_to<Button>(p_root);
+	if (button && button->get_text() == p_text) {
+		return button;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		Button *child_button = find_button_by_text(p_root->get_child(i), p_text);
+		if (child_button) {
+			return child_button;
+		}
+	}
+	return nullptr;
+}
+
+TEST_CASE("[Editor][AI][NEXT] run bar uses a switch control for next mode") {
+	EditorRunBar *run_bar = memnew(EditorRunBar);
+
+	Button *next_mode_control = find_button_by_text(run_bar, "NEXT");
+	REQUIRE(next_mode_control != nullptr);
+	CHECK(Object::cast_to<CheckButton>(next_mode_control) != nullptr);
+
+	run_bar->set_next_mode_enabled(true);
+	CHECK(next_mode_control->is_pressed());
+
+	run_bar->set_next_mode_enabled(false);
+	CHECK_FALSE(next_mode_control->is_pressed());
+
+	memdelete(run_bar);
 }
 
 TEST_CASE("[Editor][AI][NEXT] next dock owns a next session") {

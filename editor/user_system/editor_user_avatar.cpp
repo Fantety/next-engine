@@ -160,7 +160,7 @@ void EditorUserAvatar::_build_ui() {
 	details_name_value = _add_detail_value(details_grid, TTR("Name"));
 	details_phone_value = _add_detail_value(details_grid, TTR("Phone"));
 	details_user_id_value = _add_detail_value(details_grid, TTR("User ID"));
-	details_credits_value = _add_detail_value(details_grid, TTR("Credits"));
+	details_credits_value = _add_detail_value(details_grid, TTR("Credit"));
 
 	HSeparator *details_separator = memnew(HSeparator);
 	details_content->add_child(details_separator);

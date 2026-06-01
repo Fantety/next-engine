@@ -147,6 +147,7 @@ TEST_CASE("[Editor][UserSystem] Phone-code login body uses backend auto-register
 	CHECK(String(body["code"]) == "2468");
 	CHECK(AuthClient::get_default_scene_for_test() == "client");
 	CHECK(String(body["scene"]) == AuthClient::get_default_scene_for_test());
+	CHECK(String(body["service"]) == AuthClient::get_default_service_for_test());
 	CHECK(String(body["deviceId"]) == "device-1");
 	CHECK_FALSE(body.has("password"));
 }
@@ -176,6 +177,7 @@ TEST_CASE("[Editor][UserSystem] Auth client sends phone-code login without regis
 	CHECK(String(body["phone"]) == "+8613800000000");
 	CHECK(String(body["code"]) == "2468");
 	CHECK(String(body["scene"]) == AuthClient::get_default_scene_for_test());
+	CHECK(String(body["service"]) == AuthClient::get_default_service_for_test());
 	CHECK(String(body["deviceId"]) == "device-1");
 }
 
@@ -198,7 +200,17 @@ TEST_CASE("[Editor][UserSystem] Auth client sends password login with client sce
 	CHECK(String(body["phone"]) == "+8613800000000");
 	CHECK(String(body["password"]) == "pass-1");
 	CHECK(String(body["scene"]) == AuthClient::get_default_scene_for_test());
+	CHECK(String(body["service"]) == AuthClient::get_default_service_for_test());
 	CHECK(String(body["deviceId"]) == "device-1");
+}
+
+TEST_CASE("[Editor][UserSystem] Auth client describes JWT payload for diagnostics") {
+	const String token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.signature";
+
+	const String description = AuthClient::describe_token_for_debug_for_test(token);
+
+	CHECK(description.contains("jwt_header={\"alg\":\"HS256\",\"typ\":\"JWT\"}"));
+	CHECK(description.contains("jwt_payload={\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022}"));
 }
 
 TEST_CASE("[Editor][UserSystem] Auth client accepts HTTP-style success codes from auth replies") {

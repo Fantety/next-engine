@@ -49,6 +49,7 @@
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
+#include "scene/gui/check_button.h"
 #include "scene/gui/menu_button.h"
 #include "scene/gui/panel_container.h"
 #include "scene/main/scene_tree.h"
@@ -640,11 +641,9 @@ EditorRunBar::EditorRunBar() {
 	}
 
 	next_mode_enabled = EditorSettings::get_singleton()->get_project_metadata("ai_next", "enabled", false);
-	next_mode_button = memnew(Button);
+	next_mode_button = memnew(CheckButton);
 	main_hbox->add_child(next_mode_button);
 	next_mode_button->set_text(TTRC("NEXT"));
-	next_mode_button->set_toggle_mode(true);
-	next_mode_button->set_theme_type_variation("RunBarButton");
 	next_mode_button->set_focus_mode(Control::FOCUS_ACCESSIBILITY);
 	next_mode_button->set_tooltip_text(TTRC("Toggle NEXT mode."));
 	next_mode_button->set_pressed_no_signal(next_mode_enabled);

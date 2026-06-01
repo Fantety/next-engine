@@ -30,6 +30,7 @@
 #include "editor/ai_component/tools/editor/ai_shader_delete_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
+#include "editor/ai_component/tools/project/ai_create_markdown_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
@@ -87,10 +88,11 @@ void AIMainAgent::_register_local_tools() {
 	const AIToolPermission write_permission = _allow_when(write_capable);
 	const AIToolPermission destructive_permission = write_capable ? AI_TOOL_PERMISSION_ASK : AI_TOOL_PERMISSION_DENY;
 
-	const MainAgentToolFactory read_tools[] = {
+	const MainAgentToolFactory always_allowed_tools[] = {
 		{ _create_main_agent_tool<AIListProjectTool> },
 		{ _create_main_agent_tool<AIReadFileTool> },
 		{ _create_main_agent_tool<AISearchProjectTool> },
+		{ _create_main_agent_tool<AICreateMarkdownTool> },
 		{ _create_main_agent_tool<AIGetEditorContextTool> },
 		{ _create_main_agent_tool<AIActivateSkillTool> },
 		{ _create_main_agent_tool<AIManagePlanTool> },
@@ -122,7 +124,7 @@ void AIMainAgent::_register_local_tools() {
 		{ _create_main_agent_tool<AIShaderDeleteTool> },
 	};
 
-	_register_main_agent_tool_group(this, read_tools, AI_TOOL_PERMISSION_ALLOW);
+	_register_main_agent_tool_group(this, always_allowed_tools, AI_TOOL_PERMISSION_ALLOW);
 	_register_main_agent_tool_group(this, write_tools, write_permission);
 	_register_main_agent_tool_group(this, explicit_approval_tools, destructive_permission);
 }

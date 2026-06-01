@@ -4,12 +4,14 @@
 
 #include "tests/test_macros.h"
 
+#include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "editor/ai_component/agent/ai_agent_profile.h"
 #include "editor/ai_component/agent/ai_main_agent.h"
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
+#include "editor/ai_component/next/agents/ai_next_agents.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
 #include "editor/ai_component/providers/ai_mcp_protocol.h"
@@ -54,6 +56,7 @@
 #include "editor/ai_component/tools/editor/ai_shader_delete_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
+#include "editor/ai_component/tools/project/ai_create_markdown_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
@@ -632,6 +635,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("project.list_tree") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.search_text") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("agent.activate_skill") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("agent.manage_plan") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
@@ -650,9 +654,11 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 
 	agent->set_agent_profile_id("build");
 	CHECK(registry->get_tool_permission("project.list_tree") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 
 	agent->set_agent_profile_id("review");
+	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
@@ -662,6 +668,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
 
 	agent->set_agent_profile_id("write");
+	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.add_node") == AI_TOOL_PERMISSION_ALLOW);
@@ -684,6 +691,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
 
 	agent->set_profile(AIAgentProfile::get_plan_profile());
+	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_DENY);
@@ -705,6 +713,28 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	registry.unref();
 	agent.unref();
 	AIMCPService::clear_singleton_for_test();
+}
+
+TEST_CASE("[Editor][AI] NEXT agents expose Markdown creation tool") {
+	Ref<AINextPlanningAgent> planning_agent;
+	planning_agent.instantiate();
+	CHECK(planning_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+
+	Ref<AINextScriptAgent> script_agent;
+	script_agent.instantiate();
+	CHECK(script_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+
+	Ref<AINextSceneAgent> scene_agent;
+	scene_agent.instantiate();
+	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+
+	Ref<AINextShaderAgent> shader_agent;
+	shader_agent.instantiate();
+	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+
+	Ref<AINextReviewAgent> review_agent;
+	review_agent.instantiate();
+	CHECK(review_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 }
 
 TEST_CASE("[Editor][AI] Plan manager keeps one active plan and archives completed work") {
@@ -1107,6 +1137,18 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	Dictionary folder_properties = folder_schema["properties"];
 	CHECK(folder_properties.has("path"));
 
+	Ref<AICreateMarkdownTool> create_markdown;
+	create_markdown.instantiate();
+	CHECK(create_markdown->get_name() == "project.create_markdown");
+	Dictionary markdown_schema = create_markdown->get_parameters_schema();
+	Dictionary markdown_properties = markdown_schema["properties"];
+	CHECK(markdown_properties.has("path"));
+	CHECK(markdown_properties.has("content"));
+	CHECK(markdown_properties.has("overwrite"));
+	Array markdown_required = markdown_schema["required"];
+	CHECK(markdown_required.has("path"));
+	CHECK(markdown_required.has("content"));
+
 	Ref<AIScriptInspectTool> script_inspect;
 	script_inspect.instantiate();
 	CHECK(script_inspect->get_name() == "script.inspect");
@@ -1264,6 +1306,20 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	folder_arguments["path"] = "res://";
 	CHECK(create_folder->execute(folder_arguments).is_error());
 
+	Ref<AICreateMarkdownTool> create_markdown;
+	create_markdown.instantiate();
+	Dictionary markdown_arguments;
+	CHECK(create_markdown->execute(markdown_arguments).is_error());
+	markdown_arguments["path"] = "res://docs/brief.md";
+	CHECK(create_markdown->execute(markdown_arguments).is_error());
+	markdown_arguments["content"] = "# Brief";
+	markdown_arguments["path"] = "C:/outside/brief.md";
+	CHECK(create_markdown->execute(markdown_arguments).is_error());
+	markdown_arguments["path"] = "res://../brief.md";
+	CHECK(create_markdown->execute(markdown_arguments).is_error());
+	markdown_arguments["path"] = "res://docs/brief.txt";
+	CHECK(create_markdown->execute(markdown_arguments).is_error());
+
 	Ref<AIScriptInspectTool> script_inspect;
 	script_inspect.instantiate();
 	Dictionary inspect_arguments;
@@ -1344,6 +1400,61 @@ TEST_CASE("[Editor][AI] Scene instantiate scene tool validates required argument
 	CHECK(instantiate_scene->execute(instantiate_arguments).is_error());
 	instantiate_arguments["parent_path"] = ".";
 	CHECK(instantiate_scene->execute(instantiate_arguments).is_error());
+}
+
+TEST_CASE("[Editor][AI] Markdown creation tool writes project Markdown files") {
+	Ref<AICreateMarkdownTool> create_markdown;
+	create_markdown.instantiate();
+
+	const String dir_path = "res://.ai_markdown_tool_test";
+	const String file_path = dir_path.path_join("brief.md");
+	const String absolute_dir = ProjectSettings::get_singleton()->globalize_path(dir_path);
+	const String absolute_file = ProjectSettings::get_singleton()->globalize_path(file_path);
+	if (FileAccess::exists(file_path)) {
+		const Error remove_file_error = DirAccess::remove_absolute(absolute_file);
+		CHECK(remove_file_error == OK);
+	}
+	if (DirAccess::dir_exists_absolute(absolute_dir)) {
+		const Error remove_dir_error = DirAccess::remove_absolute(absolute_dir);
+		CHECK(remove_dir_error == OK);
+	}
+
+	Dictionary arguments;
+	arguments["path"] = file_path;
+	arguments["content"] = "# NEXT Brief\n\n- Build a status panel.\n";
+
+	AIToolResult create_result = create_markdown->execute(arguments);
+	CHECK_FALSE(create_result.is_error());
+	CHECK(create_result.content.contains(file_path));
+	CHECK(String(create_result.metadata["path"]) == file_path);
+	CHECK(bool(create_result.metadata["created"]));
+	CHECK_FALSE(bool(create_result.metadata["overwritten"]));
+	CHECK((int)create_result.metadata["bytes"] > 0);
+
+	Ref<FileAccess> created_file = FileAccess::open(file_path, FileAccess::READ);
+	REQUIRE(created_file.is_valid());
+	CHECK(created_file->get_as_text() == "# NEXT Brief\n\n- Build a status panel.\n");
+	created_file.unref();
+
+	AIToolResult duplicate_result = create_markdown->execute(arguments);
+	CHECK(duplicate_result.is_error());
+
+	arguments["content"] = "# Updated Brief\n";
+	arguments["overwrite"] = true;
+	AIToolResult overwrite_result = create_markdown->execute(arguments);
+	CHECK_FALSE(overwrite_result.is_error());
+	CHECK_FALSE(bool(overwrite_result.metadata["created"]));
+	CHECK(bool(overwrite_result.metadata["overwritten"]));
+
+	Ref<FileAccess> overwritten_file = FileAccess::open(file_path, FileAccess::READ);
+	REQUIRE(overwritten_file.is_valid());
+	CHECK(overwritten_file->get_as_text() == "# Updated Brief\n");
+	overwritten_file.unref();
+
+	const Error remove_file_error = DirAccess::remove_absolute(absolute_file);
+	CHECK(remove_file_error == OK);
+	const Error remove_dir_error = DirAccess::remove_absolute(absolute_dir);
+	CHECK(remove_dir_error == OK);
 }
 
 TEST_CASE("[Editor][AI] Read-only project tools enforce project boundaries") {
