@@ -300,6 +300,13 @@ void AINextTaskRow::setup(const Dictionary &p_task, int p_index, int p_task_coun
 	_connect_row_button_pressed(remove, p_callbacks.remove);
 	add_child(remove);
 
+	Button *session = memnew(Button);
+	session->set_name(SNAME("AIPlanTaskSessionButton"));
+	setup_ai_next_plan_icon_button(this, session, SNAME("Session"), TTR("Open task session."));
+	session->set_disabled(task_id.is_empty());
+	_connect_row_button_pressed(session, p_callbacks.session);
+	add_child(session);
+
 	Button *run = memnew(Button);
 	run->set_name(SNAME("AIPlanRunTaskButton"));
 	setup_ai_next_plan_icon_button(this, run, SNAME("MainPlay"), p_status_text == "in_progress" ? TTR("Running task.") : TTR("Run task."));

@@ -7,6 +7,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
+#include "editor/ai_component/ui/ai_message_list.h"
 #include "editor/ai_component/ui/next/ai_next_plan_rows.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
@@ -82,6 +83,9 @@ AINextTaskTree::AINextTaskTree() {
 
 void AINextTaskTree::_notification(int p_what) {
 	if (p_what == NOTIFICATION_ENTER_TREE || p_what == NOTIFICATION_THEME_CHANGED) {
+		if (task_session_send_button) {
+			task_session_send_button->set_button_icon(get_editor_theme_icon(SNAME("Send")));
+		}
 		refresh();
 	}
 }
@@ -89,7 +93,7 @@ void AINextTaskTree::_notification(int p_what) {
 void AINextTaskTree::_clear_rows() {
 	for (int i = get_child_count() - 1; i >= 0; i--) {
 		Node *child = get_child(i);
-		if (child == task_dialog || child == delete_dialog || child == dependency_dialog) {
+		if (child == task_dialog || child == delete_dialog || child == dependency_dialog || child == task_session_dialog) {
 			continue;
 		}
 		remove_child(child);
@@ -98,7 +102,21 @@ void AINextTaskTree::_clear_rows() {
 }
 
 void AINextTaskTree::set_next_session(AIAgentNextSession *p_session) {
+	const Callable source_changed = callable_mp(this, &AINextTaskTree::_task_session_source_changed);
+	if (next_session) {
+		if (next_session->is_connected("project_state_changed", source_changed)) {
+			next_session->disconnect("project_state_changed", source_changed);
+		}
+		if (next_session->is_connected("agent_progress_changed", source_changed)) {
+			next_session->disconnect("agent_progress_changed", source_changed);
+		}
+	}
+
 	next_session = p_session;
+	if (next_session) {
+		next_session->connect("project_state_changed", source_changed, CONNECT_DEFERRED);
+		next_session->connect("agent_progress_changed", source_changed, CONNECT_DEFERRED);
+	}
 	refresh();
 }
 
@@ -114,6 +132,44 @@ void AINextTaskTree::_run_task_pressed(const String &p_task_id) {
 		return;
 	}
 	next_session->run_task(p_task_id);
+}
+
+void AINextTaskTree::_task_session_pressed(const String &p_task_id) {
+	if (!next_session || next_session->get_project_state().is_null()) {
+		return;
+	}
+	Dictionary task = next_session->get_project_state()->get_task(p_task_id);
+	if (task.is_empty()) {
+		return;
+	}
+	session_task_id = p_task_id;
+	task_session_dialog->set_title(vformat(TTR("Task Session: %s"), String(task.get("title", TTR("Task")))));
+	_refresh_task_session_dialog();
+	task_session_dialog->popup_centered(Size2(680, 560) * EDSCALE);
+}
+
+void AINextTaskTree::_send_task_session_message_pressed() {
+	if (!next_session || session_task_id.is_empty() || !task_session_input) {
+		return;
+	}
+	const String message = task_session_input->get_text();
+	if (next_session->send_task_session_message(session_task_id, message)) {
+		task_session_input->clear();
+		_refresh_task_session_dialog();
+	}
+	_update_task_session_send_button();
+}
+
+void AINextTaskTree::_task_session_input_changed() {
+	_update_task_session_send_button();
+}
+
+void AINextTaskTree::_task_session_source_changed() {
+	if (task_session_dialog && task_session_dialog->is_visible()) {
+		_refresh_task_session_dialog();
+	} else {
+		_update_task_session_send_button();
+	}
 }
 
 void AINextTaskTree::_build_dialogs() {
@@ -177,6 +233,45 @@ void AINextTaskTree::_build_dialogs() {
 	dependency_list->add_theme_constant_override("separation", 3 * EDSCALE);
 	dependency_scroll->add_child(dependency_list);
 	dependency_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AINextTaskTree::_confirm_dependencies));
+
+	task_session_dialog = memnew(ConfirmationDialog);
+	task_session_dialog->set_title(TTR("Task Session"));
+	task_session_dialog->set_min_size(Size2(680, 560) * EDSCALE);
+	task_session_dialog->set_ok_button_text(TTR("Close"));
+	add_child(task_session_dialog);
+
+	VBoxContainer *session_root = memnew(VBoxContainer);
+	session_root->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	session_root->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	session_root->add_theme_constant_override("separation", 6 * EDSCALE);
+	task_session_dialog->add_child(session_root);
+
+	task_session_messages = memnew(AIMessageList);
+	task_session_messages->set_custom_minimum_size(Size2(0, 360) * EDSCALE);
+	session_root->add_child(task_session_messages);
+
+	task_session_input = memnew(TextEdit);
+	task_session_input->set_custom_minimum_size(Size2(0, 82) * EDSCALE);
+	task_session_input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	task_session_input->set_line_wrapping_mode(TextEdit::LINE_WRAPPING_BOUNDARY);
+	task_session_input->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
+	task_session_input->set_placeholder(TTR("Continue this task session..."));
+	task_session_input->connect("text_changed", callable_mp(this, &AINextTaskTree::_task_session_input_changed));
+	session_root->add_child(task_session_input);
+
+	HBoxContainer *session_actions = memnew(HBoxContainer);
+	session_actions->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	session_root->add_child(session_actions);
+
+	Label *session_spacer = memnew(Label);
+	session_spacer->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	session_actions->add_child(session_spacer);
+
+	task_session_send_button = memnew(Button);
+	task_session_send_button->set_text(TTR("Send"));
+	task_session_send_button->connect(SceneStringName(pressed), callable_mp(this, &AINextTaskTree::_send_task_session_message_pressed));
+	session_actions->add_child(task_session_send_button);
+	_update_task_session_send_button();
 }
 
 void AINextTaskTree::_populate_milestone_selector(const String &p_selected_milestone_id) {
@@ -360,6 +455,35 @@ void AINextTaskTree::_confirm_dependencies() {
 	refresh();
 }
 
+void AINextTaskTree::_refresh_task_session_dialog() {
+	if (!task_session_messages) {
+		return;
+	}
+	task_session_messages->clear_messages();
+	if (!next_session || session_task_id.is_empty()) {
+		_update_task_session_send_button();
+		return;
+	}
+
+	Array messages = next_session->get_task_session_messages(session_task_id);
+	for (int i = 0; i < messages.size(); i++) {
+		if (Variant(messages[i]).get_type() == Variant::DICTIONARY) {
+			task_session_messages->add_message(messages[i]);
+		}
+	}
+	task_session_messages->scroll_to_bottom();
+	_update_task_session_send_button();
+}
+
+void AINextTaskTree::_update_task_session_send_button() {
+	if (!task_session_send_button) {
+		return;
+	}
+	const bool has_text = task_session_input && !task_session_input->get_text().strip_edges().is_empty();
+	const bool can_send = next_session && !session_task_id.is_empty() && next_session->can_continue_task_session(session_task_id) && has_text;
+	task_session_send_button->set_disabled(!can_send);
+}
+
 Variant AINextTaskTree::_get_drag_data_fw(const Point2 &p_point, Control *p_from) {
 	if (!next_session || !next_session->can_edit_plan() || !p_from || next_session->get_project_state().is_null()) {
 		return Variant();
@@ -506,6 +630,7 @@ void AINextTaskTree::refresh() {
 		callbacks.move_up = callable_mp(this, &AINextTaskTree::_move_task_pressed).bind(task_id, i - 1);
 		callbacks.move_down = callable_mp(this, &AINextTaskTree::_move_task_pressed).bind(task_id, i + 1);
 		callbacks.remove = callable_mp(this, &AINextTaskTree::_delete_task_pressed).bind(task_id);
+		callbacks.session = callable_mp(this, &AINextTaskTree::_task_session_pressed).bind(task_id);
 		callbacks.run = callable_mp(this, &AINextTaskTree::_run_task_pressed).bind(task_id);
 		callbacks.get_drag_data = callable_mp(this, &AINextTaskTree::_get_drag_data_fw);
 		callbacks.can_drop_data = callable_mp(this, &AINextTaskTree::_can_drop_data_fw);

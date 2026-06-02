@@ -186,9 +186,11 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_selected_task_id"), &AIAgentNextSession::get_selected_task_id);
 	ClassDB::bind_method(D_METHOD("can_run_active_milestone"), &AIAgentNextSession::can_run_active_milestone);
 	ClassDB::bind_method(D_METHOD("can_run_task", "task_id"), &AIAgentNextSession::can_run_task);
+	ClassDB::bind_method(D_METHOD("can_continue_task_session", "task_id"), &AIAgentNextSession::can_continue_task_session);
 	ClassDB::bind_method(D_METHOD("can_review_active_milestone"), &AIAgentNextSession::can_review_active_milestone);
 	ClassDB::bind_method(D_METHOD("can_lock_active_milestone"), &AIAgentNextSession::can_lock_active_milestone);
 	ClassDB::bind_method(D_METHOD("can_edit_plan"), &AIAgentNextSession::can_edit_plan);
+	ClassDB::bind_method(D_METHOD("get_task_session_messages", "task_id"), &AIAgentNextSession::get_task_session_messages);
 	ClassDB::bind_method(D_METHOD("set_model_profile_id", "model_profile_id"), &AIAgentNextSession::set_model_profile_id);
 	ClassDB::bind_method(D_METHOD("set_agent_model_profile_id", "agent_id", "model_profile_id"), &AIAgentNextSession::set_agent_model_profile_id);
 	ClassDB::bind_method(D_METHOD("submit_brief", "brief"), &AIAgentNextSession::submit_brief);
@@ -213,6 +215,7 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("approve_plan"), &AIAgentNextSession::approve_plan);
 	ClassDB::bind_method(D_METHOD("run_active_milestone"), &AIAgentNextSession::run_active_milestone);
 	ClassDB::bind_method(D_METHOD("run_task", "task_id"), &AIAgentNextSession::run_task);
+	ClassDB::bind_method(D_METHOD("send_task_session_message", "task_id", "message"), &AIAgentNextSession::send_task_session_message);
 	ClassDB::bind_method(D_METHOD("review_active_milestone"), &AIAgentNextSession::review_active_milestone);
 	ClassDB::bind_method(D_METHOD("generate_feedback_tasks", "feedback"), &AIAgentNextSession::generate_feedback_tasks);
 	ClassDB::bind_method(D_METHOD("accept_and_lock_active_milestone"), &AIAgentNextSession::accept_and_lock_active_milestone);
@@ -500,6 +503,30 @@ const AINextAgentRunState *AIAgentNextSession::_find_agent_run(const String &p_r
 	}
 	for (int i = 0; i < agent_runs.size(); i++) {
 		if (agent_runs[i].run_id == p_run_id) {
+			return &agent_runs[i];
+		}
+	}
+	return nullptr;
+}
+
+AINextAgentRunState *AIAgentNextSession::_find_latest_task_agent_run(const String &p_task_id) {
+	if (p_task_id.is_empty()) {
+		return nullptr;
+	}
+	for (int i = agent_runs.size() - 1; i >= 0; i--) {
+		if (agent_runs[i].task_id == p_task_id) {
+			return &agent_runs.write[i];
+		}
+	}
+	return nullptr;
+}
+
+const AINextAgentRunState *AIAgentNextSession::_find_latest_task_agent_run(const String &p_task_id) const {
+	if (p_task_id.is_empty()) {
+		return nullptr;
+	}
+	for (int i = agent_runs.size() - 1; i >= 0; i--) {
+		if (agent_runs[i].task_id == p_task_id) {
 			return &agent_runs[i];
 		}
 	}
@@ -1081,6 +1108,28 @@ Array AIAgentNextSession::get_recent_runtime_messages(int p_limit) const {
 	return messages;
 }
 
+Array AIAgentNextSession::get_task_session_messages(const String &p_task_id) const {
+	Array messages;
+	if (project_state.is_null() || !project_state->has_task(p_task_id)) {
+		return messages;
+	}
+
+	Dictionary task = project_state->get_task(p_task_id);
+	const String run_id = String(task.get("run_id", String()));
+	const AINextAgentRunState *run_state = _find_agent_run(run_id);
+	if (!run_state) {
+		run_state = _find_latest_task_agent_run(p_task_id);
+	}
+	if (!run_state) {
+		return messages;
+	}
+
+	for (int i = 0; i < run_state->messages.size(); i++) {
+		messages.push_back(run_state->messages[i].to_dict());
+	}
+	return messages;
+}
+
 String AIAgentNextSession::get_selected_task_id() const {
 	return selected_task_id;
 }
@@ -1098,6 +1147,19 @@ bool AIAgentNextSession::can_run_task(const String &p_task_id) const {
 	}
 	Dictionary task = project_state->get_task(p_task_id);
 	return String(task.get("status", String())) == "ready";
+}
+
+bool AIAgentNextSession::can_continue_task_session(const String &p_task_id) const {
+	if (project_state.is_null() || _is_workflow_active() || !project_state->has_task(p_task_id)) {
+		return false;
+	}
+	const String milestone_id = project_state->get_task_milestone_id(p_task_id);
+	Dictionary milestone = project_state->get_milestone(milestone_id);
+	if (milestone.is_empty() || String(milestone.get("status", String())) == "locked") {
+		return false;
+	}
+	Dictionary task = project_state->get_task(p_task_id);
+	return _get_agent(String(task.get("assigned_agent_id", String()))).is_valid();
 }
 
 bool AIAgentNextSession::can_review_active_milestone() const {
@@ -1639,6 +1701,71 @@ bool AIAgentNextSession::run_task(const String &p_task_id) {
 	if (!_begin_agent_run(PENDING_OPERATION_RUN_TASK, agent_id, messages, milestone_id, p_task_id)) {
 		project_state->mark_task_failed(p_task_id, "Failed to start NEXT agent runtime.");
 		event_log->record_event("task_failed", milestone_id, p_task_id, agent_id, "Failed to start NEXT agent runtime.");
+		_complete_single_task_run(true, milestone_id, p_task_id);
+		return false;
+	}
+	return true;
+}
+
+bool AIAgentNextSession::send_task_session_message(const String &p_task_id, const String &p_message) {
+	const String message_text = p_message.strip_edges();
+	if (message_text.is_empty()) {
+		return false;
+	}
+	if (_is_workflow_active()) {
+		event_log->record_event("operation_ignored", project_state->get_active_milestone_id(), p_task_id, "next_session", "NEXT operation is already running.");
+		return false;
+	}
+	if (!can_continue_task_session(p_task_id)) {
+		event_log->record_event("task_session_ignored", project_state.is_valid() ? project_state->get_active_milestone_id() : String(), p_task_id, "next_session", "NEXT task session cannot continue.");
+		return false;
+	}
+
+	const String milestone_id = project_state->get_task_milestone_id(p_task_id);
+	Dictionary task = project_state->get_task(p_task_id);
+	const String agent_id = String(task.get("assigned_agent_id", String()));
+	AINextAgentRunState *run_state = _find_agent_run(String(task.get("run_id", String())));
+	if (!run_state) {
+		run_state = _find_latest_task_agent_run(p_task_id);
+	}
+
+	Vector<AIAgentMessage> messages;
+	String existing_run_id;
+	if (run_state) {
+		existing_run_id = run_state->run_id;
+		messages = run_state->messages;
+	} else {
+		messages.push_back(_make_task_run_message(task));
+	}
+
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+	user_message.content = p_message;
+	messages.push_back(user_message);
+
+	if (run_state) {
+		run_state->messages = messages;
+		run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+	}
+
+	workflow_active = true;
+	single_task_run = true;
+	workflow_milestone_id = milestone_id;
+	active_task_batch = Array();
+	active_task_batch_index = 0;
+	selected_task_id = p_task_id;
+	_clear_runtime_messages();
+	project_state->set_active_milestone_id(milestone_id);
+	project_state->set_session_state(AI_NEXT_SESSION_EXECUTING);
+	project_state->set_task_status(p_task_id, AI_NEXT_TASK_IN_PROGRESS);
+	event_log->record_event("task_session_message_sent", milestone_id, p_task_id, "user", message_text);
+	event_log->record_event("task_started", milestone_id, p_task_id, agent_id, String(task.get("title", String())));
+	_emit_project_state_changed();
+
+	if (!_begin_agent_run(PENDING_OPERATION_RUN_TASK, agent_id, messages, milestone_id, p_task_id, existing_run_id)) {
+		project_state->mark_task_failed(p_task_id, "Failed to continue NEXT task session.");
+		event_log->record_event("task_failed", milestone_id, p_task_id, agent_id, "Failed to continue NEXT task session.");
 		_complete_single_task_run(true, milestone_id, p_task_id);
 		return false;
 	}

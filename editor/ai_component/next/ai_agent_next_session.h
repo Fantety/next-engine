@@ -79,6 +79,8 @@ class AIAgentNextSession : public AISessionBase {
 	void _normalize_interrupted_checkpoint();
 	AINextAgentRunState *_find_agent_run(const String &p_run_id);
 	const AINextAgentRunState *_find_agent_run(const String &p_run_id) const;
+	AINextAgentRunState *_find_latest_task_agent_run(const String &p_task_id);
+	const AINextAgentRunState *_find_latest_task_agent_run(const String &p_task_id) const;
 	Vector<AIAgentMessage> _get_or_create_agent_run_messages(const String &p_agent_run_id, const Vector<AIAgentMessage> &p_default_messages) const;
 	void _upsert_agent_run(const AINextAgentRunState &p_run_state);
 	void _mark_active_agent_run_started(const String &p_run_id, const String &p_agent_id, PendingOperation p_operation, const String &p_milestone_id, const String &p_task_id, const Vector<AIAgentMessage> &p_messages);
@@ -125,9 +127,11 @@ public:
 	String get_selected_task_id() const;
 	bool can_run_active_milestone() const;
 	bool can_run_task(const String &p_task_id) const;
+	bool can_continue_task_session(const String &p_task_id) const;
 	bool can_review_active_milestone() const;
 	bool can_lock_active_milestone() const;
 	bool can_edit_plan() const;
+	Array get_task_session_messages(const String &p_task_id) const;
 
 	void set_model_profile_id(const String &p_model_profile_id);
 	void set_agent_model_profile_id(const String &p_agent_id, const String &p_model_profile_id);
@@ -153,6 +157,7 @@ public:
 	void approve_plan();
 	void run_active_milestone();
 	bool run_task(const String &p_task_id);
+	bool send_task_session_message(const String &p_task_id, const String &p_message);
 	void review_active_milestone();
 	void generate_feedback_tasks(const String &p_feedback);
 	void accept_and_lock_active_milestone();

@@ -54,6 +54,7 @@ public:
 		Callable move_up;
 		Callable move_down;
 		Callable remove;
+		Callable session;
 		Callable run;
 		Callable get_drag_data;
 		Callable can_drop_data;

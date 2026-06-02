@@ -737,6 +737,59 @@ TEST_CASE("[Editor][AI][NEXT] session runs one task without running the full mil
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] task session continues with previous task run messages") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse first_response;
+	first_response.content = "Created player_controller.gd";
+	client->push_response(first_response);
+	AIAgentRuntimeResponse refine_response;
+	refine_response.content = "Raised the default speed.";
+	client->push_response(refine_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+	CHECK(session->run_task(task_id));
+	wait_for_next_agent(session, "script_agent");
+	CHECK(String(state->get_task(task_id).get("status", String())) == "completed");
+
+	Array first_session_messages = session->get_task_session_messages(task_id);
+	REQUIRE(first_session_messages.size() >= 2);
+	CHECK(String(Dictionary(first_session_messages[first_session_messages.size() - 1]).get("content", String())) == "Created player_controller.gd");
+	CHECK(session->can_continue_task_session(task_id));
+
+	CHECK(session->send_task_session_message(task_id, "Player is too slow; increase the speed parameter."));
+	wait_for_next_agent(session, "script_agent");
+
+	CHECK(client->request_count == 2);
+	bool saw_previous_result = false;
+	bool saw_user_refinement = false;
+	for (int i = 0; i < client->last_messages.size(); i++) {
+		Dictionary message = client->last_messages[i];
+		const String content = String(message.get("content", String()));
+		if (content.contains("Created player_controller.gd")) {
+			saw_previous_result = true;
+		}
+		if (content.contains("Player is too slow")) {
+			saw_user_refinement = true;
+		}
+	}
+	CHECK(saw_previous_result);
+	CHECK(saw_user_refinement);
+
+	Array refined_session_messages = session->get_task_session_messages(task_id);
+	REQUIRE(refined_session_messages.size() >= first_session_messages.size() + 2);
+	CHECK(String(Dictionary(refined_session_messages[refined_session_messages.size() - 2]).get("content", String())).contains("Player is too slow"));
+	CHECK(String(Dictionary(refined_session_messages[refined_session_messages.size() - 1]).get("content", String())) == "Raised the default speed.");
+	CHECK(String(state->get_task(task_id).get("result_summary", String())) == "Raised the default speed.");
+
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI][NEXT] session exposes runtime progress messages") {
 	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();

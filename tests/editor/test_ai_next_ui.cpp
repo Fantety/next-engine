@@ -448,6 +448,7 @@ TEST_CASE("[Editor][AI][NEXT] task tree renders compact editable rows") {
 		Button *remove = find_button_by_name(row, SNAME("AIPlanDeleteTaskButton"));
 		Button *move_up = find_button_by_name(row, SNAME("AIPlanMoveUpTaskButton"));
 		Button *move_down = find_button_by_name(row, SNAME("AIPlanMoveDownTaskButton"));
+		Button *session_button = find_button_by_name(row, SNAME("AIPlanTaskSessionButton"));
 		Button *run = find_button_by_name(row, SNAME("AIPlanRunTaskButton"));
 		REQUIRE(drag != nullptr);
 		REQUIRE(edit != nullptr);
@@ -455,6 +456,7 @@ TEST_CASE("[Editor][AI][NEXT] task tree renders compact editable rows") {
 		REQUIRE(remove != nullptr);
 		REQUIRE(move_up != nullptr);
 		REQUIRE(move_down != nullptr);
+		REQUIRE(session_button != nullptr);
 		REQUIRE(run != nullptr);
 		CHECK(drag->get_text().is_empty());
 		CHECK_FALSE(drag->is_disabled());
@@ -463,6 +465,7 @@ TEST_CASE("[Editor][AI][NEXT] task tree renders compact editable rows") {
 		CHECK(remove->get_text().is_empty());
 		CHECK(move_up->get_text().is_empty());
 		CHECK(move_down->get_text().is_empty());
+		CHECK(session_button->get_text().is_empty());
 		CHECK(run->get_text().is_empty());
 		CHECK(has_deferred_pressed_connection(title));
 		CHECK(has_deferred_pressed_connection(edit));
@@ -470,6 +473,7 @@ TEST_CASE("[Editor][AI][NEXT] task tree renders compact editable rows") {
 		CHECK(has_deferred_pressed_connection(remove));
 		CHECK(has_deferred_pressed_connection(move_up));
 		CHECK(has_deferred_pressed_connection(move_down));
+		CHECK(has_deferred_pressed_connection(session_button));
 		CHECK(has_deferred_pressed_connection(run));
 	}
 	CHECK(count_hboxes_by_name(tree, SNAME("TaskRow")) == 4);
