@@ -1558,6 +1558,30 @@ TEST_CASE("[Editor][AI] Editor context tool exposes safe metadata only") {
 	CHECK_FALSE(result.content.contains("Authorization"));
 }
 
+TEST_CASE("[Editor][AI] Runtime control tools are available to Main and Review agents") {
+	Ref<AIMainAgent> main_agent;
+	main_agent.instantiate();
+
+	Ref<AIToolRegistry> main_registry = main_agent->get_tool_registry();
+	REQUIRE(main_registry.is_valid());
+	CHECK(main_registry->has_tool("editor.run_scene"));
+	CHECK(main_registry->has_tool("editor.stop_running_scene"));
+	CHECK(main_registry->has_tool("editor.get_terminal_errors"));
+
+	Ref<AINextReviewAgent> review_agent;
+	review_agent.instantiate();
+
+	Ref<AIToolRegistry> review_registry = review_agent->get_tool_registry();
+	REQUIRE(review_registry.is_valid());
+	CHECK(review_registry->has_tool("editor.run_scene"));
+	CHECK(review_registry->has_tool("editor.stop_running_scene"));
+	CHECK(review_registry->has_tool("editor.get_terminal_errors"));
+
+	review_agent.unref();
+	main_agent.unref();
+	AIMCPService::clear_singleton_for_test();
+}
+
 TEST_CASE("[Editor][AI] OpenAI-compatible codec serializes optional tool schemas") {
 	Array messages;
 	Dictionary user_message;

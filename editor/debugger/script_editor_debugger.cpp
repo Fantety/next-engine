@@ -341,6 +341,41 @@ Size2 ScriptEditorDebugger::get_minimum_size() const {
 	return ms;
 }
 
+Array ScriptEditorDebugger::get_error_messages_snapshot(int p_max_entries, bool p_include_warnings) const {
+	Array entries;
+	if (!error_tree || !error_tree->get_root()) {
+		return entries;
+	}
+
+	const int max_entries = CLAMP(p_max_entries, 1, 100);
+	TreeItem *error = error_tree->get_root()->get_first_child();
+	while (error) {
+		const bool is_warning = error->has_meta("_is_warning");
+		const bool is_error = error->has_meta("_is_error");
+		if ((is_error || (p_include_warnings && is_warning)) && entries.size() < max_entries) {
+			Dictionary entry;
+			entry["type"] = is_warning ? "warning" : "error";
+			entry["time"] = error->get_text(0);
+			entry["message"] = error->get_text(1);
+
+			Array details;
+			TreeItem *detail = error->get_first_child();
+			while (detail) {
+				String detail_label = detail->get_text(0);
+				String detail_text = detail->get_text(1);
+				if (!detail_label.is_empty() || !detail_text.is_empty()) {
+					details.push_back((detail_label + " " + detail_text).strip_edges());
+				}
+				detail = detail->get_next();
+			}
+			entry["details"] = details;
+			entries.push_back(entry);
+		}
+		error = error->get_next();
+	}
+	return entries;
+}
+
 void ScriptEditorDebugger::_thread_debug_enter(uint64_t p_thread_id) {
 	ERR_FAIL_COND(!threads_debugged.has(p_thread_id));
 	ThreadDebugged &td = threads_debugged[p_thread_id];

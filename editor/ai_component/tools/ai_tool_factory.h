@@ -25,6 +25,7 @@ bool register_tool(AIAgentBase *p_agent, AIToolPermission p_permission, const St
 }
 
 void register_shared_project_tools(AIAgentBase *p_agent, const String &p_log_prefix = String());
+void register_editor_runtime_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix = String());
 void register_project_write_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix = String());
 void register_scene_inspection_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix = String());
 void register_scene_write_tools(AIAgentBase *p_agent, AIToolPermission p_write_permission, AIToolPermission p_delete_permission, const String &p_log_prefix = String());

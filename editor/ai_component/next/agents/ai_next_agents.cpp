@@ -92,4 +92,5 @@ void AINextReviewAgent::_bind_methods() {
 AINextReviewAgent::AINextReviewAgent() {
 	_configure_next_agent(this, "review_agent", AINextPrompts::get_review_prompt(), "ask");
 	AIToolFactory::register_shared_project_tools(this);
+	AIToolFactory::register_editor_runtime_tools(this, AI_TOOL_PERMISSION_ALLOW);
 }

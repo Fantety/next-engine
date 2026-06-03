@@ -26,6 +26,7 @@ void AIMainAgent::_register_local_tools() {
 	AIToolFactory::register_shared_project_tools(this, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_tool<AIActivateSkillTool>(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_tool<AIManagePlanTool>(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
+	AIToolFactory::register_editor_runtime_tools(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_project_write_tools(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_scene_inspection_tools(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_scene_write_tools(this, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);

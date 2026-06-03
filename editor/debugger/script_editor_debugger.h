@@ -347,6 +347,7 @@ public:
 
 	int get_error_count() const { return error_count; }
 	int get_warning_count() const { return warning_count; }
+	Array get_error_messages_snapshot(int p_max_entries = 20, bool p_include_warnings = true) const;
 	String get_stack_script_file() const;
 	int get_stack_script_line() const;
 	int get_stack_script_frame() const;

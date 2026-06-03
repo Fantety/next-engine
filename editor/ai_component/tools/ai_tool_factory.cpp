@@ -5,6 +5,7 @@
 #include "ai_tool_factory.h"
 
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
+#include "editor/ai_component/tools/editor/ai_editor_runtime_tools.h"
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
@@ -53,6 +54,12 @@ void register_shared_project_tools(AIAgentBase *p_agent, const String &p_log_pre
 	register_tool<AISearchProjectTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 	register_tool<AICreateMarkdownTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 	register_tool<AIGetEditorContextTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
+}
+
+void register_editor_runtime_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix) {
+	register_tool<AIEditorRunSceneTool>(p_agent, p_permission, p_log_prefix);
+	register_tool<AIEditorStopRunningSceneTool>(p_agent, p_permission, p_log_prefix);
+	register_tool<AIEditorGetTerminalErrorsTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 }
 
 void register_project_write_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix) {
