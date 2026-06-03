@@ -153,6 +153,7 @@
 #include "editor/ai_component/next/ai_agent_next_session.h"
 #include "editor/ai_component/next/ai_next_event_log.h"
 #include "editor/ai_component/next/ai_next_manage_project_tool.h"
+#include "editor/ai_component/next/ai_next_project_memory_store.h"
 #include "editor/ai_component/next/ai_next_project_state.h"
 #include "editor/ai_component/next/ai_next_project_store.h"
 #include "editor/ai_component/planning/ai_plan_manager.h"
@@ -297,6 +298,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AINextProjectStore);
 	GDREGISTER_CLASS(AINextEventLog);
 	GDREGISTER_CLASS(AINextManageProjectTool);
+	GDREGISTER_CLASS(AINextProjectMemoryStore);
 	GDREGISTER_CLASS(AIAgentNextSession);
 	GDREGISTER_CLASS(AISkillIndexContextProvider);
 	GDREGISTER_CLASS(AIChangeSetStore);

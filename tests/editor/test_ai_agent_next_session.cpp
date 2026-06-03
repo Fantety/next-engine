@@ -4,6 +4,8 @@
 
 #include "tests/test_macros.h"
 
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
 #include "core/object/message_queue.h"
 #include "core/os/os.h"
 #include "core/os/semaphore.h"
@@ -16,6 +18,7 @@
 #include "editor/ai_component/next/agents/ai_next_script_agent.h"
 #include "editor/ai_component/next/agents/ai_next_shader_agent.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
+#include "editor/ai_component/next/ai_next_project_memory_store.h"
 #include "editor/ai_component/next/ai_next_workflow_snapshot.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
 
@@ -208,6 +211,17 @@ static void cleanup_next_workflows(const String &p_project_scope) {
 		}
 		Dictionary workflow = workflows[i];
 		store->delete_workflow(String(workflow.get("id", String())));
+	}
+}
+
+static void cleanup_next_project_memory(const String &p_project_scope) {
+	Ref<AINextProjectMemoryStore> store;
+	store.instantiate();
+	store->set_project_scope(p_project_scope);
+
+	const String memory_path = store->get_memory_path_for_test();
+	if (FileAccess::exists(memory_path)) {
+		DirAccess::remove_absolute(memory_path);
 	}
 }
 
@@ -707,6 +721,131 @@ TEST_CASE("[Editor][AI][NEXT] session runs ready milestone tasks serially") {
 	CHECK(String(task["result_summary"]) == "Created player_controller.gd");
 	CHECK(state->get_session_state() == AI_NEXT_SESSION_WAITING_PLAYTEST);
 	CHECK(client->request_count == 1);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] later milestone tasks receive prior task result context") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String script_task = state->add_task(milestone_id, "Create player script", "script_agent", Array(), "Create the movement script.");
+	Array dependencies;
+	dependencies.push_back(script_task);
+	const String scene_task = state->add_task(milestone_id, "Assemble player scene", "scene_agent", dependencies, "Use the script from the previous task.");
+
+	Ref<NextScriptedRuntimeClient> script_client;
+	script_client.instantiate();
+	AIAgentRuntimeResponse script_response;
+	script_response.content = "Created player_controller.gd with exported speed and jump_force.";
+	script_client->push_response(script_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(script_client);
+
+	Ref<NextScriptedRuntimeClient> scene_client;
+	scene_client.instantiate();
+	AIAgentRuntimeResponse scene_response;
+	scene_response.content = "Created player.tscn and attached player_controller.gd.";
+	scene_client->push_response(scene_response);
+	session->get_agent_for_test("scene_agent")->set_runtime_client(scene_client);
+
+	session->run_active_milestone();
+	wait_for_next_agent(session, "script_agent");
+	wait_for_next_agent(session, "scene_agent");
+
+	CHECK(String(state->get_task(script_task).get("status", String())) == "completed");
+	CHECK(String(state->get_task(scene_task).get("status", String())) == "completed");
+	bool saw_prior_task_context = false;
+	for (int i = 0; i < scene_client->last_messages.size(); i++) {
+		Dictionary message = scene_client->last_messages[i];
+		const String content = String(message.get("content", String()));
+		if (content.contains("Created player_controller.gd with exported speed and jump_force")) {
+			saw_prior_task_context = true;
+		}
+	}
+	CHECK(saw_prior_task_context);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] agent runs receive project memory context") {
+	const String project_scope = "test_next_session_project_memory_context";
+	cleanup_next_workflows(project_scope);
+	cleanup_next_project_memory(project_scope);
+
+	Ref<AINextProjectMemoryStore> memory_store;
+	memory_store.instantiate();
+	memory_store->set_project_scope(project_scope);
+	AINextProjectMemory memory;
+	memory.language = "Chinese";
+	memory.renderer = "Forward Plus";
+	memory.architecture_notes.push_back("Use res://scripts/player for player-facing gameplay scripts.");
+	memory.user_preferences.push_back("Keep generated task summaries concise.");
+	CHECK(memory_store->save_memory(memory) == OK);
+
+	AIAgentNextSession *session = memnew(AIAgentNextSession);
+	session->set_workflow_project_scope_for_test(project_scope);
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array(), "Create the movement script.");
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse response;
+	response.content = "Created player_controller.gd.";
+	client->push_response(response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+	CHECK(session->run_task(task_id));
+	wait_for_next_agent(session, "script_agent");
+
+	bool saw_project_memory = false;
+	for (int i = 0; i < client->last_messages.size(); i++) {
+		Dictionary message = client->last_messages[i];
+		const String content = String(message.get("content", String()));
+		if (content.contains("Use res://scripts/player") && content.contains("Forward Plus")) {
+			saw_project_memory = true;
+		}
+	}
+	CHECK(saw_project_memory);
+
+	memdelete(session);
+	cleanup_next_workflows(project_scope);
+	cleanup_next_project_memory(project_scope);
+}
+
+TEST_CASE("[Editor][AI][NEXT] later milestones receive previous milestone result context") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String first_milestone = state->create_milestone("Core Movement", "Build movement.");
+	const String script_task = state->add_task(first_milestone, "Create player script", "script_agent", Array(), "Create the movement script.");
+	Array output_paths;
+	output_paths.push_back("res://scripts/player_controller.gd");
+	CHECK(state->mark_task_completed(script_task, "Created player_controller.gd with exported speed and jump_force.", output_paths));
+
+	const String second_milestone = state->create_milestone("Player Scene", "Assemble playable scene.");
+	const String scene_task = state->add_task(second_milestone, "Assemble player scene", "scene_agent", Array(), "Reuse the movement script from the earlier milestone.");
+	CHECK(session->select_milestone(second_milestone));
+
+	Ref<NextScriptedRuntimeClient> scene_client;
+	scene_client.instantiate();
+	AIAgentRuntimeResponse scene_response;
+	scene_response.content = "Created player.tscn and attached player_controller.gd.";
+	scene_client->push_response(scene_response);
+	session->get_agent_for_test("scene_agent")->set_runtime_client(scene_client);
+
+	CHECK(session->run_task(scene_task));
+	wait_for_next_agent(session, "scene_agent");
+
+	bool saw_prior_milestone_context = false;
+	for (int i = 0; i < scene_client->last_messages.size(); i++) {
+		Dictionary message = scene_client->last_messages[i];
+		const String content = String(message.get("content", String()));
+		if (content.contains("Created player_controller.gd with exported speed and jump_force") &&
+				content.contains("res://scripts/player_controller.gd")) {
+			saw_prior_milestone_context = true;
+		}
+	}
+	CHECK(saw_prior_milestone_context);
 
 	memdelete(session);
 }

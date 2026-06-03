@@ -9,6 +9,7 @@
 #include "core/os/time.h"
 #include "editor/ai_component/agent/ai_agent_message.h"
 #include "editor/ai_component/next/ai_next_agent_registry.h"
+#include "editor/ai_component/next/ai_next_workflow_context_builder.h"
 #include "editor/ai_component/next/agents/ai_next_agents.h"
 
 namespace {
@@ -240,6 +241,7 @@ AIAgentNextSession::AIAgentNextSession() {
 	project_state.instantiate();
 	project_store.instantiate();
 	workflow_store.instantiate();
+	project_memory_store.instantiate();
 	event_log.instantiate();
 
 	Vector<String> agent_ids = AINextAgentRegistry::get_agent_ids();
@@ -249,6 +251,7 @@ AIAgentNextSession::AIAgentNextSession() {
 	}
 
 	workflow_store->set_project_scope(_get_project_scope_key());
+	project_memory_store->set_project_scope(_get_project_scope_key());
 	_load_initial_workflow();
 }
 
@@ -569,7 +572,19 @@ bool AIAgentNextSession::_begin_agent_run(PendingOperation p_operation, const St
 	_mark_active_agent_run_started(active_agent_run_id, p_agent_id, p_operation, p_milestone_id, p_task_id, run_messages);
 	_save_current_workflow();
 
-	if (!agent->start(run_messages)) {
+	AINextWorkflowContextOptions context_options;
+	context_options.operation = _get_checkpoint_operation_name(p_operation);
+	context_options.milestone_id = p_milestone_id;
+	context_options.task_id = p_task_id;
+	if (project_memory_store.is_valid()) {
+		AINextProjectMemory project_memory;
+		if (project_memory_store->load_memory(project_memory) && !project_memory.is_empty()) {
+			context_options.has_project_memory = true;
+			context_options.project_memory = project_memory;
+		}
+	}
+	const Array context_documents = AINextWorkflowContextBuilder::build_context(project_state, event_log.is_valid() ? event_log->get_events() : Array(), context_options);
+	if (!agent->start(run_messages, context_documents)) {
 		AINextAgentRunState *run_state = _find_agent_run(active_agent_run_id);
 		if (run_state) {
 			run_state->status = "failed";
@@ -1833,7 +1848,11 @@ void AIAgentNextSession::set_workflow_project_scope_for_test(const String &p_pro
 	if (workflow_store.is_null()) {
 		workflow_store.instantiate();
 	}
+	if (project_memory_store.is_null()) {
+		project_memory_store.instantiate();
+	}
 	workflow_store->set_project_scope(p_project_scope_key);
+	project_memory_store->set_project_scope(p_project_scope_key);
 	_load_initial_workflow();
 }
 

@@ -7,6 +7,7 @@
 #include "editor/ai_component/agent/ai_agent_base.h"
 #include "editor/ai_component/agent/ai_session_base.h"
 #include "editor/ai_component/next/ai_next_event_log.h"
+#include "editor/ai_component/next/ai_next_project_memory_store.h"
 #include "editor/ai_component/next/ai_next_project_state.h"
 #include "editor/ai_component/next/ai_next_project_store.h"
 #include "editor/ai_component/next/ai_next_run_tracker.h"
@@ -28,6 +29,7 @@ class AIAgentNextSession : public AISessionBase {
 	Ref<AINextProjectState> project_state;
 	Ref<AINextProjectStore> project_store;
 	Ref<AINextWorkflowStore> workflow_store;
+	Ref<AINextProjectMemoryStore> project_memory_store;
 	Ref<AINextEventLog> event_log;
 	AINextRunTracker run_tracker;
 
