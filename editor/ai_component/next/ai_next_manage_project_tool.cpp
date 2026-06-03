@@ -6,6 +6,7 @@
 
 #include "core/object/class_db.h"
 #include "core/variant/variant.h"
+#include "editor/ai_component/next/ai_next_agent_registry.h"
 
 namespace {
 
@@ -22,21 +23,16 @@ Array _make_action_enum() {
 
 Array _make_agent_enum() {
 	Array values;
-	values.push_back("planning_agent");
-	values.push_back("script_agent");
-	values.push_back("scene_agent");
-	values.push_back("shader_agent");
-	values.push_back("review_agent");
+	Vector<String> agent_ids = AINextAgentRegistry::get_assignable_agent_ids();
+	for (int i = 0; i < agent_ids.size(); i++) {
+		values.push_back(agent_ids[i]);
+	}
 	return values;
 }
 
 bool _is_allowed_agent_id(const String &p_agent_id) {
 	const String agent_id = p_agent_id.strip_edges();
-	return agent_id == "planning_agent" ||
-			agent_id == "script_agent" ||
-			agent_id == "scene_agent" ||
-			agent_id == "shader_agent" ||
-			agent_id == "review_agent";
+	return AINextAgentRegistry::is_assignable_agent_id(agent_id);
 }
 
 bool _has_string(const Vector<String> &p_values, const String &p_value) {

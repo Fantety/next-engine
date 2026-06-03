@@ -8,11 +8,20 @@
 #include "core/object/callable_mp.h"
 #include "core/os/time.h"
 #include "editor/ai_component/agent/ai_agent_message.h"
+#include "editor/ai_component/next/ai_next_agent_registry.h"
 #include "editor/ai_component/next/agents/ai_next_agents.h"
 
 namespace {
 
 const int NEXT_MAX_TASK_BATCH_SIZE = 2;
+
+String _planning_agent_id() {
+	return AINextAgentRegistry::get_planning_agent_id();
+}
+
+String _review_agent_id() {
+	return AINextAgentRegistry::get_review_agent_id();
+}
 
 String _get_last_response_summary(const AIAgentRuntimeResult &p_result) {
 	for (int i = p_result.messages.size() - 1; i >= 0; i--) {
@@ -233,26 +242,11 @@ AIAgentNextSession::AIAgentNextSession() {
 	workflow_store.instantiate();
 	event_log.instantiate();
 
-	Ref<AINextPlanningAgent> planning_agent;
-	planning_agent.instantiate();
-	planning_agent->set_project_state(project_state);
-	_add_agent("planning_agent", planning_agent);
-
-	Ref<AINextScriptAgent> script_agent;
-	script_agent.instantiate();
-	_add_agent("script_agent", script_agent);
-
-	Ref<AINextSceneAgent> scene_agent;
-	scene_agent.instantiate();
-	_add_agent("scene_agent", scene_agent);
-
-	Ref<AINextShaderAgent> shader_agent;
-	shader_agent.instantiate();
-	_add_agent("shader_agent", shader_agent);
-
-	Ref<AINextReviewAgent> review_agent;
-	review_agent.instantiate();
-	_add_agent("review_agent", review_agent);
+	Vector<String> agent_ids = AINextAgentRegistry::get_agent_ids();
+	for (int i = 0; i < agent_ids.size(); i++) {
+		const String agent_id = agent_ids[i];
+		_add_agent(agent_id, AINextAgents::create_agent(agent_id, project_state));
+	}
 
 	workflow_store->set_project_scope(_get_project_scope_key());
 	_load_initial_workflow();
@@ -360,7 +354,7 @@ AINextWorkflowSnapshot AIAgentNextSession::_build_workflow_snapshot() const {
 	snapshot.project_state = project_state;
 	snapshot.event_log = event_log.is_valid() ? event_log->to_array() : Array();
 	snapshot.checkpoint = checkpoint;
-	snapshot.agent_runs = agent_runs;
+	snapshot.agent_runs = run_tracker.get_runs();
 	return snapshot;
 }
 
@@ -379,7 +373,7 @@ void AIAgentNextSession::_apply_workflow_snapshot(const AINextWorkflowSnapshot &
 	}
 	event_log->load_from_array(p_snapshot.event_log);
 	checkpoint = p_snapshot.checkpoint;
-	agent_runs = p_snapshot.agent_runs;
+	run_tracker.set_runs(p_snapshot.agent_runs);
 
 	workflow_active = false;
 	_clear_pending_agent_run();
@@ -418,7 +412,7 @@ void AIAgentNextSession::_start_empty_workflow(bool p_save) {
 	project_state.instantiate();
 	_sync_agent_project_state();
 	event_log.instantiate();
-	agent_runs.clear();
+	run_tracker.clear();
 	workflow_id = _make_workflow_id();
 	workflow_title = "New NEXT Workflow";
 	workflow_created_at = Time::get_singleton()->get_unix_time_from_system();
@@ -453,7 +447,7 @@ void AIAgentNextSession::_save_current_workflow() {
 }
 
 void AIAgentNextSession::_sync_agent_project_state() {
-	Ref<AIAgentBase> base_agent = _get_agent("planning_agent");
+	Ref<AIAgentBase> base_agent = _get_agent(_planning_agent_id());
 	if (base_agent.is_null()) {
 		return;
 	}
@@ -486,124 +480,41 @@ void AIAgentNextSession::_normalize_interrupted_checkpoint() {
 }
 
 AINextAgentRunState *AIAgentNextSession::_find_agent_run(const String &p_run_id) {
-	if (p_run_id.is_empty()) {
-		return nullptr;
-	}
-	for (int i = 0; i < agent_runs.size(); i++) {
-		if (agent_runs[i].run_id == p_run_id) {
-			return &agent_runs.write[i];
-		}
-	}
-	return nullptr;
+	return run_tracker.find_run(p_run_id);
 }
 
 const AINextAgentRunState *AIAgentNextSession::_find_agent_run(const String &p_run_id) const {
-	if (p_run_id.is_empty()) {
-		return nullptr;
-	}
-	for (int i = 0; i < agent_runs.size(); i++) {
-		if (agent_runs[i].run_id == p_run_id) {
-			return &agent_runs[i];
-		}
-	}
-	return nullptr;
+	return run_tracker.find_run(p_run_id);
 }
 
 AINextAgentRunState *AIAgentNextSession::_find_latest_task_agent_run(const String &p_task_id) {
-	if (p_task_id.is_empty()) {
-		return nullptr;
-	}
-	for (int i = agent_runs.size() - 1; i >= 0; i--) {
-		if (agent_runs[i].task_id == p_task_id) {
-			return &agent_runs.write[i];
-		}
-	}
-	return nullptr;
+	return run_tracker.find_latest_task_run(p_task_id);
 }
 
 const AINextAgentRunState *AIAgentNextSession::_find_latest_task_agent_run(const String &p_task_id) const {
-	if (p_task_id.is_empty()) {
-		return nullptr;
-	}
-	for (int i = agent_runs.size() - 1; i >= 0; i--) {
-		if (agent_runs[i].task_id == p_task_id) {
-			return &agent_runs[i];
-		}
-	}
-	return nullptr;
+	return run_tracker.find_latest_task_run(p_task_id);
 }
 
 Vector<AIAgentMessage> AIAgentNextSession::_get_or_create_agent_run_messages(const String &p_agent_run_id, const Vector<AIAgentMessage> &p_default_messages) const {
-	const AINextAgentRunState *run_state = _find_agent_run(p_agent_run_id);
-	if (run_state && !run_state->messages.is_empty()) {
-		return run_state->messages;
-	}
-	return p_default_messages;
-}
-
-void AIAgentNextSession::_upsert_agent_run(const AINextAgentRunState &p_run_state) {
-	for (int i = 0; i < agent_runs.size(); i++) {
-		if (agent_runs[i].run_id == p_run_state.run_id) {
-			agent_runs.write[i] = p_run_state;
-			return;
-		}
-	}
-	agent_runs.push_back(p_run_state);
+	return run_tracker.get_or_create_run_messages(p_agent_run_id, p_default_messages);
 }
 
 void AIAgentNextSession::_mark_active_agent_run_started(const String &p_run_id, const String &p_agent_id, PendingOperation p_operation, const String &p_milestone_id, const String &p_task_id, const Vector<AIAgentMessage> &p_messages) {
-	AINextAgentRunState run_state;
-	AINextAgentRunState *existing = _find_agent_run(p_run_id);
-	if (existing) {
-		run_state = *existing;
-	}
-
-	const uint64_t now = Time::get_singleton()->get_unix_time_from_system();
-	run_state.run_id = p_run_id;
-	run_state.workflow_id = workflow_id;
-	run_state.agent_id = p_agent_id;
-	run_state.operation = _get_checkpoint_operation_name(p_operation);
-	run_state.milestone_id = p_milestone_id;
-	run_state.task_id = p_task_id;
-	run_state.status = "running";
-	run_state.messages = p_messages;
-	run_state.runtime_base_message_count = p_messages.size();
-	if (run_state.created_at == 0) {
-		run_state.created_at = now;
-	}
-	run_state.updated_at = now;
-	_upsert_agent_run(run_state);
+	run_tracker.mark_run_started(p_run_id, workflow_id, p_agent_id, _get_checkpoint_operation_name(p_operation), p_milestone_id, p_task_id, p_messages);
 }
 
 void AIAgentNextSession::_store_active_agent_run_progress_message(int p_index, const Dictionary &p_message) {
-	if (p_index < 0 || active_agent_run_id.is_empty()) {
+	if (active_agent_run_id.is_empty()) {
 		return;
 	}
-
-	AINextAgentRunState *run_state = _find_agent_run(active_agent_run_id);
-	if (!run_state) {
-		return;
-	}
-
-	AIAgentMessage message = AIAgentMessage::from_dict(p_message);
-	while (run_state->messages.size() <= p_index) {
-		run_state->messages.push_back(AIAgentMessage());
-	}
-	run_state->messages.write[p_index] = message;
-	run_state->runtime_base_message_count = run_state->messages.size();
-	run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+	run_tracker.store_progress_message(active_agent_run_id, p_index, p_message);
 }
 
 void AIAgentNextSession::_store_active_agent_run_result(const AIAgentRuntimeResult &p_result) {
-	AINextAgentRunState *run_state = _find_agent_run(active_agent_run_id);
-	if (!run_state) {
+	if (active_agent_run_id.is_empty()) {
 		return;
 	}
-
-	run_state->status = p_result.success ? String("completed") : String("failed");
-	run_state->messages = p_result.messages;
-	run_state->runtime_base_message_count = p_result.messages.size();
-	run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+	run_tracker.store_result(active_agent_run_id, p_result);
 }
 
 void AIAgentNextSession::_fail_workflow(const String &p_event_type, const String &p_milestone_id, const String &p_task_id, const String &p_agent_id, const String &p_error) {
@@ -774,32 +685,32 @@ void AIAgentNextSession::_on_agent_runtime_finished(const String &p_agent_id) {
 
 void AIAgentNextSession::_finish_generate_plan(const AIAgentRuntimeResult &p_result) {
 	if (!p_result.success) {
-		_fail_workflow("planning_failed", String(), String(), "planning_agent", p_result.error);
+		_fail_workflow("planning_failed", String(), String(), _planning_agent_id(), p_result.error);
 		return;
 	}
 
 	if (project_state->get_milestone_count() <= 0) {
-		_fail_workflow("planning_failed", String(), String(), "planning_agent", "Planning completed without writing NEXT milestones.");
+		_fail_workflow("planning_failed", String(), String(), _planning_agent_id(), "Planning completed without writing NEXT milestones.");
 		return;
 	}
 
 	_clear_workflow();
 	_sync_selected_task_to_active_milestone();
 	project_state->set_session_state(AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
-	event_log->record_event("planning_completed", project_state->get_active_milestone_id(), String(), "planning_agent", "NEXT planning completed.");
+	event_log->record_event("planning_completed", project_state->get_active_milestone_id(), String(), _planning_agent_id(), "NEXT planning completed.");
 	_emit_project_state_changed();
 }
 
 void AIAgentNextSession::_finish_review_active_milestone(const AIAgentRuntimeResult &p_result, const String &p_milestone_id) {
 	if (!p_result.success) {
-		_fail_workflow("review_failed", p_milestone_id, String(), "review_agent", p_result.error);
+		_fail_workflow("review_failed", p_milestone_id, String(), _review_agent_id(), p_result.error);
 		return;
 	}
 
 	const String findings = _get_last_response_summary(p_result);
 	Dictionary review_metadata;
 	review_metadata["findings"] = findings;
-	event_log->record_event("review_completed", p_milestone_id, String(), "review_agent", findings, review_metadata);
+	event_log->record_event("review_completed", p_milestone_id, String(), _review_agent_id(), findings, review_metadata);
 	_clear_workflow();
 	project_state->set_session_state(AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
 	_emit_project_state_changed();
@@ -807,18 +718,18 @@ void AIAgentNextSession::_finish_review_active_milestone(const AIAgentRuntimeRes
 
 void AIAgentNextSession::_finish_feedback_tasks(const AIAgentRuntimeResult &p_result, const String &p_milestone_id, int p_previous_task_count) {
 	if (!p_result.success) {
-		_fail_workflow("feedback_planning_failed", p_milestone_id, String(), "planning_agent", p_result.error);
+		_fail_workflow("feedback_planning_failed", p_milestone_id, String(), _planning_agent_id(), p_result.error);
 		return;
 	}
 
 	if (project_state->get_task_count(p_milestone_id) <= p_previous_task_count) {
-		_fail_workflow("feedback_planning_failed", p_milestone_id, String(), "planning_agent", "Feedback planning completed without appending tasks.");
+		_fail_workflow("feedback_planning_failed", p_milestone_id, String(), _planning_agent_id(), "Feedback planning completed without appending tasks.");
 		return;
 	}
 
 	_clear_workflow();
 	project_state->set_session_state(AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
-	event_log->record_event("feedback_tasks_generated", p_milestone_id, String(), "planning_agent", "NEXT feedback tasks generated.");
+	event_log->record_event("feedback_tasks_generated", p_milestone_id, String(), _planning_agent_id(), "NEXT feedback tasks generated.");
 	_emit_project_state_changed();
 }
 
@@ -1159,7 +1070,15 @@ bool AIAgentNextSession::can_continue_task_session(const String &p_task_id) cons
 		return false;
 	}
 	Dictionary task = project_state->get_task(p_task_id);
-	return _get_agent(String(task.get("assigned_agent_id", String()))).is_valid();
+	if (_get_agent(String(task.get("assigned_agent_id", String()))).is_null()) {
+		return false;
+	}
+	const String run_id = String(task.get("run_id", String()));
+	const AINextAgentRunState *run_state = _find_agent_run(run_id);
+	if (!run_state) {
+		run_state = _find_latest_task_agent_run(p_task_id);
+	}
+	return run_state && !run_state->messages.is_empty();
 }
 
 bool AIAgentNextSession::can_review_active_milestone() const {
@@ -1357,7 +1276,7 @@ bool AIAgentNextSession::continue_workflow() {
 		workflow_active = true;
 		_clear_runtime_messages();
 		project_state->set_session_state(AI_NEXT_SESSION_PLANNING);
-		event_log->record_event("workflow_resumed", String(), String(), "planning_agent", "NEXT planning resumed.");
+		event_log->record_event("workflow_resumed", String(), String(), _planning_agent_id(), "NEXT planning resumed.");
 		_emit_project_state_changed();
 
 		AIAgentMessage user_message;
@@ -1366,8 +1285,8 @@ bool AIAgentNextSession::continue_workflow() {
 		user_message.content = "Create a NEXT milestone plan for this brief:\n\n" + project_state->get_brief().strip_edges();
 		Vector<AIAgentMessage> messages;
 		messages.push_back(user_message);
-		if (!_begin_agent_run(PENDING_OPERATION_GENERATE_PLAN, "planning_agent", messages, String(), String(), checkpoint.agent_run_id)) {
-			_fail_workflow("planning_failed", String(), String(), "planning_agent", "Failed to resume NEXT planning agent runtime.");
+		if (!_begin_agent_run(PENDING_OPERATION_GENERATE_PLAN, _planning_agent_id(), messages, String(), String(), checkpoint.agent_run_id)) {
+			_fail_workflow("planning_failed", String(), String(), _planning_agent_id(), "Failed to resume NEXT planning agent runtime.");
 			return false;
 		}
 		return true;
@@ -1378,7 +1297,7 @@ bool AIAgentNextSession::continue_workflow() {
 		workflow_milestone_id = checkpoint.milestone_id;
 		_clear_runtime_messages();
 		project_state->set_session_state(AI_NEXT_SESSION_FEEDBACK_PLANNING);
-		event_log->record_event("workflow_resumed", workflow_milestone_id, String(), "review_agent", "NEXT review resumed.");
+		event_log->record_event("workflow_resumed", workflow_milestone_id, String(), _review_agent_id(), "NEXT review resumed.");
 		_emit_project_state_changed();
 
 		AIAgentMessage user_message;
@@ -1387,8 +1306,8 @@ bool AIAgentNextSession::continue_workflow() {
 		user_message.content = vformat("Review NEXT milestone `%s`. Inspect project context and pending changes. Return findings only; do not edit files.", workflow_milestone_id);
 		Vector<AIAgentMessage> messages;
 		messages.push_back(user_message);
-		if (!_begin_agent_run(PENDING_OPERATION_REVIEW, "review_agent", messages, workflow_milestone_id, String(), checkpoint.agent_run_id)) {
-			_fail_workflow("review_failed", workflow_milestone_id, String(), "review_agent", "Failed to resume NEXT review agent runtime.");
+		if (!_begin_agent_run(PENDING_OPERATION_REVIEW, _review_agent_id(), messages, workflow_milestone_id, String(), checkpoint.agent_run_id)) {
+			_fail_workflow("review_failed", workflow_milestone_id, String(), _review_agent_id(), "Failed to resume NEXT review agent runtime.");
 			return false;
 		}
 		return true;
@@ -1401,7 +1320,7 @@ bool AIAgentNextSession::continue_workflow() {
 		pending_feedback_previous_task_count = checkpoint.feedback_previous_task_count;
 		_clear_runtime_messages();
 		project_state->set_session_state(AI_NEXT_SESSION_FEEDBACK_PLANNING);
-		event_log->record_event("workflow_resumed", workflow_milestone_id, String(), "planning_agent", "NEXT feedback planning resumed.");
+		event_log->record_event("workflow_resumed", workflow_milestone_id, String(), _planning_agent_id(), "NEXT feedback planning resumed.");
 		_emit_project_state_changed();
 
 		AIAgentMessage user_message;
@@ -1410,8 +1329,8 @@ bool AIAgentNextSession::continue_workflow() {
 		user_message.content = vformat("Turn this playtest feedback into additional NEXT tasks for milestone `%s` by calling ai_next.manage_project with append_tasks:\n\n%s", workflow_milestone_id, pending_feedback_text);
 		Vector<AIAgentMessage> messages;
 		messages.push_back(user_message);
-		if (!_begin_agent_run(PENDING_OPERATION_FEEDBACK_TASKS, "planning_agent", messages, workflow_milestone_id, String(), checkpoint.agent_run_id)) {
-			_fail_workflow("feedback_planning_failed", workflow_milestone_id, String(), "planning_agent", "Failed to resume NEXT planning agent runtime.");
+		if (!_begin_agent_run(PENDING_OPERATION_FEEDBACK_TASKS, _planning_agent_id(), messages, workflow_milestone_id, String(), checkpoint.agent_run_id)) {
+			_fail_workflow("feedback_planning_failed", workflow_milestone_id, String(), _planning_agent_id(), "Failed to resume NEXT planning agent runtime.");
 			return false;
 		}
 		return true;
@@ -1611,12 +1530,12 @@ void AIAgentNextSession::generate_plan() {
 	workflow_active = true;
 	_clear_runtime_messages();
 	project_state->set_session_state(AI_NEXT_SESSION_PLANNING);
-	event_log->record_event("planning_started", String(), String(), "planning_agent", "NEXT planning started.");
+	event_log->record_event("planning_started", String(), String(), _planning_agent_id(), "NEXT planning started.");
 	_emit_project_state_changed();
 
 	const String brief = project_state->get_brief().strip_edges();
 	if (brief.is_empty()) {
-		_fail_workflow("planning_failed", String(), String(), "planning_agent", "NEXT brief is empty.");
+		_fail_workflow("planning_failed", String(), String(), _planning_agent_id(), "NEXT brief is empty.");
 		return;
 	}
 
@@ -1627,8 +1546,8 @@ void AIAgentNextSession::generate_plan() {
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(user_message);
-	if (!_begin_agent_run(PENDING_OPERATION_GENERATE_PLAN, "planning_agent", messages)) {
-		_fail_workflow("planning_failed", String(), String(), "planning_agent", "Failed to start NEXT planning agent runtime.");
+	if (!_begin_agent_run(PENDING_OPERATION_GENERATE_PLAN, _planning_agent_id(), messages)) {
+		_fail_workflow("planning_failed", String(), String(), _planning_agent_id(), "Failed to start NEXT planning agent runtime.");
 	}
 }
 
@@ -1728,15 +1647,15 @@ bool AIAgentNextSession::send_task_session_message(const String &p_task_id, cons
 	if (!run_state) {
 		run_state = _find_latest_task_agent_run(p_task_id);
 	}
+	if (!run_state) {
+		event_log->record_event("task_session_ignored", milestone_id, p_task_id, "next_session", "NEXT task session has no previous run to continue.");
+		return false;
+	}
 
 	Vector<AIAgentMessage> messages;
 	String existing_run_id;
-	if (run_state) {
-		existing_run_id = run_state->run_id;
-		messages = run_state->messages;
-	} else {
-		messages.push_back(_make_task_run_message(task));
-	}
+	existing_run_id = run_state->run_id;
+	messages = run_state->messages;
 
 	AIAgentMessage user_message;
 	user_message.role = AI_AGENT_ROLE_USER;
@@ -1783,11 +1702,11 @@ void AIAgentNextSession::review_active_milestone() {
 	_clear_runtime_messages();
 	project_state->set_session_state(AI_NEXT_SESSION_FEEDBACK_PLANNING);
 	const String milestone_id = workflow_milestone_id;
-	event_log->record_event("review_started", milestone_id, String(), "review_agent", "NEXT review started.");
+	event_log->record_event("review_started", milestone_id, String(), _review_agent_id(), "NEXT review started.");
 	_emit_project_state_changed();
 
 	if (milestone_id.is_empty()) {
-		_fail_workflow("review_failed", String(), String(), "review_agent", "No active NEXT milestone.");
+		_fail_workflow("review_failed", String(), String(), _review_agent_id(), "No active NEXT milestone.");
 		return;
 	}
 
@@ -1798,8 +1717,8 @@ void AIAgentNextSession::review_active_milestone() {
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(user_message);
-	if (!_begin_agent_run(PENDING_OPERATION_REVIEW, "review_agent", messages, milestone_id)) {
-		_fail_workflow("review_failed", milestone_id, String(), "review_agent", "Failed to start NEXT review agent runtime.");
+	if (!_begin_agent_run(PENDING_OPERATION_REVIEW, _review_agent_id(), messages, milestone_id)) {
+		_fail_workflow("review_failed", milestone_id, String(), _review_agent_id(), "Failed to start NEXT review agent runtime.");
 	}
 }
 
@@ -1821,7 +1740,7 @@ void AIAgentNextSession::generate_feedback_tasks(const String &p_feedback) {
 	const String milestone_id = workflow_milestone_id;
 	const String feedback = p_feedback.strip_edges();
 	if (milestone_id.is_empty() || feedback.is_empty()) {
-		_fail_workflow("feedback_planning_failed", milestone_id, String(), "planning_agent", "NEXT feedback or active milestone is empty.");
+		_fail_workflow("feedback_planning_failed", milestone_id, String(), _planning_agent_id(), "NEXT feedback or active milestone is empty.");
 		return;
 	}
 
@@ -1835,8 +1754,8 @@ void AIAgentNextSession::generate_feedback_tasks(const String &p_feedback) {
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(user_message);
-	if (!_begin_agent_run(PENDING_OPERATION_FEEDBACK_TASKS, "planning_agent", messages, milestone_id)) {
-		_fail_workflow("feedback_planning_failed", milestone_id, String(), "planning_agent", "Failed to start NEXT planning agent runtime.");
+	if (!_begin_agent_run(PENDING_OPERATION_FEEDBACK_TASKS, _planning_agent_id(), messages, milestone_id)) {
+		_fail_workflow("feedback_planning_failed", milestone_id, String(), _planning_agent_id(), "Failed to start NEXT planning agent runtime.");
 	}
 }
 

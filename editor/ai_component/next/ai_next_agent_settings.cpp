@@ -4,6 +4,7 @@
 
 #include "ai_next_agent_settings.h"
 
+#include "editor/ai_component/next/ai_next_agent_registry.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/settings/editor_settings.h"
 
@@ -12,7 +13,7 @@ String AINextAgentSettings::_get_agent_model_path(const String &p_agent_id) {
 }
 
 bool AINextAgentSettings::_is_valid_agent_id(const String &p_agent_id) {
-	return get_agent_ids().has(p_agent_id);
+	return AINextAgentRegistry::is_valid_agent_id(p_agent_id);
 }
 
 String AINextAgentSettings::_get_first_enabled_model_profile_id() {
@@ -24,32 +25,11 @@ String AINextAgentSettings::_get_first_enabled_model_profile_id() {
 }
 
 Vector<String> AINextAgentSettings::get_agent_ids() {
-	Vector<String> agent_ids;
-	agent_ids.push_back("planning_agent");
-	agent_ids.push_back("script_agent");
-	agent_ids.push_back("scene_agent");
-	agent_ids.push_back("shader_agent");
-	agent_ids.push_back("review_agent");
-	return agent_ids;
+	return AINextAgentRegistry::get_agent_ids();
 }
 
 String AINextAgentSettings::get_agent_display_name(const String &p_agent_id) {
-	if (p_agent_id == "planning_agent") {
-		return "Planning Agent";
-	}
-	if (p_agent_id == "script_agent") {
-		return "Script Agent";
-	}
-	if (p_agent_id == "scene_agent") {
-		return "Scene Agent";
-	}
-	if (p_agent_id == "shader_agent") {
-		return "Shader Agent";
-	}
-	if (p_agent_id == "review_agent") {
-		return "Review Agent";
-	}
-	return p_agent_id;
+	return AINextAgentRegistry::get_display_name(p_agent_id);
 }
 
 String AINextAgentSettings::get_model_profile_id(const String &p_agent_id) {

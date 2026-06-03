@@ -4,6 +4,7 @@
 
 #include "ai_next_agents.h"
 
+#include "editor/ai_component/next/ai_next_agent_registry.h"
 #include "editor/ai_component/next/ai_next_manage_project_tool.h"
 #include "editor/ai_component/next/ai_next_prompts.h"
 #include "editor/ai_component/tools/ai_tool_factory.h"
@@ -36,7 +37,8 @@ void AINextPlanningAgent::_bind_methods() {
 }
 
 AINextPlanningAgent::AINextPlanningAgent() {
-	_configure_next_agent(this, "planning_agent", AINextPrompts::get_planning_prompt(), "ask");
+	const String agent_id = AINextAgentRegistry::get_planning_agent_id();
+	_configure_next_agent(this, agent_id, AINextPrompts::get_planning_prompt(), AINextAgentRegistry::get_default_profile_id(agent_id));
 	_rebuild_tools();
 }
 
@@ -59,7 +61,8 @@ void AINextScriptAgent::_bind_methods() {
 }
 
 AINextScriptAgent::AINextScriptAgent() {
-	_configure_next_agent(this, "script_agent", AINextPrompts::get_script_prompt(), "auto");
+	const String agent_id = AINextAgentRegistry::get_script_agent_id();
+	_configure_next_agent(this, agent_id, AINextPrompts::get_script_prompt(), AINextAgentRegistry::get_default_profile_id(agent_id));
 	AIToolFactory::register_shared_project_tools(this);
 	AIToolFactory::register_project_write_tools(this, AI_TOOL_PERMISSION_ALLOW);
 	AIToolFactory::register_script_inspection_tools(this, AI_TOOL_PERMISSION_ALLOW);
@@ -70,7 +73,8 @@ void AINextSceneAgent::_bind_methods() {
 }
 
 AINextSceneAgent::AINextSceneAgent() {
-	_configure_next_agent(this, "scene_agent", AINextPrompts::get_scene_prompt(), "auto");
+	const String agent_id = AINextAgentRegistry::get_scene_agent_id();
+	_configure_next_agent(this, agent_id, AINextPrompts::get_scene_prompt(), AINextAgentRegistry::get_default_profile_id(agent_id));
 	AIToolFactory::register_shared_project_tools(this);
 	AIToolFactory::register_scene_inspection_tools(this, AI_TOOL_PERMISSION_ALLOW);
 	AIToolFactory::register_scene_write_tools(this, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ASK);
@@ -80,7 +84,8 @@ void AINextShaderAgent::_bind_methods() {
 }
 
 AINextShaderAgent::AINextShaderAgent() {
-	_configure_next_agent(this, "shader_agent", AINextPrompts::get_shader_prompt(), "auto");
+	const String agent_id = AINextAgentRegistry::get_shader_agent_id();
+	_configure_next_agent(this, agent_id, AINextPrompts::get_shader_prompt(), AINextAgentRegistry::get_default_profile_id(agent_id));
 	AIToolFactory::register_shared_project_tools(this);
 	AIToolFactory::register_project_write_tools(this, AI_TOOL_PERMISSION_ALLOW);
 	AIToolFactory::register_shader_tools(this, AI_TOOL_PERMISSION_ALLOW, AI_TOOL_PERMISSION_ASK);
@@ -90,7 +95,38 @@ void AINextReviewAgent::_bind_methods() {
 }
 
 AINextReviewAgent::AINextReviewAgent() {
-	_configure_next_agent(this, "review_agent", AINextPrompts::get_review_prompt(), "ask");
+	const String agent_id = AINextAgentRegistry::get_review_agent_id();
+	_configure_next_agent(this, agent_id, AINextPrompts::get_review_prompt(), AINextAgentRegistry::get_default_profile_id(agent_id));
 	AIToolFactory::register_shared_project_tools(this);
 	AIToolFactory::register_editor_runtime_tools(this, AI_TOOL_PERMISSION_ALLOW);
+}
+
+Ref<AIAgentBase> AINextAgents::create_agent(const String &p_agent_id, const Ref<AINextProjectState> &p_project_state) {
+	if (p_agent_id == AINextAgentRegistry::get_planning_agent_id()) {
+		Ref<AINextPlanningAgent> planning_agent;
+		planning_agent.instantiate();
+		planning_agent->set_project_state(p_project_state);
+		return planning_agent;
+	}
+	if (p_agent_id == AINextAgentRegistry::get_script_agent_id()) {
+		Ref<AINextScriptAgent> script_agent;
+		script_agent.instantiate();
+		return script_agent;
+	}
+	if (p_agent_id == AINextAgentRegistry::get_scene_agent_id()) {
+		Ref<AINextSceneAgent> scene_agent;
+		scene_agent.instantiate();
+		return scene_agent;
+	}
+	if (p_agent_id == AINextAgentRegistry::get_shader_agent_id()) {
+		Ref<AINextShaderAgent> shader_agent;
+		shader_agent.instantiate();
+		return shader_agent;
+	}
+	if (p_agent_id == AINextAgentRegistry::get_review_agent_id()) {
+		Ref<AINextReviewAgent> review_agent;
+		review_agent.instantiate();
+		return review_agent;
+	}
+	return Ref<AIAgentBase>();
 }

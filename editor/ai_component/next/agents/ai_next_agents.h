@@ -63,3 +63,9 @@ protected:
 public:
 	AINextReviewAgent();
 };
+
+namespace AINextAgents {
+
+Ref<AIAgentBase> create_agent(const String &p_agent_id, const Ref<AINextProjectState> &p_project_state);
+
+} // namespace AINextAgents

@@ -9,6 +9,7 @@
 #include "editor/ai_component/next/ai_next_event_log.h"
 #include "editor/ai_component/next/ai_next_project_state.h"
 #include "editor/ai_component/next/ai_next_project_store.h"
+#include "editor/ai_component/next/ai_next_run_tracker.h"
 #include "editor/ai_component/next/ai_next_workflow_snapshot.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
 #include "core/templates/hash_map.h"
@@ -28,9 +29,9 @@ class AIAgentNextSession : public AISessionBase {
 	Ref<AINextProjectStore> project_store;
 	Ref<AINextWorkflowStore> workflow_store;
 	Ref<AINextEventLog> event_log;
+	AINextRunTracker run_tracker;
 
 	HashMap<String, Ref<AIAgentBase>> agents;
-	Vector<AINextAgentRunState> agent_runs;
 
 	String workflow_id;
 	String workflow_title = "New NEXT Workflow";
@@ -82,7 +83,6 @@ class AIAgentNextSession : public AISessionBase {
 	AINextAgentRunState *_find_latest_task_agent_run(const String &p_task_id);
 	const AINextAgentRunState *_find_latest_task_agent_run(const String &p_task_id) const;
 	Vector<AIAgentMessage> _get_or_create_agent_run_messages(const String &p_agent_run_id, const Vector<AIAgentMessage> &p_default_messages) const;
-	void _upsert_agent_run(const AINextAgentRunState &p_run_state);
 	void _mark_active_agent_run_started(const String &p_run_id, const String &p_agent_id, PendingOperation p_operation, const String &p_milestone_id, const String &p_task_id, const Vector<AIAgentMessage> &p_messages);
 	void _store_active_agent_run_progress_message(int p_index, const Dictionary &p_message);
 	void _store_active_agent_run_result(const AIAgentRuntimeResult &p_result);

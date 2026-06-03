@@ -671,6 +671,7 @@ bool AINextProjectState::update_task(const String &p_task_id, const Dictionary &
 	if (p_patch.has("depends_on") && Variant(p_patch["depends_on"]).get_type() == Variant::ARRAY) {
 		Vector<String> depends_on = ai_next_array_to_string_vector(p_patch["depends_on"]);
 		if (!_validate_task_dependencies(p_task_id, depends_on, r_error)) {
+			load_from_dict(snapshot);
 			last_error = r_error;
 			return false;
 		}

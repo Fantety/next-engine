@@ -113,6 +113,52 @@ TEST_CASE("[Editor][AI][NEXT] manage project tool rejects invalid plans without 
 	CHECK(state->get_milestone_count() == 0);
 }
 
+TEST_CASE("[Editor][AI][NEXT] manage project tool only exposes task-assignable agents") {
+	Ref<AINextManageProjectTool> tool;
+	tool.instantiate();
+
+	Dictionary schema = tool->get_parameters_schema();
+	Dictionary properties = schema["properties"];
+	Dictionary tasks = properties["tasks"];
+	Dictionary task = tasks["items"];
+	Dictionary task_properties = task["properties"];
+	Dictionary assigned_agent_id = task_properties["assigned_agent_id"];
+	Array agent_enum = assigned_agent_id["enum"];
+
+	REQUIRE(agent_enum.size() == 3);
+	CHECK(agent_enum[0] == "script_agent");
+	CHECK(agent_enum[1] == "scene_agent");
+	CHECK(agent_enum[2] == "shader_agent");
+	CHECK_FALSE(agent_enum.has("planning_agent"));
+	CHECK_FALSE(agent_enum.has("review_agent"));
+}
+
+TEST_CASE("[Editor][AI][NEXT] manage project tool rejects non-task agents for task assignment") {
+	Ref<AINextProjectState> state;
+	state.instantiate();
+	Ref<AINextManageProjectTool> tool;
+	tool.instantiate();
+	tool->set_project_state(state);
+
+	Array tasks;
+	tasks.push_back(_make_task("task_plan", "Plan from task list", "planning_agent"));
+
+	Dictionary milestone;
+	milestone["title"] = "Invalid Assignment";
+	milestone["tasks"] = tasks;
+
+	Array milestones;
+	milestones.push_back(milestone);
+
+	Dictionary args;
+	args["action"] = "replace_plan";
+	args["milestones"] = milestones;
+
+	AIToolResult result = tool->execute(args);
+	CHECK(result.is_error());
+	CHECK(state->get_milestone_count() == 0);
+}
+
 TEST_CASE("[Editor][AI][NEXT] manage project tool accepts acyclic shared dependencies") {
 	Ref<AINextProjectState> state;
 	state.instantiate();

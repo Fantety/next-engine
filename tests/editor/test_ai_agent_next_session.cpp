@@ -790,6 +790,36 @@ TEST_CASE("[Editor][AI][NEXT] task session continues with previous task run mess
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] task session does not start tasks that are not ready") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String prerequisite_task = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+	Array dependencies;
+	dependencies.push_back(prerequisite_task);
+	const String blocked_task = state->add_task(milestone_id, "Assemble player scene", "scene_agent", dependencies);
+	const String initial_status = String(state->get_task(blocked_task).get("status", String()));
+
+	Ref<NextScriptedRuntimeClient> scene_client;
+	scene_client.instantiate();
+	AIAgentRuntimeResponse scene_response;
+	scene_response.content = "Created player.tscn";
+	scene_client->push_response(scene_response);
+	session->get_agent_for_test("scene_agent")->set_runtime_client(scene_client);
+
+	CHECK_FALSE(session->can_continue_task_session(blocked_task));
+	const bool sent = session->send_task_session_message(blocked_task, "Build this scene now.");
+	if (sent) {
+		wait_for_next_agent(session, "scene_agent");
+	}
+
+	CHECK_FALSE(sent);
+	CHECK(scene_client->request_count == 0);
+	CHECK(String(state->get_task(blocked_task).get("status", String())) == initial_status);
+
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI][NEXT] session exposes runtime progress messages") {
 	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();

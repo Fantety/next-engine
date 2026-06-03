@@ -332,6 +332,30 @@ TEST_CASE("[Editor][AI][NEXT] project state supports user plan editing operation
 	CHECK(state->get_milestone_count() == 1);
 }
 
+TEST_CASE("[Editor][AI][NEXT] project state rolls back task patch when dependency validation fails") {
+	Ref<AINextProjectState> state;
+	state.instantiate();
+
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create movement script", "script_agent", Array());
+
+	Dictionary patch;
+	patch["title"] = "Edited movement script";
+	patch["assigned_agent_id"] = "scene_agent";
+	Array dependencies;
+	dependencies.push_back("missing_task");
+	patch["depends_on"] = dependencies;
+
+	String error;
+	CHECK_FALSE(state->update_task(task_id, patch, error));
+	CHECK(error.contains("dependency"));
+
+	Dictionary task = state->get_task(task_id);
+	CHECK(String(task.get("title", String())) == "Create movement script");
+	CHECK(String(task.get("assigned_agent_id", String())) == "script_agent");
+	CHECK(Array(task.get("depends_on", Array())).is_empty());
+}
+
 TEST_CASE("[Editor][AI][NEXT] project state rejects edits to locked milestones") {
 	Ref<AINextProjectState> state;
 	state.instantiate();

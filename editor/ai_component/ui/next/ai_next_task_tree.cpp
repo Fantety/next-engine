@@ -7,6 +7,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
+#include "editor/ai_component/next/ai_next_agent_registry.h"
 #include "editor/ai_component/ui/ai_message_list.h"
 #include "editor/ai_component/ui/next/ai_next_plan_rows.h"
 #include "editor/themes/editor_scale.h"
@@ -28,6 +29,21 @@ void _add_agent_item(OptionButton *p_selector, const String &p_label, const Stri
 	p_selector->set_item_metadata(index, p_agent_id);
 	if (p_agent_id == p_selected_agent_id) {
 		p_selector->select(index);
+	}
+}
+
+void _populate_assignable_agent_selector(OptionButton *p_selector, const String &p_selected_agent_id) {
+	if (!p_selector) {
+		return;
+	}
+	p_selector->clear();
+	Vector<String> agent_ids = AINextAgentRegistry::get_assignable_agent_ids();
+	for (int i = 0; i < agent_ids.size(); i++) {
+		const String agent_id = agent_ids[i];
+		_add_agent_item(p_selector, AINextAgentRegistry::get_display_name(agent_id), agent_id, p_selected_agent_id);
+	}
+	if (p_selector->get_selected() < 0 && p_selector->get_item_count() > 0) {
+		p_selector->select(0);
 	}
 }
 
@@ -306,10 +322,7 @@ void AINextTaskTree::_add_task_pressed() {
 	editing_task_id.clear();
 	task_title_edit->clear();
 	task_description_edit->clear();
-	task_agent_selector->clear();
-	_add_agent_item(task_agent_selector, TTR("Script Agent"), "script_agent", "script_agent");
-	_add_agent_item(task_agent_selector, TTR("Scene Agent"), "scene_agent", "script_agent");
-	_add_agent_item(task_agent_selector, TTR("Shader Agent"), "shader_agent", "script_agent");
+	_populate_assignable_agent_selector(task_agent_selector, AINextAgentRegistry::get_default_task_agent_id());
 	_populate_milestone_selector(next_session->get_project_state()->get_active_milestone_id());
 	task_dialog->set_title(TTR("Add Task"));
 	task_dialog->popup_centered(Size2(460, 340) * EDSCALE);
@@ -324,13 +337,10 @@ void AINextTaskTree::_edit_task_pressed(const String &p_task_id) {
 		return;
 	}
 	editing_task_id = p_task_id;
-	const String assigned_agent_id = String(task.get("assigned_agent_id", "script_agent"));
+	const String assigned_agent_id = String(task.get("assigned_agent_id", AINextAgentRegistry::get_default_task_agent_id()));
 	task_title_edit->set_text(String(task.get("title", String())));
 	task_description_edit->set_text(String(task.get("description", String())));
-	task_agent_selector->clear();
-	_add_agent_item(task_agent_selector, TTR("Script Agent"), "script_agent", assigned_agent_id);
-	_add_agent_item(task_agent_selector, TTR("Scene Agent"), "scene_agent", assigned_agent_id);
-	_add_agent_item(task_agent_selector, TTR("Shader Agent"), "shader_agent", assigned_agent_id);
+	_populate_assignable_agent_selector(task_agent_selector, assigned_agent_id);
 	_populate_milestone_selector(next_session->get_project_state()->get_task_milestone_id(p_task_id));
 	task_dialog->set_title(TTR("Edit Task"));
 	task_dialog->popup_centered(Size2(460, 340) * EDSCALE);
@@ -346,7 +356,7 @@ void AINextTaskTree::_confirm_task_dialog() {
 	}
 	const int agent_index = task_agent_selector->get_selected();
 	const int milestone_index = task_milestone_selector->get_selected();
-	const String agent_id = agent_index >= 0 ? String(task_agent_selector->get_item_metadata(agent_index)) : String("script_agent");
+	const String agent_id = agent_index >= 0 ? String(task_agent_selector->get_item_metadata(agent_index)) : AINextAgentRegistry::get_default_task_agent_id();
 	const String milestone_id = milestone_index >= 0 ? String(task_milestone_selector->get_item_metadata(milestone_index)) : String();
 	const String description = task_description_edit ? task_description_edit->get_text() : String();
 
