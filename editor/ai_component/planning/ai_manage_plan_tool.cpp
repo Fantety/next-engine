@@ -70,7 +70,7 @@ Dictionary AIManagePlanTool::get_parameters_schema() const {
 
 	Dictionary tasks;
 	tasks["type"] = "array";
-	tasks["description"] = "Concise task list for create. Use concrete, verifiable steps. Each item can be a string or an object with title and optional id/status.";
+	tasks["description"] = "concise task list for create. Use concrete, verifiable steps. Each item can be a string or an object with title and optional id/status.";
 	Dictionary task_items;
 	task_items["type"] = "object";
 	Dictionary task_properties;

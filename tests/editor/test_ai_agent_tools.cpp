@@ -663,6 +663,7 @@ TEST_CASE("[Editor][AI] Tool factory registers shared tool groups") {
 	CHECK(registry->get_tool_permission("project.list_tree") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.search_text") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("editor.get_context") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
@@ -686,6 +687,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("project.list_tree") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.search_text") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("agent.activate_skill") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("agent.manage_plan") == AI_TOOL_PERMISSION_ALLOW);
@@ -753,33 +755,38 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	AIMCPService::clear_singleton_for_test();
 }
 
-TEST_CASE("[Editor][AI] NEXT agents expose Markdown creation tool") {
+TEST_CASE("[Editor][AI] NEXT agents expose shared project context tools") {
 	Ref<AINextPlanningAgent> planning_agent;
 	planning_agent.instantiate();
 	CHECK(planning_agent->get_profile().id == "ask");
 	CHECK(planning_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(planning_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 
 	Ref<AINextScriptAgent> script_agent;
 	script_agent.instantiate();
 	CHECK(script_agent->get_profile().id == "auto");
 	CHECK(script_agent->get_profile().review_changes);
 	CHECK(script_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(script_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 
 	Ref<AINextSceneAgent> scene_agent;
 	scene_agent.instantiate();
 	CHECK(scene_agent->get_profile().id == "auto");
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 
 	Ref<AINextShaderAgent> shader_agent;
 	shader_agent.instantiate();
 	CHECK(shader_agent->get_profile().id == "auto");
 	CHECK(shader_agent->get_profile().review_changes);
 	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 
 	Ref<AINextReviewAgent> review_agent;
 	review_agent.instantiate();
 	CHECK(review_agent->get_profile().id == "ask");
 	CHECK(review_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(review_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 }
 
 TEST_CASE("[Editor][AI] Plan manager keeps one active plan and archives completed work") {

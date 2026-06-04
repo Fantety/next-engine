@@ -70,6 +70,7 @@ TEST_CASE("[Editor][AI] Model settings expose editable presets") {
 	CHECK(openai_config.model == "gpt-5.4");
 	CHECK(openai_config.api_key == "test-key");
 	CHECK(openai_config.base_url == "https://example.test/v1");
+	CHECK_FALSE(openai_config.supports_multimodal);
 
 	Vector<AIModelDescriptor> enabled_models = AIModelSettings::get_enabled_models();
 	bool found_openai_model = false;
@@ -82,6 +83,68 @@ TEST_CASE("[Editor][AI] Model settings expose editable presets") {
 	CHECK(found_openai_model);
 
 	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
+}
+
+TEST_CASE("[Editor][AI] Model profiles persist multimodal capability and API format") {
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
+	AIModelSettings::clear_model_profiles_for_test();
+
+	AIModelProfile profile;
+	profile.id = "profile:test:vision";
+	profile.display_name = "Vision Test";
+	profile.provider_id = "compatible";
+	profile.provider_name = "OpenAI Compatible";
+	profile.model = "vision-model";
+	profile.base_url = "https://example.test/v1";
+	profile.api_key = "test-key";
+	profile.enabled = true;
+	profile.custom = true;
+	profile.supports_multimodal = true;
+	profile.api_format = "openai_chat_completions";
+
+	const String profile_id = AIModelSettings::add_model_profile_config(profile);
+	AIModelProfile stored_profile = AIModelSettings::get_model_profile(profile_id);
+	CHECK(stored_profile.supports_multimodal);
+	CHECK(stored_profile.api_format == "openai_chat_completions");
+
+	AIProviderConfig config = AIModelSettings::get_provider_config(profile_id);
+	CHECK(config.supports_multimodal);
+	CHECK(config.api_format == "openai_chat_completions");
+
+	stored_profile.supports_multimodal = false;
+	stored_profile.api_format = "openai_responses";
+	CHECK(AIModelSettings::update_model_profile_config(stored_profile));
+
+	AIModelProfile updated_profile = AIModelSettings::get_model_profile(profile_id);
+	CHECK_FALSE(updated_profile.supports_multimodal);
+	CHECK(updated_profile.api_format == "openai_responses");
+
+	AIProviderConfig updated_config = AIModelSettings::get_provider_config(profile_id);
+	CHECK_FALSE(updated_config.supports_multimodal);
+	CHECK(updated_config.api_format == "openai_responses");
+
+	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
+}
+
+TEST_CASE("[Editor][AI] Model profiles and provider configs share runtime options") {
+	AIModelRuntimeOptions defaults;
+	AIModelProfile profile;
+	AIProviderConfig config;
+
+	CHECK(defaults.max_context_chars == profile.max_context_chars);
+	CHECK(defaults.max_context_chars == config.max_context_chars);
+
+	AIModelRuntimeOptions *profile_options = &profile;
+	AIModelRuntimeOptions *config_options = &config;
+
+	REQUIRE(profile_options != nullptr);
+	REQUIRE(config_options != nullptr);
+
+	profile_options->supports_multimodal = true;
+	config_options->max_tool_calls = 12;
+
+	CHECK(profile.supports_multimodal);
+	CHECK(config.max_tool_calls == 12);
 }
 
 TEST_CASE("[Editor][AI] MCP settings manage server enable states") {

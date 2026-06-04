@@ -106,15 +106,7 @@ void AIAgentBase::set_model_profile(const AIModelProfile &p_profile) {
 	config.base_url = p_profile.base_url;
 	config.api_key = p_profile.api_key;
 	config.model = p_profile.model;
-	config.timeout_seconds = p_profile.timeout_seconds;
-	config.max_input_chars = p_profile.max_input_chars;
-	config.max_context_chars = p_profile.max_context_chars;
-	config.max_history_chars = p_profile.max_history_chars;
-	config.max_tool_result_chars = p_profile.max_tool_result_chars;
-	config.min_recent_messages = p_profile.min_recent_messages;
-	config.max_provider_turns = p_profile.max_provider_turns;
-	config.max_tool_calls = p_profile.max_tool_calls;
-	config.max_output_tokens = p_profile.max_output_tokens;
+	static_cast<AIModelRuntimeOptions &>(config) = p_profile;
 	set_provider_config(config);
 }
 

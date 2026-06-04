@@ -10,7 +10,9 @@
 #include "core/os/os.h"
 #include "core/variant/variant.h"
 
+#include "editor/ai_component/providers/ai_multimodal_message_adapter.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
+#include "editor/ai_component/providers/ai_provider_tool_exposure_policy.h"
 
 class AIOpenAIStreamEventHandler : public RefCounted {
 	GDSOFTCLASS(AIOpenAIStreamEventHandler, RefCounted);
@@ -514,7 +516,7 @@ String AIOpenAICompatibleRuntimeClient::_to_internal_tool_name(const String &p_p
 	return p_provider_tool_name;
 }
 
-Array AIOpenAICompatibleRuntimeClient::_build_provider_tool_schemas(const Array &p_tool_schemas, Dictionary &r_tool_name_map) {
+Array AIOpenAICompatibleRuntimeClient::_build_provider_tool_schemas(const Array &p_tool_schemas, const AIProviderConfig &p_config, Dictionary &r_tool_name_map) {
 	Array provider_tool_schemas;
 	r_tool_name_map.clear();
 
@@ -524,6 +526,10 @@ Array AIOpenAICompatibleRuntimeClient::_build_provider_tool_schemas(const Array 
 		}
 
 		Dictionary schema = p_tool_schemas[i];
+		if (!AIProviderToolExposurePolicy::should_expose_tool_schema(schema, p_config)) {
+			continue;
+		}
+
 		if (!schema.has("function") || Variant(schema["function"]).get_type() != Variant::DICTIONARY) {
 			provider_tool_schemas.push_back(schema.duplicate(true));
 			continue;
@@ -551,7 +557,7 @@ Array AIOpenAICompatibleRuntimeClient::_build_provider_tool_schemas(const Array 
 	return provider_tool_schemas;
 }
 
-Array AIOpenAICompatibleRuntimeClient::_build_chat_messages(const Array &p_messages, const Dictionary &p_tool_name_map) {
+Array AIOpenAICompatibleRuntimeClient::_build_chat_messages(const Array &p_messages, const AIProviderConfig &p_config, const Dictionary &p_tool_name_map) {
 	Array chat_messages;
 	for (int i = 0; i < p_messages.size(); i++) {
 		if (Variant(p_messages[i]).get_type() != Variant::DICTIONARY) {
@@ -564,12 +570,13 @@ Array AIOpenAICompatibleRuntimeClient::_build_chat_messages(const Array &p_messa
 
 		if (role == "tool") {
 			chat_message["role"] = "tool";
-			chat_message["content"] = (message.has("content") && Variant(message["content"]).get_type() != Variant::NIL) ? String(message["content"]) : String();
+			chat_message["content"] = AIMultimodalMessageAdapter::build_chat_message_content(message, p_config);
 			if (message.has("metadata") && Variant(message["metadata"]).get_type() == Variant::DICTIONARY) {
 				Dictionary metadata = message["metadata"];
 				chat_message["tool_call_id"] = String(metadata.get("tool_call_id", ""));
 			}
 			chat_messages.push_back(chat_message);
+			AIMultimodalMessageAdapter::append_tool_attachment_user_message(chat_messages, message, p_config);
 			continue;
 		}
 
@@ -578,7 +585,7 @@ Array AIOpenAICompatibleRuntimeClient::_build_chat_messages(const Array &p_messa
 		}
 
 		chat_message["role"] = role;
-		chat_message["content"] = (message.has("content") && Variant(message["content"]).get_type() != Variant::NIL) ? String(message["content"]) : String();
+		chat_message["content"] = AIMultimodalMessageAdapter::build_chat_message_content(message, p_config);
 
 		if (role == "assistant" && message.has("metadata") && Variant(message["metadata"]).get_type() == Variant::DICTIONARY) {
 			Dictionary metadata = message["metadata"];
@@ -638,8 +645,16 @@ Array AIOpenAICompatibleRuntimeClient::build_chat_messages_for_test(const Array 
 	return _build_chat_messages(p_messages);
 }
 
+Array AIOpenAICompatibleRuntimeClient::build_chat_messages_for_test(const Array &p_messages, const AIProviderConfig &p_config) {
+	return _build_chat_messages(p_messages, p_config);
+}
+
 Array AIOpenAICompatibleRuntimeClient::build_provider_tool_schemas_for_test(const Array &p_tool_schemas, Dictionary &r_tool_name_map) {
-	return _build_provider_tool_schemas(p_tool_schemas, r_tool_name_map);
+	return _build_provider_tool_schemas(p_tool_schemas, AIProviderConfig(), r_tool_name_map);
+}
+
+Array AIOpenAICompatibleRuntimeClient::build_provider_tool_schemas_for_test(const Array &p_tool_schemas, const AIProviderConfig &p_config, Dictionary &r_tool_name_map) {
+	return _build_provider_tool_schemas(p_tool_schemas, p_config, r_tool_name_map);
 }
 
 void AIOpenAICompatibleRuntimeClient::apply_tool_name_map_for_test(AIAgentRuntimeResponse &r_response, const Dictionary &p_tool_name_map) {
@@ -656,8 +671,8 @@ AIAgentRuntimeResponse AIOpenAICompatibleRuntimeClient::_complete_internal(const
 
 	print_line(vformat("[AI Agent][RuntimeClient] Completing provider turn. input_messages=%d tool_schemas=%d streaming=%s", p_messages.size(), p_tool_schemas.size(), p_stream ? "yes" : "no"));
 	Dictionary tool_name_map;
-	Array provider_tool_schemas = _build_provider_tool_schemas(p_tool_schemas, tool_name_map);
-	Array chat_messages = _build_chat_messages(p_messages, tool_name_map);
+	Array provider_tool_schemas = _build_provider_tool_schemas(p_tool_schemas, config, tool_name_map);
+	Array chat_messages = _build_chat_messages(p_messages, config, tool_name_map);
 	print_line(vformat("[AI Agent][RuntimeClient] Built OpenAI-compatible messages. chat_messages=%d provider_tool_schemas=%d", chat_messages.size(), provider_tool_schemas.size()));
 
 	if (p_stream) {

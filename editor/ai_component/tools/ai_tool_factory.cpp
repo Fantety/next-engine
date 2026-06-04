@@ -27,6 +27,7 @@
 #include "editor/ai_component/tools/editor/ai_shader_create_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_delete_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
+#include "editor/ai_component/tools/project/ai_attach_multimodal_file_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_create_markdown_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
@@ -52,6 +53,7 @@ void register_shared_project_tools(AIAgentBase *p_agent, const String &p_log_pre
 	register_tool<AIListProjectTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 	register_tool<AIReadFileTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 	register_tool<AISearchProjectTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
+	register_tool<AIAttachMultimodalFileTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 	register_tool<AICreateMarkdownTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 	register_tool<AIGetEditorContextTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 }

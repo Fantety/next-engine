@@ -10,6 +10,7 @@
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
 
+#include "editor/ai_component/providers/ai_model_runtime_options.h"
 #include "editor/ai_component/providers/ai_provider_config.h"
 
 struct AIModelProviderPreset {
@@ -19,7 +20,7 @@ struct AIModelProviderPreset {
 	Vector<String> preset_models;
 };
 
-struct AIModelDescriptor {
+struct AIModelDescriptor : public AIModelRuntimeOptions {
 	String id;
 	String display_name;
 	String provider_id;
@@ -29,15 +30,6 @@ struct AIModelDescriptor {
 	String api_key;
 	bool enabled = false;
 	bool custom = false;
-	int max_input_chars = 96000;
-	int max_context_chars = 24000;
-	int max_history_chars = 64000;
-	int max_tool_result_chars = 16000;
-	int min_recent_messages = 4;
-	int max_provider_turns = 255;
-	int max_tool_calls = 60;
-	int max_output_tokens = 0;
-	int timeout_seconds = 180;
 };
 
 using AIModelProfile = AIModelDescriptor;
@@ -54,6 +46,8 @@ class AIModelSettings {
 	static void _set_profile_storage(const Array &p_profiles);
 	static Array _build_legacy_profile_storage();
 	static AIModelProviderPreset _get_provider_preset(const String &p_provider_id);
+	static void _runtime_options_from_dictionary(AIModelRuntimeOptions &r_options, const Dictionary &p_profile);
+	static void _runtime_options_to_dictionary(const AIModelRuntimeOptions &p_options, Dictionary &r_profile);
 	static AIModelProfile _profile_from_dictionary(const Dictionary &p_profile);
 	static Dictionary _profile_to_dictionary(const AIModelProfile &p_profile);
 	static String _make_profile_id(const String &p_provider_id, const String &p_model);

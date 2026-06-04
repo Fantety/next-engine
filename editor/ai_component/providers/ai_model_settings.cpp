@@ -142,6 +142,39 @@ AIModelProviderPreset AIModelSettings::_get_provider_preset(const String &p_prov
 	return AIModelProviderPreset();
 }
 
+void AIModelSettings::_runtime_options_from_dictionary(AIModelRuntimeOptions &r_options, const Dictionary &p_profile) {
+	AIModelRuntimeOptions defaults;
+	r_options.api_format = String(p_profile.get("api_format", defaults.api_format));
+	r_options.supports_multimodal = bool(p_profile.get("supports_multimodal", defaults.supports_multimodal));
+	r_options.max_input_chars = MAX(256, (int)p_profile.get("max_input_chars", defaults.max_input_chars));
+	r_options.max_context_chars = MAX(128, (int)p_profile.get("max_context_chars", defaults.max_context_chars));
+	r_options.max_history_chars = MAX(128, (int)p_profile.get("max_history_chars", defaults.max_history_chars));
+	r_options.max_tool_result_chars = MAX(64, (int)p_profile.get("max_tool_result_chars", defaults.max_tool_result_chars));
+	r_options.max_multimodal_files = MAX(1, (int)p_profile.get("max_multimodal_files", defaults.max_multimodal_files));
+	r_options.max_multimodal_file_bytes = MAX(1024, (int)p_profile.get("max_multimodal_file_bytes", defaults.max_multimodal_file_bytes));
+	r_options.min_recent_messages = MAX(1, (int)p_profile.get("min_recent_messages", defaults.min_recent_messages));
+	r_options.max_provider_turns = MAX(1, (int)p_profile.get("max_provider_turns", defaults.max_provider_turns));
+	r_options.max_tool_calls = MAX(1, (int)p_profile.get("max_tool_calls", defaults.max_tool_calls));
+	r_options.max_output_tokens = MAX(0, (int)p_profile.get("max_output_tokens", defaults.max_output_tokens));
+	r_options.timeout_seconds = MAX(1, (int)p_profile.get("timeout_seconds", defaults.timeout_seconds));
+}
+
+void AIModelSettings::_runtime_options_to_dictionary(const AIModelRuntimeOptions &p_options, Dictionary &r_profile) {
+	r_profile["api_format"] = p_options.api_format.is_empty() ? String("openai_chat_completions") : p_options.api_format;
+	r_profile["supports_multimodal"] = p_options.supports_multimodal;
+	r_profile["max_input_chars"] = MAX(256, p_options.max_input_chars);
+	r_profile["max_context_chars"] = MAX(128, p_options.max_context_chars);
+	r_profile["max_history_chars"] = MAX(128, p_options.max_history_chars);
+	r_profile["max_tool_result_chars"] = MAX(64, p_options.max_tool_result_chars);
+	r_profile["max_multimodal_files"] = MAX(1, p_options.max_multimodal_files);
+	r_profile["max_multimodal_file_bytes"] = MAX(1024, p_options.max_multimodal_file_bytes);
+	r_profile["min_recent_messages"] = MAX(1, p_options.min_recent_messages);
+	r_profile["max_provider_turns"] = MAX(1, p_options.max_provider_turns);
+	r_profile["max_tool_calls"] = MAX(1, p_options.max_tool_calls);
+	r_profile["max_output_tokens"] = MAX(0, p_options.max_output_tokens);
+	r_profile["timeout_seconds"] = MAX(1, p_options.timeout_seconds);
+}
+
 AIModelProfile AIModelSettings::_profile_from_dictionary(const Dictionary &p_profile) {
 	AIModelProfile profile;
 	profile.id = String(p_profile.get("id", String()));
@@ -152,15 +185,7 @@ AIModelProfile AIModelSettings::_profile_from_dictionary(const Dictionary &p_pro
 	profile.api_key = String(p_profile.get("api_key", String()));
 	profile.enabled = bool(p_profile.get("enabled", true));
 	profile.custom = bool(p_profile.get("custom", false));
-	profile.max_input_chars = MAX(256, (int)p_profile.get("max_input_chars", 96000));
-	profile.max_context_chars = MAX(128, (int)p_profile.get("max_context_chars", 24000));
-	profile.max_history_chars = MAX(128, (int)p_profile.get("max_history_chars", 64000));
-	profile.max_tool_result_chars = MAX(64, (int)p_profile.get("max_tool_result_chars", 16000));
-	profile.min_recent_messages = MAX(1, (int)p_profile.get("min_recent_messages", 4));
-	profile.max_provider_turns = MAX(1, (int)p_profile.get("max_provider_turns", 255));
-	profile.max_tool_calls = MAX(1, (int)p_profile.get("max_tool_calls", 60));
-	profile.max_output_tokens = MAX(0, (int)p_profile.get("max_output_tokens", 0));
-	profile.timeout_seconds = MAX(1, (int)p_profile.get("timeout_seconds", 180));
+	_runtime_options_from_dictionary(profile, p_profile);
 
 	AIModelProviderPreset provider = _get_provider_preset(profile.provider_id);
 	profile.provider_name = provider.display_name.is_empty() ? profile.provider_id : provider.display_name;
@@ -186,15 +211,7 @@ Dictionary AIModelSettings::_profile_to_dictionary(const AIModelProfile &p_profi
 	profile["api_key"] = p_profile.api_key;
 	profile["enabled"] = p_profile.enabled;
 	profile["custom"] = p_profile.custom;
-	profile["max_input_chars"] = MAX(256, p_profile.max_input_chars);
-	profile["max_context_chars"] = MAX(128, p_profile.max_context_chars);
-	profile["max_history_chars"] = MAX(128, p_profile.max_history_chars);
-	profile["max_tool_result_chars"] = MAX(64, p_profile.max_tool_result_chars);
-	profile["min_recent_messages"] = MAX(1, p_profile.min_recent_messages);
-	profile["max_provider_turns"] = MAX(1, p_profile.max_provider_turns);
-	profile["max_tool_calls"] = MAX(1, p_profile.max_tool_calls);
-	profile["max_output_tokens"] = MAX(0, p_profile.max_output_tokens);
-	profile["timeout_seconds"] = MAX(1, p_profile.timeout_seconds);
+	_runtime_options_to_dictionary(p_profile, profile);
 	return profile;
 }
 
@@ -350,15 +367,7 @@ AIProviderConfig AIModelSettings::get_provider_config(const String &p_model_id) 
 	config.base_url = descriptor.base_url;
 	config.api_key = descriptor.api_key;
 	config.model = descriptor.model;
-	config.timeout_seconds = descriptor.timeout_seconds;
-	config.max_input_chars = descriptor.max_input_chars;
-	config.max_context_chars = descriptor.max_context_chars;
-	config.max_history_chars = descriptor.max_history_chars;
-	config.max_tool_result_chars = descriptor.max_tool_result_chars;
-	config.min_recent_messages = descriptor.min_recent_messages;
-	config.max_provider_turns = descriptor.max_provider_turns;
-	config.max_tool_calls = descriptor.max_tool_calls;
-	config.max_output_tokens = descriptor.max_output_tokens;
+	static_cast<AIModelRuntimeOptions &>(config) = descriptor;
 	return config;
 }
 

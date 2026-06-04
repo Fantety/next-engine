@@ -14,7 +14,11 @@ String _normalize_text(const String &p_text) {
 }
 
 PackedStringArray _split_lines(const String &p_text) {
-	return _normalize_text(p_text).split("\n");
+	PackedStringArray lines = _normalize_text(p_text).split("\n");
+	if (!lines.is_empty() && lines[lines.size() - 1].is_empty()) {
+		lines.remove_at(lines.size() - 1);
+	}
+	return lines;
 }
 
 String _prefix_lines(const PackedStringArray &p_lines, const String &p_prefix, int &r_count) {

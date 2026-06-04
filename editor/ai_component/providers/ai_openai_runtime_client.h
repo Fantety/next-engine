@@ -41,8 +41,8 @@ class AIOpenAICompatibleRuntimeClient : public AIAgentRuntimeClient {
 
 	static String _to_provider_tool_name(const String &p_internal_tool_name);
 	static String _to_internal_tool_name(const String &p_provider_tool_name, const Dictionary &p_tool_name_map);
-	static Array _build_provider_tool_schemas(const Array &p_tool_schemas, Dictionary &r_tool_name_map);
-	static Array _build_chat_messages(const Array &p_messages, const Dictionary &p_tool_name_map = Dictionary());
+	static Array _build_provider_tool_schemas(const Array &p_tool_schemas, const AIProviderConfig &p_config, Dictionary &r_tool_name_map);
+	static Array _build_chat_messages(const Array &p_messages, const AIProviderConfig &p_config = AIProviderConfig(), const Dictionary &p_tool_name_map = Dictionary());
 	static void _apply_tool_name_map(AIAgentRuntimeResponse &r_response, const Dictionary &p_tool_name_map);
 	AIAgentRuntimeResponse _complete_internal(const Array &p_messages, const Array &p_tool_schemas, const Callable &p_partial_response_callback, bool p_stream);
 
@@ -59,7 +59,9 @@ public:
 	Ref<AIOpenAIRuntimeTransport> get_transport() const;
 
 	static Array build_chat_messages_for_test(const Array &p_messages);
+	static Array build_chat_messages_for_test(const Array &p_messages, const AIProviderConfig &p_config);
 	static Array build_provider_tool_schemas_for_test(const Array &p_tool_schemas, Dictionary &r_tool_name_map);
+	static Array build_provider_tool_schemas_for_test(const Array &p_tool_schemas, const AIProviderConfig &p_config, Dictionary &r_tool_name_map);
 	static void apply_tool_name_map_for_test(AIAgentRuntimeResponse &r_response, const Dictionary &p_tool_name_map);
 
 	virtual AIAgentRuntimeResponse complete(const Array &p_messages, const Array &p_tool_schemas) override;

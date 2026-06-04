@@ -16,6 +16,7 @@
 #include "editor/ai_component/context/ai_best_practices_context_provider.h"
 #include "editor/ai_component/prompts/agent_system_prompt.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
+#include "editor/ai_component/providers/ai_multimodal_message_adapter.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
@@ -293,6 +294,38 @@ static AIAgentMessage _make_tool_result_message(const String &p_id, const String
 	message.metadata["tool_call_id"] = p_id;
 	message.metadata["tool_name"] = "project.read_file";
 	return message;
+}
+
+static Dictionary _make_openai_tool_schema(const String &p_tool_name) {
+	Dictionary function;
+	function["name"] = p_tool_name;
+	function["description"] = "Test tool.";
+
+	Dictionary parameters;
+	parameters["type"] = "object";
+	function["parameters"] = parameters;
+
+	Dictionary schema;
+	schema["type"] = "function";
+	schema["function"] = function;
+	return schema;
+}
+
+static bool _has_provider_tool_schema(const Array &p_tool_schemas, const String &p_provider_tool_name) {
+	for (int i = 0; i < p_tool_schemas.size(); i++) {
+		if (Variant(p_tool_schemas[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary schema = p_tool_schemas[i];
+		if (!schema.has("function") || Variant(schema["function"]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary function = schema["function"];
+		if (String(function.get("name", "")) == p_provider_tool_name) {
+			return true;
+		}
+	}
+	return false;
 }
 
 TEST_CASE("[Editor][AI] Best practices context provider injects static guidance document") {
@@ -1819,6 +1852,53 @@ TEST_CASE("[Editor][AI] OpenAI-compatible runtime client maps tool schema names 
 	CHECK(String(tool_name_map["project_read_file"]) == "project.read_file");
 }
 
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client exposes multimodal file tool only to multimodal models") {
+	Array tool_schemas;
+	tool_schemas.push_back(_make_openai_tool_schema("project.read_file"));
+	tool_schemas.push_back(_make_openai_tool_schema("project.attach_multimodal_file"));
+
+	AIProviderConfig text_config;
+	text_config.provider_name = "Test";
+	text_config.model = "text-model";
+	text_config.base_url = "https://example.test/v1";
+	text_config.api_key = "test-key";
+	text_config.supports_multimodal = false;
+
+	Ref<FakeOpenAIRuntimeTransport> text_transport;
+	text_transport.instantiate();
+	text_transport->response_text = "{\"choices\":[{\"message\":{\"content\":\"Ready.\"},\"finish_reason\":\"stop\"}]}";
+
+	Ref<AIOpenAICompatibleRuntimeClient> text_client;
+	text_client.instantiate();
+	text_client->set_config(text_config);
+	text_client->set_transport(text_transport);
+
+	AIAgentRuntimeResponse text_response = text_client->complete(Array(), tool_schemas);
+
+	CHECK(text_response.error.is_empty());
+	CHECK(_has_provider_tool_schema(text_transport->last_tool_schemas, "project_read_file"));
+	CHECK_FALSE(_has_provider_tool_schema(text_transport->last_tool_schemas, "project_attach_multimodal_file"));
+
+	AIProviderConfig multimodal_config = text_config;
+	multimodal_config.model = "vision-model";
+	multimodal_config.supports_multimodal = true;
+
+	Ref<FakeOpenAIRuntimeTransport> multimodal_transport;
+	multimodal_transport.instantiate();
+	multimodal_transport->response_text = "{\"choices\":[{\"message\":{\"content\":\"Ready.\"},\"finish_reason\":\"stop\"}]}";
+
+	Ref<AIOpenAICompatibleRuntimeClient> multimodal_client;
+	multimodal_client.instantiate();
+	multimodal_client->set_config(multimodal_config);
+	multimodal_client->set_transport(multimodal_transport);
+
+	AIAgentRuntimeResponse multimodal_response = multimodal_client->complete(Array(), tool_schemas);
+
+	CHECK(multimodal_response.error.is_empty());
+	CHECK(_has_provider_tool_schema(multimodal_transport->last_tool_schemas, "project_read_file"));
+	CHECK(_has_provider_tool_schema(multimodal_transport->last_tool_schemas, "project_attach_multimodal_file"));
+}
+
 TEST_CASE("[Editor][AI] OpenAI-compatible runtime client restores provider tool call names") {
 	AIAgentRuntimeResponse response;
 	AIToolCall call;
@@ -1939,6 +2019,128 @@ TEST_CASE("[Editor][AI] OpenAI-compatible runtime client ignores null message co
 	Dictionary converted_tool = chat_messages[1];
 	CHECK(String(converted_tool["content"]).is_empty());
 	CHECK_FALSE(String(converted_tool["content"]) == "<null>");
+}
+
+TEST_CASE("[Editor][AI] Multimodal adapter downgrades image attachments for text-only models") {
+	Array messages;
+
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Describe this image.";
+
+	Dictionary attachment;
+	attachment["type"] = "image";
+	attachment["path"] = "res://art/player.png";
+	attachment["mime_type"] = "image/png";
+	attachment["detail"] = "high";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary metadata;
+	metadata["attachments"] = attachments;
+	user_message["metadata"] = metadata;
+	messages.push_back(user_message);
+
+	AIProviderConfig config;
+	config.supports_multimodal = false;
+
+	Array chat_messages = AIMultimodalMessageAdapter::build_chat_messages(messages, config);
+
+	REQUIRE(chat_messages.size() == 1);
+	Dictionary converted_user = chat_messages[0];
+	CHECK(String(converted_user["role"]) == "user");
+	CHECK(Variant(converted_user["content"]).get_type() == Variant::STRING);
+	CHECK(String(converted_user["content"]).contains("Describe this image."));
+	CHECK(String(converted_user["content"]).contains("Attached image not sent"));
+	CHECK(String(converted_user["content"]).contains("res://art/player.png"));
+}
+
+TEST_CASE("[Editor][AI] Multimodal adapter converts image attachments for Chat Completions models") {
+	Array messages;
+
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Describe this image.";
+
+	Dictionary attachment;
+	attachment["type"] = "image";
+	attachment["path"] = "res://art/player.png";
+	attachment["mime_type"] = "image/png";
+	attachment["data_url"] = "data:image/png;base64,AAAA";
+	attachment["detail"] = "high";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary metadata;
+	metadata["attachments"] = attachments;
+	user_message["metadata"] = metadata;
+	messages.push_back(user_message);
+
+	AIProviderConfig config;
+	config.supports_multimodal = true;
+	config.api_format = "openai_chat_completions";
+
+	Array chat_messages = AIMultimodalMessageAdapter::build_chat_messages(messages, config);
+
+	REQUIRE(chat_messages.size() == 1);
+	Dictionary converted_user = chat_messages[0];
+	CHECK(String(converted_user["role"]) == "user");
+	REQUIRE(Variant(converted_user["content"]).get_type() == Variant::ARRAY);
+	Array content = converted_user["content"];
+	REQUIRE(content.size() == 2);
+
+	Dictionary text_part = content[0];
+	CHECK(String(text_part["type"]) == "text");
+	CHECK(String(text_part["text"]) == "Describe this image.");
+
+	Dictionary image_part = content[1];
+	CHECK(String(image_part["type"]) == "image_url");
+	Dictionary image_url = image_part["image_url"];
+	CHECK(String(image_url["url"]) == "data:image/png;base64,AAAA");
+	CHECK(String(image_url["detail"]) == "high");
+}
+
+TEST_CASE("[Editor][AI] OpenAI-compatible runtime client sends tool-attached images as follow-up user content") {
+	Array messages;
+
+	Dictionary tool_message;
+	tool_message["role"] = "tool";
+	tool_message["content"] = "Attached image `res://art/player.png`.";
+
+	Dictionary attachment;
+	attachment["type"] = "image";
+	attachment["path"] = "res://art/player.png";
+	attachment["mime_type"] = "image/png";
+	attachment["data_url"] = "data:image/png;base64,AAAA";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary metadata;
+	metadata["tool_call_id"] = "call_attach";
+	metadata["attachments"] = attachments;
+	tool_message["metadata"] = metadata;
+	messages.push_back(tool_message);
+
+	AIProviderConfig config;
+	config.supports_multimodal = true;
+
+	Array chat_messages = AIOpenAICompatibleRuntimeClient::build_chat_messages_for_test(messages, config);
+
+	REQUIRE(chat_messages.size() == 2);
+	Dictionary converted_tool = chat_messages[0];
+	CHECK(String(converted_tool["role"]) == "tool");
+	CHECK(String(converted_tool["tool_call_id"]) == "call_attach");
+	CHECK(Variant(converted_tool["content"]).get_type() == Variant::STRING);
+
+	Dictionary attached_user = chat_messages[1];
+	CHECK(String(attached_user["role"]) == "user");
+	REQUIRE(Variant(attached_user["content"]).get_type() == Variant::ARRAY);
+	Array content = attached_user["content"];
+	REQUIRE(content.size() == 2);
+	Dictionary image_part = content[1];
+	CHECK(String(image_part["type"]) == "image_url");
+	Dictionary image_url = image_part["image_url"];
+	CHECK(String(image_url["url"]) == "data:image/png;base64,AAAA");
 }
 
 TEST_CASE("[Editor][AI] OpenAI-compatible runtime client defaults to HTTP transport") {

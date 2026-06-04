@@ -250,7 +250,7 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 
 	custom_multimodal = memnew(CheckButton);
 	custom_multimodal->set_text(TTR("Multimodal"));
-	custom_multimodal->set_pressed(true);
+	custom_multimodal->set_pressed(false);
 	model_header->add_child(custom_multimodal);
 
 	custom_model_id = memnew(LineEdit);
@@ -493,7 +493,7 @@ void AIModelProfileDialog::_reset_form() {
 		custom_full_url->set_pressed(false);
 	}
 	if (custom_multimodal) {
-		custom_multimodal->set_pressed(true);
+		custom_multimodal->set_pressed(false);
 	}
 	_reset_advanced_config(true);
 	_reset_advanced_config(false);
@@ -528,7 +528,7 @@ void AIModelProfileDialog::popup_edit_model(const AIModelProfile &p_profile) {
 			add_model_tabs->set_current_tab(1);
 		}
 		if (custom_api_format && custom_api_format->get_item_count() > 0) {
-			custom_api_format->select(0);
+			_select_option_metadata(custom_api_format, p_profile.api_format.is_empty() ? String("openai_chat_completions") : p_profile.api_format);
 		}
 		if (custom_display_name) {
 			custom_display_name->set_text(p_profile.display_name);
@@ -546,7 +546,7 @@ void AIModelProfileDialog::popup_edit_model(const AIModelProfile &p_profile) {
 			custom_full_url->set_pressed(false);
 		}
 		if (custom_multimodal) {
-			custom_multimodal->set_pressed(true);
+			custom_multimodal->set_pressed(p_profile.supports_multimodal);
 		}
 		_apply_advanced_config(p_profile, false);
 	} else {
@@ -616,6 +616,8 @@ AIModelProfile AIModelProfileDialog::get_submitted_profile() const {
 		profile.display_name = custom_display_name ? custom_display_name->get_text().strip_edges() : String();
 		profile.api_key = custom_api_key ? custom_api_key->get_text().strip_edges() : String();
 		profile.base_url = custom_base_url ? custom_base_url->get_text().strip_edges() : String();
+		profile.api_format = custom_api_format && custom_api_format->get_selected() >= 0 ? String(custom_api_format->get_selected_metadata()) : String("openai_chat_completions");
+		profile.supports_multimodal = custom_multimodal && custom_multimodal->is_pressed();
 		profile.custom = true;
 		_read_advanced_config(profile, false);
 	}

@@ -147,6 +147,20 @@ bool _tool_details_need_toggle(const String &p_summary, const String &p_details,
 	return p_call_count > 1 || p_details.contains("\n") || p_details.length() > p_summary.length();
 }
 
+bool _looks_like_markdown(const String &p_text) {
+	return p_text.contains("\n") ||
+			p_text.contains("**") ||
+			p_text.contains("`") ||
+			p_text.contains("](") ||
+			p_text.begins_with("#") ||
+			p_text.begins_with("- ") ||
+			p_text.begins_with("* ") ||
+			p_text.contains("\n#") ||
+			p_text.contains("\n- ") ||
+			p_text.contains("\n* ") ||
+			p_text.contains("|");
+}
+
 } // namespace
 
 AIMessageBubble::AIMessageBubble() {
@@ -262,8 +276,10 @@ void AIMessageBubble::_render_message() {
 		if (is_assistant_with_tool_calls) {
 			const String tool_summary = _build_tool_call_summary(tool_calls);
 			label->set_markdown(content + "\n\n`" + tool_summary + "`");
-		} else {
+		} else if (_looks_like_markdown(content)) {
 			label->set_markdown(content);
+		} else {
+			label->add_text(content);
 		}
 		details_button->hide();
 	} else {

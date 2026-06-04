@@ -16,6 +16,11 @@ bool AIProjectToolUtils::is_allowed_text_extension(const String &p_path) {
 	return ext == "gd" || ext == "cs" || ext == "tscn" || ext == "tres" || ext == "md" || ext == "txt" || ext == "json" || ext == "cfg" || ext == "shader" || ext == "gdshader";
 }
 
+bool AIProjectToolUtils::is_allowed_image_extension(const String &p_path) {
+	const String ext = p_path.get_extension().to_lower();
+	return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "gif";
+}
+
 String AIProjectToolUtils::get_path_argument(const Dictionary &p_arguments, const String &p_default_path) {
 	return String(p_arguments.get("path", p_default_path)).strip_edges();
 }

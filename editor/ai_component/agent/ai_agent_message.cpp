@@ -10,7 +10,7 @@ Dictionary AIAgentMessage::to_dict() const {
 	Dictionary dict;
 	dict["role"] = role_to_string(role);
 	dict["content"] = content;
-	dict["metadata"] = metadata;
+	dict["metadata"] = metadata.duplicate(true);
 	dict["created_at"] = created_at;
 	return dict;
 }
@@ -24,7 +24,8 @@ AIAgentMessage AIAgentMessage::from_dict(const Dictionary &p_dict) {
 		message.content = p_dict["content"];
 	}
 	if (p_dict.has("metadata") && Variant(p_dict["metadata"]).get_type() == Variant::DICTIONARY) {
-		message.metadata = p_dict["metadata"];
+		Dictionary source_metadata = p_dict["metadata"];
+		message.metadata = source_metadata.duplicate(true);
 	}
 	if (p_dict.has("created_at")) {
 		message.created_at = p_dict["created_at"];
