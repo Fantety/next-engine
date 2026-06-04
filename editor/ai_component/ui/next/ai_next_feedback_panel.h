@@ -7,6 +7,7 @@
 #include "scene/gui/box_container.h"
 
 class AIAgentNextSession;
+class AIAttachmentBar;
 class Button;
 class TextEdit;
 
@@ -15,6 +16,7 @@ class AINextFeedbackPanel : public VBoxContainer {
 
 	AIAgentNextSession *next_session = nullptr;
 	TextEdit *feedback_input = nullptr;
+	AIAttachmentBar *attachment_bar = nullptr;
 	Button *generate_button = nullptr;
 	Button *lock_button = nullptr;
 

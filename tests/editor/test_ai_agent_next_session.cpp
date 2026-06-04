@@ -199,6 +199,48 @@ static AIAgentMessage _make_next_session_message(AIAgentRole p_role, const Strin
 	return message;
 }
 
+static Dictionary _make_next_image_attachment(const String &p_path) {
+	Dictionary attachment;
+	attachment["type"] = "image";
+	attachment["path"] = p_path;
+	attachment["mime_type"] = "image/png";
+	attachment["detail"] = "auto";
+	return attachment;
+}
+
+static Array _make_next_image_attachments(const String &p_path) {
+	Array attachments;
+	attachments.push_back(_make_next_image_attachment(p_path));
+	return attachments;
+}
+
+static bool _messages_have_attachment_path(const Array &p_messages, const String &p_path) {
+	for (int i = 0; i < p_messages.size(); i++) {
+		if (Variant(p_messages[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary message = p_messages[i];
+		if (!message.has("metadata") || Variant(message["metadata"]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary metadata = message["metadata"];
+		if (!metadata.has("attachments") || Variant(metadata["attachments"]).get_type() != Variant::ARRAY) {
+			continue;
+		}
+		Array attachments = metadata["attachments"];
+		for (int j = 0; j < attachments.size(); j++) {
+			if (Variant(attachments[j]).get_type() != Variant::DICTIONARY) {
+				continue;
+			}
+			Dictionary attachment = attachments[j];
+			if (String(attachment.get("path", String())) == p_path) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 static void cleanup_next_workflows(const String &p_project_scope) {
 	Ref<AINextWorkflowStore> store;
 	store.instantiate();
@@ -876,6 +918,36 @@ TEST_CASE("[Editor][AI][NEXT] session runs one task without running the full mil
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] task attachments are sent to the assigned agent when running the task") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Visual Review", "Inspect visual references.");
+	const String task_id = state->add_task(milestone_id, "Match the reference sprite", "scene_agent", Array(), "Use the attached reference.");
+	REQUIRE_FALSE(task_id.is_empty());
+
+	Dictionary patch;
+	patch["attachments"] = _make_next_image_attachments("res://art/reference.png");
+	String error;
+	CHECK(state->update_task(task_id, patch, error));
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Matched the reference.";
+	client->push_response(final_response);
+	session->get_agent_for_test("scene_agent")->set_runtime_client(client);
+
+	CHECK(session->run_task(task_id));
+	wait_for_next_agent(session, "scene_agent");
+
+	CHECK(_messages_have_attachment_path(client->last_messages, "res://art/reference.png"));
+	Dictionary stored_task = state->get_task(task_id);
+	REQUIRE(stored_task.has("attachments"));
+	CHECK(Array(stored_task["attachments"]).size() == 1);
+
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI][NEXT] task session continues with previous task run messages") {
 	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
@@ -929,6 +1001,37 @@ TEST_CASE("[Editor][AI][NEXT] task session continues with previous task run mess
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] task session attachments are sent only with the follow-up message") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse first_response;
+	first_response.content = "Created player_controller.gd";
+	client->push_response(first_response);
+	AIAgentRuntimeResponse refine_response;
+	refine_response.content = "Adjusted the sprite offsets.";
+	client->push_response(refine_response);
+	session->get_agent_for_test("script_agent")->set_runtime_client(client);
+
+	CHECK(session->run_task(task_id));
+	wait_for_next_agent(session, "script_agent");
+
+	CHECK(session->send_task_session_message(task_id, "Use this screenshot as the alignment reference.", _make_next_image_attachments("res://screens/alignment.png")));
+	wait_for_next_agent(session, "script_agent");
+
+	CHECK(_messages_have_attachment_path(client->last_messages, "res://screens/alignment.png"));
+
+	Array refined_session_messages = session->get_task_session_messages(task_id);
+	REQUIRE(refined_session_messages.size() >= 2);
+	CHECK(_messages_have_attachment_path(refined_session_messages, "res://screens/alignment.png"));
+
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI][NEXT] task session does not start tasks that are not ready") {
 	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
@@ -955,6 +1058,31 @@ TEST_CASE("[Editor][AI][NEXT] task session does not start tasks that are not rea
 	CHECK_FALSE(sent);
 	CHECK(scene_client->request_count == 0);
 	CHECK(String(state->get_task(blocked_task).get("status", String())) == initial_status);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] feedback attachments are sent to the planning agent") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	Ref<AINextProjectState> state = session->get_project_state();
+	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
+	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array());
+	state->mark_task_completed(task_id, "Created player_controller.gd", Array());
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Feedback tasks generated.";
+	client->push_response(final_response);
+	session->get_agent_for_test("planning_agent")->set_runtime_client(client);
+
+	session->generate_feedback_tasks("Jump landing looks wrong in this screenshot.", _make_next_image_attachments("res://screens/jump_feedback.png"));
+	wait_for_next_agent(session, "planning_agent");
+
+	CHECK(_messages_have_attachment_path(client->last_messages, "res://screens/jump_feedback.png"));
+	Dictionary checkpoint = session->get_workflow_checkpoint_for_test();
+	REQUIRE(checkpoint.has("feedback_attachments"));
+	CHECK(Array(checkpoint["feedback_attachments"]).size() == 1);
 
 	memdelete(session);
 }

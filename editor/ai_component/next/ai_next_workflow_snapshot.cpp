@@ -26,6 +26,7 @@ Dictionary AINextWorkflowCheckpoint::to_dict() const {
 	dict["single_task_run"] = single_task_run;
 	dict["feedback_text"] = feedback_text;
 	dict["feedback_previous_task_count"] = feedback_previous_task_count;
+	dict["feedback_attachments"] = feedback_attachments.duplicate(true);
 	dict["selected_task_id"] = selected_task_id;
 	dict["active_task_batch"] = active_task_batch.duplicate(true);
 	dict["active_task_batch_index"] = active_task_batch_index;
@@ -43,6 +44,10 @@ void AINextWorkflowCheckpoint::load_from_dict(const Dictionary &p_dict) {
 	single_task_run = bool(p_dict.get("single_task_run", false));
 	feedback_text = String(p_dict.get("feedback_text", String()));
 	feedback_previous_task_count = (int)p_dict.get("feedback_previous_task_count", 0);
+	feedback_attachments.clear();
+	if (p_dict.has("feedback_attachments") && Variant(p_dict["feedback_attachments"]).get_type() == Variant::ARRAY) {
+		feedback_attachments = Array(p_dict["feedback_attachments"]).duplicate(true);
+	}
 	selected_task_id = String(p_dict.get("selected_task_id", String()));
 	active_task_batch.clear();
 	if (p_dict.has("active_task_batch") && Variant(p_dict["active_task_batch"]).get_type() == Variant::ARRAY) {

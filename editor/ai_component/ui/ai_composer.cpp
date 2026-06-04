@@ -8,6 +8,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
+#include "editor/ai_component/ui/ai_attachment_bar.h"
 #include "editor/ai_component/ui/ai_plan_panel.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/label.h"
@@ -15,7 +16,7 @@
 
 void AIComposer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reload_models"), &AIComposer::reload_models);
-	ADD_SIGNAL(MethodInfo("send_requested", PropertyInfo(Variant::STRING, "message"), PropertyInfo(Variant::STRING, "model_id"), PropertyInfo(Variant::STRING, "agent_profile_id")));
+	ADD_SIGNAL(MethodInfo("send_requested", PropertyInfo(Variant::STRING, "message"), PropertyInfo(Variant::STRING, "model_id"), PropertyInfo(Variant::STRING, "agent_profile_id"), PropertyInfo(Variant::ARRAY, "attachments")));
 	ADD_SIGNAL(MethodInfo("cancel_requested"));
 }
 
@@ -41,6 +42,9 @@ AIComposer::AIComposer() {
 	input->connect("text_changed", callable_mp(this, &AIComposer::_input_text_changed));
 	input->connect("gui_input", callable_mp(this, &AIComposer::_input_gui_input));
 	add_child(input);
+
+	attachment_bar = memnew(AIAttachmentBar);
+	add_child(attachment_bar);
 
 	HBoxContainer *bar = memnew(HBoxContainer);
 	bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -98,8 +102,15 @@ String AIComposer::get_selected_agent_profile_id() const {
 	return String(mode_selector->get_item_metadata(mode_selector->get_selected()));
 }
 
+Array AIComposer::get_attachments() const {
+	return attachment_bar ? attachment_bar->get_attachments() : Array();
+}
+
 void AIComposer::clear_input() {
 	input->clear();
+	if (attachment_bar) {
+		attachment_bar->clear_attachments();
+	}
 	_update_action_button();
 }
 
@@ -170,7 +181,7 @@ void AIComposer::_action_pressed() {
 	if (!has_model || message.is_empty()) {
 		return;
 	}
-	emit_signal(SNAME("send_requested"), get_input_text(), get_selected_model(), get_selected_agent_profile_id());
+	emit_signal(SNAME("send_requested"), get_input_text(), get_selected_model(), get_selected_agent_profile_id(), get_attachments());
 }
 
 void AIComposer::_input_text_changed() {

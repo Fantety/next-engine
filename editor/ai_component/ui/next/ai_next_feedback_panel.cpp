@@ -7,6 +7,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
+#include "editor/ai_component/ui/ai_attachment_bar.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
 #include "scene/gui/text_edit.h"
@@ -27,6 +28,9 @@ AINextFeedbackPanel::AINextFeedbackPanel() {
 	feedback_input->set_placeholder(TTR("Playtest feedback"));
 	feedback_input->connect(SNAME("text_changed"), callable_mp(this, &AINextFeedbackPanel::refresh));
 	add_child(feedback_input);
+
+	attachment_bar = memnew(AIAttachmentBar);
+	add_child(attachment_bar);
 
 	HBoxContainer *actions = memnew(HBoxContainer);
 	actions->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -53,7 +57,11 @@ void AINextFeedbackPanel::_generate_pressed() {
 	if (!next_session || !feedback_input) {
 		return;
 	}
-	next_session->generate_feedback_tasks(feedback_input->get_text());
+	const Array attachments = attachment_bar ? attachment_bar->get_attachments() : Array();
+	next_session->generate_feedback_tasks(feedback_input->get_text(), attachments);
+	if (attachment_bar) {
+		attachment_bar->clear_attachments();
+	}
 }
 
 void AINextFeedbackPanel::_lock_pressed() {

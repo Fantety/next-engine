@@ -49,6 +49,7 @@ struct AINextTask {
 	Vector<String> depends_on;
 	Vector<String> asset_refs;
 	Vector<String> output_paths;
+	Array attachments;
 	AINextTaskStatus status = AI_NEXT_TASK_PENDING;
 	String run_id;
 	String result_summary;

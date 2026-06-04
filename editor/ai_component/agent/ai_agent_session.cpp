@@ -10,8 +10,23 @@
 
 #include "editor/ai_component/agent/ai_mcp_service.h"
 
+namespace {
+
+AIAgentMessage _make_user_message(const String &p_message, const Array &p_attachments) {
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = p_message.strip_edges();
+	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+	if (!p_attachments.is_empty()) {
+		user_message.metadata["attachments"] = p_attachments.duplicate(true);
+	}
+	return user_message;
+}
+
+} // namespace
+
 void AIAgentSession::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("send_user_message", "message"), &AIAgentSession::send_user_message);
+	ClassDB::bind_method(D_METHOD("send_user_message", "message", "attachments"), static_cast<void (AIAgentSession::*)(const String &, const Array &)>(&AIAgentSession::send_user_message), DEFVAL(Array()));
 	ClassDB::bind_method(D_METHOD("cancel_request"), &AIAgentSession::cancel_request);
 	ClassDB::bind_method(D_METHOD("start_new_session"), &AIAgentSession::start_new_session);
 	ClassDB::bind_method(D_METHOD("load_session", "session_id"), &AIAgentSession::load_session);
@@ -122,6 +137,10 @@ void AIAgentSession::reload_tool_runtime() {
 }
 
 void AIAgentSession::send_user_message(const String &p_message) {
+	send_user_message(p_message, Array());
+}
+
+void AIAgentSession::send_user_message(const String &p_message, const Array &p_attachments) {
 	String stripped = p_message.strip_edges();
 	if (stripped.is_empty() || _is_busy()) {
 		print_line(vformat("[AI Agent][Session] Ignored send request. empty=%s state=%d", stripped.is_empty() ? "yes" : "no", (int)state));
@@ -134,10 +153,7 @@ void AIAgentSession::send_user_message(const String &p_message) {
 		print_line(vformat("[AI Agent][Session] Session title initialized: %s", title));
 	}
 
-	AIAgentMessage user_message;
-	user_message.role = AI_AGENT_ROLE_USER;
-	user_message.content = stripped;
-	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+	AIAgentMessage user_message = _make_user_message(stripped, p_attachments);
 	messages.push_back(user_message);
 	emit_signal(SNAME("message_added"), user_message.to_dict());
 	_save();
@@ -705,6 +721,10 @@ void AIAgentSession::add_runtime_message_for_test(int p_index, const AIAgentMess
 
 void AIAgentSession::update_runtime_message_for_test(int p_index, const AIAgentMessage &p_message) {
 	_on_runtime_message_updated(p_index, p_message.to_dict());
+}
+
+Dictionary AIAgentSession::make_user_message_for_test(const String &p_message, const Array &p_attachments) {
+	return _make_user_message(p_message, p_attachments).to_dict();
 }
 
 Error AIAgentSession::save_for_test() {

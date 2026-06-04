@@ -168,6 +168,16 @@ bool _runtime_message_should_checkpoint(const Dictionary &p_message) {
 	return metadata.has("tool_calls") && Variant(metadata["tool_calls"]).get_type() == Variant::ARRAY;
 }
 
+void _set_message_attachments(AIAgentMessage &r_message, const Array &p_attachments) {
+	if (p_attachments.is_empty()) {
+		return;
+	}
+
+	Dictionary metadata = r_message.metadata;
+	metadata["attachments"] = p_attachments.duplicate(true);
+	r_message.metadata = metadata;
+}
+
 AIAgentMessage _make_task_run_message(const Dictionary &p_task) {
 	AIAgentMessage user_message;
 	user_message.role = AI_AGENT_ROLE_USER;
@@ -175,6 +185,9 @@ AIAgentMessage _make_task_run_message(const Dictionary &p_task) {
 	user_message.content = vformat("Run NEXT task `%s`.\n\nDescription:\n%s\n\nReturn a concise summary and list produced paths if any.",
 			String(p_task.get("title", String())),
 			String(p_task.get("description", String())));
+	if (p_task.has("attachments") && Variant(p_task["attachments"]).get_type() == Variant::ARRAY) {
+		_set_message_attachments(user_message, p_task["attachments"]);
+	}
 	return user_message;
 }
 
@@ -216,8 +229,8 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("delete_user_milestone", "milestone_id"), &AIAgentNextSession::delete_user_milestone);
 	ClassDB::bind_method(D_METHOD("move_user_milestone", "milestone_id", "to_index"), &AIAgentNextSession::move_user_milestone);
 	ClassDB::bind_method(D_METHOD("merge_user_milestones", "target_milestone_id", "source_milestone_id"), &AIAgentNextSession::merge_user_milestones);
-	ClassDB::bind_method(D_METHOD("create_user_task", "milestone_id", "title", "assigned_agent_id", "depends_on", "description"), &AIAgentNextSession::create_user_task);
-	ClassDB::bind_method(D_METHOD("edit_user_task", "task_id", "title", "description", "assigned_agent_id"), &AIAgentNextSession::edit_user_task);
+	ClassDB::bind_method(D_METHOD("create_user_task", "milestone_id", "title", "assigned_agent_id", "depends_on", "description"), static_cast<String (AIAgentNextSession::*)(const String &, const String &, const String &, const Array &, const String &)>(&AIAgentNextSession::create_user_task));
+	ClassDB::bind_method(D_METHOD("edit_user_task", "task_id", "title", "description", "assigned_agent_id"), static_cast<bool (AIAgentNextSession::*)(const String &, const String &, const String &, const String &)>(&AIAgentNextSession::edit_user_task));
 	ClassDB::bind_method(D_METHOD("delete_user_task", "task_id"), &AIAgentNextSession::delete_user_task);
 	ClassDB::bind_method(D_METHOD("move_user_task", "task_id", "target_milestone_id", "to_index"), &AIAgentNextSession::move_user_task);
 	ClassDB::bind_method(D_METHOD("set_user_task_dependencies", "task_id", "depends_on"), &AIAgentNextSession::set_user_task_dependencies);
@@ -225,9 +238,9 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("approve_plan"), &AIAgentNextSession::approve_plan);
 	ClassDB::bind_method(D_METHOD("run_active_milestone"), &AIAgentNextSession::run_active_milestone);
 	ClassDB::bind_method(D_METHOD("run_task", "task_id"), &AIAgentNextSession::run_task);
-	ClassDB::bind_method(D_METHOD("send_task_session_message", "task_id", "message"), &AIAgentNextSession::send_task_session_message);
+	ClassDB::bind_method(D_METHOD("send_task_session_message", "task_id", "message", "attachments"), static_cast<bool (AIAgentNextSession::*)(const String &, const String &, const Array &)>(&AIAgentNextSession::send_task_session_message), DEFVAL(Array()));
 	ClassDB::bind_method(D_METHOD("review_active_milestone"), &AIAgentNextSession::review_active_milestone);
-	ClassDB::bind_method(D_METHOD("generate_feedback_tasks", "feedback"), &AIAgentNextSession::generate_feedback_tasks);
+	ClassDB::bind_method(D_METHOD("generate_feedback_tasks", "feedback", "attachments"), static_cast<void (AIAgentNextSession::*)(const String &, const Array &)>(&AIAgentNextSession::generate_feedback_tasks), DEFVAL(Array()));
 	ClassDB::bind_method(D_METHOD("accept_and_lock_active_milestone"), &AIAgentNextSession::accept_and_lock_active_milestone);
 	ClassDB::bind_method(D_METHOD("cancel_current_operation"), &AIAgentNextSession::cancel_current_operation);
 
@@ -323,6 +336,7 @@ void AIAgentNextSession::_clear_pending_agent_run() {
 	pending_task_id = String();
 	pending_feedback_text.clear();
 	pending_feedback_previous_task_count = 0;
+	pending_feedback_attachments.clear();
 	active_workflow_run_id.clear();
 	active_agent_run_id.clear();
 }
@@ -383,6 +397,8 @@ void AIAgentNextSession::_apply_workflow_snapshot(const AINextWorkflowSnapshot &
 	workflow_milestone_id = checkpoint.milestone_id;
 	selected_task_id = checkpoint.selected_task_id;
 	pending_feedback_text = checkpoint.feedback_text;
+	pending_feedback_previous_task_count = checkpoint.feedback_previous_task_count;
+	pending_feedback_attachments = checkpoint.feedback_attachments.duplicate(true);
 	active_task_batch = checkpoint.active_task_batch.duplicate(true);
 	active_task_batch_index = checkpoint.active_task_batch_index;
 	single_task_run = checkpoint.single_task_run;
@@ -425,6 +441,8 @@ void AIAgentNextSession::_start_empty_workflow(bool p_save) {
 	workflow_milestone_id.clear();
 	selected_task_id.clear();
 	pending_feedback_text.clear();
+	pending_feedback_previous_task_count = 0;
+	pending_feedback_attachments.clear();
 	milestone_run_guard = 0;
 	active_task_batch = Array();
 	active_task_batch_index = 0;
@@ -559,6 +577,7 @@ bool AIAgentNextSession::_begin_agent_run(PendingOperation p_operation, const St
 	checkpoint.single_task_run = single_task_run;
 	checkpoint.feedback_text = pending_feedback_text;
 	checkpoint.feedback_previous_task_count = pending_feedback_previous_task_count;
+	checkpoint.feedback_attachments = pending_feedback_attachments.duplicate(true);
 	checkpoint.selected_task_id = selected_task_id;
 	checkpoint.active_task_batch = active_task_batch.duplicate(true);
 	checkpoint.active_task_batch_index = active_task_batch_index;
@@ -1333,6 +1352,7 @@ bool AIAgentNextSession::continue_workflow() {
 		workflow_milestone_id = checkpoint.milestone_id;
 		pending_feedback_text = checkpoint.feedback_text;
 		pending_feedback_previous_task_count = checkpoint.feedback_previous_task_count;
+		pending_feedback_attachments = checkpoint.feedback_attachments.duplicate(true);
 		_clear_runtime_messages();
 		project_state->set_session_state(AI_NEXT_SESSION_FEEDBACK_PLANNING);
 		event_log->record_event("workflow_resumed", workflow_milestone_id, String(), _planning_agent_id(), "NEXT feedback planning resumed.");
@@ -1342,6 +1362,7 @@ bool AIAgentNextSession::continue_workflow() {
 		user_message.role = AI_AGENT_ROLE_USER;
 		user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
 		user_message.content = vformat("Turn this playtest feedback into additional NEXT tasks for milestone `%s` by calling ai_next.manage_project with append_tasks:\n\n%s", workflow_milestone_id, pending_feedback_text);
+		_set_message_attachments(user_message, pending_feedback_attachments);
 		Vector<AIAgentMessage> messages;
 		messages.push_back(user_message);
 		if (!_begin_agent_run(PENDING_OPERATION_FEEDBACK_TASKS, _planning_agent_id(), messages, workflow_milestone_id, String(), checkpoint.agent_run_id)) {
@@ -1454,6 +1475,10 @@ bool AIAgentNextSession::merge_user_milestones(const String &p_target_milestone_
 }
 
 String AIAgentNextSession::create_user_task(const String &p_milestone_id, const String &p_title, const String &p_assigned_agent_id, const Array &p_depends_on, const String &p_description) {
+	return create_user_task(p_milestone_id, p_title, p_assigned_agent_id, p_depends_on, p_description, Array());
+}
+
+String AIAgentNextSession::create_user_task(const String &p_milestone_id, const String &p_title, const String &p_assigned_agent_id, const Array &p_depends_on, const String &p_description, const Array &p_attachments) {
 	if (!_can_edit_plan_target(p_milestone_id)) {
 		return String();
 	}
@@ -1463,12 +1488,29 @@ String AIAgentNextSession::create_user_task(const String &p_milestone_id, const 
 		event_log->record_event("plan_edit_failed", p_milestone_id, String(), "user", project_state->get_last_error());
 		return String();
 	}
+	if (!p_attachments.is_empty()) {
+		Dictionary patch;
+		patch["attachments"] = p_attachments.duplicate(true);
+		String error;
+		if (!project_state->update_task(task_id, patch, error)) {
+			event_log->record_event("plan_edit_failed", p_milestone_id, task_id, "user", error);
+			return String();
+		}
+	}
 	selected_task_id = task_id;
 	_finish_user_plan_edit("create_task", p_milestone_id, task_id, "NEXT task created by user.");
 	return task_id;
 }
 
 bool AIAgentNextSession::edit_user_task(const String &p_task_id, const String &p_title, const String &p_description, const String &p_assigned_agent_id) {
+	if (project_state.is_null()) {
+		return false;
+	}
+	Dictionary task = project_state->get_task(p_task_id);
+	return edit_user_task(p_task_id, p_title, p_description, p_assigned_agent_id, task.get("attachments", Array()));
+}
+
+bool AIAgentNextSession::edit_user_task(const String &p_task_id, const String &p_title, const String &p_description, const String &p_assigned_agent_id, const Array &p_attachments) {
 	if (project_state.is_null() || !_can_edit_plan_target(project_state->get_task_milestone_id(p_task_id))) {
 		return false;
 	}
@@ -1477,6 +1519,7 @@ bool AIAgentNextSession::edit_user_task(const String &p_task_id, const String &p
 	patch["title"] = p_title.strip_edges();
 	patch["description"] = p_description;
 	patch["assigned_agent_id"] = p_assigned_agent_id.strip_edges();
+	patch["attachments"] = p_attachments.duplicate(true);
 	String error;
 	if (!project_state->update_task(p_task_id, patch, error)) {
 		event_log->record_event("plan_edit_failed", project_state->get_task_milestone_id(p_task_id), p_task_id, "user", error);
@@ -1642,6 +1685,10 @@ bool AIAgentNextSession::run_task(const String &p_task_id) {
 }
 
 bool AIAgentNextSession::send_task_session_message(const String &p_task_id, const String &p_message) {
+	return send_task_session_message(p_task_id, p_message, Array());
+}
+
+bool AIAgentNextSession::send_task_session_message(const String &p_task_id, const String &p_message, const Array &p_attachments) {
 	const String message_text = p_message.strip_edges();
 	if (message_text.is_empty()) {
 		return false;
@@ -1676,6 +1723,7 @@ bool AIAgentNextSession::send_task_session_message(const String &p_task_id, cons
 	user_message.role = AI_AGENT_ROLE_USER;
 	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
 	user_message.content = p_message;
+	_set_message_attachments(user_message, p_attachments);
 	messages.push_back(user_message);
 
 	if (run_state) {
@@ -1738,6 +1786,10 @@ void AIAgentNextSession::review_active_milestone() {
 }
 
 void AIAgentNextSession::generate_feedback_tasks(const String &p_feedback) {
+	generate_feedback_tasks(p_feedback, Array());
+}
+
+void AIAgentNextSession::generate_feedback_tasks(const String &p_feedback, const Array &p_attachments) {
 	if (_is_workflow_active()) {
 		event_log->record_event("operation_ignored", project_state->get_active_milestone_id(), String(), "next_session", "NEXT operation is already running.");
 		return;
@@ -1762,10 +1814,12 @@ void AIAgentNextSession::generate_feedback_tasks(const String &p_feedback) {
 	const int previous_task_count = project_state->get_task_count(milestone_id);
 	pending_feedback_previous_task_count = previous_task_count;
 	pending_feedback_text = feedback;
+	pending_feedback_attachments = p_attachments.duplicate(true);
 	AIAgentMessage user_message;
 	user_message.role = AI_AGENT_ROLE_USER;
 	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
 	user_message.content = vformat("Turn this playtest feedback into additional NEXT tasks for milestone `%s` by calling ai_next.manage_project with append_tasks:\n\n%s", milestone_id, feedback);
+	_set_message_attachments(user_message, pending_feedback_attachments);
 
 	Vector<AIAgentMessage> messages;
 	messages.push_back(user_message);
@@ -1810,6 +1864,7 @@ void AIAgentNextSession::cancel_current_operation() {
 		checkpoint.active_task_batch_index = active_task_batch_index;
 		checkpoint.feedback_text = pending_feedback_text;
 		checkpoint.feedback_previous_task_count = pending_feedback_previous_task_count;
+		checkpoint.feedback_attachments = pending_feedback_attachments.duplicate(true);
 	}
 	checkpoint.status = "user_terminated";
 	if (checkpoint.agent_run_id.is_empty()) {

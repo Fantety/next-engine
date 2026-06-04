@@ -170,6 +170,7 @@ Dictionary ai_next_task_to_dict(const AINextTask &p_task) {
 	dict["depends_on"] = ai_next_string_vector_to_array(p_task.depends_on);
 	dict["asset_refs"] = ai_next_string_vector_to_array(p_task.asset_refs);
 	dict["output_paths"] = ai_next_string_vector_to_array(p_task.output_paths);
+	dict["attachments"] = p_task.attachments.duplicate(true);
 	dict["status"] = ai_next_task_status_to_string(p_task.status);
 	dict["run_id"] = p_task.run_id;
 	dict["result_summary"] = p_task.result_summary;
@@ -193,6 +194,9 @@ AINextTask ai_next_task_from_dict(const Dictionary &p_dict) {
 	}
 	if (p_dict.has("output_paths") && Variant(p_dict["output_paths"]).get_type() == Variant::ARRAY) {
 		task.output_paths = ai_next_array_to_string_vector(p_dict["output_paths"]);
+	}
+	if (p_dict.has("attachments") && Variant(p_dict["attachments"]).get_type() == Variant::ARRAY) {
+		task.attachments = Array(p_dict["attachments"]).duplicate(true);
 	}
 	task.status = ai_next_task_status_from_string(String(p_dict.get("status", "pending")));
 	task.run_id = String(p_dict.get("run_id", String()));

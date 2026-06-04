@@ -23,6 +23,7 @@ struct AINextWorkflowCheckpoint {
 	bool single_task_run = false;
 	String feedback_text;
 	int feedback_previous_task_count = 0;
+	Array feedback_attachments;
 	String selected_task_id;
 	Array active_task_batch;
 	int active_task_batch_index = 0;

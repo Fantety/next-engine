@@ -8,6 +8,7 @@
 #include "core/object/class_db.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
 #include "editor/ai_component/next/ai_next_agent_registry.h"
+#include "editor/ai_component/ui/ai_attachment_bar.h"
 #include "editor/ai_component/ui/ai_message_list.h"
 #include "editor/ai_component/ui/next/ai_next_plan_rows.h"
 #include "editor/themes/editor_scale.h"
@@ -159,6 +160,9 @@ void AINextTaskTree::_task_session_pressed(const String &p_task_id) {
 		return;
 	}
 	session_task_id = p_task_id;
+	if (task_session_attachment_bar) {
+		task_session_attachment_bar->clear_attachments();
+	}
 	task_session_dialog->set_title(vformat(TTR("Task Session: %s"), String(task.get("title", TTR("Task")))));
 	_refresh_task_session_dialog();
 	task_session_dialog->popup_centered(Size2(680, 560) * EDSCALE);
@@ -169,8 +173,12 @@ void AINextTaskTree::_send_task_session_message_pressed() {
 		return;
 	}
 	const String message = task_session_input->get_text();
-	if (next_session->send_task_session_message(session_task_id, message)) {
+	const Array attachments = task_session_attachment_bar ? task_session_attachment_bar->get_attachments() : Array();
+	if (next_session->send_task_session_message(session_task_id, message, attachments)) {
 		task_session_input->clear();
+		if (task_session_attachment_bar) {
+			task_session_attachment_bar->clear_attachments();
+		}
 		_refresh_task_session_dialog();
 	}
 	_update_task_session_send_button();
@@ -216,6 +224,9 @@ void AINextTaskTree::_build_dialogs() {
 	task_description_edit->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	task_description_edit->set_placeholder(TTR("Description"));
 	task_form->add_child(task_description_edit);
+
+	task_attachment_bar = memnew(AIAttachmentBar);
+	task_form->add_child(task_attachment_bar);
 
 	task_agent_selector = memnew(OptionButton);
 	task_agent_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -275,6 +286,9 @@ void AINextTaskTree::_build_dialogs() {
 	task_session_input->connect("text_changed", callable_mp(this, &AINextTaskTree::_task_session_input_changed));
 	session_root->add_child(task_session_input);
 
+	task_session_attachment_bar = memnew(AIAttachmentBar);
+	session_root->add_child(task_session_attachment_bar);
+
 	HBoxContainer *session_actions = memnew(HBoxContainer);
 	session_actions->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	session_root->add_child(session_actions);
@@ -322,6 +336,9 @@ void AINextTaskTree::_add_task_pressed() {
 	editing_task_id.clear();
 	task_title_edit->clear();
 	task_description_edit->clear();
+	if (task_attachment_bar) {
+		task_attachment_bar->clear_attachments();
+	}
 	_populate_assignable_agent_selector(task_agent_selector, AINextAgentRegistry::get_default_task_agent_id());
 	_populate_milestone_selector(next_session->get_project_state()->get_active_milestone_id());
 	task_dialog->set_title(TTR("Add Task"));
@@ -340,6 +357,9 @@ void AINextTaskTree::_edit_task_pressed(const String &p_task_id) {
 	const String assigned_agent_id = String(task.get("assigned_agent_id", AINextAgentRegistry::get_default_task_agent_id()));
 	task_title_edit->set_text(String(task.get("title", String())));
 	task_description_edit->set_text(String(task.get("description", String())));
+	if (task_attachment_bar) {
+		task_attachment_bar->set_attachments(task.get("attachments", Array()));
+	}
 	_populate_assignable_agent_selector(task_agent_selector, assigned_agent_id);
 	_populate_milestone_selector(next_session->get_project_state()->get_task_milestone_id(p_task_id));
 	task_dialog->set_title(TTR("Edit Task"));
@@ -359,12 +379,13 @@ void AINextTaskTree::_confirm_task_dialog() {
 	const String agent_id = agent_index >= 0 ? String(task_agent_selector->get_item_metadata(agent_index)) : AINextAgentRegistry::get_default_task_agent_id();
 	const String milestone_id = milestone_index >= 0 ? String(task_milestone_selector->get_item_metadata(milestone_index)) : String();
 	const String description = task_description_edit ? task_description_edit->get_text() : String();
+	const Array attachments = task_attachment_bar ? task_attachment_bar->get_attachments() : Array();
 
 	if (editing_task_id.is_empty()) {
-		(void)next_session->create_user_task(milestone_id, title, agent_id, Array(), description);
+		(void)next_session->create_user_task(milestone_id, title, agent_id, Array(), description, attachments);
 	} else {
 		const String original_milestone_id = next_session->get_project_state()->get_task_milestone_id(editing_task_id);
-		if (next_session->edit_user_task(editing_task_id, title, description, agent_id) && original_milestone_id != milestone_id) {
+		if (next_session->edit_user_task(editing_task_id, title, description, agent_id, attachments) && original_milestone_id != milestone_id) {
 			next_session->move_user_task(editing_task_id, milestone_id, 9999);
 		}
 	}

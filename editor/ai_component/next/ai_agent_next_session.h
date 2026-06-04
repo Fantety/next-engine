@@ -51,6 +51,7 @@ class AIAgentNextSession : public AISessionBase {
 	String selected_task_id;
 	String pending_feedback_text;
 	int pending_feedback_previous_task_count = 0;
+	Array pending_feedback_attachments;
 	int milestone_run_guard = 0;
 	Array active_task_batch;
 	int active_task_batch_index = 0;
@@ -151,7 +152,9 @@ public:
 	bool move_user_milestone(const String &p_milestone_id, int p_to_index);
 	bool merge_user_milestones(const String &p_target_milestone_id, const String &p_source_milestone_id);
 	String create_user_task(const String &p_milestone_id, const String &p_title, const String &p_assigned_agent_id, const Array &p_depends_on, const String &p_description);
+	String create_user_task(const String &p_milestone_id, const String &p_title, const String &p_assigned_agent_id, const Array &p_depends_on, const String &p_description, const Array &p_attachments);
 	bool edit_user_task(const String &p_task_id, const String &p_title, const String &p_description, const String &p_assigned_agent_id);
+	bool edit_user_task(const String &p_task_id, const String &p_title, const String &p_description, const String &p_assigned_agent_id, const Array &p_attachments);
 	bool delete_user_task(const String &p_task_id);
 	bool move_user_task(const String &p_task_id, const String &p_target_milestone_id, int p_to_index);
 	bool set_user_task_dependencies(const String &p_task_id, const Array &p_depends_on);
@@ -160,8 +163,10 @@ public:
 	void run_active_milestone();
 	bool run_task(const String &p_task_id);
 	bool send_task_session_message(const String &p_task_id, const String &p_message);
+	bool send_task_session_message(const String &p_task_id, const String &p_message, const Array &p_attachments);
 	void review_active_milestone();
 	void generate_feedback_tasks(const String &p_feedback);
+	void generate_feedback_tasks(const String &p_feedback, const Array &p_attachments);
 	void accept_and_lock_active_milestone();
 	void cancel_current_operation();
 

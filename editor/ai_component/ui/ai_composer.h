@@ -10,12 +10,14 @@
 #include "scene/gui/option_button.h"
 #include "scene/gui/text_edit.h"
 
+class AIAttachmentBar;
 class AIPlanPanel;
 
 class AIComposer : public VBoxContainer {
 	GDCLASS(AIComposer, VBoxContainer);
 
 	TextEdit *input = nullptr;
+	AIAttachmentBar *attachment_bar = nullptr;
 	AIPlanPanel *plan_panel = nullptr;
 	OptionButton *model_selector = nullptr;
 	OptionButton *mode_selector = nullptr;
@@ -37,6 +39,7 @@ public:
 	String get_input_text() const;
 	String get_selected_model() const;
 	String get_selected_agent_profile_id() const;
+	Array get_attachments() const;
 	void clear_input();
 	void set_running(bool p_running);
 	void reload_models();

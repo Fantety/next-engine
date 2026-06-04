@@ -85,6 +85,7 @@ public:
 	bool is_tool_runtime_available() const;
 	void reload_tool_runtime();
 	void send_user_message(const String &p_message);
+	void send_user_message(const String &p_message, const Array &p_attachments);
 	void cancel_request();
 	void start_new_session();
 	bool load_session(const String &p_session_id);
@@ -102,6 +103,7 @@ public:
 	void apply_runtime_result_for_test(const AIAgentRuntimeResult &p_result);
 	void add_runtime_message_for_test(int p_index, const AIAgentMessage &p_message);
 	void update_runtime_message_for_test(int p_index, const AIAgentMessage &p_message);
+	static Dictionary make_user_message_for_test(const String &p_message, const Array &p_attachments);
 	Error save_for_test();
 	void set_conversation_project_scope_for_test(const String &p_project_scope_key);
 	Ref<AIConversationStore> get_conversation_store_for_test() const;

@@ -683,6 +683,9 @@ bool AINextProjectState::update_task(const String &p_task_id, const Dictionary &
 	if (p_patch.has("output_paths") && Variant(p_patch["output_paths"]).get_type() == Variant::ARRAY) {
 		task->output_paths = ai_next_array_to_string_vector(p_patch["output_paths"]);
 	}
+	if (p_patch.has("attachments") && Variant(p_patch["attachments"]).get_type() == Variant::ARRAY) {
+		task->attachments = Array(p_patch["attachments"]).duplicate(true);
+	}
 	if (p_patch.has("status")) {
 		task->status = ai_next_task_status_from_string(String(p_patch["status"]));
 	}

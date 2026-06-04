@@ -8,6 +8,7 @@
 #include "core/templates/vector.h"
 
 class AIAgentNextSession;
+class AIAttachmentBar;
 class AIMessageList;
 class Button;
 class CheckBox;
@@ -25,6 +26,7 @@ class AINextTaskTree : public VBoxContainer {
 	ConfirmationDialog *task_dialog = nullptr;
 	LineEdit *task_title_edit = nullptr;
 	TextEdit *task_description_edit = nullptr;
+	AIAttachmentBar *task_attachment_bar = nullptr;
 	OptionButton *task_agent_selector = nullptr;
 	OptionButton *task_milestone_selector = nullptr;
 	ConfirmationDialog *delete_dialog = nullptr;
@@ -33,6 +35,7 @@ class AINextTaskTree : public VBoxContainer {
 	ConfirmationDialog *task_session_dialog = nullptr;
 	AIMessageList *task_session_messages = nullptr;
 	TextEdit *task_session_input = nullptr;
+	AIAttachmentBar *task_session_attachment_bar = nullptr;
 	Button *task_session_send_button = nullptr;
 	Vector<CheckBox *> dependency_checks;
 	String editing_task_id;

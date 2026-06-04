@@ -1327,6 +1327,26 @@ TEST_CASE("[Editor][AI] Agent session recalculates token usage from message meta
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI] Agent session stores user message attachments") {
+	Dictionary attachment;
+	attachment["type"] = "image";
+	attachment["path"] = "res://screens/reference.png";
+	attachment["mime_type"] = "image/png";
+	attachment["detail"] = "auto";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary user_message = AIAgentSession::make_user_message_for_test("Use this reference image.", attachments);
+	CHECK(String(user_message["role"]) == "user");
+	REQUIRE(user_message.has("metadata"));
+	Dictionary metadata = user_message["metadata"];
+	REQUIRE(metadata.has("attachments"));
+	Array stored_attachments = metadata["attachments"];
+	REQUIRE(stored_attachments.size() == 1);
+	Dictionary stored_attachment = stored_attachments[0];
+	CHECK(String(stored_attachment["path"]) == "res://screens/reference.png");
+}
+
 TEST_CASE("[Editor][AI] Agent session deletes current conversation and starts clean session") {
 	AIAgentSession *session = memnew(AIAgentSession);
 	session->set_conversation_project_scope_for_test("test_project_scope_delete_current");
