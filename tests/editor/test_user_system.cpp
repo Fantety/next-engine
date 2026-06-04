@@ -300,7 +300,7 @@ TEST_CASE("[Editor][UserSystem] Auth client parses protobuf int64 JSON fields as
 	CHECK(user_result.user.credits == "42");
 }
 
-TEST_CASE("[Editor][UserSystem] Auth client refreshes token with body credentials") {
+TEST_CASE("[Editor][UserSystem] Auth client refreshes token with body credentials without requiring expired auth headers") {
 	Ref<FakeAuthTransport> transport;
 	transport.instantiate();
 	transport->push_json("{\"code\":0,\"data\":{\"userId\":\"user-1\",\"token\":\"token-2\",\"refreshToken\":\"refresh-2\"}}");
@@ -327,8 +327,8 @@ TEST_CASE("[Editor][UserSystem] Auth client refreshes token with body credential
 	CHECK(transport->last_method == HTTPClient::METHOD_POST);
 	CHECK(transport->last_path == "/v1/auth/token/refresh");
 	CHECK_FALSE(has_header(transport->last_headers, "Authorization: Bearer token-1"));
-	CHECK(has_header(transport->last_headers, "sec-token: token-1"));
-	CHECK(has_header(transport->last_headers, "sec-sign: 1"));
+	CHECK_FALSE(has_header(transport->last_headers, "sec-token: token-1"));
+	CHECK_FALSE(has_header(transport->last_headers, "sec-sign: 1"));
 	CHECK_FALSE(has_header_prefix(transport->last_headers, "Cookie:"));
 
 	Dictionary body = parse_json_dictionary(transport->last_body);

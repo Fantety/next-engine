@@ -539,7 +539,7 @@ AuthResult AuthClient::login_with_password(const String &p_phone, const String &
 }
 
 AuthResult AuthClient::refresh_token(const AuthSessionData &p_session) {
-	AuthResult result = _send_request(HTTPClient::METHOD_POST, "/v1/auth/token/refresh", _build_refresh_token_body(p_session), true, p_session.token);
+	AuthResult result = _send_request(HTTPClient::METHOD_POST, "/v1/auth/token/refresh", _build_refresh_token_body(p_session), true);
 	if (!result.success && result.session.user_id.is_empty() && !p_session.user_id.is_empty() && !result.session.token.is_empty() && !result.session.refresh_token.is_empty()) {
 		result.session.user_id = p_session.user_id;
 		result.success = true;
