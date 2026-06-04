@@ -247,10 +247,6 @@ int AIAgentSettingsDialog::get_next_marquee_preset_count_for_test() const {
 	return next_marquee_page ? next_marquee_page->get_preset_count_for_test() : 0;
 }
 
-bool AIAgentSettingsDialog::is_next_marquee_shader_editor_visible_for_test() const {
-	return next_marquee_page && next_marquee_page->is_shader_editor_visible_for_test();
-}
-
 int AIAgentSettingsDialog::get_mcp_server_table_row_count_for_test() const {
 	return mcp_page ? mcp_page->get_server_table_row_count_for_test() : 0;
 }
@@ -304,9 +300,9 @@ void AIAgentSettingsDialog::select_next_marquee_preset_for_test(const String &p_
 	next_marquee_page->select_preset_for_test(p_preset_id);
 }
 
-void AIAgentSettingsDialog::edit_next_marquee_custom_for_test() {
-	ERR_FAIL_NULL(next_marquee_page);
-	next_marquee_page->edit_custom_for_test();
+String AIAgentSettingsDialog::add_next_marquee_for_test(const String &p_display_name, const String &p_shader_code) {
+	ERR_FAIL_NULL_V(next_marquee_page, String());
+	return next_marquee_page->add_marquee_for_test(p_display_name, p_shader_code);
 }
 
 void AIAgentSettingsDialog::edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {

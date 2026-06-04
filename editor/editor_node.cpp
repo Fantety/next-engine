@@ -155,6 +155,7 @@
 #include "scene/2d/node_2d.h"
 #include "scene/3d/bone_attachment_3d.h"
 #include "scene/animation/animation_tree.h"
+#include "scene/gui/button.h"
 #include "scene/gui/color_picker.h"
 #include "scene/gui/dialogs.h"
 #include "scene/gui/file_dialog.h"
@@ -742,6 +743,9 @@ void EditorNode::_update_theme(bool p_skip_creation) {
 
 		if (main_menu_button != nullptr) {
 			main_menu_button->set_button_icon(theme->get_icon(SNAME("TripleBar"), EditorStringName(EditorIcons)));
+		}
+		if (ai_settings_button != nullptr) {
+			ai_settings_button->set_button_icon(theme->get_icon(SNAME("NEXTSettings"), EditorStringName(EditorIcons)));
 		}
 
 		editor_main_screen->add_theme_style_override(SceneStringName(panel), theme->get_stylebox(SNAME("Content"), EditorStringName(EditorStyles)));
@@ -9163,6 +9167,20 @@ EditorNode::EditorNode() {
 
 	user_avatar = memnew(EditorUserAvatar);
 	right_menu_hb->add_child(user_avatar);
+
+	ai_settings_button = memnew(Button);
+	ai_settings_button->set_flat(true);
+	ai_settings_button->set_theme_type_variation("FlatMenuButton");
+	ai_settings_button->set_custom_minimum_size(Size2(28, 28) * EDSCALE);
+	ai_settings_button->set_button_icon(theme->get_icon(SNAME("NEXTSettings"), EditorStringName(EditorIcons)));
+	ai_settings_button->set_expand_icon(true);
+	ai_settings_button->set_icon_alignment(HORIZONTAL_ALIGNMENT_CENTER);
+	ai_settings_button->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+	ai_settings_button->set_focus_mode(Control::FOCUS_ACCESSIBILITY);
+	ai_settings_button->set_tooltip_text(TTRC("Open AI Settings."));
+	ai_settings_button->set_accessibility_name(TTRC("AI Settings"));
+	ai_settings_button->connect(SceneStringName(pressed), callable_mp(this, &EditorNode::_menu_option).bind((int)AI_OPEN_SETTINGS));
+	right_menu_hb->add_child(ai_settings_button);
 
 	progress_hb = memnew(BackgroundProgress);
 

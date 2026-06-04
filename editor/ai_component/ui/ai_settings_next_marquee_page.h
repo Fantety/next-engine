@@ -9,34 +9,36 @@
 
 class Button;
 class ColorRect;
+class ConfirmationDialog;
 class Label;
-class OptionButton;
+class LineEdit;
 class TextEdit;
 class VBoxContainer;
 
 class AISettingsNextMarqueePage : public MarginContainer {
 	GDCLASS(AISettingsNextMarqueePage, MarginContainer);
 
-	OptionButton *preset_selector = nullptr;
+	Button *add_marquee_button = nullptr;
+	ColorRect *selected_preview_rect = nullptr;
+	VBoxContainer *marquee_table = nullptr;
 	ColorRect *preview_rect = nullptr;
-	Button *edit_custom_button = nullptr;
-	Button *save_custom_button = nullptr;
-	Button *cancel_custom_button = nullptr;
-	Button *reset_custom_button = nullptr;
+	ConfirmationDialog *marquee_dialog = nullptr;
+	LineEdit *name_edit = nullptr;
 	TextEdit *shader_editor = nullptr;
 	Label *status_label = nullptr;
-	bool editing_custom = false;
+	Vector<AINextMarqueePreset> marquee_rows;
 
 	void _build_ui();
-	void _populate_presets();
-	void _select_current_preset();
-	void _preset_selected(int p_index);
-	void _edit_custom_pressed();
-	void _save_custom_pressed();
-	void _cancel_custom_pressed();
-	void _reset_custom_pressed();
-	void _refresh_editor_state();
-	void _apply_preview_shader(const String &p_shader_code);
+	void _build_add_dialog();
+	void _refresh_marquee_table();
+	void _add_marquee_table_row(const AINextMarqueePreset &p_marquee, const String &p_current_id);
+	void _select_current_marquee();
+	void _marquee_selected(const String &p_marquee_id);
+	void _popup_add_marquee_dialog();
+	void _add_marquee_confirmed();
+	void _dialog_shader_changed();
+	void _apply_selected_preview_shader(const String &p_shader_code);
+	void _apply_dialog_preview_shader(const String &p_shader_code);
 	void _set_status(const String &p_status, bool p_error);
 
 protected:
@@ -46,9 +48,9 @@ protected:
 public:
 	AISettingsNextMarqueePage();
 
+	virtual Size2 get_minimum_size() const override;
 	void build_for_test();
 	int get_preset_count_for_test() const;
-	bool is_shader_editor_visible_for_test() const;
 	void select_preset_for_test(const String &p_preset_id);
-	void edit_custom_for_test();
+	String add_marquee_for_test(const String &p_display_name, const String &p_shader_code);
 };

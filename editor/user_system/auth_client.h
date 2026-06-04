@@ -30,6 +30,7 @@ struct AuthUserInfo {
 
 struct AuthResult {
 	bool success = false;
+	int http_code = 0;
 	String error;
 	AuthSessionData session;
 	AuthUserInfo user;

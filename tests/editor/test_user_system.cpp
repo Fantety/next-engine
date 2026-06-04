@@ -54,6 +54,15 @@ public:
 		responses.push_back(response);
 	}
 
+	void push_http_error(int p_http_code, const String &p_error, const String &p_body = String()) {
+		Response response;
+		response.ok = false;
+		response.error = p_error;
+		response.http_code = p_http_code;
+		response.body = p_body;
+		responses.push_back(response);
+	}
+
 	virtual bool request_json(HTTPClient::Method p_method, const String &p_path, const String &p_body, const Vector<String> &p_headers, String &r_response, int &r_http_code, String &r_error) override {
 		request_count++;
 		last_method = p_method;
@@ -519,6 +528,110 @@ TEST_CASE("[Editor][UserSystem] Manager initializes profile refresh even when to
 	CHECK(manager->get_credits_text() == "77");
 	CHECK(transport->request_count == 2);
 	CHECK(transport->last_path == "/user/info");
+
+	EditorUserSession::set_session_storage_for_test(original_storage);
+}
+
+TEST_CASE("[Editor][UserSystem] Manager refreshes token and retries profile when profile token is expired") {
+	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
+	EditorUserSession::set_session_storage_for_test(Dictionary());
+
+	AuthSessionData session;
+	session.user_id = "78";
+	session.token = "expired-token";
+	session.refresh_token = "refresh-1";
+	session.device_id = "device-1";
+	session.phone = "+8613800000000";
+
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_http_error(401, "Authentication server returned HTTP 401.", "{\"code\":401,\"reason\":\"INVALID_TOKEN\",\"message\":\"token is expired\"}");
+	transport->push_json("{\"code\":0,\"data\":{\"userId\":\"78\",\"token\":\"token-2\",\"refreshToken\":\"refresh-2\"}}");
+	transport->push_json("{\"code\":0,\"data\":{\"id\":\"78\",\"nickname\":\"Fantety\",\"phone\":\"+8613800000000\",\"email\":\"\",\"credits\":\"66\"}}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	Ref<EditorUserManager> manager;
+	manager.instantiate();
+	manager->set_auth_client_for_test(client);
+	manager->set_session_for_test(session);
+
+	CHECK(manager->request_refresh_profile());
+	for (int i = 0; i < 6; i++) {
+		manager->wait_for_request_for_test();
+		if (MessageQueue::get_main_singleton()) {
+			MessageQueue::get_main_singleton()->flush();
+		}
+	}
+
+	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_IN);
+	CHECK(manager->get_display_name() == "Fantety");
+	CHECK(manager->get_credits_text() == "66");
+	AuthSessionData refreshed_session = manager->get_session_for_test();
+	CHECK(refreshed_session.token == "token-2");
+	CHECK(refreshed_session.refresh_token == "refresh-2");
+	CHECK(refreshed_session.user_id == "78");
+	CHECK(refreshed_session.device_id == "device-1");
+	CHECK(transport->request_count == 3);
+	if (transport->request_count == 3) {
+		CHECK(transport->request_paths[0] == "/user/info");
+		CHECK(transport->request_paths[1] == "/v1/auth/token/refresh");
+		CHECK(transport->request_paths[2] == "/user/info");
+		CHECK_FALSE(has_header(transport->request_headers[1], "sec-token: expired-token"));
+		CHECK(has_header(transport->request_headers[2], "sec-token: token-2"));
+	}
+
+	EditorUserSession::set_session_storage_for_test(original_storage);
+}
+
+TEST_CASE("[Editor][UserSystem] Manager signs out when expired profile token cannot be refreshed") {
+	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
+	EditorUserSession::set_session_storage_for_test(Dictionary());
+
+	AuthSessionData session;
+	session.user_id = "78";
+	session.token = "expired-token";
+	session.refresh_token = "refresh-1";
+	session.device_id = "device-1";
+	EditorUserSession::save_session(session);
+
+	Ref<FakeAuthTransport> transport;
+	transport.instantiate();
+	transport->push_http_error(401, "Authentication server returned HTTP 401.", "{\"code\":401,\"reason\":\"INVALID_TOKEN\",\"message\":\"token is expired\"}");
+	transport->push_http_error(401, "Authentication server returned HTTP 401.", "{\"code\":401,\"reason\":\"INVALID_TOKEN\",\"message\":\"refresh token expired\"}");
+
+	Ref<AuthClient> client;
+	client.instantiate();
+	client->set_transport(transport);
+
+	Ref<EditorUserManager> manager;
+	manager.instantiate();
+	manager->set_auth_client_for_test(client);
+	manager->set_session_for_test(session);
+
+	CHECK(manager->request_refresh_profile());
+	for (int i = 0; i < 6; i++) {
+		manager->wait_for_request_for_test();
+		if (MessageQueue::get_main_singleton()) {
+			MessageQueue::get_main_singleton()->flush();
+		}
+	}
+
+	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_OUT);
+	CHECK(manager->get_display_name().is_empty());
+	CHECK(manager->get_credits_text() == "--");
+	AuthSessionData cleared_session = EditorUserSession::load_session();
+	CHECK(cleared_session.user_id.is_empty());
+	CHECK(cleared_session.token.is_empty());
+	CHECK(cleared_session.refresh_token.is_empty());
+	CHECK(cleared_session.device_id == "device-1");
+	CHECK(transport->request_count == 2);
+	if (transport->request_count == 2) {
+		CHECK(transport->request_paths[0] == "/user/info");
+		CHECK(transport->request_paths[1] == "/v1/auth/token/refresh");
+	}
 
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }

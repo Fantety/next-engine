@@ -43,6 +43,7 @@ typedef void (*EditorPluginInitializeCallback)();
 typedef bool (*EditorBuildCallback)();
 
 class AcceptDialog;
+class Button;
 class ColorPicker;
 class ConfirmationDialog;
 class Control;
@@ -338,6 +339,7 @@ private:
 	EditorTitleBar *title_bar = nullptr;
 	EditorRunBar *project_run_bar = nullptr;
 	EditorUserAvatar *user_avatar = nullptr;
+	Button *ai_settings_button = nullptr;
 	HBoxContainer *right_menu_hb = nullptr;
 
 	// Spacers to center 2D / 3D / Script buttons.

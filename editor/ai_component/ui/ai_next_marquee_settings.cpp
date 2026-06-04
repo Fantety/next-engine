@@ -4,6 +4,9 @@
 
 #include "ai_next_marquee_settings.h"
 
+#include "core/math/math_funcs.h"
+#include "core/os/os.h"
+#include "core/variant/variant.h"
 #include "editor/settings/editor_settings.h"
 
 namespace {
@@ -106,7 +109,11 @@ String AINextMarqueeSettings::_get_preset_path() {
 	return "ai_agent/next_marquee/preset";
 }
 
-String AINextMarqueeSettings::_get_custom_shader_path() {
+String AINextMarqueeSettings::_get_custom_marquees_path() {
+	return "ai_agent/next_marquee/custom_marquees";
+}
+
+String AINextMarqueeSettings::_get_legacy_custom_shader_path() {
 	return "ai_agent/next_marquee/custom_shader";
 }
 
@@ -118,7 +125,83 @@ String AINextMarqueeSettings::_get_default_custom_shader_code() {
 	return String(AURORA_SHADER).strip_edges() + "\n";
 }
 
-Vector<AINextMarqueePreset> AINextMarqueeSettings::get_presets() {
+Array AINextMarqueeSettings::_get_custom_marquee_storage() {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	if (!settings) {
+		return Array();
+	}
+
+	const String path = _get_custom_marquees_path();
+	if (settings->has_setting(path)) {
+		Variant value = settings->get(path);
+		if (value.get_type() == Variant::ARRAY) {
+			return value;
+		}
+	}
+
+	const String legacy_path = _get_legacy_custom_shader_path();
+	if (settings->has_setting(legacy_path)) {
+		const String legacy_shader = String(settings->get(legacy_path));
+		if (!legacy_shader.strip_edges().is_empty()) {
+			AINextMarqueePreset legacy;
+			legacy.id = "custom";
+			legacy.display_name = "Custom";
+			legacy.shader_code = legacy_shader;
+			legacy.custom = true;
+
+			Array migrated;
+			migrated.push_back(_marquee_to_dictionary(legacy));
+			return migrated;
+		}
+	}
+
+	return Array();
+}
+
+void AINextMarqueeSettings::_set_custom_marquee_storage(const Array &p_marquees) {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	ERR_FAIL_NULL(settings);
+	settings->set(_get_custom_marquees_path(), p_marquees);
+}
+
+AINextMarqueePreset AINextMarqueeSettings::_marquee_from_dictionary(const Dictionary &p_marquee) {
+	AINextMarqueePreset marquee;
+	marquee.id = String(p_marquee.get("id", String()));
+	marquee.display_name = _normalize_display_name(String(p_marquee.get("display_name", String())));
+	marquee.shader_code = String(p_marquee.get("shader_code", String()));
+	marquee.custom = true;
+	return marquee;
+}
+
+Dictionary AINextMarqueeSettings::_marquee_to_dictionary(const AINextMarqueePreset &p_marquee) {
+	Dictionary marquee;
+	marquee["id"] = p_marquee.id;
+	marquee["display_name"] = _normalize_display_name(p_marquee.display_name);
+	marquee["shader_code"] = p_marquee.shader_code;
+	marquee["custom"] = true;
+	return marquee;
+}
+
+String AINextMarqueeSettings::_make_custom_marquee_id() {
+	return "custom:" + String::num_uint64(OS::get_singleton()->get_ticks_usec()) + ":" + itos(Math::rand());
+}
+
+String AINextMarqueeSettings::_normalize_display_name(const String &p_display_name) {
+	String display_name = p_display_name.strip_edges();
+	display_name = display_name.replace("\r\n", " ").replace("\n", " ").replace("\t", " ");
+	while (display_name.contains("  ")) {
+		display_name = display_name.replace("  ", " ");
+	}
+	if (display_name.is_empty()) {
+		display_name = "Custom Marquee";
+	}
+	if (display_name.length() > 80) {
+		display_name = display_name.substr(0, 80).strip_edges();
+	}
+	return display_name;
+}
+
+Vector<AINextMarqueePreset> AINextMarqueeSettings::_get_builtin_presets() {
 	Vector<AINextMarqueePreset> presets;
 
 	AINextMarqueePreset aurora;
@@ -145,14 +228,25 @@ Vector<AINextMarqueePreset> AINextMarqueeSettings::get_presets() {
 	caution.shader_code = String(CAUTION_SHADER).strip_edges() + "\n";
 	presets.push_back(caution);
 
-	AINextMarqueePreset custom;
-	custom.id = CUSTOM_PRESET_ID;
-	custom.display_name = "Custom";
-	custom.shader_code = get_custom_shader_code();
-	custom.custom = true;
-	presets.push_back(custom);
-
 	return presets;
+}
+
+Vector<AINextMarqueePreset> AINextMarqueeSettings::get_presets() {
+	Vector<AINextMarqueePreset> marquees = _get_builtin_presets();
+
+	Array custom_storage = _get_custom_marquee_storage();
+	for (int i = 0; i < custom_storage.size(); i++) {
+		if (Variant(custom_storage[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		AINextMarqueePreset custom = _marquee_from_dictionary(custom_storage[i]);
+		if (custom.id.is_empty() || custom.shader_code.strip_edges().is_empty()) {
+			continue;
+		}
+		marquees.push_back(custom);
+	}
+
+	return marquees;
 }
 
 AINextMarqueePreset AINextMarqueeSettings::get_preset(const String &p_preset_id) {
@@ -195,19 +289,52 @@ bool AINextMarqueeSettings::set_current_preset_id(const String &p_preset_id) {
 	return true;
 }
 
+String AINextMarqueeSettings::add_custom_marquee(const String &p_display_name, const String &p_shader_code) {
+	if (p_shader_code.strip_edges().is_empty()) {
+		return String();
+	}
+
+	AINextMarqueePreset marquee;
+	marquee.id = _make_custom_marquee_id();
+	marquee.display_name = _normalize_display_name(p_display_name);
+	marquee.shader_code = p_shader_code;
+	marquee.custom = true;
+
+	Array storage = _get_custom_marquee_storage();
+	storage.push_back(_marquee_to_dictionary(marquee));
+	_set_custom_marquee_storage(storage);
+	return marquee.id;
+}
+
+bool AINextMarqueeSettings::remove_custom_marquee(const String &p_marquee_id) {
+	Array storage = _get_custom_marquee_storage();
+	for (int i = 0; i < storage.size(); i++) {
+		if (Variant(storage[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary existing = storage[i];
+		if (String(existing.get("id", String())) == p_marquee_id) {
+			storage.remove_at(i);
+			_set_custom_marquee_storage(storage);
+			if (get_current_preset_id() == p_marquee_id) {
+				set_current_preset_id(_get_default_preset_id());
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
 String AINextMarqueeSettings::get_custom_shader_code() {
-	EditorSettings *settings = EditorSettings::get_singleton();
-	if (!settings) {
-		return _get_default_custom_shader_code();
+	Array storage = _get_custom_marquee_storage();
+	if (!storage.is_empty() && Variant(storage[0]).get_type() == Variant::DICTIONARY) {
+		Dictionary custom = storage[0];
+		const String shader_code = String(custom.get("shader_code", String()));
+		if (!shader_code.strip_edges().is_empty()) {
+			return shader_code;
+		}
 	}
-
-	const String path = _get_custom_shader_path();
-	if (!settings->has_setting(path)) {
-		return _get_default_custom_shader_code();
-	}
-
-	const String shader_code = String(settings->get(path));
-	return shader_code.strip_edges().is_empty() ? _get_default_custom_shader_code() : shader_code;
+	return _get_default_custom_shader_code();
 }
 
 bool AINextMarqueeSettings::set_custom_shader_code(const String &p_shader_code) {
@@ -215,21 +342,44 @@ bool AINextMarqueeSettings::set_custom_shader_code(const String &p_shader_code) 
 		return false;
 	}
 
-	EditorSettings *settings = EditorSettings::get_singleton();
-	ERR_FAIL_NULL_V(settings, false);
-	settings->set(_get_custom_shader_path(), p_shader_code);
+	Array storage = _get_custom_marquee_storage();
+	AINextMarqueePreset marquee;
+	if (!storage.is_empty() && Variant(storage[0]).get_type() == Variant::DICTIONARY) {
+		marquee = _marquee_from_dictionary(storage[0]);
+	}
+	if (marquee.id.is_empty()) {
+		marquee.id = "custom";
+		marquee.display_name = "Custom";
+		marquee.custom = true;
+	}
+	marquee.shader_code = p_shader_code;
+	if (storage.is_empty()) {
+		storage.push_back(_marquee_to_dictionary(marquee));
+	} else {
+		storage[0] = _marquee_to_dictionary(marquee);
+	}
+	_set_custom_marquee_storage(storage);
 	return true;
 }
 
 String AINextMarqueeSettings::get_effective_shader_code() {
 	const String preset_id = get_current_preset_id();
-	if (preset_id == CUSTOM_PRESET_ID) {
-		return get_custom_shader_code();
-	}
 
 	AINextMarqueePreset preset = get_preset(preset_id);
 	if (preset.id.is_empty() || preset.shader_code.strip_edges().is_empty()) {
 		preset = get_preset(_get_default_preset_id());
 	}
 	return preset.shader_code;
+}
+
+Array AINextMarqueeSettings::get_custom_marquee_storage_for_test() {
+	return _get_custom_marquee_storage();
+}
+
+void AINextMarqueeSettings::set_custom_marquee_storage_for_test(const Array &p_marquees) {
+	_set_custom_marquee_storage(p_marquees);
+}
+
+void AINextMarqueeSettings::clear_custom_marquees_for_test() {
+	_set_custom_marquee_storage(Array());
 }

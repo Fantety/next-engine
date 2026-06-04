@@ -76,7 +76,7 @@ void EditorUserManager::_apply_auth_success(const AuthResult &p_result, const St
 	}
 }
 
-bool EditorUserManager::_start_request(RequestType p_request, const AuthSessionData &p_session, const String &p_phone, const String &p_code, const String &p_password, bool p_logout_all) {
+bool EditorUserManager::_start_request(RequestType p_request, const AuthSessionData &p_session, const String &p_phone, const String &p_code, const String &p_password, bool p_logout_all, bool p_profile_refresh_can_refresh_token) {
 	if (request_running.is_set()) {
 		_set_error("An account request is already running.");
 		return false;
@@ -99,6 +99,7 @@ bool EditorUserManager::_start_request(RequestType p_request, const AuthSessionD
 	params->code = p_code;
 	params->password = p_password;
 	params->logout_all = p_logout_all;
+	params->profile_refresh_can_refresh_token = p_profile_refresh_can_refresh_token;
 	params->session_generation = session_generation;
 
 	request_running.set();
@@ -115,25 +116,38 @@ bool EditorUserManager::_start_request(RequestType p_request, const AuthSessionD
 	return true;
 }
 
-void EditorUserManager::_set_completed_request(RequestType p_request, const AuthResult &p_result, uint64_t p_session_generation) {
+bool EditorUserManager::_request_refresh_profile(bool p_allow_token_refresh_on_unauthorized) {
+	if (session.user_id.is_empty() || session.token.is_empty()) {
+		_set_error("Account session is not available.");
+		return false;
+	}
+	print_line(vformat("[User Auth] request_refresh_profile user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
+	return _start_request(REQUEST_REFRESH_PROFILE, session, String(), String(), String(), false, p_allow_token_refresh_on_unauthorized);
+}
+
+void EditorUserManager::_set_completed_request(RequestType p_request, const AuthResult &p_result, uint64_t p_session_generation, bool p_profile_refresh_can_refresh_token) {
 	MutexLock lock(request_result_mutex);
 	completed_request = p_request;
 	completed_result = p_result;
 	completed_session_generation = p_session_generation;
+	completed_profile_refresh_can_refresh_token = p_profile_refresh_can_refresh_token;
 }
 
 void EditorUserManager::_complete_async_request() {
 	RequestType request = REQUEST_NONE;
 	AuthResult result;
 	uint64_t result_session_generation = 0;
+	bool profile_refresh_can_refresh_token = false;
 	{
 		MutexLock lock(request_result_mutex);
 		request = completed_request;
 		result = completed_result;
 		result_session_generation = completed_session_generation;
+		profile_refresh_can_refresh_token = completed_profile_refresh_can_refresh_token;
 		completed_request = REQUEST_NONE;
 		completed_result = AuthResult();
 		completed_session_generation = 0;
+		completed_profile_refresh_can_refresh_token = false;
 	}
 
 	if (request_thread.is_started()) {
@@ -151,6 +165,7 @@ void EditorUserManager::_complete_async_request() {
 	}
 
 	bool start_profile_refresh = false;
+	bool start_token_refresh = false;
 	bool completed_success = result.success;
 	String completed_message = result.error;
 
@@ -185,6 +200,13 @@ void EditorUserManager::_complete_async_request() {
 				_set_state(STATE_LOGGED_IN);
 				emit_signal(SNAME("profile_changed"));
 				start_profile_refresh = true;
+			} else if (profile_refresh_can_refresh_token) {
+				EditorUserSession::clear_session();
+				session = EditorUserSession::load_session();
+				user_info = AuthUserInfo();
+				_set_error("Account session expired. Please sign in again.");
+				_set_state(STATE_LOGGED_OUT);
+				emit_signal(SNAME("profile_changed"));
 			} else {
 				user_info = AuthUserInfo();
 				_set_error(result.error);
@@ -204,6 +226,16 @@ void EditorUserManager::_complete_async_request() {
 				}
 				_clear_error();
 				_set_state(STATE_LOGGED_IN);
+			} else if (result.http_code == 401 && profile_refresh_can_refresh_token && !session.refresh_token.is_empty()) {
+				_set_state(STATE_REFRESHING);
+				_clear_error();
+				start_token_refresh = true;
+			} else if (result.http_code == 401) {
+				EditorUserSession::clear_session();
+				session = EditorUserSession::load_session();
+				user_info = AuthUserInfo();
+				_set_error("Account session expired. Please sign in again.");
+				_set_state(STATE_LOGGED_OUT);
 			} else {
 				user_info = AuthUserInfo();
 				_set_error(result.error);
@@ -224,13 +256,22 @@ void EditorUserManager::_complete_async_request() {
 	bool profile_refresh_started = false;
 	if (start_profile_refresh) {
 		print_line(vformat("[User Auth] scheduling profile refresh user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
-		profile_refresh_started = request_refresh_profile();
+		profile_refresh_started = _request_refresh_profile(false);
 		if (!profile_refresh_started) {
 			print_line(vformat("[User Auth] profile refresh was not started: %s", last_error));
 		}
 	}
 
-	print_line(vformat("[User Auth] completed request=%d success=%s message=%s user_id=%s start_profile_refresh=%s profile_refresh_started=%s", (int)request, completed_success ? "true" : "false", completed_message, session.user_id, start_profile_refresh ? "true" : "false", profile_refresh_started ? "true" : "false"));
+	bool token_refresh_started = false;
+	if (start_token_refresh) {
+		print_line(vformat("[User Auth] scheduling token refresh after profile 401 user_id=%s refresh_token_present=%s", session.user_id, session.refresh_token.is_empty() ? "false" : "true"));
+		token_refresh_started = _start_request(REQUEST_REFRESH_TOKEN, session, String(), String(), String(), false, true);
+		if (!token_refresh_started) {
+			print_line(vformat("[User Auth] token refresh was not started: %s", last_error));
+		}
+	}
+
+	print_line(vformat("[User Auth] completed request=%d success=%s message=%s user_id=%s start_profile_refresh=%s profile_refresh_started=%s start_token_refresh=%s token_refresh_started=%s", (int)request, completed_success ? "true" : "false", completed_message, session.user_id, start_profile_refresh ? "true" : "false", profile_refresh_started ? "true" : "false", start_token_refresh ? "true" : "false", token_refresh_started ? "true" : "false"));
 	emit_signal(SNAME("request_completed"), (int)request, completed_success, completed_message);
 }
 
@@ -244,6 +285,7 @@ void EditorUserManager::_thread_func(void *p_userdata) {
 	const String code = params->code;
 	const String password = params->password;
 	const bool logout_all = params->logout_all;
+	const bool profile_refresh_can_refresh_token = params->profile_refresh_can_refresh_token;
 	const uint64_t request_session_generation = params->session_generation;
 	memdelete(params);
 
@@ -282,7 +324,7 @@ void EditorUserManager::_thread_func(void *p_userdata) {
 	}
 
 	if (manager.is_valid()) {
-		manager->_set_completed_request(request, result, request_session_generation);
+		manager->_set_completed_request(request, result, request_session_generation, profile_refresh_can_refresh_token);
 		callable_mp(manager.ptr(), &EditorUserManager::_complete_async_request).call_deferred();
 	}
 }
@@ -342,12 +384,7 @@ bool EditorUserManager::request_login_with_password(const String &p_phone, const
 }
 
 bool EditorUserManager::request_refresh_profile() {
-	if (session.user_id.is_empty() || session.token.is_empty()) {
-		_set_error("Account session is not available.");
-		return false;
-	}
-	print_line(vformat("[User Auth] request_refresh_profile user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
-	return _start_request(REQUEST_REFRESH_PROFILE, session);
+	return _request_refresh_profile(true);
 }
 
 bool EditorUserManager::request_logout(bool p_all) {
@@ -413,11 +450,32 @@ AuthResult EditorUserManager::refresh_profile() {
 	ERR_FAIL_COND_V(auth_client.is_null(), AuthResult());
 
 	AuthResult result = auth_client->get_user(session.token);
+	if (!result.success && result.http_code == 401 && !session.refresh_token.is_empty()) {
+		AuthResult refresh_result = auth_client->refresh_token(session);
+		if (refresh_result.success) {
+			session = refresh_result.session;
+			if (session.device_id.is_empty()) {
+				session.device_id = EditorUserSession::get_or_create_device_id();
+			}
+			EditorUserSession::save_session(session);
+			result = auth_client->get_user(session.token);
+		} else {
+			result = refresh_result;
+		}
+	}
+
 	if (!result.success) {
 		user_info = AuthUserInfo();
-		_set_error(result.error);
-		if (!session.user_id.is_empty()) {
-			_set_state(STATE_PROFILE_UNAVAILABLE);
+		if (result.http_code == 401) {
+			EditorUserSession::clear_session();
+			session = EditorUserSession::load_session();
+			_set_error("Account session expired. Please sign in again.");
+			_set_state(STATE_LOGGED_OUT);
+		} else {
+			_set_error(result.error);
+			if (!session.user_id.is_empty()) {
+				_set_state(STATE_PROFILE_UNAVAILABLE);
+			}
 		}
 		emit_signal(SNAME("profile_changed"));
 		return result;

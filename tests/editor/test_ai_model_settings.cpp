@@ -168,15 +168,16 @@ TEST_CASE("[Editor][AI] Agent settings dialog exposes rule rows") {
 	AIRuleSettings::set_rule_storage_for_test(original_rules);
 }
 
-TEST_CASE("[Editor][AI] NEXT marquee settings provide read-only presets and custom shader") {
+TEST_CASE("[Editor][AI] NEXT marquee settings provide read-only presets and multiple custom shaders") {
 	EditorSettings *settings = EditorSettings::get_singleton();
 	REQUIRE(settings != nullptr);
 
 	const String original_preset = AINextMarqueeSettings::get_current_preset_id();
-	const String original_custom_shader = AINextMarqueeSettings::get_custom_shader_code();
+	Array original_custom_marquees = AINextMarqueeSettings::get_custom_marquee_storage_for_test();
+	AINextMarqueeSettings::clear_custom_marquees_for_test();
 
 	Vector<AINextMarqueePreset> presets = AINextMarqueeSettings::get_presets();
-	CHECK(presets.size() >= 5);
+	CHECK(presets.size() >= 4);
 	REQUIRE(!presets.is_empty());
 	CHECK_FALSE(presets[0].custom);
 	CHECK(presets[0].shader_code.contains("shader_type canvas_item"));
@@ -185,37 +186,49 @@ TEST_CASE("[Editor][AI] NEXT marquee settings provide read-only presets and cust
 	CHECK(AINextMarqueeSettings::set_current_preset_id(presets[0].id));
 	CHECK(AINextMarqueeSettings::get_effective_shader_code() == presets[0].shader_code);
 
-	const String custom_shader = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(UV.x, UV.y, 1.0, 1.0); }\n";
-	CHECK(AINextMarqueeSettings::set_custom_shader_code(custom_shader));
-	CHECK(AINextMarqueeSettings::set_current_preset_id(AINextMarqueeSettings::CUSTOM_PRESET_ID));
-	CHECK(AINextMarqueeSettings::get_effective_shader_code() == custom_shader);
+	const String custom_shader_a = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(UV.x, UV.y, 1.0, 1.0); }\n";
+	const String custom_shader_b = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(1.0, UV.x, UV.y, 1.0); }\n";
+	const String custom_a_id = AINextMarqueeSettings::add_custom_marquee("Blue Custom", custom_shader_a);
+	const String custom_b_id = AINextMarqueeSettings::add_custom_marquee("Warm Custom", custom_shader_b);
+	CHECK(!custom_a_id.is_empty());
+	CHECK(!custom_b_id.is_empty());
+	CHECK(custom_a_id != custom_b_id);
+
+	Vector<AINextMarqueePreset> all_marquees = AINextMarqueeSettings::get_presets();
+	CHECK(all_marquees.size() >= presets.size() + 2);
+
+	CHECK(AINextMarqueeSettings::set_current_preset_id(custom_b_id));
+	CHECK(AINextMarqueeSettings::get_effective_shader_code() == custom_shader_b);
 	CHECK_FALSE(AINextMarqueeSettings::set_current_preset_id("missing_marquee"));
 
-	AINextMarqueeSettings::set_custom_shader_code(original_custom_shader);
+	AINextMarqueeSettings::set_custom_marquee_storage_for_test(original_custom_marquees);
 	AINextMarqueeSettings::set_current_preset_id(original_preset);
 }
 
-TEST_CASE("[Editor][AI] NEXT marquee settings dialog hides shader text until custom edit") {
+TEST_CASE("[Editor][AI] NEXT marquee settings dialog lists built-ins and added custom marquees") {
 	EditorSettings *settings = EditorSettings::get_singleton();
 	REQUIRE(settings != nullptr);
 
 	const String original_preset = AINextMarqueeSettings::get_current_preset_id();
-	const String original_custom_shader = AINextMarqueeSettings::get_custom_shader_code();
+	Array original_custom_marquees = AINextMarqueeSettings::get_custom_marquee_storage_for_test();
+	AINextMarqueeSettings::clear_custom_marquees_for_test();
 
 	AIAgentSettingsDialog dialog;
 	dialog.build_for_test();
-	CHECK(dialog.get_next_marquee_preset_count_for_test() >= 5);
+	const int initial_marquee_count = dialog.get_next_marquee_preset_count_for_test();
+	CHECK(initial_marquee_count >= 4);
 
 	dialog.select_next_marquee_preset_for_test("aurora");
-	CHECK_FALSE(dialog.is_next_marquee_shader_editor_visible_for_test());
+	CHECK(AINextMarqueeSettings::get_current_preset_id() == "aurora");
 
-	dialog.select_next_marquee_preset_for_test(AINextMarqueeSettings::CUSTOM_PRESET_ID);
-	CHECK_FALSE(dialog.is_next_marquee_shader_editor_visible_for_test());
+	const String custom_id = dialog.add_next_marquee_for_test("Dialog Custom", "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(0.2, 0.4, 1.0, 1.0); }\n");
+	CHECK(!custom_id.is_empty());
+	CHECK(dialog.get_next_marquee_preset_count_for_test() == initial_marquee_count + 1);
 
-	dialog.edit_next_marquee_custom_for_test();
-	CHECK(dialog.is_next_marquee_shader_editor_visible_for_test());
+	dialog.select_next_marquee_preset_for_test(custom_id);
+	CHECK(AINextMarqueeSettings::get_current_preset_id() == custom_id);
 
-	AINextMarqueeSettings::set_custom_shader_code(original_custom_shader);
+	AINextMarqueeSettings::set_custom_marquee_storage_for_test(original_custom_marquees);
 	AINextMarqueeSettings::set_current_preset_id(original_preset);
 }
 

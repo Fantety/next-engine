@@ -64,7 +64,6 @@ public:
 	int get_custom_model_table_row_count_for_test() const;
 	int get_next_agent_model_row_count_for_test() const;
 	int get_next_marquee_preset_count_for_test() const;
-	bool is_next_marquee_shader_editor_visible_for_test() const;
 	int get_mcp_server_table_row_count_for_test() const;
 	int get_skill_table_row_count_for_test() const;
 	int get_rule_table_row_count_for_test() const;
@@ -75,7 +74,7 @@ public:
 	void add_rule_for_test(const String &p_content, bool p_enabled = true);
 	void set_next_agent_model_for_test(const String &p_agent_id, const String &p_model_profile_id);
 	void select_next_marquee_preset_for_test(const String &p_preset_id);
-	void edit_next_marquee_custom_for_test();
+	String add_next_marquee_for_test(const String &p_display_name, const String &p_shader_code);
 	void edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key);
 	void edit_custom_model_for_test(const String &p_current_model, const String &p_new_model, const String &p_base_url, const String &p_api_key);
 	void remove_custom_model_for_test(const String &p_provider_id, const String &p_model);

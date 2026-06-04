@@ -43,6 +43,7 @@ private:
 		String code;
 		String password;
 		bool logout_all = false;
+		bool profile_refresh_can_refresh_token = false;
 		uint64_t session_generation = 0;
 	};
 
@@ -57,14 +58,16 @@ private:
 	RequestType completed_request = REQUEST_NONE;
 	AuthResult completed_result;
 	uint64_t completed_session_generation = 0;
+	bool completed_profile_refresh_can_refresh_token = false;
 	uint64_t session_generation = 0;
 
 	void _set_state(State p_state);
 	void _set_error(const String &p_error);
 	void _clear_error();
 	void _apply_auth_success(const AuthResult &p_result, const String &p_phone, bool p_refresh_profile = true);
-	bool _start_request(RequestType p_request, const AuthSessionData &p_session = AuthSessionData(), const String &p_phone = String(), const String &p_code = String(), const String &p_password = String(), bool p_logout_all = false);
-	void _set_completed_request(RequestType p_request, const AuthResult &p_result, uint64_t p_session_generation);
+	bool _start_request(RequestType p_request, const AuthSessionData &p_session = AuthSessionData(), const String &p_phone = String(), const String &p_code = String(), const String &p_password = String(), bool p_logout_all = false, bool p_profile_refresh_can_refresh_token = false);
+	bool _request_refresh_profile(bool p_allow_token_refresh_on_unauthorized);
+	void _set_completed_request(RequestType p_request, const AuthResult &p_result, uint64_t p_session_generation, bool p_profile_refresh_can_refresh_token);
 	void _complete_async_request();
 	static void _thread_func(void *p_userdata);
 

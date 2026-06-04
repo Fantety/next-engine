@@ -33,12 +33,17 @@
 #include "../zip_packer.h"
 #include "../zip_reader.h"
 
+#include "core/io/file_access.h"
 #include "tests/test_macros.h"
 #include "tests/test_utils.h"
 
 namespace TestZip {
 
-void check_file_size(const String &p_path, int p_expected_size);
+static inline void check_file_size(const String &p_path, int p_expected_size) {
+	Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::READ);
+	CHECK(f.is_valid());
+	CHECK(f->get_length() == p_expected_size);
+}
 
 TEST_CASE("[ZIPPacker] default compression") {
 	const String path = TestUtils::get_temp_path("compressed.zip");

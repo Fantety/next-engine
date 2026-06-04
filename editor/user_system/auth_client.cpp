@@ -463,11 +463,14 @@ AuthResult AuthClient::_send_request(HTTPClient::Method p_method, const String &
 	int http_code = 0;
 	const String body = JSON::stringify(p_body);
 	if (!transport->request_json(p_method, p_path, body, headers, response, http_code, error)) {
+		result.http_code = http_code;
 		result.error = error.is_empty() ? "Authentication request failed." : error;
 		return result;
 	}
 
-	return p_auth_response ? _parse_auth_response(response) : _parse_simple_response(response);
+	result = p_auth_response ? _parse_auth_response(response) : _parse_simple_response(response);
+	result.http_code = http_code;
+	return result;
 }
 
 String AuthClient::get_default_scene() {
@@ -580,10 +583,13 @@ AuthResult AuthClient::get_user(const String &p_token) {
 	const bool request_ok = transport->request_json(HTTPClient::METHOD_GET, path, String(), headers, response, http_code, error);
 	print_line(vformat("[User Auth] raw response path=%s transport_ok=%s http_code=%d error=%s body=%s", path, request_ok ? "true" : "false", http_code, error, response));
 	if (!request_ok) {
+		result.http_code = http_code;
 		result.error = error.is_empty() ? "Failed to load account information." : error;
 		return result;
 	}
-	return _parse_user_response(response);
+	result = _parse_user_response(response);
+	result.http_code = http_code;
+	return result;
 }
 
 AuthClient::AuthClient() {
