@@ -8,13 +8,13 @@
 
 class Button;
 class EditorFileDialog;
-class HBoxContainer;
+class HFlowContainer;
 
-class AIAttachmentBar : public VBoxContainer {
-	GDCLASS(AIAttachmentBar, VBoxContainer);
+class AIAttachmentBar : public HBoxContainer {
+	GDCLASS(AIAttachmentBar, HBoxContainer);
 
 	Button *add_button = nullptr;
-	HBoxContainer *chips = nullptr;
+	HFlowContainer *chips = nullptr;
 	EditorFileDialog *file_dialog = nullptr;
 	Array attachments;
 

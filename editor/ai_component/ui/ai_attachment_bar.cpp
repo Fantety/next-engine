@@ -9,6 +9,8 @@
 #include "editor/gui/editor_file_dialog.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
+#include "scene/gui/flow_container.h"
+#include "scene/gui/label.h"
 #include "servers/text/text_server.h"
 
 namespace {
@@ -46,21 +48,16 @@ AIAttachmentBar::AIAttachmentBar() {
 	set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	add_theme_constant_override("separation", 3 * EDSCALE);
 
-	HBoxContainer *row = memnew(HBoxContainer);
-	row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	row->add_theme_constant_override("separation", 4 * EDSCALE);
-	add_child(row);
-
 	add_button = memnew(Button);
-	add_button->set_button_icon(get_editor_theme_icon(SNAME("Attachment")));
 	add_button->set_tooltip_text(TTR("Attach image"));
 	add_button->connect(SceneStringName(pressed), callable_mp(this, &AIAttachmentBar::_add_pressed));
-	row->add_child(add_button);
+	add_child(add_button);
 
-	chips = memnew(HBoxContainer);
+	chips = memnew(HFlowContainer);
 	chips->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	chips->add_theme_constant_override("separation", 4 * EDSCALE);
-	row->add_child(chips);
+	chips->add_theme_constant_override("h_separation", 4 * EDSCALE);
+	chips->add_theme_constant_override("v_separation", 3 * EDSCALE);
+	add_child(chips);
 
 	file_dialog = memnew(EditorFileDialog);
 	file_dialog->set_access(EditorFileDialog::ACCESS_RESOURCES);
@@ -147,13 +144,24 @@ void AIAttachmentBar::_refresh() {
 			continue;
 		}
 		Dictionary attachment = attachments[i];
-		Button *chip = memnew(Button);
-		chip->set_text(_make_attachment_label(attachment));
-		chip->set_button_icon(get_editor_theme_icon(SNAME("Close")));
-		chip->set_tooltip_text(String(attachment.get("path", String())));
-		chip->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-		chip->set_clip_text(true);
-		chip->connect(SceneStringName(pressed), callable_mp(this, &AIAttachmentBar::_remove_pressed).bind(i));
+		const String label_text = _make_attachment_label(attachment);
+		HBoxContainer *chip = memnew(HBoxContainer);
+		chip->set_name(SNAME("AIAttachmentChip"));
+		chip->add_theme_constant_override("separation", 2 * EDSCALE);
+
+		Label *label = memnew(Label);
+		label->set_text(label_text);
+		label->set_tooltip_text(String(attachment.get("path", String())));
+		label->set_custom_minimum_size(Size2(72, 0) * EDSCALE);
+		label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+		label->set_clip_text(true);
+		chip->add_child(label);
+
+		Button *remove = memnew(Button);
+		remove->set_button_icon(get_editor_theme_icon(SNAME("Close")));
+		remove->set_tooltip_text(vformat(TTR("Remove %s"), label_text));
+		remove->connect(SceneStringName(pressed), callable_mp(this, &AIAttachmentBar::_remove_pressed).bind(i));
+		chip->add_child(remove);
 		chips->add_child(chip);
 	}
 }

@@ -10,6 +10,9 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/themes/editor_scale.h"
+#include "scene/gui/button.h"
+#include "scene/gui/flow_container.h"
+#include "scene/gui/label.h"
 #include "scene/gui/rich_text_label.h"
 #include "servers/text/text_server.h"
 
@@ -161,6 +164,14 @@ bool _looks_like_markdown(const String &p_text) {
 			p_text.contains("|");
 }
 
+String _attachment_label(const Dictionary &p_attachment) {
+	const String path = String(p_attachment.get("path", String()));
+	if (path.is_empty()) {
+		return TTR("Image");
+	}
+	return path.get_file();
+}
+
 } // namespace
 
 AIMessageBubble::AIMessageBubble() {
@@ -193,6 +204,13 @@ AIMessageBubble::AIMessageBubble() {
 	label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	label->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
 	content_box->add_child(label);
+
+	attachments_box = memnew(HFlowContainer);
+	attachments_box->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	attachments_box->add_theme_constant_override("h_separation", 4 * EDSCALE);
+	attachments_box->add_theme_constant_override("v_separation", 3 * EDSCALE);
+	attachments_box->hide();
+	content_box->add_child(attachments_box);
 }
 
 void AIMessageBubble::set_message(const Dictionary &p_message) {
@@ -286,6 +304,53 @@ void AIMessageBubble::_render_message() {
 		label->add_text(content);
 		details_button->hide();
 	}
+
+	_render_attachments(message_metadata);
+}
+
+void AIMessageBubble::_render_attachments(const Dictionary &p_metadata) {
+	if (!attachments_box) {
+		return;
+	}
+	while (attachments_box->get_child_count() > 0) {
+		Node *child = attachments_box->get_child(0);
+		attachments_box->remove_child(child);
+		memdelete(child);
+	}
+
+	if (!p_metadata.has("attachments") || Variant(p_metadata["attachments"]).get_type() != Variant::ARRAY) {
+		attachments_box->hide();
+		return;
+	}
+
+	Array attachments = p_metadata["attachments"];
+	for (int i = 0; i < attachments.size(); i++) {
+		if (Variant(attachments[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary attachment = attachments[i];
+		const String label_text = _attachment_label(attachment);
+
+		HBoxContainer *chip = memnew(HBoxContainer);
+		chip->set_name(SNAME("AIMessageAttachmentChip"));
+		chip->add_theme_constant_override("separation", 3 * EDSCALE);
+
+		Button *icon = memnew(Button);
+		icon->set_button_icon(get_editor_theme_icon(SNAME("Attachment")));
+		icon->set_disabled(true);
+		chip->add_child(icon);
+
+		Label *attachment_label = memnew(Label);
+		attachment_label->set_text(label_text);
+		attachment_label->set_tooltip_text(String(attachment.get("path", String())));
+		attachment_label->set_custom_minimum_size(Size2(72, 0) * EDSCALE);
+		attachment_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+		attachment_label->set_clip_text(true);
+		chip->add_child(attachment_label);
+		attachments_box->add_child(chip);
+	}
+
+	attachments_box->set_visible(attachments_box->get_child_count() > 0);
 }
 
 void AIMessageBubble::_toggle_details() {

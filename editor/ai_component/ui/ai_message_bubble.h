@@ -10,6 +10,7 @@
 #include "scene/gui/panel_container.h"
 
 class AIMarkdownLabel;
+class HFlowContainer;
 
 class AIMessageBubble : public PanelContainer {
 	GDCLASS(AIMessageBubble, PanelContainer);
@@ -19,11 +20,13 @@ class AIMessageBubble : public PanelContainer {
 	Label *title_label = nullptr;
 	AIMarkdownLabel *label = nullptr;
 	LinkButton *details_button = nullptr;
+	HFlowContainer *attachments_box = nullptr;
 	Dictionary current_message;
 	bool details_expanded = false;
 	bool details_available = false;
 
 	void _render_message();
+	void _render_attachments(const Dictionary &p_metadata);
 	void _toggle_details();
 
 protected:

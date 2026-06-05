@@ -11,6 +11,8 @@
 #include "editor/ai_component/next/ai_next_agent_settings.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
+#include "editor/ai_component/ui/ai_attachment_bar.h"
+#include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/ai_component/ui/next/ai_agent_next_dock.h"
 #include "editor/ai_component/ui/next/ai_next_panel.h"
 #include "editor/ai_component/ui/next/ai_next_milestone_list.h"
@@ -97,6 +99,23 @@ static Button *find_button_by_name(Node *p_root, const StringName &p_name) {
 	}
 	for (int i = 0; i < p_root->get_child_count(); i++) {
 		Button *child_button = find_button_by_name(p_root->get_child(i), p_name);
+		if (child_button) {
+			return child_button;
+		}
+	}
+	return nullptr;
+}
+
+static Button *find_button_by_tooltip(Node *p_root, const String &p_tooltip) {
+	if (!p_root) {
+		return nullptr;
+	}
+	Button *button = Object::cast_to<Button>(p_root);
+	if (button && button->get_tooltip_text() == p_tooltip) {
+		return button;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		Button *child_button = find_button_by_tooltip(p_root->get_child(i), p_tooltip);
 		if (child_button) {
 			return child_button;
 		}
@@ -221,6 +240,23 @@ static Label *find_label_by_name(Node *p_root, const StringName &p_name) {
 	return nullptr;
 }
 
+static Label *find_label_by_text(Node *p_root, const String &p_text) {
+	if (!p_root) {
+		return nullptr;
+	}
+	Label *label = Object::cast_to<Label>(p_root);
+	if (label && label->get_text() == p_text) {
+		return label;
+	}
+	for (int i = 0; i < p_root->get_child_count(); i++) {
+		Label *child_label = find_label_by_text(p_root->get_child(i), p_text);
+		if (child_label) {
+			return child_label;
+		}
+	}
+	return nullptr;
+}
+
 static MarkdownViewer *find_markdown_viewer_by_name(Node *p_root, const StringName &p_name) {
 	if (!p_root) {
 		return nullptr;
@@ -252,6 +288,51 @@ TEST_CASE("[Editor][AI][NEXT] run bar uses a switch control for next mode") {
 	CHECK_FALSE(next_mode_control->is_pressed());
 
 	memdelete(run_bar);
+}
+
+TEST_CASE("[Editor][AI] attachment bar renders compact removable file chips") {
+	AIAttachmentBar *bar = memnew(AIAttachmentBar);
+
+	CHECK_FALSE(Object::cast_to<BoxContainer>(bar)->is_vertical());
+
+	Dictionary attachment;
+	attachment["type"] = "image";
+	attachment["path"] = "res://screens/reference_pose.png";
+	attachment["mime_type"] = "image/png";
+	attachment["detail"] = "auto";
+	Array attachments;
+	attachments.push_back(attachment);
+	bar->set_attachments(attachments);
+
+	CHECK(find_label_by_text(bar, "reference_pose.png") != nullptr);
+	CHECK(find_button_by_tooltip(bar, "Remove reference_pose.png") != nullptr);
+
+	memdelete(bar);
+}
+
+TEST_CASE("[Editor][AI] message bubble renders sent attachments") {
+	AIMessageBubble *bubble = memnew(AIMessageBubble);
+
+	Dictionary attachment;
+	attachment["type"] = "image";
+	attachment["path"] = "res://screens/reference_pose.png";
+	attachment["mime_type"] = "image/png";
+	attachment["detail"] = "auto";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary metadata;
+	metadata["attachments"] = attachments;
+
+	Dictionary message;
+	message["role"] = "user";
+	message["content"] = "Use this pose.";
+	message["metadata"] = metadata;
+	bubble->set_message(message);
+
+	CHECK(find_label_by_text(bubble, "reference_pose.png") != nullptr);
+
+	memdelete(bubble);
 }
 
 TEST_CASE("[Editor][AI][NEXT] next dock owns a next session") {

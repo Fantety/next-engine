@@ -29,13 +29,13 @@ AINextFeedbackPanel::AINextFeedbackPanel() {
 	feedback_input->connect(SNAME("text_changed"), callable_mp(this, &AINextFeedbackPanel::refresh));
 	add_child(feedback_input);
 
-	attachment_bar = memnew(AIAttachmentBar);
-	add_child(attachment_bar);
-
 	HBoxContainer *actions = memnew(HBoxContainer);
 	actions->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	actions->add_theme_constant_override("separation", 4 * EDSCALE);
 	add_child(actions);
+
+	attachment_bar = memnew(AIAttachmentBar);
+	actions->add_child(attachment_bar);
 
 	generate_button = memnew(Button);
 	generate_button->set_text(TTR("Generate Fix Tasks"));

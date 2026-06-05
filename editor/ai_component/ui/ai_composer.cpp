@@ -43,12 +43,12 @@ AIComposer::AIComposer() {
 	input->connect("gui_input", callable_mp(this, &AIComposer::_input_gui_input));
 	add_child(input);
 
-	attachment_bar = memnew(AIAttachmentBar);
-	add_child(attachment_bar);
-
 	HBoxContainer *bar = memnew(HBoxContainer);
 	bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	add_child(bar);
+
+	attachment_bar = memnew(AIAttachmentBar);
+	bar->add_child(attachment_bar);
 
 	Label *mode_label = memnew(Label);
 	mode_label->set_text(TTR("Mode:"));

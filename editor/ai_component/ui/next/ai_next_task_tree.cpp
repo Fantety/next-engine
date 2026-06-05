@@ -225,16 +225,22 @@ void AINextTaskTree::_build_dialogs() {
 	task_description_edit->set_placeholder(TTR("Description"));
 	task_form->add_child(task_description_edit);
 
+	HBoxContainer *task_options = memnew(HBoxContainer);
+	task_options->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	task_options->add_theme_constant_override("separation", 4 * EDSCALE);
+	task_form->add_child(task_options);
+
 	task_attachment_bar = memnew(AIAttachmentBar);
-	task_form->add_child(task_attachment_bar);
+	task_attachment_bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	task_options->add_child(task_attachment_bar);
 
 	task_agent_selector = memnew(OptionButton);
-	task_agent_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	task_form->add_child(task_agent_selector);
+	task_agent_selector->set_custom_minimum_size(Size2(120, 0) * EDSCALE);
+	task_options->add_child(task_agent_selector);
 
 	task_milestone_selector = memnew(OptionButton);
-	task_milestone_selector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	task_form->add_child(task_milestone_selector);
+	task_milestone_selector->set_custom_minimum_size(Size2(120, 0) * EDSCALE);
+	task_options->add_child(task_milestone_selector);
 	task_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AINextTaskTree::_confirm_task_dialog));
 
 	delete_dialog = memnew(ConfirmationDialog);
@@ -286,12 +292,12 @@ void AINextTaskTree::_build_dialogs() {
 	task_session_input->connect("text_changed", callable_mp(this, &AINextTaskTree::_task_session_input_changed));
 	session_root->add_child(task_session_input);
 
-	task_session_attachment_bar = memnew(AIAttachmentBar);
-	session_root->add_child(task_session_attachment_bar);
-
 	HBoxContainer *session_actions = memnew(HBoxContainer);
 	session_actions->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	session_root->add_child(session_actions);
+
+	task_session_attachment_bar = memnew(AIAttachmentBar);
+	session_actions->add_child(task_session_attachment_bar);
 
 	Label *session_spacer = memnew(Label);
 	session_spacer->set_h_size_flags(Control::SIZE_EXPAND_FILL);
