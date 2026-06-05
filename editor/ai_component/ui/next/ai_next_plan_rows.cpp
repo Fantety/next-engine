@@ -62,6 +62,11 @@ Color _get_editor_theme_color(const Control *p_control, const StringName &p_name
 void _configure_plan_row_visual(Control *p_row, const String &p_visual_state, double &r_pulse_phase) {
 	ERR_FAIL_NULL(p_row);
 	p_row->set_meta(SNAME("ai_next_visual_state"), p_visual_state);
+	if (p_visual_state == "running") {
+		p_row->set_meta(SNAME("ai_next_running_visual"), "row_breathe");
+	} else {
+		p_row->remove_meta(SNAME("ai_next_running_visual"));
+	}
 	r_pulse_phase = 0.0;
 	p_row->set_custom_minimum_size(Size2(0, 30) * EDSCALE);
 	p_row->set_process(p_visual_state == "running");
@@ -87,8 +92,10 @@ void _draw_plan_row_visual(Control *p_row, double p_pulse_phase) {
 		border.a = 0.40;
 	} else if (visual_state == "running") {
 		const float pulse = 0.5f + 0.5f * Math::sin(p_pulse_phase);
+		bg = success.darkened(Math::lerp(0.72f, 0.45f, pulse));
+		bg.a = Math::lerp(0.56f, 0.88f, pulse);
 		border = success;
-		border.a = 0.35f + 0.35f * pulse;
+		border.a = Math::lerp(0.26f, 0.68f, pulse);
 	}
 
 	Ref<StyleBoxFlat> panel;
@@ -100,17 +107,6 @@ void _draw_plan_row_visual(Control *p_row, double p_pulse_phase) {
 
 	const Rect2 panel_rect = Rect2(Point2(0, 1 * EDSCALE), p_row->get_size() - Size2(0, 2 * EDSCALE));
 	p_row->draw_style_box(panel, panel_rect);
-
-	if (visual_state == "running") {
-		const float pulse = 0.5f + 0.5f * Math::sin(p_pulse_phase);
-		Color glow = success;
-		glow.a = 0.20f + 0.34f * pulse;
-		Color core = success;
-		core.a = 0.75f;
-		const Point2 center = Point2(8 * EDSCALE, p_row->get_size().y * 0.5);
-		p_row->draw_circle(center, (4.5f + 2.5f * pulse) * EDSCALE, glow);
-		p_row->draw_circle(center, 2.5f * EDSCALE, core);
-	}
 }
 
 void _process_plan_row_visual(Control *p_row, double &r_pulse_phase) {

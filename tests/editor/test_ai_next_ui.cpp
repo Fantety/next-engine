@@ -399,7 +399,8 @@ TEST_CASE("[Editor][AI][NEXT] milestone list renders compact editable rows") {
 
 	AIAgentNextSession *session = memnew(AIAgentNextSession);
 	session->set_workflow_project_scope_for_test(project_scope);
-	CHECK_FALSE(session->get_project_state()->create_milestone("Core Movement", "Build movement.").is_empty());
+	const String core_milestone_id = session->get_project_state()->create_milestone("Core Movement", "Build movement.");
+	CHECK_FALSE(core_milestone_id.is_empty());
 	const String completed_milestone_id = session->get_project_state()->create_milestone("Locked Polish", "Completed polish.");
 	const String completed_task_id = session->get_project_state()->add_task(completed_milestone_id, "Completed polish task", "script_agent", Array());
 	REQUIRE_FALSE(completed_task_id.is_empty());
@@ -457,6 +458,17 @@ TEST_CASE("[Editor][AI][NEXT] milestone list renders compact editable rows") {
 	CHECK(has_deferred_pressed_connection(remove));
 	CHECK(has_deferred_pressed_connection(move_up));
 	CHECK(has_deferred_pressed_connection(move_down));
+
+	String milestone_error;
+	Dictionary running_patch;
+	running_patch["status"] = "executing";
+	CHECK(session->get_project_state()->update_milestone(core_milestone_id, running_patch, milestone_error));
+	list->set_next_session(session);
+	HBoxContainer *running_milestone_row = find_row_by_title(list, SNAME("MilestoneRow"), "Core Movement");
+	REQUIRE(running_milestone_row != nullptr);
+	CHECK(String(running_milestone_row->get_meta(SNAME("ai_next_visual_state"), String())) == "running");
+	CHECK(String(running_milestone_row->get_meta(SNAME("ai_next_running_visual"), String())) == "row_breathe");
+	CHECK(running_milestone_row->is_processing());
 
 	HBoxContainer *completed_row = find_row_by_title(list, SNAME("MilestoneRow"), "Locked Polish");
 	REQUIRE(completed_row != nullptr);
@@ -570,6 +582,7 @@ TEST_CASE("[Editor][AI][NEXT] task tree renders compact editable rows") {
 	CHECK(String(completed_row->get_meta(SNAME("ai_next_visual_state"), String())) == "completed");
 	CHECK(String(ready_row->get_meta(SNAME("ai_next_visual_state"), String())) == "pending");
 	CHECK(String(running_row->get_meta(SNAME("ai_next_visual_state"), String())) == "running");
+	CHECK(String(running_row->get_meta(SNAME("ai_next_running_visual"), String())) == "row_breathe");
 	CHECK_FALSE(completed_row->is_processing());
 	CHECK_FALSE(ready_row->is_processing());
 	CHECK(running_row->is_processing());
