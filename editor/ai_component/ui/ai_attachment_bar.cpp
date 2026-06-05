@@ -132,7 +132,7 @@ void AIAttachmentBar::_refresh() {
 	while (chips->get_child_count() > 0) {
 		Node *child = chips->get_child(0);
 		chips->remove_child(child);
-		memdelete(child);
+		child->queue_free();
 	}
 
 	if (attachments.is_empty()) {
@@ -160,7 +160,7 @@ void AIAttachmentBar::_refresh() {
 		Button *remove = memnew(Button);
 		remove->set_button_icon(get_editor_theme_icon(SNAME("Close")));
 		remove->set_tooltip_text(vformat(TTR("Remove %s"), label_text));
-		remove->connect(SceneStringName(pressed), callable_mp(this, &AIAttachmentBar::_remove_pressed).bind(i));
+		remove->connect(SceneStringName(pressed), callable_mp(this, &AIAttachmentBar::_remove_pressed).bind(i), CONNECT_DEFERRED);
 		chip->add_child(remove);
 		chips->add_child(chip);
 	}

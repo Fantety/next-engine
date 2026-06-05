@@ -305,7 +305,9 @@ TEST_CASE("[Editor][AI] attachment bar renders compact removable file chips") {
 	bar->set_attachments(attachments);
 
 	CHECK(find_label_by_text(bar, "reference_pose.png") != nullptr);
-	CHECK(find_button_by_tooltip(bar, "Remove reference_pose.png") != nullptr);
+	Button *remove_button = find_button_by_tooltip(bar, "Remove reference_pose.png");
+	REQUIRE(remove_button != nullptr);
+	CHECK(has_deferred_pressed_connection(remove_button));
 
 	memdelete(bar);
 }
