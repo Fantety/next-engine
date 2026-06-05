@@ -44,6 +44,7 @@
 #include "editor/themes/editor_theme.h"
 #include "editor/themes/theme_classic.h"
 #include "editor/themes/theme_modern.h"
+#include "editor/themes/theme_next_mono.h"
 #include "scene/resources/style_box_flat.h"
 #include "scene/resources/style_box_line.h"
 #include "scene/resources/style_box_texture.h"
@@ -178,11 +179,14 @@ Ref<EditorTheme> EditorThemeManager::_create_base_theme(const Ref<EditorTheme> &
 
 	print_verbose(vformat("EditorTheme: Generating new theme for the config '%d'.", theme->get_generated_hash()));
 
-	bool is_default_style = config.style == "Modern";
-	if (is_default_style) {
-		ThemeModern::populate_shared_styles(theme, config);
-	} else {
+	const bool is_next_mono_style = config.style == "Next Mono";
+	const bool is_classic_style = config.style == "Classic";
+	if (is_next_mono_style) {
+		ThemeNextMono::populate_shared_styles(theme, config);
+	} else if (is_classic_style) {
 		ThemeClassic::populate_shared_styles(theme, config);
+	} else {
+		ThemeModern::populate_shared_styles(theme, config);
 	}
 
 	// Register icons.
@@ -223,12 +227,15 @@ Ref<EditorTheme> EditorThemeManager::_create_base_theme(const Ref<EditorTheme> &
 
 	print_verbose("EditorTheme: Generating new styles.");
 
-	if (is_default_style) {
-		ThemeModern::populate_standard_styles(theme, config);
-		ThemeModern::populate_editor_styles(theme, config);
-	} else {
+	if (is_next_mono_style) {
+		ThemeNextMono::populate_standard_styles(theme, config);
+		ThemeNextMono::populate_editor_styles(theme, config);
+	} else if (is_classic_style) {
 		ThemeClassic::populate_standard_styles(theme, config);
 		ThemeClassic::populate_editor_styles(theme, config);
+	} else {
+		ThemeModern::populate_standard_styles(theme, config);
+		ThemeModern::populate_editor_styles(theme, config);
 	}
 
 	_populate_text_editor_styles(theme, config);
@@ -275,6 +282,9 @@ EditorThemeManager::ThemeConfiguration EditorThemeManager::_create_theme_config(
 		if (config.style == "Classic") {
 			config.draw_relationship_lines = RELATIONSHIP_ALL;
 			config.corner_radius = 3;
+		} else if (config.style == "Next Mono") {
+			config.draw_relationship_lines = RELATIONSHIP_SELECTED_ONLY;
+			config.corner_radius = 1;
 		} else { // Default
 			config.draw_relationship_lines = config.default_relationship_lines;
 			config.corner_radius = config.default_corner_radius;
@@ -361,6 +371,12 @@ EditorThemeManager::ThemeConfiguration EditorThemeManager::_create_theme_config(
 				preset_accent_color = Color(0.78, 0.98, 0.8);
 				preset_base_color = Color(1.0, 1.0, 1.0);
 				preset_contrast = light_contrast;
+			} else if (config.preset == "Next Engine (Mono)") {
+				preset_accent_color = Color(0.92, 0.92, 0.92);
+				preset_base_color = Color(0.07, 0.07, 0.07);
+				preset_contrast = 0.26;
+				preset_draw_extra_borders = true;
+				preset_icon_saturation = 0.0;
 			} else { // Default
 				preset_accent_color = Color(0.83, 0.75, 0.96);
 				preset_base_color = Color(0.17, 0.18, 0.29);
