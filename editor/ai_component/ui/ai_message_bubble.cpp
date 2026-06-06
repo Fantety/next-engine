@@ -13,6 +13,7 @@
 #include "scene/gui/button.h"
 #include "scene/gui/flow_container.h"
 #include "scene/gui/label.h"
+#include "scene/resources/style_box_flat.h"
 #include "servers/text/text_server.h"
 
 void AIMessageBubble::_bind_methods() {
@@ -171,6 +172,44 @@ String _attachment_label(const Dictionary &p_attachment) {
 	return path.get_file();
 }
 
+Ref<StyleBoxFlat> _make_bubble_style(const Color &p_bg_color, const Color &p_border_color) {
+	Ref<StyleBoxFlat> style;
+	style.instantiate();
+	style->set_bg_color(p_bg_color);
+	style->set_border_color(p_border_color);
+	style->set_border_width_all(MAX(1, int(EDSCALE)));
+	style->set_border_width(SIDE_LEFT, MAX(1, int(3 * EDSCALE)));
+	style->set_content_margin_individual(10 * EDSCALE, 7 * EDSCALE, 10 * EDSCALE, 8 * EDSCALE);
+	style->set_corner_radius_all(6 * EDSCALE);
+	return style;
+}
+
+void _apply_bubble_style(AIMessageBubble *p_bubble, Label *p_title_label, const String &p_role, bool p_is_tool_bubble) {
+	ERR_FAIL_NULL(p_bubble);
+	ERR_FAIL_NULL(p_title_label);
+
+	Color bg_color(0.15, 0.16, 0.18, 0.38);
+	Color border_color(0.68, 0.72, 0.78, 0.22);
+	Color title_color(0.84, 0.86, 0.9, 1.0);
+
+	if (p_role == "user") {
+		bg_color = Color(0.08, 0.20, 0.26, 0.48);
+		border_color = Color(0.32, 0.75, 0.92, 0.72);
+		title_color = Color(0.58, 0.86, 1.0, 1.0);
+	} else if (p_is_tool_bubble) {
+		bg_color = Color(0.20, 0.17, 0.10, 0.50);
+		border_color = Color(0.95, 0.68, 0.28, 0.74);
+		title_color = Color(1.0, 0.78, 0.44, 1.0);
+	} else if (p_role == "error") {
+		bg_color = Color(0.28, 0.08, 0.08, 0.52);
+		border_color = Color(1.0, 0.34, 0.30, 0.78);
+		title_color = Color(1.0, 0.58, 0.54, 1.0);
+	}
+
+	p_bubble->add_theme_style_override(SceneStringName(panel), _make_bubble_style(bg_color, border_color));
+	p_title_label->add_theme_color_override(SceneStringName(font_color), title_color);
+}
+
 } // namespace
 
 AIMessageBubble::AIMessageBubble() {
@@ -255,8 +294,9 @@ void AIMessageBubble::_render_message() {
 	const bool is_pure_assistant_tool_call = role == "assistant" && content.strip_edges().is_empty() && !tool_calls.is_empty();
 	const bool is_assistant_with_tool_calls = role == "assistant" && !content.strip_edges().is_empty() && !tool_calls.is_empty();
 	const bool is_tool_bubble = (role == "tool") || is_pure_assistant_tool_call;
-	set_h_size_flags(is_tool_bubble && !details_expanded ? Control::SIZE_SHRINK_BEGIN : Control::SIZE_EXPAND_FILL);
-	label->set_autowrap_mode(is_tool_bubble && !details_expanded ? TextServer::AUTOWRAP_OFF : TextServer::AUTOWRAP_WORD_SMART);
+	set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
+	_apply_bubble_style(this, title_label, role, is_tool_bubble);
 	title_label->remove_theme_font_size_override(SceneStringName(font_size));
 	label->remove_theme_font_size_override("normal_font_size");
 	label->remove_theme_font_size_override("bold_font_size");

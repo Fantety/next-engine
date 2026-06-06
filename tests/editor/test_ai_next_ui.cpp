@@ -657,6 +657,12 @@ TEST_CASE("[Editor][AI][NEXT] long detail sections use compact collapsed foldabl
 	CHECK(task_section->get_title_text_overrun_behavior() == TextServer::OVERRUN_TRIM_ELLIPSIS);
 	CHECK(review_section->get_title_text_overrun_behavior() == TextServer::OVERRUN_TRIM_ELLIPSIS);
 	CHECK(activity_section->get_title_text_overrun_behavior() == TextServer::OVERRUN_TRIM_ELLIPSIS);
+	CHECK(task_section->has_theme_color_override(SNAME("collapsed_font_color")));
+	CHECK(review_section->has_theme_color_override(SNAME("collapsed_font_color")));
+	CHECK(activity_section->has_theme_color_override(SNAME("collapsed_font_color")));
+	CHECK(task_section->get_theme_color(SNAME("collapsed_font_color")).get_luminance() > 0.4);
+	CHECK(review_section->get_theme_color(SNAME("collapsed_font_color")).get_luminance() > 0.4);
+	CHECK(activity_section->get_theme_color(SNAME("collapsed_font_color")).get_luminance() > 0.4);
 
 	Label *task_summary = find_label_by_name(task_section, SNAME("TaskInspectorSummary"));
 	Label *review_summary = find_label_by_name(review_section, SNAME("ReviewFindingsSummary"));

@@ -819,6 +819,8 @@ TEST_CASE("[Editor][AI] Assistant message bubbles render markdown while user bub
 	CHECK(find_child_of_type<MarkdownViewer>(assistant_bubble) != nullptr);
 	CHECK(find_child_of_type<RichTextLabel>(assistant_bubble) == nullptr);
 	CHECK(assistant_label->get_parsed_text().strip_edges() == "Use bold and code.");
+	CHECK(assistant_bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
+	CHECK(assistant_bubble->has_theme_stylebox_override(SceneStringName(panel)));
 
 	AIMessageBubble *user_bubble = memnew(AIMessageBubble);
 	Dictionary user_message;
@@ -832,6 +834,8 @@ TEST_CASE("[Editor][AI] Assistant message bubbles render markdown while user bub
 	CHECK(find_child_of_type<MarkdownViewer>(user_bubble) != nullptr);
 	CHECK(find_child_of_type<RichTextLabel>(user_bubble) == nullptr);
 	CHECK(user_label->get_parsed_text().strip_edges() == "Literal **stars**");
+	CHECK(user_bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
+	CHECK(user_bubble->has_theme_stylebox_override(SceneStringName(panel)));
 
 	memdelete(assistant_bubble);
 	memdelete(user_bubble);
@@ -955,7 +959,8 @@ TEST_CASE("[Editor][AI] Message bubbles render assistant tool call requests") {
 	Label *title_label = find_child_of_type<Label>(bubble);
 	REQUIRE(label != nullptr);
 	REQUIRE(title_label != nullptr);
-	CHECK(find_child_of_type<MarkdownViewer>(bubble) != nullptr);
+	MarkdownViewer *viewer = find_child_of_type<MarkdownViewer>(bubble);
+	REQUIRE(viewer != nullptr);
 	CHECK(find_child_of_type<RichTextLabel>(bubble) == nullptr);
 	const String parsed_text = label->get_parsed_text();
 	CHECK(title_label->get_text() == "Tool Call");
@@ -966,7 +971,10 @@ TEST_CASE("[Editor][AI] Message bubbles render assistant tool call requests") {
 	LinkButton *details_button = find_child_of_type<LinkButton>(bubble);
 	REQUIRE(details_button != nullptr);
 	CHECK(details_button->is_visible());
-	CHECK(bubble->get_h_size_flags() == Control::SIZE_SHRINK_BEGIN);
+	CHECK(bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
+	CHECK(label->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
+	CHECK(viewer->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
+	CHECK(bubble->has_theme_stylebox_override(SceneStringName(panel)));
 
 	details_button->emit_signal(SceneStringName(pressed));
 	CHECK(label->get_parsed_text().contains("Inspect a long script before suggesting edits"));
@@ -1027,7 +1035,8 @@ TEST_CASE("[Editor][AI] Message bubbles collapse long tool results") {
 	Label *title_label = find_child_of_type<Label>(bubble);
 	REQUIRE(label != nullptr);
 	REQUIRE(title_label != nullptr);
-	CHECK(find_child_of_type<MarkdownViewer>(bubble) != nullptr);
+	MarkdownViewer *viewer = find_child_of_type<MarkdownViewer>(bubble);
+	REQUIRE(viewer != nullptr);
 	CHECK(find_child_of_type<RichTextLabel>(bubble) == nullptr);
 	const String collapsed_text = label->get_parsed_text();
 	CHECK(title_label->get_text() == "Tool: project.read_file (completed)");
@@ -1037,7 +1046,10 @@ TEST_CASE("[Editor][AI] Message bubbles collapse long tool results") {
 	LinkButton *details_button = find_child_of_type<LinkButton>(bubble);
 	REQUIRE(details_button != nullptr);
 	CHECK(details_button->is_visible());
-	CHECK(bubble->get_h_size_flags() == Control::SIZE_SHRINK_BEGIN);
+	CHECK(bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
+	CHECK(label->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
+	CHECK(viewer->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
+	CHECK(bubble->has_theme_stylebox_override(SceneStringName(panel)));
 
 	details_button->emit_signal(SceneStringName(pressed));
 	CHECK(label->get_parsed_text().contains("line 3: func _physics_process"));

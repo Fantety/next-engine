@@ -45,6 +45,19 @@ void _setup_foldable_summary_label(Label *p_label, const StringName &p_name) {
 	p_label->set_clip_text(true);
 	p_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	p_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
+	p_label->add_theme_color_override(SceneStringName(font_color), Color(0.64, 0.68, 0.74, 1.0));
+}
+
+void _setup_detail_foldable_section(FoldableContainer *p_section) {
+	ERR_FAIL_NULL(p_section);
+	const Color title_color(0.86, 0.88, 0.92, 1.0);
+	const Color hover_color(1.0, 1.0, 1.0, 1.0);
+	p_section->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	p_section->set_title_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	p_section->set_folded(true);
+	p_section->add_theme_color_override(SceneStringName(font_color), title_color);
+	p_section->add_theme_color_override(SNAME("collapsed_font_color"), title_color);
+	p_section->add_theme_color_override(SNAME("hover_font_color"), hover_color);
 }
 
 String _trim_panel_summary(const String &p_text, int p_max_chars = 96) {
@@ -307,9 +320,7 @@ AINextPanel::AINextPanel() {
 
 	add_child(memnew(HSeparator));
 	task_inspector_section = memnew(FoldableContainer(TTR("Task Inspector")));
-	task_inspector_section->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	task_inspector_section->set_title_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	task_inspector_section->set_folded(true);
+	_setup_detail_foldable_section(task_inspector_section);
 	task_inspector_summary = memnew(Label);
 	_setup_foldable_summary_label(task_inspector_summary, SNAME("TaskInspectorSummary"));
 	task_inspector_section->add_title_bar_control(task_inspector_summary);
@@ -334,9 +345,7 @@ AINextPanel::AINextPanel() {
 
 	add_child(memnew(HSeparator));
 	review_findings_section = memnew(FoldableContainer(TTR("Review Findings")));
-	review_findings_section->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	review_findings_section->set_title_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	review_findings_section->set_folded(true);
+	_setup_detail_foldable_section(review_findings_section);
 	review_findings_summary = memnew(Label);
 	_setup_foldable_summary_label(review_findings_summary, SNAME("ReviewFindingsSummary"));
 	review_findings_section->add_title_bar_control(review_findings_summary);
@@ -361,9 +370,7 @@ AINextPanel::AINextPanel() {
 
 	add_child(memnew(HSeparator));
 	activity_section = memnew(FoldableContainer(TTR("Activity")));
-	activity_section->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	activity_section->set_title_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	activity_section->set_folded(true);
+	_setup_detail_foldable_section(activity_section);
 	activity_summary = memnew(Label);
 	_setup_foldable_summary_label(activity_summary, SNAME("ActivitySummary"));
 	activity_section->add_title_bar_control(activity_summary);
