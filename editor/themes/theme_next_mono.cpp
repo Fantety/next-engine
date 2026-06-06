@@ -203,6 +203,9 @@ void ThemeNextMono::populate_shared_styles(const Ref<EditorTheme> &p_theme, Edit
 
 void ThemeNextMono::populate_standard_styles(const Ref<EditorTheme> &p_theme, EditorThemeManager::ThemeConfiguration &p_config) {
 	ThemeModern::populate_standard_styles(p_theme, p_config);
+
+	p_theme->set_color("font_pressed_color", "CheckButton", p_config.font_focus_color);
+	p_theme->set_color("font_hover_pressed_color", "CheckButton", p_config.font_focus_color);
 }
 
 void ThemeNextMono::populate_editor_styles(const Ref<EditorTheme> &p_theme, EditorThemeManager::ThemeConfiguration &p_config) {
