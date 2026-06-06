@@ -7,6 +7,53 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 
+namespace {
+
+bool _message_has_tool_calls(const Dictionary &p_message) {
+	if (!p_message.has("metadata") || Variant(p_message["metadata"]).get_type() != Variant::DICTIONARY) {
+		return false;
+	}
+
+	Dictionary metadata = p_message["metadata"];
+	if (!metadata.has("tool_calls") || Variant(metadata["tool_calls"]).get_type() != Variant::ARRAY) {
+		return false;
+	}
+
+	Array tool_calls = metadata["tool_calls"];
+	return !tool_calls.is_empty();
+}
+
+bool _is_tool_like_message(const Dictionary &p_message) {
+	const String role = String(p_message.get("role", String()));
+	if (role == "tool") {
+		return true;
+	}
+
+	if (role == "assistant" && String(p_message.get("content", String())).strip_edges().is_empty()) {
+		return _message_has_tool_calls(p_message);
+	}
+
+	return false;
+}
+
+Dictionary _make_tool_group_message(const Vector<Dictionary> &p_messages, int p_from, int p_to) {
+	Array grouped_messages;
+	for (int i = p_from; i < p_to; i++) {
+		grouped_messages.push_back(p_messages[i]);
+	}
+
+	Dictionary metadata;
+	metadata["messages"] = grouped_messages;
+
+	Dictionary message;
+	message["role"] = "tool_group";
+	message["content"] = String();
+	message["metadata"] = metadata;
+	return message;
+}
+
+} // namespace
+
 void AIMessageList::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("clear_messages"), &AIMessageList::clear_messages);
 	ClassDB::bind_method(D_METHOD("add_message", "message"), &AIMessageList::add_message);
@@ -113,20 +160,17 @@ void AIMessageList::_scroll_value_changed(double p_value) {
 	}
 }
 
-void AIMessageList::clear_messages() {
-	should_scroll_to_bottom = true;
-	pending_scroll_to_bottom_passes = 0;
-	scroll_to_bottom_queued = false;
-	scrolling_to_bottom = false;
+void AIMessageList::_clear_bubbles() {
 	for (int i = 0; i < bubbles.size(); i++) {
-		bubbles[i]->queue_free();
+		if (bubbles[i]->get_parent()) {
+			bubbles[i]->get_parent()->remove_child(bubbles[i]);
+		}
+		memdelete(bubbles[i]);
 	}
 	bubbles.clear();
-	set_v_scroll(0);
 }
 
-void AIMessageList::add_message(const Dictionary &p_message) {
-	should_scroll_to_bottom = scroll_to_bottom_queued || _is_at_bottom();
+void AIMessageList::_add_bubble(const Dictionary &p_message) {
 	AIMessageBubble *bubble = memnew(AIMessageBubble);
 	bubbles.push_back(bubble);
 	message_box->add_child(bubble);
@@ -134,27 +178,69 @@ void AIMessageList::add_message(const Dictionary &p_message) {
 		message_box->move_child(bottom_spacer, message_box->get_child_count() - 1);
 	}
 	bubble->set_message(p_message);
+}
+
+void AIMessageList::_rebuild_bubbles() {
+	_clear_bubbles();
+
+	for (int i = 0; i < messages.size();) {
+		if (_is_tool_like_message(messages[i])) {
+			int group_end = i + 1;
+			while (group_end < messages.size() && _is_tool_like_message(messages[group_end])) {
+				group_end++;
+			}
+
+			if (group_end - i > 1) {
+				_add_bubble(_make_tool_group_message(messages, i, group_end));
+				i = group_end;
+				continue;
+			}
+		}
+
+		_add_bubble(messages[i]);
+		i++;
+	}
+
+	if (bottom_spacer) {
+		message_box->move_child(bottom_spacer, message_box->get_child_count() - 1);
+	}
+}
+
+void AIMessageList::clear_messages() {
+	should_scroll_to_bottom = true;
+	pending_scroll_to_bottom_passes = 0;
+	scroll_to_bottom_queued = false;
+	scrolling_to_bottom = false;
+	messages.clear();
+	_clear_bubbles();
+	set_v_scroll(0);
+}
+
+void AIMessageList::add_message(const Dictionary &p_message) {
+	should_scroll_to_bottom = scroll_to_bottom_queued || _is_at_bottom();
+	messages.push_back(p_message);
+	_rebuild_bubbles();
 	_request_scroll_to_bottom_if_needed();
 }
 
 void AIMessageList::update_message(int p_index, const Dictionary &p_message) {
-	if (p_index < 0 || p_index >= bubbles.size()) {
+	if (p_index < 0 || p_index >= messages.size()) {
 		return;
 	}
 	should_scroll_to_bottom = scroll_to_bottom_queued || _is_at_bottom();
-	bubbles[p_index]->set_message(p_message);
+	messages.write[p_index] = p_message;
+	_rebuild_bubbles();
 	_request_scroll_to_bottom_if_needed();
 }
 
 void AIMessageList::remove_message(int p_index) {
-	if (p_index < 0 || p_index >= bubbles.size()) {
+	if (p_index < 0 || p_index >= messages.size()) {
 		return;
 	}
 
 	should_scroll_to_bottom = scroll_to_bottom_queued || _is_at_bottom();
-	AIMessageBubble *bubble = bubbles[p_index];
-	bubbles.remove_at(p_index);
-	bubble->queue_free();
+	messages.remove_at(p_index);
+	_rebuild_bubbles();
 	_request_scroll_to_bottom_if_needed();
 }
 

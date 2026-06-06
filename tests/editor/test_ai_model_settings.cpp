@@ -68,6 +68,42 @@ T *find_last_child_of_type(Node *p_node) {
 	return last;
 }
 
+template <typename T>
+int count_children_of_type(Node *p_node) {
+	if (!p_node) {
+		return 0;
+	}
+
+	int count = Object::cast_to<T>(p_node) ? 1 : 0;
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		count += count_children_of_type<T>(p_node->get_child(i));
+	}
+	return count;
+}
+
+AIMessageBubble *find_bubble_with_title(Node *p_node, const String &p_title) {
+	if (!p_node) {
+		return nullptr;
+	}
+
+	AIMessageBubble *bubble = Object::cast_to<AIMessageBubble>(p_node);
+	if (bubble) {
+		Label *title = find_child_of_type<Label>(bubble);
+		if (title && title->get_text() == p_title) {
+			return bubble;
+		}
+	}
+
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		AIMessageBubble *found = find_bubble_with_title(p_node->get_child(i), p_title);
+		if (found) {
+			return found;
+		}
+	}
+
+	return nullptr;
+}
+
 void process_scene_frames(int p_count) {
 	SceneTree *tree = SceneTree::get_singleton();
 	REQUIRE(tree != nullptr);
@@ -1228,6 +1264,81 @@ TEST_CASE("[Editor][AI] Message bubbles collapse long tool results") {
 	CHECK(bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
 
 	memdelete(bubble);
+}
+
+TEST_CASE("[Editor][AI] Message list groups consecutive tool bubbles by default") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	AIMessageList *list = memnew(AIMessageList);
+	list->set_size(Size2(420, 260));
+	root->add_child(list);
+
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Run project checks";
+	list->add_message(user_message);
+
+	Dictionary assistant_tool_call;
+	assistant_tool_call["role"] = "assistant";
+	assistant_tool_call["content"] = "";
+	Dictionary tool_call_metadata;
+	Array tool_calls;
+	Dictionary call;
+	call["tool_name"] = "project.read_file";
+	Dictionary arguments;
+	arguments["path"] = "res://player.gd";
+	call["arguments"] = arguments;
+	tool_calls.push_back(call);
+	tool_call_metadata["tool_calls"] = tool_calls;
+	assistant_tool_call["metadata"] = tool_call_metadata;
+	list->add_message(assistant_tool_call);
+
+	Dictionary read_result;
+	read_result["role"] = "tool";
+	read_result["content"] = "Read player.gd";
+	Dictionary read_metadata;
+	read_metadata["tool_name"] = "project.read_file";
+	read_metadata["status"] = "completed";
+	read_result["metadata"] = read_metadata;
+	list->add_message(read_result);
+
+	Dictionary list_result;
+	list_result["role"] = "tool";
+	list_result["content"] = "Found 12 scene files.";
+	Dictionary list_metadata;
+	list_metadata["tool_name"] = "project.list_files";
+	list_metadata["status"] = "completed";
+	list_result["metadata"] = list_metadata;
+	list->add_message(list_result);
+
+	Dictionary assistant_message;
+	assistant_message["role"] = "assistant";
+	assistant_message["content"] = "Checks are ready.";
+	list->add_message(assistant_message);
+	process_scene_frames(8);
+
+	CHECK(count_children_of_type<AIMessageBubble>(list) == 3);
+	AIMessageBubble *group_bubble = find_bubble_with_title(list, "Tool Calls (3)");
+	REQUIRE(group_bubble != nullptr);
+
+	AIMarkdownLabel *summary_label = find_child_of_type<AIMarkdownLabel>(group_bubble);
+	REQUIRE(summary_label != nullptr);
+	CHECK(summary_label->get_parsed_text().contains("3 tool event(s)"));
+	CHECK(summary_label->get_parsed_text().contains("project.read_file"));
+	CHECK_FALSE(summary_label->get_parsed_text().contains("Found 12 scene files."));
+
+	LinkButton *details_button = find_child_of_type<LinkButton>(group_bubble);
+	REQUIRE(details_button != nullptr);
+	CHECK(details_button->is_visible());
+	details_button->emit_signal(SceneStringName(pressed));
+	process_scene_frames(4);
+
+	CHECK(summary_label->get_parsed_text().contains("res://player.gd"));
+	CHECK(summary_label->get_parsed_text().contains("Found 12 scene files."));
+
+	root->remove_child(list);
+	memdelete(list);
 }
 
 TEST_CASE("[Editor][AI] Message list keeps the last bubble visible after markdown relayout") {
