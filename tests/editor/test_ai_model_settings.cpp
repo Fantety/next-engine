@@ -91,13 +91,13 @@ TEST_CASE("[Editor][AI] Model profiles persist multimodal capability and API for
 	AIModelSettings::clear_model_profiles_for_test();
 
 	AIModelProfile profile;
-	profile.id = "profile:test:vision";
-	profile.display_name = "Vision Test";
+	profile.id = "profile:fixture:vision";
+	profile.display_name = "Vision Fixture";
 	profile.provider_id = "compatible";
 	profile.provider_name = "OpenAI Compatible";
-	profile.model = "vision-model";
-	profile.base_url = "https://example.test/v1";
-	profile.api_key = "test-key";
+	profile.model = "fixture-vision-model";
+	profile.base_url = "https://fixture.example.test/v1";
+	profile.api_key = "fixture-key";
 	profile.enabled = true;
 	profile.custom = true;
 	profile.supports_multimodal = true;
@@ -125,6 +125,130 @@ TEST_CASE("[Editor][AI] Model profiles persist multimodal capability and API for
 	CHECK(updated_config.api_format == "openai_responses");
 
 	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
+}
+
+TEST_CASE("[Editor][AI] Settings ignore stale bundled sample configurations") {
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
+	Array original_servers = AIMCPSettings::get_server_storage_for_test();
+	Array original_skills = AISkillSettings::get_skill_storage_for_test();
+	Array original_rules = AIRuleSettings::get_rule_storage_for_test();
+
+	Dictionary stale_profile;
+	stale_profile["id"] = "profile:test:vision";
+	stale_profile["display_name"] = "Vision Test";
+	stale_profile["provider_id"] = "compatible";
+	stale_profile["model"] = "vision-model";
+	stale_profile["base_url"] = "https://example.test/v1";
+	stale_profile["api_key"] = "test-key";
+	stale_profile["enabled"] = true;
+	stale_profile["custom"] = true;
+
+	Dictionary kept_profile = stale_profile.duplicate(true);
+	kept_profile["id"] = "profile:user:vision";
+	kept_profile["display_name"] = "User Vision";
+	kept_profile["model"] = "user-vision-model";
+
+	Array profiles;
+	profiles.push_back(stale_profile);
+	profiles.push_back(kept_profile);
+	AIModelSettings::set_model_profile_storage_for_test(profiles);
+
+	Dictionary stale_stdio_server;
+	stale_stdio_server["id"] = "mcp:filesystem";
+	stale_stdio_server["display_name"] = "filesystem";
+	stale_stdio_server["transport"] = "stdio";
+	stale_stdio_server["command"] = "npx";
+	stale_stdio_server["arguments"] = "-y @modelcontextprotocol/server-filesystem .";
+	stale_stdio_server["working_directory"] = "res://";
+	stale_stdio_server["environment"] = "NODE_ENV=development";
+	stale_stdio_server["enabled"] = true;
+
+	Dictionary stale_http_server;
+	stale_http_server["id"] = "mcp:remote-docs";
+	stale_http_server["display_name"] = "remote-docs";
+	stale_http_server["transport"] = "streamable_http";
+	stale_http_server["url"] = "https://mcp.example.test/mcp";
+	stale_http_server["headers"] = "Authorization=Bearer test-token";
+	stale_http_server["enabled"] = true;
+
+	Dictionary stale_sse_server;
+	stale_sse_server["id"] = "mcp:legacy-events";
+	stale_sse_server["display_name"] = "legacy-events";
+	stale_sse_server["transport"] = "sse";
+	stale_sse_server["url"] = "https://mcp.example.test/sse";
+	stale_sse_server["enabled"] = true;
+
+	Dictionary kept_server = stale_http_server.duplicate(true);
+	kept_server["id"] = "mcp:user-docs";
+	kept_server["display_name"] = "user-docs";
+	kept_server["url"] = "https://docs.example.com/mcp";
+
+	Array servers;
+	servers.push_back(stale_stdio_server);
+	servers.push_back(stale_http_server);
+	servers.push_back(stale_sse_server);
+	servers.push_back(kept_server);
+	AIMCPSettings::set_server_storage_for_test(servers);
+
+	Dictionary stale_skill;
+	stale_skill["id"] = "skill:tdd";
+	stale_skill["display_name"] = "TDD";
+	stale_skill["description"] = "Use when changing behavior.";
+	stale_skill["content"] = "Write tests first.";
+	stale_skill["kind"] = "prompt_context";
+	stale_skill["enabled"] = true;
+
+	Dictionary kept_skill = stale_skill.duplicate(true);
+	kept_skill["id"] = "skill:user";
+	kept_skill["display_name"] = "User Skill";
+	kept_skill["content"] = "User content.";
+
+	Array skills;
+	skills.push_back(stale_skill);
+	skills.push_back(kept_skill);
+	AISkillSettings::set_skill_storage_for_test(skills);
+
+	Dictionary stale_enabled_rule;
+	stale_enabled_rule["id"] = "rule:stale-enabled";
+	stale_enabled_rule["content"] = "Prefer concise answers.";
+	stale_enabled_rule["enabled"] = true;
+
+	Dictionary stale_disabled_rule;
+	stale_disabled_rule["id"] = "rule:stale-disabled";
+	stale_disabled_rule["content"] = "Disabled rule should not appear.";
+	stale_disabled_rule["enabled"] = false;
+
+	Dictionary kept_rule;
+	kept_rule["id"] = "rule:user";
+	kept_rule["content"] = "Use project terminology.";
+	kept_rule["enabled"] = true;
+
+	Array rules;
+	rules.push_back(stale_enabled_rule);
+	rules.push_back(stale_disabled_rule);
+	rules.push_back(kept_rule);
+	AIRuleSettings::set_rule_storage_for_test(rules);
+
+	Vector<AIModelProfile> filtered_profiles = AIModelSettings::get_model_profiles(false);
+	REQUIRE(filtered_profiles.size() == 1);
+	CHECK(filtered_profiles[0].display_name == "User Vision");
+
+	Vector<AIMCPServerConfig> filtered_servers = AIMCPSettings::get_servers(false);
+	REQUIRE(filtered_servers.size() == 1);
+	CHECK(filtered_servers[0].display_name == "user-docs");
+
+	Vector<AISkillConfig> filtered_skills = AISkillSettings::get_skills(false);
+	REQUIRE(filtered_skills.size() == 1);
+	CHECK(filtered_skills[0].display_name == "User Skill");
+
+	Vector<AIRuleConfig> filtered_rules = AIRuleSettings::get_rules(false);
+	REQUIRE(filtered_rules.size() == 1);
+	CHECK(filtered_rules[0].content == "Use project terminology.");
+
+	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
+	AIMCPSettings::set_server_storage_for_test(original_servers);
+	AISkillSettings::set_skill_storage_for_test(original_skills);
+	AIRuleSettings::set_rule_storage_for_test(original_rules);
 }
 
 TEST_CASE("[Editor][AI] Model profiles and provider configs share runtime options") {
@@ -208,7 +332,7 @@ TEST_CASE("[Editor][AI] Agent settings dialog exposes skill rows") {
 	AIAgentSettingsDialog dialog;
 	dialog.build_for_test();
 	CHECK(dialog.get_skill_table_row_count_for_test() == 0);
-	dialog.add_skill_for_test("TDD", "Use when changing behavior.", "Write tests first.", true);
+	dialog.add_skill_for_test("Fixture Skill", "Use in settings tests.", "Fixture skill body.", true);
 	CHECK(dialog.get_skill_table_row_count_for_test() == 1);
 	dialog.save_settings_for_test();
 
@@ -302,17 +426,17 @@ TEST_CASE("[Editor][AI] MCP settings import stdio and HTTP servers from JSON") {
 
 	const String json = R"({
 		"mcpServers": {
-			"filesystem": {
+			"fixture-files": {
 				"command": "npx",
 				"args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
 				"env": {"NODE_ENV": "development"}
 			},
-			"remote-docs": {
+			"fixture-docs": {
 				"type": "streamable_http",
 				"url": "https://mcp.example.test/mcp",
 				"headers": {"Authorization": "Bearer test-token"}
 			},
-			"legacy-events": {
+			"fixture-events": {
 				"transport": "sse",
 				"url": "https://mcp.example.test/sse"
 			}
@@ -325,19 +449,19 @@ TEST_CASE("[Editor][AI] MCP settings import stdio and HTTP servers from JSON") {
 
 	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(false);
 	REQUIRE(servers.size() == 3);
-	CHECK(servers[0].display_name == "filesystem");
+	CHECK(servers[0].display_name == "fixture-files");
 	CHECK(servers[0].transport == "stdio");
 	CHECK(servers[0].command == "npx");
 	CHECK(servers[0].arguments == "-y @modelcontextprotocol/server-filesystem .");
 	CHECK(servers[0].environment == "NODE_ENV=development");
 
-	CHECK(servers[1].display_name == "remote-docs");
+	CHECK(servers[1].display_name == "fixture-docs");
 	CHECK(servers[1].transport == "streamable_http");
 	CHECK(servers[1].url == "https://mcp.example.test/mcp");
 	CHECK(servers[1].headers == "Authorization=Bearer test-token");
 	CHECK(servers[1].command.is_empty());
 
-	CHECK(servers[2].display_name == "legacy-events");
+	CHECK(servers[2].display_name == "fixture-events");
 	CHECK(servers[2].transport == "sse");
 	CHECK(servers[2].url == "https://mcp.example.test/sse");
 
@@ -350,7 +474,7 @@ TEST_CASE("[Editor][AI] MCP settings import URL-only JSON servers as streamable 
 
 	const String json = R"({
 		"mcpServers": {
-			"remote-docs": {
+			"fixture-docs": {
 				"url": "https://mcp.example.test/mcp"
 			}
 		}
@@ -362,7 +486,7 @@ TEST_CASE("[Editor][AI] MCP settings import URL-only JSON servers as streamable 
 
 	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(false);
 	REQUIRE(servers.size() == 1);
-	CHECK(servers[0].display_name == "remote-docs");
+	CHECK(servers[0].display_name == "fixture-docs");
 	CHECK(servers[0].transport == "streamable_http");
 	CHECK(servers[0].url == "https://mcp.example.test/mcp");
 

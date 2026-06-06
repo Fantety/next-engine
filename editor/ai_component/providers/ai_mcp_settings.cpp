@@ -9,6 +9,53 @@
 #include "core/os/os.h"
 #include "editor/settings/editor_settings.h"
 
+namespace {
+
+bool _is_stale_sample_server(const Dictionary &p_server) {
+	const String display_name = String(p_server.get("display_name", String())).strip_edges().to_lower();
+	const String transport = String(p_server.get("transport", "stdio")).strip_edges().to_lower().replace("-", "_");
+	const String command = String(p_server.get("command", String())).strip_edges();
+	const String arguments = String(p_server.get("arguments", String())).strip_edges();
+	const String working_directory = String(p_server.get("working_directory", String())).strip_edges();
+	const String environment = String(p_server.get("environment", String())).strip_edges();
+	const String url = String(p_server.get("url", String())).strip_edges();
+	const String headers = String(p_server.get("headers", String())).strip_edges();
+
+	const bool filesystem_sample = (display_name == "filesystem" || display_name == "file system") &&
+			transport == "stdio" &&
+			command == "npx" &&
+			arguments == "-y @modelcontextprotocol/server-filesystem ." &&
+			(working_directory.is_empty() || working_directory == "res://") &&
+			(environment.is_empty() || environment == "NODE_ENV=development");
+
+	const bool remote_docs_sample = display_name == "remote-docs" &&
+			(transport == "streamable_http" || transport == "http") &&
+			url == "https://mcp.example.test/mcp" &&
+			(headers.is_empty() || headers == "Authorization=Bearer test-token");
+
+	const bool legacy_events_sample = display_name == "legacy-events" &&
+			transport == "sse" &&
+			url == "https://mcp.example.test/sse";
+
+	return filesystem_sample || remote_docs_sample || legacy_events_sample;
+}
+
+Array _remove_stale_sample_servers(const Array &p_servers, bool &r_changed) {
+	Array filtered_servers;
+	r_changed = false;
+	for (int i = 0; i < p_servers.size(); i++) {
+		const Variant server_value = p_servers[i];
+		if (server_value.get_type() == Variant::DICTIONARY && _is_stale_sample_server(server_value)) {
+			r_changed = true;
+			continue;
+		}
+		filtered_servers.push_back(server_value);
+	}
+	return filtered_servers;
+}
+
+} // namespace
+
 String AIMCPSettings::_get_servers_path() {
 	return "ai_agent/mcp_servers";
 }
@@ -28,7 +75,13 @@ Array AIMCPSettings::_get_server_storage() {
 	if (value.get_type() != Variant::ARRAY) {
 		return Array();
 	}
-	return value;
+
+	bool changed = false;
+	Array servers = _remove_stale_sample_servers(value, changed);
+	if (changed) {
+		_set_server_storage(servers);
+	}
+	return servers;
 }
 
 void AIMCPSettings::_set_server_storage(const Array &p_servers) {

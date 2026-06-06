@@ -21,6 +21,14 @@ def main() -> int:
     settings = read("editor/settings/editor_settings.cpp")
     manager = read("editor/themes/editor_theme_manager.cpp")
 
+    require(
+        '"interface/theme/style", "Next Mono", "Modern,Classic,Next Mono"' in settings,
+        "Next Mono must be the default editor theme style.",
+    )
+    require(
+        '"interface/theme/color_preset", "Next Engine (Mono)"' in settings,
+        "Next Engine (Mono) must be the default editor color preset.",
+    )
     require("Modern,Classic,Next Mono" in settings, "Next Mono must be registered in the theme style enum.")
     require("Next Engine (Mono)" in settings, "Next Engine (Mono) must be registered in the color preset enum.")
     require("Next Engine (Light Mono)" in settings, "Next Engine (Light Mono) must be registered in the color preset enum.")

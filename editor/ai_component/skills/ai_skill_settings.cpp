@@ -53,6 +53,26 @@ void _parse_skill_markdown(const String &p_markdown, String &r_name, String &r_d
 	r_description = _extract_skill_frontmatter_value(frontmatter, "description");
 }
 
+bool _is_stale_sample_skill(const Dictionary &p_skill) {
+	return String(p_skill.get("display_name", String())).strip_edges() == "TDD" &&
+			String(p_skill.get("description", String())).strip_edges() == "Use when changing behavior." &&
+			String(p_skill.get("content", String())).strip_edges() == "Write tests first.";
+}
+
+Array _remove_stale_sample_skills(const Array &p_skills, bool &r_changed) {
+	Array filtered_skills;
+	r_changed = false;
+	for (int i = 0; i < p_skills.size(); i++) {
+		const Variant skill_value = p_skills[i];
+		if (skill_value.get_type() == Variant::DICTIONARY && _is_stale_sample_skill(skill_value)) {
+			r_changed = true;
+			continue;
+		}
+		filtered_skills.push_back(skill_value);
+	}
+	return filtered_skills;
+}
+
 } // namespace
 
 String AISkillSettings::_get_skills_path() {
@@ -74,7 +94,13 @@ Array AISkillSettings::_get_skill_storage() {
 	if (value.get_type() != Variant::ARRAY) {
 		return Array();
 	}
-	return value;
+
+	bool changed = false;
+	Array skills = _remove_stale_sample_skills(value, changed);
+	if (changed) {
+		_set_skill_storage(skills);
+	}
+	return skills;
 }
 
 void AISkillSettings::_set_skill_storage(const Array &p_skills) {

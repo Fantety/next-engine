@@ -9,6 +9,29 @@
 #include "core/variant/variant.h"
 #include "editor/settings/editor_settings.h"
 
+namespace {
+
+bool _is_stale_sample_rule(const Dictionary &p_rule) {
+	const String content = String(p_rule.get("content", String())).strip_edges();
+	return content == "Prefer concise answers." || content == "Disabled rule should not appear.";
+}
+
+Array _remove_stale_sample_rules(const Array &p_rules, bool &r_changed) {
+	Array filtered_rules;
+	r_changed = false;
+	for (int i = 0; i < p_rules.size(); i++) {
+		const Variant rule_value = p_rules[i];
+		if (rule_value.get_type() == Variant::DICTIONARY && _is_stale_sample_rule(rule_value)) {
+			r_changed = true;
+			continue;
+		}
+		filtered_rules.push_back(rule_value);
+	}
+	return filtered_rules;
+}
+
+} // namespace
+
 String AIRuleSettings::_get_rules_path() {
 	return "ai_agent/rules";
 }
@@ -28,7 +51,13 @@ Array AIRuleSettings::_get_rule_storage() {
 	if (value.get_type() != Variant::ARRAY) {
 		return Array();
 	}
-	return value;
+
+	bool changed = false;
+	Array rules = _remove_stale_sample_rules(value, changed);
+	if (changed) {
+		_set_rule_storage(rules);
+	}
+	return rules;
 }
 
 void AIRuleSettings::_set_rule_storage(const Array &p_rules) {

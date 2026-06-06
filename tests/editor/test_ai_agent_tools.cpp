@@ -245,15 +245,15 @@ TEST_CASE("[Editor][AI] Skill settings manage prompt context skills") {
 	Array original_skills = AISkillSettings::get_skill_storage_for_test();
 	AISkillSettings::clear_skills_for_test();
 
-	const String skill_id = AISkillSettings::add_skill("TDD", "Use when implementing changes.", "Write tests first.", true);
+	const String skill_id = AISkillSettings::add_skill("Fixture Skill", "Use when implementing changes.", "Fixture skill body.", true);
 	CHECK(!skill_id.is_empty());
 
 	Vector<AISkillConfig> skills = AISkillSettings::get_skills(false);
 	REQUIRE(skills.size() == 1);
 	CHECK(skills[0].id == skill_id);
-	CHECK(skills[0].display_name == "TDD");
+	CHECK(skills[0].display_name == "Fixture Skill");
 	CHECK(skills[0].description == "Use when implementing changes.");
-	CHECK(skills[0].content == "Write tests first.");
+	CHECK(skills[0].content == "Fixture skill body.");
 	CHECK(skills[0].kind == "prompt_context");
 	CHECK(skills[0].enabled);
 
@@ -325,8 +325,8 @@ TEST_CASE("[Editor][AI] Skill context provider exposes only enabled skill metada
 	Array original_skills = AISkillSettings::get_skill_storage_for_test();
 	AISkillSettings::clear_skills_for_test();
 
-	AISkillSettings::add_skill("TDD", "Use when implementing changes.", "SECRET FULL BODY", true);
-	AISkillSettings::add_skill("Disabled", "Hidden trigger.", "Hidden body.", false);
+	(void)AISkillSettings::add_skill("Fixture Skill", "Use when implementing changes.", "SECRET FULL BODY", true);
+	(void)AISkillSettings::add_skill("Disabled", "Hidden trigger.", "Hidden body.", false);
 
 	Ref<AISkillIndexContextProvider> provider;
 	provider.instantiate();
@@ -336,7 +336,7 @@ TEST_CASE("[Editor][AI] Skill context provider exposes only enabled skill metada
 	Dictionary doc = context[0];
 	CHECK(String(doc["title"]) == "Available Agent Skills");
 	String content = doc["content"];
-	CHECK(content.contains("TDD"));
+	CHECK(content.contains("Fixture Skill"));
 	CHECK(content.contains("Use when implementing changes."));
 	CHECK(content.contains("agent.activate_skill"));
 	CHECK(content.contains("prompt/context"));
@@ -1029,8 +1029,8 @@ TEST_CASE("[Editor][AI] Rules context provider injects enabled rules") {
 	Array original_rules = AIRuleSettings::get_rule_storage_for_test();
 	AIRuleSettings::clear_rules_for_test();
 
-	AIRuleSettings::add_rule("Prefer concise answers.", true);
-	AIRuleSettings::add_rule("Disabled rule should not appear.", false);
+	(void)AIRuleSettings::add_rule("Prefer direct fixture answers.", true);
+	(void)AIRuleSettings::add_rule("Disabled fixture rule should not appear.", false);
 
 	Ref<AIRulesContextProvider> provider;
 	provider.instantiate();
@@ -1040,8 +1040,8 @@ TEST_CASE("[Editor][AI] Rules context provider injects enabled rules") {
 	Dictionary document = context[0];
 	CHECK(String(document["title"]) == "User Rules");
 	CHECK(String(document["source"]) == "ai_agent/rules");
-	CHECK(String(document["content"]).contains("Prefer concise answers."));
-	CHECK_FALSE(String(document["content"]).contains("Disabled rule should not appear."));
+	CHECK(String(document["content"]).contains("Prefer direct fixture answers."));
+	CHECK_FALSE(String(document["content"]).contains("Disabled fixture rule should not appear."));
 
 	AIRuleSettings::set_rule_storage_for_test(original_rules);
 }

@@ -8,6 +8,33 @@
 #include "core/os/os.h"
 #include "editor/settings/editor_settings.h"
 
+namespace {
+
+bool _is_stale_sample_profile(const Dictionary &p_profile) {
+	return String(p_profile.get("id", String())) == "profile:test:vision" &&
+			String(p_profile.get("display_name", String())) == "Vision Test" &&
+			String(p_profile.get("provider_id", String())) == "compatible" &&
+			String(p_profile.get("model", String())) == "vision-model" &&
+			String(p_profile.get("base_url", String())) == "https://example.test/v1" &&
+			String(p_profile.get("api_key", String())) == "test-key";
+}
+
+Array _remove_stale_sample_profiles(const Array &p_profiles, bool &r_changed) {
+	Array filtered_profiles;
+	r_changed = false;
+	for (int i = 0; i < p_profiles.size(); i++) {
+		const Variant profile_value = p_profiles[i];
+		if (profile_value.get_type() == Variant::DICTIONARY && _is_stale_sample_profile(profile_value)) {
+			r_changed = true;
+			continue;
+		}
+		filtered_profiles.push_back(profile_value);
+	}
+	return filtered_profiles;
+}
+
+} // namespace
+
 String AIModelSettings::_get_provider_path(const String &p_provider_id, const String &p_property) {
 	return "ai_agent/providers/" + p_provider_id + "/" + p_property;
 }
@@ -76,7 +103,13 @@ Array AIModelSettings::_get_profile_storage() {
 	if (value.get_type() != Variant::ARRAY) {
 		return Array();
 	}
-	return value;
+
+	bool changed = false;
+	Array profiles = _remove_stale_sample_profiles(value, changed);
+	if (changed) {
+		_set_profile_storage(profiles);
+	}
+	return profiles;
 }
 
 void AIModelSettings::_set_profile_storage(const Array &p_profiles) {
