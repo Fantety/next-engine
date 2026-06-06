@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "core/object/ref_counted.h"
 #include "core/object/property_info.h"
 #include "core/os/mutex.h"
 #include "core/os/semaphore.h"
@@ -12,6 +11,7 @@
 #include "core/string/ustring.h"
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
+#include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 
 class Node;
 
@@ -22,8 +22,8 @@ struct AISceneEditingResult {
 	Dictionary metadata;
 };
 
-class AISceneEditingService : public RefCounted {
-	GDCLASS(AISceneEditingService, RefCounted);
+class AISceneEditingService : public AIEditorToolService {
+	GDCLASS(AISceneEditingService, AIEditorToolService);
 
 	struct MainThreadRequest {
 		enum Operation {
@@ -67,7 +67,6 @@ class AISceneEditingService : public RefCounted {
 	void _execute_request_ptr(MainThreadRequest *p_request);
 	AISceneEditingResult _dispatch_to_main_thread(MainThreadRequest &r_request);
 
-	Node *_get_edited_scene(String &r_error) const;
 	Node *_resolve_node_path(Node *p_scene_root, const String &p_path, bool p_allow_root, String &r_error) const;
 	Node *_instantiate_node(const String &p_type, String &r_error) const;
 	String _normalize_node_name(Node *p_parent, Node *p_node, const String &p_requested_name) const;
@@ -102,7 +101,6 @@ class AISceneEditingService : public RefCounted {
 	AISceneEditingResult _save_current_scene_request_main_thread();
 	AISceneEditingResult _open_scene_main_thread(const String &p_path);
 	void _select_node(Node *p_node) const;
-	void _update_scene_tree() const;
 
 protected:
 	static void _bind_methods();

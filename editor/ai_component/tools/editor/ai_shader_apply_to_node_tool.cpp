@@ -5,6 +5,7 @@
 #include "ai_shader_apply_to_node_tool.h"
 
 #include "core/variant/variant.h"
+#include "editor/ai_component/tools/ai_tool_helpers.h"
 
 AIShaderApplyToNodeTool::AIShaderApplyToNodeTool() {
 	service.instantiate();
@@ -19,25 +20,11 @@ String AIShaderApplyToNodeTool::get_description() const {
 }
 
 Dictionary AIShaderApplyToNodeTool::get_parameters_schema() const {
-	Dictionary schema;
-	schema["type"] = "object";
-
 	Dictionary properties;
-	Dictionary node_path_property;
-	node_path_property["type"] = "string";
-	node_path_property["description"] = "Target node path relative to the edited scene root, or . for the root node.";
-	properties["node_path"] = node_path_property;
-
-	Dictionary shader_path_property;
-	shader_path_property["type"] = "string";
-	shader_path_property["description"] = "Project path for the .gdshader file, for example res://shaders/player_flash.gdshader.";
-	properties["shader_path"] = shader_path_property;
-
-	Dictionary target_property_property;
-	target_property_property["type"] = "string";
-	target_property_property["description"] = "Required target property path on the node, for example material, material_override, shader, "
-											 "shader_override, or surface_material_override/0.";
-	properties["target_property"] = target_property_property;
+	properties["node_path"] = AIToolHelpers::make_string_property("Target node path relative to the edited scene root, or . for the root node.");
+	properties["shader_path"] = AIToolHelpers::make_string_property("Project path for the .gdshader file, for example res://shaders/player_flash.gdshader.");
+	properties["target_property"] = AIToolHelpers::make_string_property("Required target property path on the node, for example material, material_override, shader, "
+																		"shader_override, or surface_material_override/0.");
 
 	Dictionary parameters_property;
 	parameters_property["type"] = "object";
@@ -48,36 +35,31 @@ Dictionary AIShaderApplyToNodeTool::get_parameters_schema() const {
 	required.push_back("node_path");
 	required.push_back("shader_path");
 	required.push_back("target_property");
-	schema["required"] = required;
-	schema["properties"] = properties;
-	return schema;
+	return AIToolHelpers::make_object_schema(properties, required);
 }
 
 AIToolResult AIShaderApplyToNodeTool::execute(const Dictionary &p_arguments) {
-	AIToolResult result;
-	const String node_path = String(p_arguments.get("node_path", "")).strip_edges();
-	const String shader_path = String(p_arguments.get("shader_path", "")).strip_edges();
-	const String target_property = String(p_arguments.get("target_property", "")).strip_edges();
+	const String node_path = AIToolHelpers::get_stripped_string(p_arguments, "node_path");
+	const String shader_path = AIToolHelpers::get_stripped_string(p_arguments, "shader_path");
+	const String target_property = AIToolHelpers::get_stripped_string(p_arguments, "target_property");
 	Dictionary shader_parameters;
 	print_line(vformat("[AI Agent][Tool:shader.apply_to_node] Start. node_path=%s shader_path=%s target_property=%s", node_path, shader_path, target_property));
 
 	if (node_path.is_empty()) {
-		result.error = "Missing required node_path.";
 		print_line("[AI Agent][Tool:shader.apply_to_node] Failed: missing required node_path.");
-		return result;
+		return AIToolHelpers::make_missing_required_error("node_path");
 	}
 	if (shader_path.is_empty()) {
-		result.error = "Missing required shader_path.";
 		print_line("[AI Agent][Tool:shader.apply_to_node] Failed: missing required shader_path.");
-		return result;
+		return AIToolHelpers::make_missing_required_error("shader_path");
 	}
 	if (target_property.is_empty()) {
-		result.error = "Missing required target_property.";
 		print_line("[AI Agent][Tool:shader.apply_to_node] Failed: missing required target_property.");
-		return result;
+		return AIToolHelpers::make_missing_required_error("target_property");
 	}
 	if (p_arguments.has("shader_parameters")) {
 		if (Variant(p_arguments["shader_parameters"]).get_type() != Variant::DICTIONARY) {
+			AIToolResult result;
 			result.error = "shader_parameters must be an object.";
 			print_line("[AI Agent][Tool:shader.apply_to_node] Failed: shader_parameters is not an object.");
 			return result;
@@ -86,15 +68,12 @@ AIToolResult AIShaderApplyToNodeTool::execute(const Dictionary &p_arguments) {
 	}
 
 	AIShaderEditingResult edit_result = service->apply_to_node(node_path, shader_path, target_property, shader_parameters);
-	if (!edit_result.success) {
-		result.error = edit_result.error.is_empty() ? String("Failed to apply shader to node.") : edit_result.error;
-		result.metadata = edit_result.metadata;
+	AIToolResult result = AIToolHelpers::from_editing_result(edit_result, "Failed to apply shader to node.");
+	if (result.is_error()) {
 		print_line(vformat("[AI Agent][Tool:shader.apply_to_node] Failed: %s", result.error));
 		return result;
 	}
 
-	result.content = edit_result.message;
-	result.metadata = edit_result.metadata;
 	print_line(vformat("[AI Agent][Tool:shader.apply_to_node] Completed. %s", result.content));
 	return result;
 }

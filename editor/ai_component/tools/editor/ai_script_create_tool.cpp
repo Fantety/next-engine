@@ -4,6 +4,8 @@
 
 #include "ai_script_create_tool.h"
 
+#include "editor/ai_component/tools/ai_tool_helpers.h"
+
 AIScriptCreateTool::AIScriptCreateTool() {
 	service.instantiate();
 }
@@ -17,60 +19,35 @@ String AIScriptCreateTool::get_description() const {
 }
 
 Dictionary AIScriptCreateTool::get_parameters_schema() const {
-	Dictionary schema;
-	schema["type"] = "object";
-
 	Dictionary properties;
-	Dictionary path_property;
-	path_property["type"] = "string";
-	path_property["description"] = "Target GDScript path under res://.";
-	properties["path"] = path_property;
-
-	Dictionary extends_property;
-	extends_property["type"] = "string";
-	extends_property["description"] = "Optional base type used when source is omitted. Defaults to Node.";
-	properties["extends"] = extends_property;
-
-	Dictionary source_property;
-	source_property["type"] = "string";
-	source_property["description"] = "Optional full GDScript source. If omitted, a minimal template is created.";
-	properties["source"] = source_property;
-
-	Dictionary overwrite_property;
-	overwrite_property["type"] = "boolean";
-	overwrite_property["description"] = "Whether to overwrite an existing file. Defaults to false.";
-	properties["overwrite"] = overwrite_property;
+	properties["path"] = AIToolHelpers::make_string_property("Target GDScript path under res://.");
+	properties["extends"] = AIToolHelpers::make_string_property("Optional base type used when source is omitted. Defaults to Node.");
+	properties["source"] = AIToolHelpers::make_string_property("Optional full GDScript source. If omitted, a minimal template is created.");
+	properties["overwrite"] = AIToolHelpers::make_boolean_property("Whether to overwrite an existing file. Defaults to false.");
 
 	Array required;
 	required.push_back("path");
-	schema["required"] = required;
-	schema["properties"] = properties;
-	return schema;
+	return AIToolHelpers::make_object_schema(properties, required);
 }
 
 AIToolResult AIScriptCreateTool::execute(const Dictionary &p_arguments) {
-	AIToolResult result;
-	const String path = String(p_arguments.get("path", "")).strip_edges();
-	const String extends_type = String(p_arguments.get("extends", "Node")).strip_edges();
+	const String path = AIToolHelpers::get_stripped_string(p_arguments, "path");
+	const String extends_type = AIToolHelpers::get_stripped_string(p_arguments, "extends", "Node");
 	const String source = String(p_arguments.get("source", ""));
-	const bool overwrite = bool(p_arguments.get("overwrite", false));
+	const bool overwrite = AIToolHelpers::get_bool(p_arguments, "overwrite");
 	print_line(vformat("[AI Agent][Tool:script.create] Start. path=%s extends=%s overwrite=%s", path, extends_type, overwrite ? "yes" : "no"));
 	if (path.is_empty()) {
-		result.error = "Missing required path.";
 		print_line("[AI Agent][Tool:script.create] Failed: missing required path.");
-		return result;
+		return AIToolHelpers::make_missing_required_error("path");
 	}
 
 	AIScriptEditingResult edit_result = service->create_script(path, extends_type, source, overwrite);
-	if (!edit_result.success) {
-		result.error = edit_result.error.is_empty() ? String("Failed to create script.") : edit_result.error;
-		result.metadata = edit_result.metadata;
+	AIToolResult result = AIToolHelpers::from_editing_result(edit_result, "Failed to create script.");
+	if (result.is_error()) {
 		print_line(vformat("[AI Agent][Tool:script.create] Failed: %s", result.error));
 		return result;
 	}
 
-	result.content = edit_result.message;
-	result.metadata = edit_result.metadata;
 	print_line(vformat("[AI Agent][Tool:script.create] Completed. %s", result.content));
 	return result;
 }

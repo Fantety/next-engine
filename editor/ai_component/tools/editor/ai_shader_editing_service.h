@@ -5,12 +5,12 @@
 #pragma once
 
 #include "core/io/resource.h"
-#include "core/object/ref_counted.h"
 #include "core/os/mutex.h"
 #include "core/os/semaphore.h"
 #include "core/string/ustring.h"
 #include "core/variant/dictionary.h"
 #include "editor/ai_component/tools/ai_tool_execution_context.h"
+#include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 
 class Node;
 class Shader;
@@ -22,8 +22,8 @@ struct AIShaderEditingResult {
 	Dictionary metadata;
 };
 
-class AIShaderEditingService : public RefCounted {
-	GDCLASS(AIShaderEditingService, RefCounted);
+class AIShaderEditingService : public AIEditorToolService {
+	GDCLASS(AIShaderEditingService, AIEditorToolService);
 
 	struct MainThreadRequest {
 		enum Operation {
@@ -59,9 +59,6 @@ class AIShaderEditingService : public RefCounted {
 	AIShaderEditingResult _dispatch_to_main_thread(MainThreadRequest &r_request);
 
 	bool _normalize_shader_path(const String &p_path, String &r_path, String &r_error) const;
-	bool _ensure_parent_directory(const String &p_path, String &r_error) const;
-	Node *_get_edited_scene(String &r_error) const;
-	Node *_resolve_node_path(Node *p_scene_root, const String &p_path, bool p_allow_root, String &r_error) const;
 	bool _validate_shader_code(const String &p_code, String &r_error) const;
 	bool _build_shader_code(const String &p_shader_type, const String &p_shader_code, String &r_code, String &r_error) const;
 	bool _load_shader_resource(const String &p_path, Ref<Shader> &r_shader, String &r_error, bool p_ignore_cache = false) const;
@@ -71,8 +68,6 @@ class AIShaderEditingService : public RefCounted {
 	bool _get_exact_property_info(Object *p_object, const String &p_property_path, PropertyInfo &r_property_info) const;
 	bool _resolve_shader_target(Node *p_node, const String &p_target_property, Vector<StringName> &r_property_names, ShaderTargetKind &r_target_kind, Variant &r_old_value, String &r_error) const;
 	bool _save_current_scene_main_thread(Node *p_scene, String &r_saved_path, String &r_error) const;
-	void _refresh_file_system(const String &p_path) const;
-	void _update_scene_tree() const;
 	AIShaderEditingResult _create_shader_main_thread(const String &p_shader_path, const String &p_shader_type, const String &p_shader_code, bool p_overwrite);
 	AIShaderEditingResult _edit_shader_main_thread(const String &p_shader_path, const String &p_shader_code);
 	AIShaderEditingResult _delete_shader_main_thread(const String &p_shader_path);

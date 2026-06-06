@@ -4,6 +4,8 @@
 
 #include "ai_script_delete_tool.h"
 
+#include "editor/ai_component/tools/ai_tool_helpers.h"
+
 AIScriptDeleteTool::AIScriptDeleteTool() {
 	service.instantiate();
 }
@@ -17,42 +19,29 @@ String AIScriptDeleteTool::get_description() const {
 }
 
 Dictionary AIScriptDeleteTool::get_parameters_schema() const {
-	Dictionary schema;
-	schema["type"] = "object";
-
 	Dictionary properties;
-	Dictionary path_property;
-	path_property["type"] = "string";
-	path_property["description"] = "GDScript path under res:// to delete.";
-	properties["path"] = path_property;
+	properties["path"] = AIToolHelpers::make_string_property("GDScript path under res:// to delete.");
 
 	Array required;
 	required.push_back("path");
-	schema["required"] = required;
-	schema["properties"] = properties;
-	return schema;
+	return AIToolHelpers::make_object_schema(properties, required);
 }
 
 AIToolResult AIScriptDeleteTool::execute(const Dictionary &p_arguments) {
-	AIToolResult result;
-	const String path = String(p_arguments.get("path", "")).strip_edges();
+	const String path = AIToolHelpers::get_stripped_string(p_arguments, "path");
 	print_line(vformat("[AI Agent][Tool:script.delete] Start. path=%s", path));
 	if (path.is_empty()) {
-		result.error = "Missing required path.";
 		print_line("[AI Agent][Tool:script.delete] Failed: missing required path.");
-		return result;
+		return AIToolHelpers::make_missing_required_error("path");
 	}
 
 	AIScriptEditingResult edit_result = service->delete_script(path);
-	if (!edit_result.success) {
-		result.error = edit_result.error.is_empty() ? String("Failed to delete script.") : edit_result.error;
-		result.metadata = edit_result.metadata;
+	AIToolResult result = AIToolHelpers::from_editing_result(edit_result, "Failed to delete script.");
+	if (result.is_error()) {
 		print_line(vformat("[AI Agent][Tool:script.delete] Failed: %s", result.error));
 		return result;
 	}
 
-	result.content = edit_result.message;
-	result.metadata = edit_result.metadata;
 	print_line(vformat("[AI Agent][Tool:script.delete] Completed. %s", result.content));
 	return result;
 }

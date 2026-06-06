@@ -36,7 +36,6 @@
 #include "scene/resources/packed_scene.h"
 
 void AISceneEditingService::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("_update_scene_tree"), &AISceneEditingService::_update_scene_tree);
 }
 
 AISceneEditingService *AISceneEditingService::get_dispatcher_singleton() {
@@ -48,29 +47,7 @@ AISceneEditingService *AISceneEditingService::get_dispatcher_singleton() {
 }
 
 AISceneEditingResult AISceneEditingService::_dispatch_to_main_thread(MainThreadRequest &r_request) {
-	if (Thread::is_main_thread()) {
-		_execute_request_ptr(&r_request);
-		return r_request.result;
-	}
-
-	MutexLock lock(request_mutex);
-	if (!MessageQueue::get_main_singleton()) {
-		AISceneEditingResult result;
-		result.error = "Main thread dispatch is not available.";
-		return result;
-	}
-
-	AISceneEditingService *dispatcher = get_dispatcher_singleton();
-	Variant request_ptr = reinterpret_cast<uint64_t>(&r_request);
-	Error err = MessageQueue::get_main_singleton()->push_callable(callable_mp(dispatcher, &AISceneEditingService::_execute_request), request_ptr);
-	if (err != OK) {
-		AISceneEditingResult result;
-		result.error = "Failed to schedule scene editing on the main thread.";
-		return result;
-	}
-
-	r_request.done.wait();
-	return r_request.result;
+	return _dispatch_main_thread_request<AISceneEditingResult>(r_request, get_dispatcher_singleton(), &AISceneEditingService::_execute_request, request_mutex, "Failed to schedule scene editing on the main thread.");
 }
 
 void AISceneEditingService::_execute_request(uint64_t p_request_ptr) {
@@ -116,52 +93,8 @@ void AISceneEditingService::_execute_request_ptr(MainThreadRequest *p_request) {
 	p_request->done.post();
 }
 
-Node *AISceneEditingService::_get_edited_scene(String &r_error) const {
-	EditorNode *editor = EditorNode::get_singleton();
-	if (!editor) {
-		r_error = "EditorNode is not available.";
-		return nullptr;
-	}
-
-	Node *scene = editor->get_edited_scene();
-	if (!scene) {
-		r_error = "No edited scene is currently open.";
-		return nullptr;
-	}
-	return scene;
-}
-
 Node *AISceneEditingService::_resolve_node_path(Node *p_scene_root, const String &p_path, bool p_allow_root, String &r_error) const {
-	ERR_FAIL_NULL_V(p_scene_root, nullptr);
-
-	const String stripped_path = p_path.strip_edges();
-	if (stripped_path.is_empty()) {
-		r_error = "Node path is required.";
-		return nullptr;
-	}
-
-	if (stripped_path == ".") {
-		if (!p_allow_root) {
-			r_error = "The scene root cannot be used for this operation.";
-			return nullptr;
-		}
-		return p_scene_root;
-	}
-
-	if (stripped_path.begins_with("/") || stripped_path.contains("..")) {
-		r_error = "Only paths relative to the edited scene root are allowed.";
-		return nullptr;
-	}
-	if (stripped_path.contains(":")) {
-		r_error = "Property subpaths are not allowed; provide a node path only.";
-		return nullptr;
-	}
-
-	Node *node = p_scene_root->get_node_or_null(NodePath(stripped_path));
-	if (!node) {
-		r_error = "Node path was not found in the edited scene.";
-		return nullptr;
-	}
+	Node *node = AIEditorToolService::_resolve_node_path(p_scene_root, p_path, p_allow_root, r_error, true, "Node path was not found in the edited scene.");
 	if (node == p_scene_root && !p_allow_root) {
 		r_error = "The scene root cannot be used for this operation.";
 		return nullptr;
@@ -997,13 +930,6 @@ void AISceneEditingService::_select_node(Node *p_node) const {
 		dock->set_selected(p_node);
 	} else {
 		dock->set_selected(nullptr);
-	}
-}
-
-void AISceneEditingService::_update_scene_tree() const {
-	SceneTreeDock *dock = SceneTreeDock::get_singleton();
-	if (dock && dock->get_tree_editor()) {
-		dock->get_tree_editor()->update_tree();
 	}
 }
 

@@ -34,9 +34,11 @@
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_factory.h"
+#include "editor/ai_component/tools/ai_tool_helpers.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 #include "editor/ai_component/tools/ai_mcp_tool.h"
+#include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
@@ -64,6 +66,7 @@
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
+#include "scene/main/node.h"
 #include "tests/test_utils.h"
 
 TEST_FORCE_LINK(test_ai_agent_tools);
@@ -104,6 +107,72 @@ public:
 		return result;
 	}
 };
+
+struct TestAIEditingResult {
+	bool success = false;
+	String error;
+	String message;
+	Dictionary metadata;
+};
+
+TEST_CASE("[Editor][AI] Tool helpers build schemas and map editing results") {
+	Dictionary properties;
+	properties["path"] = AIToolHelpers::make_string_property("Target path.");
+	properties["overwrite"] = AIToolHelpers::make_boolean_property("Allow overwrite.");
+
+	Array required;
+	required.push_back("path");
+	Dictionary schema = AIToolHelpers::make_object_schema(properties, required);
+
+	CHECK(String(schema["type"]) == "object");
+	CHECK(Dictionary(schema["properties"]).has("path"));
+	CHECK(Dictionary(schema["properties"]).has("overwrite"));
+	CHECK(Array(schema["required"]).has("path"));
+
+	Dictionary arguments;
+	AIToolResult missing_path = AIToolHelpers::make_missing_required_error("path");
+	CHECK(missing_path.is_error());
+	CHECK(missing_path.error == "Missing required path.");
+	CHECK(AIToolHelpers::get_stripped_string(arguments, "path").is_empty());
+
+	arguments["path"] = "  res://ai/example.gd  ";
+	CHECK(AIToolHelpers::get_stripped_string(arguments, "path") == "res://ai/example.gd");
+
+	TestAIEditingResult edit_result;
+	edit_result.success = true;
+	edit_result.message = "Created file.";
+	edit_result.metadata["path"] = "res://ai/example.gd";
+	AIToolResult tool_result = AIToolHelpers::from_editing_result(edit_result, "Fallback error.");
+	CHECK_FALSE(tool_result.is_error());
+	CHECK(tool_result.content == "Created file.");
+	CHECK(String(tool_result.metadata["path"]) == "res://ai/example.gd");
+
+	edit_result.success = false;
+	edit_result.error = "";
+	AIToolResult failed_tool_result = AIToolHelpers::from_editing_result(edit_result, "Fallback error.");
+	CHECK(failed_tool_result.is_error());
+	CHECK(failed_tool_result.error == "Fallback error.");
+}
+
+TEST_CASE("[Editor][AI] Editor tool service resolves safe scene-relative node paths") {
+	Node root;
+	root.set_name("Root");
+	Node child;
+	child.set_name("Child");
+	root.add_child(&child);
+
+	String error;
+	CHECK(AIEditorToolService::resolve_scene_node_path_for_test(&root, ".", true, error) == &root);
+	CHECK(error.is_empty());
+	CHECK(AIEditorToolService::resolve_scene_node_path_for_test(&root, "Child", true, error) == &child);
+	CHECK(error.is_empty());
+	CHECK(AIEditorToolService::resolve_scene_node_path_for_test(&root, ".", false, error) == nullptr);
+	CHECK(error == "The scene root cannot be used for this operation.");
+	CHECK(AIEditorToolService::resolve_scene_node_path_for_test(&root, "../Child", true, error) == nullptr);
+	CHECK(error == "Only paths relative to the edited scene root are allowed.");
+
+	root.remove_child(&child);
+}
 
 TEST_CASE("[Editor][AI] Tool registry exposes OpenAI-compatible schemas") {
 	Ref<AIToolRegistry> registry;

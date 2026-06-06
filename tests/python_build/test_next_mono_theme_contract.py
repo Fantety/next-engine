@@ -23,9 +23,11 @@ def main() -> int:
 
     require("Modern,Classic,Next Mono" in settings, "Next Mono must be registered in the theme style enum.")
     require("Next Engine (Mono)" in settings, "Next Engine (Mono) must be registered in the color preset enum.")
+    require("Next Engine (Light Mono)" in settings, "Next Engine (Light Mono) must be registered in the color preset enum.")
     require('#include "editor/themes/theme_next_mono.h"' in manager, "EditorThemeManager must include ThemeNextMono.")
     require('config.style == "Next Mono"' in manager, "EditorThemeManager must branch on the Next Mono style.")
     require('config.preset == "Next Engine (Mono)"' in manager, "EditorThemeManager must define the Next Engine (Mono) preset.")
+    require('config.preset == "Next Engine (Light Mono)"' in manager, "EditorThemeManager must define the Next Engine (Light Mono) preset.")
     require((ROOT / "editor/themes/theme_next_mono.h").exists(), "theme_next_mono.h must exist.")
     require((ROOT / "editor/themes/theme_next_mono.cpp").exists(), "theme_next_mono.cpp must exist.")
 
@@ -36,6 +38,14 @@ def main() -> int:
     require("ThemeNextMono::populate_standard_styles" in theme_cpp, "ThemeNextMono standard styles must be implemented.")
     require("ThemeNextMono::populate_editor_styles" in theme_cpp, "ThemeNextMono editor styles must be implemented.")
     require("icon_saturation" in theme_cpp, "ThemeNextMono should explicitly support monochrome icon behavior.")
+    require(
+        'p_config.preset == "Next Engine (Light Mono)"' in theme_cpp,
+        "ThemeNextMono must recognize its light mono preset.",
+    )
+    require(
+        "p_config.dark_icon_and_font = false;" in theme_cpp,
+        "Next Mono light must keep dark_icon_and_font false so Godot converts SVG icons for light backgrounds.",
+    )
     require(
         "p_config.success_color = Color(0.34, 0.86, 0.45);" in theme_cpp,
         "Next Mono must keep success_color green so completed/running NEXT plan rows stay semantic.",

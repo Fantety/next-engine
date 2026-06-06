@@ -62,7 +62,6 @@ static void _ai_register_script_review_change(const String &p_title, const Strin
 }
 
 void AIScriptEditingService::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("_update_scene_tree"), &AIScriptEditingService::_update_scene_tree);
 }
 
 AIScriptEditingService *AIScriptEditingService::get_dispatcher_singleton() {
@@ -75,29 +74,7 @@ AIScriptEditingService *AIScriptEditingService::get_dispatcher_singleton() {
 
 AIScriptEditingResult AIScriptEditingService::_dispatch_to_main_thread(MainThreadRequest &r_request) {
 	r_request.execution_context = AIToolExecutionContext::get_current();
-	if (Thread::is_main_thread()) {
-		_execute_request_ptr(&r_request);
-		return r_request.result;
-	}
-
-	MutexLock lock(request_mutex);
-	if (!MessageQueue::get_main_singleton()) {
-		AIScriptEditingResult result;
-		result.error = "Main thread dispatch is not available.";
-		return result;
-	}
-
-	AIScriptEditingService *dispatcher = get_dispatcher_singleton();
-	Variant request_ptr = reinterpret_cast<uint64_t>(&r_request);
-	Error err = MessageQueue::get_main_singleton()->push_callable(callable_mp(dispatcher, &AIScriptEditingService::_execute_request), request_ptr);
-	if (err != OK) {
-		AIScriptEditingResult result;
-		result.error = "Failed to schedule script editing on the main thread.";
-		return result;
-	}
-
-	r_request.done.wait();
-	return r_request.result;
+	return _dispatch_main_thread_request<AIScriptEditingResult>(r_request, get_dispatcher_singleton(), &AIScriptEditingService::_execute_request, request_mutex, "Failed to schedule script editing on the main thread.");
 }
 
 void AIScriptEditingService::_execute_request(uint64_t p_request_ptr) {
@@ -171,7 +148,7 @@ bool AIScriptEditingService::_read_text_file(const String &p_path, String &r_con
 }
 
 bool AIScriptEditingService::_write_text_file(const String &p_path, const String &p_content, String &r_error) const {
-	if (!_ensure_parent_directory(p_path, r_error)) {
+	if (!_ensure_project_parent_directory(p_path, "script", r_error)) {
 		return false;
 	}
 	Error err = OK;
@@ -183,21 +160,6 @@ bool AIScriptEditingService::_write_text_file(const String &p_path, const String
 	file->store_string(p_content);
 	file->close();
 	_refresh_file_system(p_path);
-	return true;
-}
-
-bool AIScriptEditingService::_ensure_parent_directory(const String &p_path, String &r_error) const {
-	const String base_dir = p_path.get_base_dir();
-	if (base_dir.is_empty() || base_dir == "res://") {
-		return true;
-	}
-
-	const String absolute_dir = ProjectSettings::get_singleton()->globalize_path(base_dir);
-	Error err = DirAccess::make_dir_recursive_absolute(absolute_dir);
-	if (err != OK) {
-		r_error = vformat("Failed to create script directory `%s` (error %d).", base_dir, err);
-		return false;
-	}
 	return true;
 }
 
@@ -332,111 +294,8 @@ bool AIScriptEditingService::_replace_function_source(const String &p_source, co
 	return true;
 }
 
-Node *AIScriptEditingService::_get_edited_scene(String &r_error) const {
-	EditorNode *editor = EditorNode::get_singleton();
-	if (!editor) {
-		r_error = "EditorNode is not available.";
-		return nullptr;
-	}
-
-	Node *scene = editor->get_edited_scene();
-	if (!scene) {
-		r_error = "No edited scene is currently open.";
-		return nullptr;
-	}
-	return scene;
-}
-
-Node *AIScriptEditingService::_resolve_node_path(Node *p_scene_root, const String &p_path, bool p_allow_root, String &r_error) const {
-	ERR_FAIL_NULL_V(p_scene_root, nullptr);
-
-	const String stripped_path = p_path.strip_edges();
-	if (stripped_path.is_empty()) {
-		r_error = "Node path is required.";
-		return nullptr;
-	}
-	if (stripped_path == ".") {
-		if (!p_allow_root) {
-			r_error = "The scene root cannot be used for this operation.";
-			return nullptr;
-		}
-		return p_scene_root;
-	}
-	if (stripped_path.begins_with("/") || stripped_path.contains("..")) {
-		r_error = "Only paths relative to the edited scene root are allowed.";
-		return nullptr;
-	}
-
-	Node *node = p_scene_root->get_node_or_null(NodePath(stripped_path));
-	if (!node) {
-		r_error = vformat("Node `%s` was not found in the edited scene.", stripped_path);
-		return nullptr;
-	}
-	return node;
-}
-
-void AIScriptEditingService::_refresh_file_system(const String &p_path) const {
-	if (!Thread::is_main_thread()) {
-		if (MessageQueue::get_main_singleton()) {
-			MessageQueue::get_main_singleton()->push_callable(callable_mp(get_dispatcher_singleton(), &AIScriptEditingService::_refresh_file_system), p_path);
-		}
-		return;
-	}
-	if (EditorFileSystem::get_singleton()) {
-		EditorFileSystem::get_singleton()->update_file(p_path);
-		EditorFileSystem::get_singleton()->call_deferred("scan_changes");
-	}
-}
-
-void AIScriptEditingService::_update_scene_tree() const {
-	SceneTreeDock *dock = SceneTreeDock::get_singleton();
-	if (dock && dock->get_tree_editor()) {
-		dock->get_tree_editor()->update_tree();
-	}
-}
-
 bool AIScriptEditingService::_save_current_scene_main_thread(Node *p_scene, String &r_saved_path, String &r_error) const {
-	ERR_FAIL_NULL_V(p_scene, false);
-
-	EditorNode *editor = EditorNode::get_singleton();
-	if (!editor) {
-		r_error = "EditorNode is not available.";
-		return false;
-	}
-	const String scene_path = p_scene->get_scene_file_path();
-	if (scene_path.is_empty()) {
-		r_error = "The current scene must be saved before script bindings can be persisted.";
-		return false;
-	}
-
-	Ref<PackedScene> packed_scene;
-	packed_scene.instantiate();
-	Error err = packed_scene->pack(p_scene);
-	if (err != OK) {
-		r_error = vformat("Failed to pack scene before saving (error %d).", err);
-		return false;
-	}
-
-	uint32_t flags = ResourceSaver::FLAG_REPLACE_SUBRESOURCE_PATHS;
-	err = ResourceSaver::save(packed_scene, scene_path, flags);
-	if (err != OK) {
-		r_error = vformat("Failed to save scene `%s` (error %d).", scene_path, err);
-		return false;
-	}
-
-	int scene_index = EditorNode::get_editor_data().get_edited_scene();
-	if (scene_index >= 0) {
-		EditorNode::get_editor_data().notify_scene_saved(scene_path);
-		EditorNode::get_editor_data().set_scene_as_saved(scene_index);
-		EditorNode::get_editor_data().set_scene_modified_time(scene_index, FileAccess::get_modified_time(scene_path));
-	}
-	editor->emit_signal(SNAME("scene_saved"), scene_path);
-	if (EditorSceneTabs::get_singleton()) {
-		EditorSceneTabs::get_singleton()->update_scene_tabs();
-	}
-	_refresh_file_system(scene_path);
-	r_saved_path = scene_path;
-	return true;
+	return _save_current_scene_with_packed_scene_main_thread(p_scene, "The current scene must be saved before script bindings can be persisted.", r_saved_path, r_error);
 }
 
 AIScriptEditingResult AIScriptEditingService::_bind_to_node_main_thread(const String &p_node_path, const String &p_script_path) {

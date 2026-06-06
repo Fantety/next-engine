@@ -4,12 +4,12 @@
 
 #pragma once
 
-#include "core/object/ref_counted.h"
 #include "core/os/mutex.h"
 #include "core/os/semaphore.h"
 #include "core/string/ustring.h"
 #include "core/variant/dictionary.h"
 #include "editor/ai_component/tools/ai_tool_execution_context.h"
+#include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 
 class Node;
 
@@ -20,8 +20,8 @@ struct AIScriptEditingResult {
 	Dictionary metadata;
 };
 
-class AIScriptEditingService : public RefCounted {
-	GDCLASS(AIScriptEditingService, RefCounted);
+class AIScriptEditingService : public AIEditorToolService {
+	GDCLASS(AIScriptEditingService, AIEditorToolService);
 
 	struct MainThreadRequest {
 		enum Operation {
@@ -57,14 +57,9 @@ class AIScriptEditingService : public RefCounted {
 	bool _is_allowed_script_path(const String &p_path, String &r_error) const;
 	bool _read_text_file(const String &p_path, String &r_content, String &r_error) const;
 	bool _write_text_file(const String &p_path, const String &p_content, String &r_error) const;
-	bool _ensure_parent_directory(const String &p_path, String &r_error) const;
 	bool _parse_gdscript(const String &p_path, const String &p_source, Dictionary &r_metadata, String &r_error) const;
 	bool _build_script_source(const String &p_extends, const String &p_source, String &r_source, String &r_error) const;
 	bool _replace_function_source(const String &p_source, const String &p_function_name, const String &p_function_source, bool p_create_if_missing, String &r_new_source, Dictionary &r_metadata, String &r_error) const;
-	Node *_get_edited_scene(String &r_error) const;
-	Node *_resolve_node_path(Node *p_scene_root, const String &p_path, bool p_allow_root, String &r_error) const;
-	void _refresh_file_system(const String &p_path) const;
-	void _update_scene_tree() const;
 	bool _save_current_scene_main_thread(Node *p_scene, String &r_saved_path, String &r_error) const;
 	AIScriptEditingResult _create_script_main_thread(const String &p_path, const String &p_extends, const String &p_source, bool p_overwrite);
 	AIScriptEditingResult _write_script_main_thread(const String &p_path, const String &p_source, bool p_overwrite);

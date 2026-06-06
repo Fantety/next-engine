@@ -371,6 +371,12 @@ EditorThemeManager::ThemeConfiguration EditorThemeManager::_create_theme_config(
 				preset_accent_color = Color(0.78, 0.98, 0.8);
 				preset_base_color = Color(1.0, 1.0, 1.0);
 				preset_contrast = light_contrast;
+			} else if (config.preset == "Next Engine (Light Mono)") {
+				preset_accent_color = Color(0.04, 0.04, 0.04);
+				preset_base_color = Color(0.92, 0.92, 0.91);
+				preset_contrast = light_contrast;
+				preset_draw_extra_borders = true;
+				preset_icon_saturation = 0.0;
 			} else if (config.preset == "Next Engine (Mono)") {
 				preset_accent_color = Color(0.92, 0.92, 0.92);
 				preset_base_color = Color(0.07, 0.07, 0.07);

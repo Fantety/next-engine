@@ -46,80 +46,158 @@ static Ref<StyleBoxFlat> _make_mono_stylebox(Color p_color, Color p_border_color
 void ThemeNextMono::populate_shared_styles(const Ref<EditorTheme> &p_theme, EditorThemeManager::ThemeConfiguration &p_config) {
 	ThemeModern::populate_shared_styles(p_theme, p_config);
 
-	p_config.dark_theme = true;
-	p_config.dark_icon_and_font = true;
+	const bool light_mono = p_config.preset == "Next Engine (Light Mono)";
 	p_config.icon_saturation = 0.0;
 
-	p_config.mono_color = Color(1, 1, 1);
-	p_config.mono_color_font = Color(1, 1, 1);
-	p_config.mono_color_inv = Color(0, 0, 0);
+	if (light_mono) {
+		p_config.dark_theme = false;
+		p_config.dark_icon_and_font = false;
 
-	p_config.base_color = Color(0.07, 0.07, 0.07);
-	p_config.accent_color = Color(0.92, 0.92, 0.92);
-	p_config.dark_color_1 = Color(0.045, 0.045, 0.045);
-	p_config.dark_color_2 = Color(0, 0, 0, 0.42);
-	p_config.dark_color_3 = Color(0.12, 0.12, 0.12);
-	p_config.contrast_color_1 = Color(0.32, 0.32, 0.32);
-	p_config.contrast_color_2 = Color(0.48, 0.48, 0.48);
+		p_config.mono_color = Color(0, 0, 0);
+		p_config.mono_color_font = Color(0, 0, 0);
+		p_config.mono_color_inv = Color(1, 1, 1);
 
-	p_config.highlight_color = Color(1, 1, 1, 0.16);
-	p_config.highlight_disabled_color = Color(1, 1, 1, 0.08);
-	p_config.success_color = Color(0.34, 0.86, 0.45);
-	p_config.warning_color = Color(0.68, 0.68, 0.68);
-	p_config.error_color = Color(0.94, 0.94, 0.94);
-	p_config.extra_border_color_1 = Color(1, 1, 1, 0.42);
-	p_config.extra_border_color_2 = Color(1, 1, 1, 0.20);
+		p_config.base_color = Color(0.92, 0.92, 0.91);
+		p_config.accent_color = Color(0.04, 0.04, 0.04);
+		p_config.dark_color_1 = Color(0.98, 0.98, 0.97);
+		p_config.dark_color_2 = Color(1, 1, 1, 0.42);
+		p_config.dark_color_3 = Color(0.86, 0.86, 0.85);
+		p_config.contrast_color_1 = Color(0.66, 0.66, 0.64);
+		p_config.contrast_color_2 = Color(0.48, 0.48, 0.46);
 
-	p_config.font_color = Color(0.88, 0.88, 0.88);
-	p_config.font_secondary_color = Color(0.62, 0.62, 0.62);
-	p_config.font_focus_color = Color(1, 1, 1);
-	p_config.font_hover_color = Color(0.96, 0.96, 0.96);
-	p_config.font_pressed_color = Color(0.05, 0.05, 0.05);
-	p_config.font_hover_pressed_color = Color(0, 0, 0);
-	p_config.font_disabled_color = Color(1, 1, 1, 0.34);
-	p_config.font_readonly_color = Color(1, 1, 1, 0.56);
-	p_config.font_placeholder_color = Color(1, 1, 1, 0.38);
-	p_config.font_outline_color = Color(1, 1, 1, 0);
+		p_config.highlight_color = Color(0, 0, 0, 0.10);
+		p_config.highlight_disabled_color = Color(0, 0, 0, 0.05);
+		p_config.success_color = Color(0.18, 0.62, 0.28);
+		p_config.warning_color = Color(0.34, 0.34, 0.32);
+		p_config.error_color = Color(0.08, 0.08, 0.08);
+		p_config.extra_border_color_1 = Color(0, 0, 0, 0.36);
+		p_config.extra_border_color_2 = Color(0, 0, 0, 0.16);
 
-	p_config.font_dark_background_color = p_config.font_color;
-	p_config.font_dark_background_focus_color = p_config.font_focus_color;
-	p_config.font_dark_background_hover_color = p_config.font_hover_color;
-	p_config.font_dark_background_pressed_color = p_config.font_pressed_color;
-	p_config.font_dark_background_hover_pressed_color = p_config.font_hover_pressed_color;
+		p_config.font_color = Color(0.10, 0.10, 0.10);
+		p_config.font_secondary_color = Color(0.38, 0.38, 0.36);
+		p_config.font_focus_color = Color(0, 0, 0);
+		p_config.font_hover_color = Color(0.04, 0.04, 0.04);
+		p_config.font_pressed_color = Color(0.96, 0.96, 0.95);
+		p_config.font_hover_pressed_color = Color(1, 1, 1);
+		p_config.font_disabled_color = Color(0, 0, 0, 0.36);
+		p_config.font_readonly_color = Color(0, 0, 0, 0.56);
+		p_config.font_placeholder_color = Color(0, 0, 0, 0.42);
+		p_config.font_outline_color = Color(1, 1, 1, 0);
 
-	p_config.icon_normal_color = Color(0.9, 0.9, 0.9);
-	p_config.icon_secondary_color = Color(0.64, 0.64, 0.64);
-	p_config.icon_focus_color = Color(1, 1, 1);
-	p_config.icon_hover_color = Color(1, 1, 1);
-	p_config.icon_pressed_color = Color(0.02, 0.02, 0.02);
-	p_config.icon_disabled_color = Color(1, 1, 1, 0.34);
+		p_config.font_dark_background_color = Color(0.88, 0.88, 0.86);
+		p_config.font_dark_background_focus_color = Color(1, 1, 1);
+		p_config.font_dark_background_hover_color = Color(0.96, 0.96, 0.94);
+		p_config.font_dark_background_pressed_color = Color(0.08, 0.08, 0.08);
+		p_config.font_dark_background_hover_pressed_color = Color(0, 0, 0);
 
-	p_config.surface_popup_color = Color(0.08, 0.08, 0.08);
-	p_config.surface_lowest_color = Color(0.05, 0.05, 0.05);
-	p_config.surface_lower_color = Color(0.07, 0.07, 0.07);
-	p_config.surface_low_color = Color(0.09, 0.09, 0.09);
-	p_config.surface_base_color = Color(0.11, 0.11, 0.11);
-	p_config.surface_high_color = Color(0.15, 0.15, 0.15);
-	p_config.surface_higher_color = Color(0.20, 0.20, 0.20);
-	p_config.surface_highest_color = Color(0.92, 0.92, 0.92);
+		p_config.icon_normal_color = Color(0.08, 0.08, 0.08);
+		p_config.icon_secondary_color = Color(0.42, 0.42, 0.40);
+		p_config.icon_focus_color = Color(0, 0, 0);
+		p_config.icon_hover_color = Color(0, 0, 0);
+		p_config.icon_pressed_color = Color(0.96, 0.96, 0.95);
+		p_config.icon_disabled_color = Color(0, 0, 0, 0.34);
 
-	p_config.button_normal_color = Color(0.10, 0.10, 0.10);
-	p_config.button_hover_color = Color(0.16, 0.16, 0.16);
-	p_config.button_pressed_color = Color(0.92, 0.92, 0.92);
-	p_config.button_disabled_color = Color(0.08, 0.08, 0.08);
-	p_config.button_border_normal_color = Color(1, 1, 1, 0.20);
-	p_config.button_border_hover_color = Color(1, 1, 1, 0.34);
-	p_config.button_border_pressed_color = Color(1, 1, 1, 0.92);
+		p_config.surface_popup_color = Color(0.98, 0.98, 0.97);
+		p_config.surface_lowest_color = Color(0.89, 0.89, 0.87);
+		p_config.surface_lower_color = Color(0.92, 0.92, 0.90);
+		p_config.surface_low_color = Color(0.95, 0.95, 0.94);
+		p_config.surface_base_color = Color(0.98, 0.98, 0.97);
+		p_config.surface_high_color = Color(0.84, 0.84, 0.82);
+		p_config.surface_higher_color = Color(0.74, 0.74, 0.72);
+		p_config.surface_highest_color = Color(0.04, 0.04, 0.04);
 
-	p_config.flat_button_hover_color = Color(1, 1, 1, 0.08);
-	p_config.flat_button_pressed_color = Color(1, 1, 1, 0.16);
-	p_config.flat_button_hover_pressed_color = Color(1, 1, 1, 0.22);
+		p_config.button_normal_color = Color(0.96, 0.96, 0.95);
+		p_config.button_hover_color = Color(0.88, 0.88, 0.86);
+		p_config.button_pressed_color = Color(0.04, 0.04, 0.04);
+		p_config.button_disabled_color = Color(0.90, 0.90, 0.88);
+		p_config.button_border_normal_color = Color(0, 0, 0, 0.16);
+		p_config.button_border_hover_color = Color(0, 0, 0, 0.30);
+		p_config.button_border_pressed_color = Color(0, 0, 0, 0.86);
 
-	p_config.shadow_color = Color(0, 0, 0, 0.38);
-	p_config.selection_color = Color(1, 1, 1, 0.22);
-	p_config.disabled_border_color = Color(1, 1, 1, 0.12);
-	p_config.disabled_bg_color = Color(1, 1, 1, 0.04);
-	p_config.separator_color = Color(1, 1, 1, 0.16);
+		p_config.flat_button_hover_color = Color(0, 0, 0, 0.06);
+		p_config.flat_button_pressed_color = Color(0, 0, 0, 0.12);
+		p_config.flat_button_hover_pressed_color = Color(0, 0, 0, 0.18);
+
+		p_config.shadow_color = Color(0, 0, 0, 0.16);
+		p_config.selection_color = Color(0, 0, 0, 0.16);
+		p_config.disabled_border_color = Color(0, 0, 0, 0.10);
+		p_config.disabled_bg_color = Color(0, 0, 0, 0.04);
+		p_config.separator_color = Color(0, 0, 0, 0.14);
+	} else {
+		p_config.dark_theme = true;
+		p_config.dark_icon_and_font = true;
+
+		p_config.mono_color = Color(1, 1, 1);
+		p_config.mono_color_font = Color(1, 1, 1);
+		p_config.mono_color_inv = Color(0, 0, 0);
+
+		p_config.base_color = Color(0.07, 0.07, 0.07);
+		p_config.accent_color = Color(0.92, 0.92, 0.92);
+		p_config.dark_color_1 = Color(0.045, 0.045, 0.045);
+		p_config.dark_color_2 = Color(0, 0, 0, 0.42);
+		p_config.dark_color_3 = Color(0.12, 0.12, 0.12);
+		p_config.contrast_color_1 = Color(0.32, 0.32, 0.32);
+		p_config.contrast_color_2 = Color(0.48, 0.48, 0.48);
+
+		p_config.highlight_color = Color(1, 1, 1, 0.16);
+		p_config.highlight_disabled_color = Color(1, 1, 1, 0.08);
+		p_config.success_color = Color(0.34, 0.86, 0.45);
+		p_config.warning_color = Color(0.68, 0.68, 0.68);
+		p_config.error_color = Color(0.94, 0.94, 0.94);
+		p_config.extra_border_color_1 = Color(1, 1, 1, 0.42);
+		p_config.extra_border_color_2 = Color(1, 1, 1, 0.20);
+
+		p_config.font_color = Color(0.88, 0.88, 0.88);
+		p_config.font_secondary_color = Color(0.62, 0.62, 0.62);
+		p_config.font_focus_color = Color(1, 1, 1);
+		p_config.font_hover_color = Color(0.96, 0.96, 0.96);
+		p_config.font_pressed_color = Color(0.05, 0.05, 0.05);
+		p_config.font_hover_pressed_color = Color(0, 0, 0);
+		p_config.font_disabled_color = Color(1, 1, 1, 0.34);
+		p_config.font_readonly_color = Color(1, 1, 1, 0.56);
+		p_config.font_placeholder_color = Color(1, 1, 1, 0.38);
+		p_config.font_outline_color = Color(1, 1, 1, 0);
+
+		p_config.font_dark_background_color = p_config.font_color;
+		p_config.font_dark_background_focus_color = p_config.font_focus_color;
+		p_config.font_dark_background_hover_color = p_config.font_hover_color;
+		p_config.font_dark_background_pressed_color = p_config.font_pressed_color;
+		p_config.font_dark_background_hover_pressed_color = p_config.font_hover_pressed_color;
+
+		p_config.icon_normal_color = Color(0.9, 0.9, 0.9);
+		p_config.icon_secondary_color = Color(0.64, 0.64, 0.64);
+		p_config.icon_focus_color = Color(1, 1, 1);
+		p_config.icon_hover_color = Color(1, 1, 1);
+		p_config.icon_pressed_color = Color(0.02, 0.02, 0.02);
+		p_config.icon_disabled_color = Color(1, 1, 1, 0.34);
+
+		p_config.surface_popup_color = Color(0.08, 0.08, 0.08);
+		p_config.surface_lowest_color = Color(0.05, 0.05, 0.05);
+		p_config.surface_lower_color = Color(0.07, 0.07, 0.07);
+		p_config.surface_low_color = Color(0.09, 0.09, 0.09);
+		p_config.surface_base_color = Color(0.11, 0.11, 0.11);
+		p_config.surface_high_color = Color(0.15, 0.15, 0.15);
+		p_config.surface_higher_color = Color(0.20, 0.20, 0.20);
+		p_config.surface_highest_color = Color(0.92, 0.92, 0.92);
+
+		p_config.button_normal_color = Color(0.10, 0.10, 0.10);
+		p_config.button_hover_color = Color(0.16, 0.16, 0.16);
+		p_config.button_pressed_color = Color(0.92, 0.92, 0.92);
+		p_config.button_disabled_color = Color(0.08, 0.08, 0.08);
+		p_config.button_border_normal_color = Color(1, 1, 1, 0.20);
+		p_config.button_border_hover_color = Color(1, 1, 1, 0.34);
+		p_config.button_border_pressed_color = Color(1, 1, 1, 0.92);
+
+		p_config.flat_button_hover_color = Color(1, 1, 1, 0.08);
+		p_config.flat_button_pressed_color = Color(1, 1, 1, 0.16);
+		p_config.flat_button_hover_pressed_color = Color(1, 1, 1, 0.22);
+
+		p_config.shadow_color = Color(0, 0, 0, 0.38);
+		p_config.selection_color = Color(1, 1, 1, 0.22);
+		p_config.disabled_border_color = Color(1, 1, 1, 0.12);
+		p_config.disabled_bg_color = Color(1, 1, 1, 0.04);
+		p_config.separator_color = Color(1, 1, 1, 0.16);
+	}
 
 	p_theme->set_color("base_color", EditorStringName(Editor), p_config.base_color);
 	p_theme->set_color("accent_color", EditorStringName(Editor), p_config.accent_color);
@@ -134,10 +212,10 @@ void ThemeNextMono::populate_shared_styles(const Ref<EditorTheme> &p_theme, Edit
 	p_theme->set_color("success_color", EditorStringName(Editor), p_config.success_color);
 	p_theme->set_color("warning_color", EditorStringName(Editor), p_config.warning_color);
 	p_theme->set_color("error_color", EditorStringName(Editor), p_config.error_color);
-	p_theme->set_color("success_color_dark_background", EditorStringName(Editor), p_config.success_color);
+	p_theme->set_color("success_color_dark_background", EditorStringName(Editor), light_mono ? Color(0.34, 0.86, 0.45) : p_config.success_color);
 	p_theme->set_color("warning_color_dark_background", EditorStringName(Editor), p_config.warning_color);
 	p_theme->set_color("error_color_dark_background", EditorStringName(Editor), p_config.error_color);
-	p_theme->set_color("ruler_color", EditorStringName(Editor), Color(1, 1, 1, 0.22));
+	p_theme->set_color("ruler_color", EditorStringName(Editor), light_mono ? Color(0, 0, 0, 0.18) : Color(1, 1, 1, 0.22));
 	p_theme->set_color("extra_border_color_1", EditorStringName(Editor), p_config.extra_border_color_1);
 	p_theme->set_color("extra_border_color_2", EditorStringName(Editor), p_config.extra_border_color_2);
 	p_theme->set_color(SceneStringName(font_color), EditorStringName(Editor), p_config.font_color);
@@ -167,12 +245,12 @@ void ThemeNextMono::populate_shared_styles(const Ref<EditorTheme> &p_theme, Edit
 
 	const int border_width = MAX(1, p_config.border_width);
 	const int radius = p_config.corner_radius;
-	const Color hairline = Color(1, 1, 1, 0.18);
-	const Color strong_line = Color(1, 1, 1, 0.44);
+	const Color hairline = light_mono ? Color(0, 0, 0, 0.14) : Color(1, 1, 1, 0.18);
+	const Color strong_line = light_mono ? Color(0, 0, 0, 0.36) : Color(1, 1, 1, 0.44);
 
 	p_config.base_style = _make_mono_stylebox(p_config.surface_low_color, hairline, border_width, p_config.base_margin, p_config.base_margin, p_config.base_margin, p_config.base_margin, radius);
-	p_config.focus_style = EditorThemeManager::make_flat_stylebox(Color(1, 1, 1, 0.03), -1, -1, -1, -1, radius);
-	p_config.focus_style->set_border_color(Color(1, 1, 1, 0.78));
+	p_config.focus_style = EditorThemeManager::make_flat_stylebox(light_mono ? Color(0, 0, 0, 0.02) : Color(1, 1, 1, 0.03), -1, -1, -1, -1, radius);
+	p_config.focus_style->set_border_color(light_mono ? Color(0, 0, 0, 0.72) : Color(1, 1, 1, 0.78));
 	p_config.focus_style->set_border_width_all(2 * MAX(1, EDSCALE));
 	p_config.base_empty_style = EditorThemeManager::make_empty_stylebox(p_config.base_margin, p_config.base_margin, p_config.base_margin, p_config.base_margin);
 	p_config.base_empty_wide_style = EditorThemeManager::make_empty_stylebox(p_config.base_margin * 1.5, p_config.base_margin, p_config.base_margin * 1.5, p_config.base_margin);
@@ -194,7 +272,7 @@ void ThemeNextMono::populate_shared_styles(const Ref<EditorTheme> &p_theme, Edit
 	p_config.window_style = _make_mono_stylebox(p_config.surface_lowest_color, strong_line, border_width, p_config.window_border_margin, p_config.window_border_margin, p_config.window_border_margin, p_config.window_border_margin, 0);
 	p_config.window_complex_style = _make_mono_stylebox(p_config.surface_lowest_color, strong_line, border_width, p_config.window_border_margin, p_config.window_border_margin, p_config.window_border_margin, p_config.window_border_margin, 0);
 	p_config.dialog_style = _make_mono_stylebox(p_config.surface_lowest_color, strong_line, border_width, p_config.window_border_margin, p_config.window_border_margin, p_config.window_border_margin, p_config.window_border_margin, 0);
-	p_config.panel_container_style = _make_mono_stylebox(p_config.surface_lower_color, Color(1, 1, 1, 0.10), 0, p_config.base_margin, p_config.base_margin, p_config.base_margin, p_config.base_margin, radius);
+	p_config.panel_container_style = _make_mono_stylebox(p_config.surface_lower_color, light_mono ? Color(0, 0, 0, 0.08) : Color(1, 1, 1, 0.10), 0, p_config.base_margin, p_config.base_margin, p_config.base_margin, p_config.base_margin, radius);
 	p_config.content_panel_style = _make_mono_stylebox(p_config.surface_low_color, hairline, border_width, p_config.base_margin, p_config.base_margin, p_config.base_margin, p_config.base_margin, radius);
 	p_config.tree_panel_style = _make_mono_stylebox(p_config.surface_lower_color, hairline, border_width, p_config.base_margin * 1.5, p_config.base_margin * 2.5, p_config.base_margin * 1.5, p_config.base_margin * 2.5, radius);
 	p_config.tab_container_style = _make_mono_stylebox(p_config.surface_low_color, hairline, border_width, p_config.base_margin, p_config.base_margin, p_config.base_margin, p_config.base_margin, radius);
@@ -204,8 +282,13 @@ void ThemeNextMono::populate_shared_styles(const Ref<EditorTheme> &p_theme, Edit
 void ThemeNextMono::populate_standard_styles(const Ref<EditorTheme> &p_theme, EditorThemeManager::ThemeConfiguration &p_config) {
 	ThemeModern::populate_standard_styles(p_theme, p_config);
 
-	p_theme->set_color("font_pressed_color", "CheckButton", p_config.font_focus_color);
-	p_theme->set_color("font_hover_pressed_color", "CheckButton", p_config.font_focus_color);
+	if (p_config.preset == "Next Engine (Light Mono)") {
+		p_theme->set_color("font_pressed_color", "CheckButton", p_config.font_pressed_color);
+		p_theme->set_color("font_hover_pressed_color", "CheckButton", p_config.font_hover_pressed_color);
+	} else {
+		p_theme->set_color("font_pressed_color", "CheckButton", p_config.font_focus_color);
+		p_theme->set_color("font_hover_pressed_color", "CheckButton", p_config.font_focus_color);
+	}
 }
 
 void ThemeNextMono::populate_editor_styles(const Ref<EditorTheme> &p_theme, EditorThemeManager::ThemeConfiguration &p_config) {

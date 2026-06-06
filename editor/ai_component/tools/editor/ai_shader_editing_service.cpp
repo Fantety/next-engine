@@ -71,7 +71,6 @@ void _register_shader_review_change(const String &p_title, const String &p_path,
 } // namespace
 
 void AIShaderEditingService::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("_update_scene_tree"), &AIShaderEditingService::_update_scene_tree);
 }
 
 AIShaderEditingService *AIShaderEditingService::get_dispatcher_singleton() {
@@ -84,29 +83,7 @@ AIShaderEditingService *AIShaderEditingService::get_dispatcher_singleton() {
 
 AIShaderEditingResult AIShaderEditingService::_dispatch_to_main_thread(MainThreadRequest &r_request) {
 	r_request.execution_context = AIToolExecutionContext::get_current();
-	if (Thread::is_main_thread()) {
-		_execute_request_ptr(&r_request);
-		return r_request.result;
-	}
-
-	MutexLock lock(request_mutex);
-	if (!MessageQueue::get_main_singleton()) {
-		AIShaderEditingResult result;
-		result.error = "Main thread dispatch is not available.";
-		return result;
-	}
-
-	AIShaderEditingService *dispatcher = get_dispatcher_singleton();
-	Variant request_ptr = reinterpret_cast<uint64_t>(&r_request);
-	Error err = MessageQueue::get_main_singleton()->push_callable(callable_mp(dispatcher, &AIShaderEditingService::_execute_request), request_ptr);
-	if (err != OK) {
-		AIShaderEditingResult result;
-		result.error = "Failed to schedule shader editing on the main thread.";
-		return result;
-	}
-
-	r_request.done.wait();
-	return r_request.result;
+	return _dispatch_main_thread_request<AIShaderEditingResult>(r_request, get_dispatcher_singleton(), &AIShaderEditingService::_execute_request, request_mutex, "Failed to schedule shader editing on the main thread.");
 }
 
 void AIShaderEditingService::_execute_request(uint64_t p_request_ptr) {
@@ -168,72 +145,6 @@ bool AIShaderEditingService::_normalize_shader_path(const String &p_path, String
 	return true;
 }
 
-bool AIShaderEditingService::_ensure_parent_directory(const String &p_path, String &r_error) const {
-	const String base_dir = p_path.get_base_dir();
-	if (base_dir.is_empty() || base_dir == "res://") {
-		return true;
-	}
-
-	EditorFileSystem *file_system = EditorFileSystem::get_singleton();
-	if (!file_system) {
-		r_error = "EditorFileSystem is not available.";
-		return false;
-	}
-
-	if (file_system->get_filesystem_path(base_dir)) {
-		return true;
-	}
-	Error err = file_system->make_dir_recursive(base_dir);
-	if (err != OK && err != ERR_ALREADY_EXISTS) {
-		r_error = vformat("Failed to create shader directory `%s` (error %d).", base_dir, err);
-		return false;
-	}
-	return true;
-}
-
-Node *AIShaderEditingService::_get_edited_scene(String &r_error) const {
-	EditorNode *editor = EditorNode::get_singleton();
-	if (!editor) {
-		r_error = "EditorNode is not available.";
-		return nullptr;
-	}
-
-	Node *scene = editor->get_edited_scene();
-	if (!scene) {
-		r_error = "No edited scene is currently open.";
-		return nullptr;
-	}
-	return scene;
-}
-
-Node *AIShaderEditingService::_resolve_node_path(Node *p_scene_root, const String &p_path, bool p_allow_root, String &r_error) const {
-	ERR_FAIL_NULL_V(p_scene_root, nullptr);
-
-	const String stripped_path = p_path.strip_edges();
-	if (stripped_path.is_empty()) {
-		r_error = "Node path is required.";
-		return nullptr;
-	}
-	if (stripped_path == ".") {
-		if (!p_allow_root) {
-			r_error = "The scene root cannot be used for this operation.";
-			return nullptr;
-		}
-		return p_scene_root;
-	}
-	if (stripped_path.begins_with("/") || stripped_path.contains("..")) {
-		r_error = "Only paths relative to the edited scene root are allowed.";
-		return nullptr;
-	}
-
-	Node *node = p_scene_root->get_node_or_null(NodePath(stripped_path));
-	if (!node) {
-		r_error = vformat("Node `%s` was not found in the edited scene.", stripped_path);
-		return nullptr;
-	}
-	return node;
-}
-
 bool AIShaderEditingService::_validate_shader_code(const String &p_code, String &r_error) const {
 	const String code = p_code.strip_edges();
 	if (code.is_empty()) {
@@ -280,7 +191,7 @@ bool AIShaderEditingService::_save_shader_resource_via_editor(const Ref<Shader> 
 		r_error = "Shader resource is invalid.";
 		return false;
 	}
-	if (!_ensure_parent_directory(p_path, r_error)) {
+	if (!_ensure_editor_filesystem_parent_directory(p_path, "shader", r_error)) {
 		return false;
 	}
 
@@ -422,43 +333,7 @@ bool AIShaderEditingService::_resolve_shader_target(Node *p_node, const String &
 }
 
 bool AIShaderEditingService::_save_current_scene_main_thread(Node *p_scene, String &r_saved_path, String &r_error) const {
-	ERR_FAIL_NULL_V(p_scene, false);
-
-	EditorNode *editor = EditorNode::get_singleton();
-	if (!editor) {
-		r_error = "EditorNode is not available.";
-		return false;
-	}
-	const String scene_path = p_scene->get_scene_file_path();
-	if (scene_path.is_empty()) {
-		r_error = "The current scene must be saved before shader material bindings can be persisted.";
-		return false;
-	}
-
-	editor->save_scene_if_open(scene_path);
-	_refresh_file_system(scene_path);
-	r_saved_path = scene_path;
-	return true;
-}
-
-void AIShaderEditingService::_refresh_file_system(const String &p_path) const {
-	if (!Thread::is_main_thread()) {
-		if (MessageQueue::get_main_singleton()) {
-			MessageQueue::get_main_singleton()->push_callable(callable_mp(get_dispatcher_singleton(), &AIShaderEditingService::_refresh_file_system), p_path);
-		}
-		return;
-	}
-	if (EditorFileSystem::get_singleton()) {
-		EditorFileSystem::get_singleton()->update_file(p_path);
-		EditorFileSystem::get_singleton()->call_deferred("scan_changes");
-	}
-}
-
-void AIShaderEditingService::_update_scene_tree() const {
-	SceneTreeDock *dock = SceneTreeDock::get_singleton();
-	if (dock && dock->get_tree_editor()) {
-		dock->get_tree_editor()->update_tree();
-	}
+	return _save_current_scene_with_editor_main_thread(p_scene, "The current scene must be saved before shader material bindings can be persisted.", r_saved_path, r_error);
 }
 
 AIShaderEditingResult AIShaderEditingService::_create_shader_main_thread(const String &p_shader_path, const String &p_shader_type, const String &p_shader_code, bool p_overwrite) {
