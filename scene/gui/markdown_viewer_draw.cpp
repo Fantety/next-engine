@@ -47,6 +47,24 @@ Color _get_layout_span_color(const MarkdownViewerLayoutSpan &p_span, const Markd
 	return p_theme.font_color;
 }
 
+real_t _get_font_height(const Ref<Font> &p_font, int p_font_size) {
+	if (p_font.is_valid()) {
+		return p_font->get_height(p_font_size);
+	}
+	return p_font_size;
+}
+
+real_t _get_font_ascent(const Ref<Font> &p_font, int p_font_size) {
+	if (p_font.is_valid()) {
+		return p_font->get_ascent(p_font_size);
+	}
+	return p_font_size;
+}
+
+real_t _get_line_advance(const Ref<Font> &p_font, int p_font_size, const MarkdownViewerLayoutTheme &p_theme) {
+	return MAX(real_t(p_font_size), _get_font_height(p_font, p_font_size)) + p_theme.line_spacing;
+}
+
 } // namespace
 
 Vector<int> MarkdownViewerDrawHelper::collect_visible_item_indices_for_test(const MarkdownViewerLayout &p_layout, const Rect2 &p_viewport_rect, real_t p_scroll_offset) {
@@ -76,10 +94,11 @@ void MarkdownViewerDrawHelper::_draw_text_lines(MarkdownViewer &p_viewer, const 
 	if (p_item.marker_unordered || !p_item.marker_text.is_empty()) {
 		Rect2 marker_rect = p_item.marker_rect;
 		marker_rect.position.y -= p_scroll_offset;
+		const real_t marker_baseline = !p_item.inline_lines.is_empty() ? p_item.inline_lines[0].baseline : _get_font_ascent(font, font_size);
 		if (p_item.marker_unordered) {
-			p_viewer.draw_circle(Point2(marker_rect.position.x + marker_rect.size.x * 0.5, marker_rect.position.y + font_size * 0.55), 3.0, p_theme.font_color);
+			p_viewer.draw_circle(Point2(marker_rect.position.x + marker_rect.size.x * 0.5, marker_rect.position.y + marker_baseline - font_size * 0.35), 3.0, p_theme.font_color);
 		} else {
-			p_viewer.draw_string(font, Point2(marker_rect.position.x, marker_rect.position.y + font_size), p_item.marker_text, HORIZONTAL_ALIGNMENT_LEFT, marker_rect.size.x, font_size, p_theme.muted_font_color);
+			p_viewer.draw_string(font, Point2(marker_rect.position.x, marker_rect.position.y + marker_baseline), p_item.marker_text, HORIZONTAL_ALIGNMENT_LEFT, marker_rect.size.x, font_size, p_theme.muted_font_color);
 		}
 	}
 
@@ -100,9 +119,9 @@ void MarkdownViewerDrawHelper::_draw_text_lines(MarkdownViewer &p_viewer, const 
 				}
 
 				const Color span_color = _get_layout_span_color(span, p_theme);
-				p_viewer.draw_string(span_font, Point2(span_rect.position.x, span_rect.position.y + font_size), span.text, HORIZONTAL_ALIGNMENT_LEFT, span_rect.size.x, font_size, span_color);
+				p_viewer.draw_string(span_font, Point2(span_rect.position.x, span_rect.position.y + line.baseline), span.text, HORIZONTAL_ALIGNMENT_LEFT, span_rect.size.x, font_size, span_color);
 				if (span.style_flags & MarkdownViewerLayoutSpan::STYLE_STRIKETHROUGH) {
-					const real_t strike_y = span_rect.position.y + font_size * 0.55;
+					const real_t strike_y = span_rect.position.y + line.baseline - font_size * 0.35;
 					p_viewer.draw_line(Point2(span_rect.position.x, strike_y), Point2(span_rect.position.x + span_rect.size.x, strike_y), span_color, 1.0);
 				}
 			}
@@ -110,11 +129,12 @@ void MarkdownViewerDrawHelper::_draw_text_lines(MarkdownViewer &p_viewer, const 
 		return;
 	}
 
-	real_t y = p_item.rect.position.y - p_scroll_offset + font_size;
+	real_t y = p_item.rect.position.y - p_scroll_offset + _get_font_ascent(font, font_size);
 	const real_t x = p_item.rect.position.x + (p_item.type == MarkdownViewerBlock::TYPE_BLOCK_QUOTE ? 14.0 : 0.0);
+	const real_t line_height = _get_line_advance(font, font_size, p_theme);
 	for (const String &line : p_item.lines) {
 		p_viewer.draw_string(font, Point2(x, y), line, HORIZONTAL_ALIGNMENT_LEFT, p_item.rect.size.x, font_size, color);
-		y += font_size + p_theme.line_spacing;
+		y += line_height;
 	}
 }
 
@@ -141,9 +161,10 @@ void MarkdownViewerDrawHelper::draw(MarkdownViewer &p_viewer, const MarkdownView
 
 				Ref<Font> code_font = p_theme.mono_font.is_valid() ? p_theme.mono_font : p_theme.font;
 				if (code_font.is_valid()) {
-					real_t y = rect.position.y + 28.0 + p_theme.code_font_size;
+					real_t y = rect.position.y + 28.0 + _get_font_ascent(code_font, p_theme.code_font_size);
 					const real_t start_x = rect.position.x + p_theme.code_padding;
 					const real_t limit = MAX(0.0, rect.size.x - p_theme.code_padding * 2.0);
+					const real_t code_line_height = _get_line_advance(code_font, p_theme.code_font_size, p_theme);
 					for (const MarkdownViewerLayoutItem::CodeLine &line : item.code_lines) {
 						real_t x = start_x;
 						for (const MarkdownViewerCodeSpan &span : line.spans) {
@@ -151,7 +172,7 @@ void MarkdownViewerDrawHelper::draw(MarkdownViewer &p_viewer, const MarkdownView
 							p_viewer.draw_string(code_font, Point2(x, y), span.text, HORIZONTAL_ALIGNMENT_LEFT, limit, p_theme.code_font_size, span_color);
 							x += code_font->get_string_size(span.text, HORIZONTAL_ALIGNMENT_LEFT, -1, p_theme.code_font_size).x;
 						}
-						y += p_theme.code_font_size + p_theme.line_spacing;
+						y += code_line_height;
 					}
 				}
 			} break;
@@ -162,7 +183,7 @@ void MarkdownViewerDrawHelper::draw(MarkdownViewer &p_viewer, const MarkdownView
 					p_viewer.draw_rect(cell_rect, item.cell_headers[i] ? p_theme.table_header_background_color : p_theme.table_row_background_color, true);
 					p_viewer.draw_rect(cell_rect, p_theme.table_border_color, false, 1.0);
 					if (p_theme.font.is_valid()) {
-						p_viewer.draw_string(p_theme.font, cell_rect.position + Point2(p_theme.table_cell_padding, p_theme.table_cell_padding + p_theme.normal_font_size), item.cell_texts[i], HORIZONTAL_ALIGNMENT_LEFT, cell_rect.size.x - p_theme.table_cell_padding * 2.0, p_theme.normal_font_size, p_theme.font_color);
+						p_viewer.draw_string(p_theme.font, cell_rect.position + Point2(p_theme.table_cell_padding, p_theme.table_cell_padding + _get_font_ascent(p_theme.font, p_theme.normal_font_size)), item.cell_texts[i], HORIZONTAL_ALIGNMENT_LEFT, cell_rect.size.x - p_theme.table_cell_padding * 2.0, p_theme.normal_font_size, p_theme.font_color);
 					}
 				}
 			} break;

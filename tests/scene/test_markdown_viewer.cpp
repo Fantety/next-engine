@@ -19,8 +19,11 @@ TEST_FORCE_LINK(test_markdown_viewer)
 #include "scene/gui/markdown_viewer_draw.h"
 #include "scene/gui/markdown_viewer_image_loader.h"
 #include "scene/gui/markdown_viewer_layout.h"
+#include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
 #include "scene/resources/font.h"
 #include "scene/theme/theme_db.h"
+#include "tests/signal_watcher.h"
 #include "tests/test_tools.h"
 
 namespace TestMarkdownViewer {
@@ -340,6 +343,29 @@ TEST_CASE("[SceneTree][MarkdownViewer] Layout wraps wide glyph text inside item 
 	}
 }
 
+TEST_CASE("[SceneTree][MarkdownViewer] Layout reserves real font height for wrapped lines") {
+	MarkdownViewerDocumentBuilder builder;
+	MarkdownViewerDocument document = builder.build("This paragraph is intentionally long enough to wrap across several visual lines when the viewer is narrow, so any per-line height underestimate accumulates in the final content height.");
+
+	MarkdownViewerLayoutTheme theme;
+	Ref<FontFile> test_font;
+	test_font.instantiate();
+	REQUIRE(test_font->load_dynamic_font("thirdparty/fonts/Inter_Regular.woff2") == OK);
+	theme.font = test_font;
+	theme.normal_font_size = 16;
+	theme.line_spacing = 4;
+
+	MarkdownViewerLayoutBuilder layout_builder;
+	MarkdownViewerLayout layout = layout_builder.build(document, Size2(180, 240), theme);
+
+	REQUIRE(layout.items.size() == 1);
+	const MarkdownViewerLayoutItem &item = layout.items[0];
+	REQUIRE(item.inline_lines.size() > 2);
+
+	const real_t expected_line_height = theme.font->get_height(theme.normal_font_size) + theme.line_spacing;
+	CHECK(item.rect.size.y >= doctest::Approx(item.inline_lines.size() * expected_line_height).epsilon(0.01));
+}
+
 TEST_CASE("[SceneTree][MarkdownViewer] Layout creates nested list markers") {
 	MarkdownViewerDocumentBuilder builder;
 	MarkdownViewerDocument document = builder.build("- One\n  1. First\n  2. Second\n- Two");
@@ -497,6 +523,37 @@ TEST_CASE("[SceneTree][MarkdownViewer] Scroll disabled exposes content height th
 
 	CHECK(viewer->get_minimum_size().y == doctest::Approx(viewer->get_content_height()));
 
+	memdelete(viewer);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Scroll disabled reports minimum size after deferred wrap layout") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(420, 120));
+	viewer->set_scroll_enabled(false);
+	viewer->set_markdown("Short");
+	root->add_child(viewer);
+	SceneTree::get_singleton()->process(0.0);
+	viewer->force_layout_for_test();
+	const real_t initial_height = viewer->get_minimum_size().y;
+	SceneTree::get_singleton()->process(0.0);
+
+	SIGNAL_WATCH(viewer, SceneStringName(minimum_size_changed));
+	viewer->set_block_minimum_size_adjust(true);
+	viewer->set_size(Size2(180, 120));
+	viewer->set_markdown("This paragraph intentionally contains enough words to wrap across many more lines after the viewer becomes narrow, matching a MarkdownViewer layout pass that discovers a taller content height after the first minimum-size propagation.");
+	viewer->set_block_minimum_size_adjust(false);
+	viewer->force_layout_for_test();
+	SceneTree::get_singleton()->process(0.0);
+
+	Array signal_args = { {} };
+	SIGNAL_CHECK(SceneStringName(minimum_size_changed), signal_args);
+	CHECK(viewer->get_minimum_size().y > initial_height);
+
+	SIGNAL_UNWATCH(viewer, SceneStringName(minimum_size_changed));
+	root->remove_child(viewer);
 	memdelete(viewer);
 }
 

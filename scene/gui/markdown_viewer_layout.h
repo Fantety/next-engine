@@ -65,6 +65,8 @@ struct MarkdownViewerLayoutSpan {
 struct MarkdownViewerLayoutLine {
 	Vector<MarkdownViewerLayoutSpan> spans;
 	String text;
+	real_t height = 0.0;
+	real_t baseline = 0.0;
 };
 
 struct MarkdownViewerHitTest {

@@ -164,10 +164,14 @@ void MarkdownViewer::_ensure_layout() {
 
 	MarkdownViewerLayoutBuilder builder;
 	builder.set_image_loader(image_loader);
+	const real_t previous_content_height = content_height;
 	layout = builder.build(document, get_size(), _make_layout_theme());
 	content_height = layout.content_height;
 	layout_dirty = false;
 	_clamp_scroll_offset();
+	if (!scroll_enabled && !Math::is_equal_approx(previous_content_height, content_height)) {
+		update_minimum_size();
+	}
 }
 
 void MarkdownViewer::_clamp_scroll_offset() {

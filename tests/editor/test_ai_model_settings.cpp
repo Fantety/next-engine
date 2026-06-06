@@ -14,11 +14,16 @@
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
+#include "editor/ai_component/ui/ai_message_list.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/gui/label.h"
 #include "scene/gui/link_button.h"
 #include "scene/gui/markdown_viewer.h"
 #include "scene/gui/rich_text_label.h"
+#include "scene/gui/scroll_bar.h"
+#include "scene/gui/text_edit.h"
+#include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
 
 TEST_FORCE_LINK(test_ai_model_settings);
 
@@ -43,6 +48,40 @@ T *find_child_of_type(Node *p_node) {
 	}
 
 	return nullptr;
+}
+
+template <typename T>
+T *find_last_child_of_type(Node *p_node) {
+	if (!p_node) {
+		return nullptr;
+	}
+
+	T *last = Object::cast_to<T>(p_node);
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		T *child = find_last_child_of_type<T>(p_node->get_child(i));
+		if (child) {
+			last = child;
+		}
+	}
+
+	return last;
+}
+
+void process_scene_frames(int p_count) {
+	SceneTree *tree = SceneTree::get_singleton();
+	REQUIRE(tree != nullptr);
+	for (int i = 0; i < p_count; i++) {
+		tree->process(0.0);
+	}
+}
+
+real_t get_scroll_viewport_bottom(AIMessageList *p_list) {
+	REQUIRE(p_list != nullptr);
+	VScrollBar *scroll_bar = p_list->get_v_scroll_bar();
+	REQUIRE(scroll_bar != nullptr);
+	VBoxContainer *message_box = find_child_of_type<VBoxContainer>(p_list);
+	REQUIRE(message_box != nullptr);
+	return message_box->get_global_position().y + scroll_bar->get_value() + scroll_bar->get_page();
 }
 
 TEST_CASE("[Editor][AI] Model settings expose editable presets") {
@@ -1180,6 +1219,198 @@ TEST_CASE("[Editor][AI] Message bubbles collapse long tool results") {
 	CHECK(bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
 
 	memdelete(bubble);
+}
+
+TEST_CASE("[Editor][AI] Message list keeps the last bubble visible after markdown relayout") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	AIMessageList *list = memnew(AIMessageList);
+	list->set_size(Size2(420, 150));
+
+	for (int i = 0; i < 3; i++) {
+		Dictionary filler;
+		filler["role"] = "assistant";
+		filler["content"] = vformat("Filler message %d\n\n- one\n- two\n- three", i);
+		list->add_message(filler);
+	}
+
+	Dictionary last_message;
+	last_message["role"] = "assistant";
+	last_message["content"] = "### Final answer\n\nThis line intentionally contains enough words to wrap several times once the AI dock becomes narrow, so the MarkdownViewer content height changes after the message list has already followed the bottom.\n\n```gdscript\nfunc _ready():\n\tprint(\"layout should remain visible\")\n```\n\n- final item one\n- final item two\n- final item three";
+	list->add_message(last_message);
+	list->scroll_to_bottom();
+
+	root->add_child(list);
+	process_scene_frames(6);
+
+	list->set_size(Size2(220, 150));
+	process_scene_frames(8);
+
+	VScrollBar *scroll_bar = list->get_v_scroll_bar();
+	REQUIRE(scroll_bar != nullptr);
+	CHECK(scroll_bar->get_value() + scroll_bar->get_page() >= scroll_bar->get_max() - 2.0);
+
+	AIMessageBubble *last_bubble = find_last_child_of_type<AIMessageBubble>(list);
+	REQUIRE(last_bubble != nullptr);
+	const real_t visible_bottom = get_scroll_viewport_bottom(list);
+	const real_t bubble_bottom = last_bubble->get_global_position().y + last_bubble->get_size().y;
+	CHECK(bubble_bottom <= doctest::Approx(visible_bottom).epsilon(0.01));
+	CHECK(list->get_horizontal_scroll_mode() == ScrollContainer::SCROLL_MODE_DISABLED);
+
+	root->remove_child(list);
+	memdelete(list);
+}
+
+TEST_CASE("[Editor][AI] Message list keeps the last error bubble above the bottom edge") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	AIMessageList *list = memnew(AIMessageList);
+	list->set_size(Size2(420, 150));
+
+	for (int i = 0; i < 3; i++) {
+		Dictionary filler;
+		filler["role"] = "assistant";
+		filler["content"] = vformat("Filler message %d\n\nThis makes the message list scroll before the final error arrives.", i);
+		list->add_message(filler);
+	}
+
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Hello";
+	list->add_message(user_message);
+
+	Dictionary error_message;
+	error_message["role"] = "error";
+	error_message["content"] = "Provider request failed.";
+	list->add_message(error_message);
+	list->scroll_to_bottom();
+
+	root->add_child(list);
+	process_scene_frames(8);
+
+	AIMessageBubble *last_bubble = find_last_child_of_type<AIMessageBubble>(list);
+	REQUIRE(last_bubble != nullptr);
+	const real_t visible_bottom = get_scroll_viewport_bottom(list);
+	const real_t bubble_bottom = last_bubble->get_global_position().y + last_bubble->get_size().y;
+	CHECK(bubble_bottom <= visible_bottom - 6.0);
+
+	root->remove_child(list);
+	memdelete(list);
+}
+
+TEST_CASE("[Editor][AI] Dock-like message list gives markdown viewer its full wrapped height") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	VBoxContainer *dock_body = memnew(VBoxContainer);
+	dock_body->set_size(Size2(360, 480));
+	dock_body->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	dock_body->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	dock_body->add_theme_constant_override("separation", 8);
+	root->add_child(dock_body);
+
+	AIMessageList *list = memnew(AIMessageList);
+	dock_body->add_child(list);
+
+	Label *tokens = memnew(Label);
+	tokens->set_text("Tokens  In 389.7k  Out 12.5k  Total 402.2k  Context ~399.4k");
+	tokens->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	dock_body->add_child(tokens);
+
+	TextEdit *input = memnew(TextEdit);
+	input->set_custom_minimum_size(Size2(0, 118));
+	input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	dock_body->add_child(input);
+
+	HBoxContainer *toolbar = memnew(HBoxContainer);
+	toolbar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	dock_body->add_child(toolbar);
+	Control *toolbar_fill = memnew(Control);
+	toolbar_fill->set_custom_minimum_size(Size2(0, 44));
+	toolbar_fill->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	toolbar->add_child(toolbar_fill);
+
+	Dictionary message;
+	message["role"] = "assistant";
+	message["content"] = "Hello! I am here. The previous connection issue should not affect this conversation.\n\nWe already made a complete snake game. If you want:\n\n- add more features to snake, such as speed changes, sound effects, levels, score rankings\n- build a 2D or 3D scene in Godot from the art reference\n- or make any other game, tool, or asset-related development";
+	list->add_message(message);
+	list->scroll_to_bottom();
+	process_scene_frames(8);
+
+	AIMessageBubble *last_bubble = find_last_child_of_type<AIMessageBubble>(list);
+	REQUIRE(last_bubble != nullptr);
+	MarkdownViewer *viewer = find_last_child_of_type<MarkdownViewer>(last_bubble);
+	REQUIRE(viewer != nullptr);
+
+	CHECK(viewer->get_content_height() <= doctest::Approx(viewer->get_size().y).epsilon(0.01));
+
+	const real_t visible_bottom = get_scroll_viewport_bottom(list);
+	const real_t bubble_bottom = last_bubble->get_global_position().y + last_bubble->get_size().y;
+	CHECK(bubble_bottom <= doctest::Approx(visible_bottom).epsilon(0.01));
+
+	root->remove_child(dock_body);
+	memdelete(dock_body);
+}
+
+TEST_CASE("[Editor][AI] Message list leaves visual clearance below the last bubble") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	AIMessageList *list = memnew(AIMessageList);
+	list->set_size(Size2(360, 180));
+	root->add_child(list);
+
+	for (int i = 0; i < 4; i++) {
+		Dictionary filler;
+		filler["role"] = "assistant";
+		filler["content"] = vformat("Filler message %d\n\nThis creates enough history for the list to scroll.", i);
+		list->add_message(filler);
+	}
+
+	Dictionary message;
+	message["role"] = "assistant";
+	message["content"] = "Final answer\n\n- The bottom border should remain visibly separated from the message list clipping edge.\n- This reproduces the narrow AI dock layout after markdown wrapping.";
+	list->add_message(message);
+	list->scroll_to_bottom();
+	process_scene_frames(12);
+
+	AIMessageBubble *last_bubble = find_last_child_of_type<AIMessageBubble>(list);
+	REQUIRE(last_bubble != nullptr);
+	const real_t visible_bottom = get_scroll_viewport_bottom(list);
+	const real_t bubble_bottom = last_bubble->get_global_position().y + last_bubble->get_size().y;
+	CHECK(bubble_bottom <= visible_bottom - 8.0);
+
+	root->remove_child(list);
+	memdelete(list);
+}
+
+TEST_CASE("[Editor][AI] Message list scrolls to the bottom of a tall final bubble") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	AIMessageList *list = memnew(AIMessageList);
+	list->set_size(Size2(360, 180));
+	root->add_child(list);
+
+	Dictionary message;
+	message["role"] = "assistant";
+	message["content"] = "Assistant response\n\nThis final message is intentionally taller than the message list viewport after wrapping.\n\n- The first item explains a longer idea that wraps across multiple visual lines in a narrow AI dock.\n- The second item also wraps and keeps adding vertical height to the same final bubble.\n- The third item makes sure the bottom of this final bubble is the important visible edge.\n- The fourth item is here to force the final bubble below the viewport.\n- The fifth item should still be reachable when the list follows the bottom.\n\nThe visible region should end at the bottom border of this bubble, not at its title.";
+	list->add_message(message);
+	list->scroll_to_bottom();
+	process_scene_frames(10);
+
+	AIMessageBubble *last_bubble = find_last_child_of_type<AIMessageBubble>(list);
+	REQUIRE(last_bubble != nullptr);
+	REQUIRE(last_bubble->get_size().y > list->get_size().y);
+	const real_t visible_bottom = get_scroll_viewport_bottom(list);
+	const real_t bubble_bottom = last_bubble->get_global_position().y + last_bubble->get_size().y;
+	CHECK(bubble_bottom <= doctest::Approx(visible_bottom).epsilon(0.01));
+	CHECK(last_bubble->get_global_position().y < list->get_global_position().y);
+
+	root->remove_child(list);
+	memdelete(list);
 }
 
 } // namespace TestAIModelSettings

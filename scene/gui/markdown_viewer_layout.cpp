@@ -118,6 +118,24 @@ real_t _measure_text(const Ref<Font> &p_font, const String &p_text, int p_font_s
 	return p_text.length() * p_font_size * 0.55;
 }
 
+real_t _get_font_height(const Ref<Font> &p_font, int p_font_size) {
+	if (p_font.is_valid()) {
+		return p_font->get_height(p_font_size);
+	}
+	return p_font_size;
+}
+
+real_t _get_font_ascent(const Ref<Font> &p_font, int p_font_size) {
+	if (p_font.is_valid()) {
+		return p_font->get_ascent(p_font_size);
+	}
+	return p_font_size;
+}
+
+real_t _get_line_advance(const Ref<Font> &p_font, int p_font_size, const MarkdownViewerLayoutTheme &p_theme) {
+	return MAX(real_t(p_font_size), _get_font_height(p_font, p_font_size)) + p_theme.line_spacing;
+}
+
 bool _is_inline_wrap_space(char32_t p_char) {
 	return p_char == ' ' || p_char == '\t';
 }
@@ -200,19 +218,37 @@ Vector<MarkdownViewerLayoutLine> _wrap_inline_spans(const Vector<MarkdownViewerL
 	return lines;
 }
 
+real_t _prepare_inline_line_metrics(MarkdownViewerLayoutItem &r_item, const MarkdownViewerLayoutTheme &p_theme) {
+	real_t total_height = 0.0;
+	for (int line_index = 0; line_index < r_item.inline_lines.size(); line_index++) {
+		MarkdownViewerLayoutLine &line = r_item.inline_lines.write[line_index];
+		real_t line_height = _get_line_advance(p_theme.font, r_item.font_size, p_theme);
+		real_t baseline = _get_font_ascent(p_theme.font, r_item.font_size);
+		for (const MarkdownViewerLayoutSpan &span : line.spans) {
+			const Ref<Font> span_font = _get_span_font(span, p_theme);
+			line_height = MAX(line_height, _get_line_advance(span_font, r_item.font_size, p_theme));
+			baseline = MAX(baseline, _get_font_ascent(span_font, r_item.font_size));
+		}
+		line.height = line_height;
+		line.baseline = baseline;
+		total_height += line.height;
+	}
+	return total_height;
+}
+
 void _assign_inline_span_rects(MarkdownViewerLayoutItem &r_item, const MarkdownViewerLayoutTheme &p_theme) {
-	const real_t line_height = r_item.font_size + p_theme.line_spacing;
+	real_t line_y = r_item.rect.position.y;
 	for (int line_index = 0; line_index < r_item.inline_lines.size(); line_index++) {
 		MarkdownViewerLayoutLine &line = r_item.inline_lines.write[line_index];
 		real_t x = r_item.rect.position.x;
-		const real_t line_y = r_item.rect.position.y + line_index * line_height;
 		for (int span_index = 0; span_index < line.spans.size(); span_index++) {
 			MarkdownViewerLayoutSpan &span = line.spans.write[span_index];
 			const Ref<Font> font = _get_span_font(span, p_theme);
 			const real_t width = _measure_text(font, span.text, r_item.font_size);
-			span.rect = Rect2(x, line_y, width, line_height);
+			span.rect = Rect2(x, line_y, width, line.height);
 			x += width;
 		}
+		line_y += line.height;
 	}
 }
 
@@ -275,12 +311,14 @@ void MarkdownViewerLayoutBuilder::_append_text_block(const MarkdownViewerBlock &
 	for (const MarkdownViewerLayoutLine &line : item.inline_lines) {
 		item.lines.push_back(line.text);
 	}
-	item.rect = Rect2(left, r_y, available_width, MAX(real_t(p_font_size + p_theme.line_spacing), item.inline_lines.size() * (p_font_size + p_theme.line_spacing)));
+	const real_t inline_height = _prepare_inline_line_metrics(item, p_theme);
+	item.rect = Rect2(left, r_y, available_width, MAX(_get_line_advance(p_theme.font, p_font_size, p_theme), inline_height));
 	item.accent_color = p_theme.font_color;
 	item.marker_text = p_marker_text;
 	item.marker_unordered = p_marker_unordered;
 	if (has_marker) {
-		item.marker_rect = Rect2(marker_left, r_y, marker_width, p_font_size + p_theme.line_spacing);
+		const real_t marker_height = item.inline_lines.is_empty() ? _get_line_advance(p_theme.font, p_font_size, p_theme) : item.inline_lines[0].height;
+		item.marker_rect = Rect2(marker_left, r_y, marker_width, marker_height);
 	}
 	_assign_inline_span_rects(item, p_theme);
 
@@ -380,7 +418,9 @@ void MarkdownViewerLayoutBuilder::_append_block(const MarkdownViewerBlock &p_blo
 				}
 				code.code_lines.push_back(code_line);
 			}
-			const real_t height = p_theme.code_padding * 2.0 + 24.0 + MAX(1, code.lines.size()) * (p_theme.code_font_size + p_theme.line_spacing);
+			const Ref<Font> code_font = p_theme.mono_font.is_valid() ? p_theme.mono_font : p_theme.font;
+			const real_t code_line_height = _get_line_advance(code_font, p_theme.code_font_size, p_theme);
+			const real_t height = p_theme.code_padding * 2.0 + 24.0 + MAX(1, code.lines.size()) * code_line_height;
 			code.rect = Rect2(p_theme.document_margin + p_indent, r_y, p_width - p_theme.document_margin * 2.0 - p_indent, height);
 			r_layout.items.push_back(code);
 			if (p_theme.code_copy_enabled) {
@@ -401,7 +441,7 @@ void MarkdownViewerLayoutBuilder::_append_block(const MarkdownViewerBlock &p_blo
 			const real_t left = p_theme.document_margin + p_indent;
 			const real_t width = p_width - p_theme.document_margin * 2.0 - p_indent;
 			const real_t column_width = width / column_count;
-			const real_t row_height = p_theme.normal_font_size + p_theme.table_cell_padding * 2.0;
+			const real_t row_height = _get_font_height(p_theme.font, p_theme.normal_font_size) + p_theme.table_cell_padding * 2.0;
 
 			MarkdownViewerLayoutItem table;
 			table.type = MarkdownViewerBlock::TYPE_TABLE;

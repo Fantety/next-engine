@@ -13,19 +13,23 @@ class AIMessageList : public ScrollContainer {
 	GDCLASS(AIMessageList, ScrollContainer);
 
 	VBoxContainer *message_box = nullptr;
+	Control *bottom_spacer = nullptr;
 	Vector<AIMessageBubble *> bubbles;
 	bool should_scroll_to_bottom = true;
 	bool scroll_to_bottom_queued = false;
+	bool scrolling_to_bottom = false;
 	int pending_scroll_to_bottom_passes = 0;
 
 	bool _is_at_bottom() const;
 	void _request_scroll_to_bottom_if_needed();
 	void _queue_scroll_to_bottom(int p_passes);
 	void _scroll_to_bottom();
+	void _content_layout_changed();
 	void _scroll_range_changed();
 	void _scroll_value_changed(double p_value);
 
 protected:
+	void _notification(int p_what);
 	static void _bind_methods();
 
 public:

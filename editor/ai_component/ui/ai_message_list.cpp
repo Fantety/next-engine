@@ -18,14 +18,33 @@ void AIMessageList::_bind_methods() {
 AIMessageList::AIMessageList() {
 	set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	set_horizontal_scroll_mode(ScrollContainer::SCROLL_MODE_DISABLED);
 
 	message_box = memnew(VBoxContainer);
 	message_box->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	message_box->add_theme_constant_override("separation", 8);
+	message_box->connect(SceneStringName(resized), callable_mp(this, &AIMessageList::_content_layout_changed), CONNECT_DEFERRED);
+	message_box->connect(SceneStringName(minimum_size_changed), callable_mp(this, &AIMessageList::_content_layout_changed), CONNECT_DEFERRED);
 	add_child(message_box);
 
+	bottom_spacer = memnew(Control);
+	bottom_spacer->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+	bottom_spacer->set_custom_minimum_size(Size2(0, 8));
+	message_box->add_child(bottom_spacer);
+
+	connect(SceneStringName(resized), callable_mp(this, &AIMessageList::_content_layout_changed), CONNECT_DEFERRED);
 	get_v_scroll_bar()->connect("changed", callable_mp(this, &AIMessageList::_scroll_range_changed), CONNECT_DEFERRED);
 	get_v_scroll_bar()->connect(SceneStringName(value_changed), callable_mp(this, &AIMessageList::_scroll_value_changed));
+}
+
+void AIMessageList::_notification(int p_what) {
+	switch (p_what) {
+		case NOTIFICATION_ENTER_TREE:
+		case NOTIFICATION_RESIZED:
+		case NOTIFICATION_THEME_CHANGED: {
+			_content_layout_changed();
+		} break;
+	}
 }
 
 bool AIMessageList::_is_at_bottom() const {
@@ -43,7 +62,7 @@ void AIMessageList::_request_scroll_to_bottom_if_needed() {
 		return;
 	}
 
-	_queue_scroll_to_bottom(3);
+	_queue_scroll_to_bottom(6);
 }
 
 void AIMessageList::_queue_scroll_to_bottom(int p_passes) {
@@ -63,7 +82,12 @@ void AIMessageList::_scroll_to_bottom() {
 		return;
 	}
 
+	scrolling_to_bottom = true;
 	set_v_scroll(scroll_bar->get_max());
+	if (bottom_spacer && bottom_spacer->is_inside_tree()) {
+		ensure_control_visible(bottom_spacer);
+	}
+	scrolling_to_bottom = false;
 	should_scroll_to_bottom = true;
 	if (pending_scroll_to_bottom_passes > 1) {
 		pending_scroll_to_bottom_passes--;
@@ -73,6 +97,10 @@ void AIMessageList::_scroll_to_bottom() {
 	}
 }
 
+void AIMessageList::_content_layout_changed() {
+	_request_scroll_to_bottom_if_needed();
+}
+
 void AIMessageList::_scroll_range_changed() {
 	if (should_scroll_to_bottom) {
 		_queue_scroll_to_bottom(1);
@@ -80,7 +108,7 @@ void AIMessageList::_scroll_range_changed() {
 }
 
 void AIMessageList::_scroll_value_changed(double p_value) {
-	if (!scroll_to_bottom_queued) {
+	if (!scroll_to_bottom_queued && !scrolling_to_bottom) {
 		should_scroll_to_bottom = _is_at_bottom();
 	}
 }
@@ -89,6 +117,7 @@ void AIMessageList::clear_messages() {
 	should_scroll_to_bottom = true;
 	pending_scroll_to_bottom_passes = 0;
 	scroll_to_bottom_queued = false;
+	scrolling_to_bottom = false;
 	for (int i = 0; i < bubbles.size(); i++) {
 		bubbles[i]->queue_free();
 	}
@@ -101,6 +130,9 @@ void AIMessageList::add_message(const Dictionary &p_message) {
 	AIMessageBubble *bubble = memnew(AIMessageBubble);
 	bubbles.push_back(bubble);
 	message_box->add_child(bubble);
+	if (bottom_spacer) {
+		message_box->move_child(bottom_spacer, message_box->get_child_count() - 1);
+	}
 	bubble->set_message(p_message);
 	_request_scroll_to_bottom_if_needed();
 }
@@ -128,5 +160,5 @@ void AIMessageList::remove_message(int p_index) {
 
 void AIMessageList::scroll_to_bottom() {
 	should_scroll_to_bottom = true;
-	_queue_scroll_to_bottom(3);
+	_queue_scroll_to_bottom(6);
 }
