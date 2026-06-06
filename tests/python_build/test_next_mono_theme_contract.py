@@ -36,6 +36,10 @@ def main() -> int:
     require("ThemeNextMono::populate_standard_styles" in theme_cpp, "ThemeNextMono standard styles must be implemented.")
     require("ThemeNextMono::populate_editor_styles" in theme_cpp, "ThemeNextMono editor styles must be implemented.")
     require("icon_saturation" in theme_cpp, "ThemeNextMono should explicitly support monochrome icon behavior.")
+    require(
+        "p_config.success_color = Color(0.34, 0.86, 0.45);" in theme_cpp,
+        "Next Mono must keep success_color green so completed/running NEXT plan rows stay semantic.",
+    )
 
     return 0
 

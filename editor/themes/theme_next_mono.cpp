@@ -64,7 +64,7 @@ void ThemeNextMono::populate_shared_styles(const Ref<EditorTheme> &p_theme, Edit
 
 	p_config.highlight_color = Color(1, 1, 1, 0.16);
 	p_config.highlight_disabled_color = Color(1, 1, 1, 0.08);
-	p_config.success_color = Color(0.78, 0.78, 0.78);
+	p_config.success_color = Color(0.34, 0.86, 0.45);
 	p_config.warning_color = Color(0.68, 0.68, 0.68);
 	p_config.error_color = Color(0.94, 0.94, 0.94);
 	p_config.extra_border_color_1 = Color(1, 1, 1, 0.42);
