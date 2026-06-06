@@ -19,6 +19,8 @@ TEST_FORCE_LINK(test_markdown_viewer)
 #include "scene/gui/markdown_viewer_draw.h"
 #include "scene/gui/markdown_viewer_image_loader.h"
 #include "scene/gui/markdown_viewer_layout.h"
+#include "scene/resources/font.h"
+#include "scene/theme/theme_db.h"
 #include "tests/test_tools.h"
 
 namespace TestMarkdownViewer {
@@ -305,6 +307,37 @@ TEST_CASE("[SceneTree][MarkdownViewer] Layout preserves inline spans and code sy
 	CHECK(found_code);
 	CHECK(found_link);
 	CHECK_FALSE(layout.hit_tests.is_empty());
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Layout wraps wide glyph text inside item bounds") {
+	MarkdownViewerDocumentBuilder builder;
+	MarkdownViewerDocument document = builder.build("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW");
+
+	MarkdownViewerLayoutTheme theme;
+	Ref<FontFile> test_font;
+	test_font.instantiate();
+	REQUIRE(test_font->load_dynamic_font("thirdparty/fonts/Inter_Regular.woff2") == OK);
+	theme.font = test_font;
+	Ref<Theme> default_theme = ThemeDB::get_singleton()->get_default_theme();
+	if (default_theme.is_valid()) {
+		theme.normal_font_size = default_theme->get_font_size(SceneStringName(font_size), SNAME("Label"));
+	}
+	if (theme.normal_font_size <= 0) {
+		theme.normal_font_size = ThemeDB::get_singleton()->get_fallback_font_size();
+	}
+	MarkdownViewerLayoutBuilder layout_builder;
+	MarkdownViewerLayout layout = layout_builder.build(document, Size2(420, 240), theme);
+
+	REQUIRE(layout.items.size() == 1);
+	REQUIRE(layout.items[0].inline_lines.size() > 1);
+
+	const MarkdownViewerLayoutItem &item = layout.items[0];
+	const real_t right_edge = item.rect.position.x + item.rect.size.x;
+	for (const MarkdownViewerLayoutLine &line : item.inline_lines) {
+		for (const MarkdownViewerLayoutSpan &span : line.spans) {
+			CHECK(span.rect.position.x + span.rect.size.x <= doctest::Approx(right_edge).epsilon(0.01));
+		}
+	}
 }
 
 TEST_CASE("[SceneTree][MarkdownViewer] Layout creates nested list markers") {

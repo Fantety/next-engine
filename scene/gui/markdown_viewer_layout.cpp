@@ -95,34 +95,6 @@ void _append_layout_spans_from_inlines(const Vector<MarkdownViewerInline> &p_inl
 	}
 }
 
-Vector<MarkdownViewerLayoutLine> _wrap_inline_spans(const Vector<MarkdownViewerLayoutSpan> &p_spans, int p_chars_per_line) {
-	Vector<MarkdownViewerLayoutLine> lines;
-	MarkdownViewerLayoutLine line;
-	const int max_chars = MAX(1, p_chars_per_line);
-
-	for (const MarkdownViewerLayoutSpan &span : p_spans) {
-		for (int i = 0; i < span.text.length(); i++) {
-			const char32_t c = span.text[i];
-			if (c == '\n') {
-				lines.push_back(line);
-				line = MarkdownViewerLayoutLine();
-				continue;
-			}
-
-			_append_span_text(line, String::chr(c), span.style_flags, span.source);
-			if (line.text.length() >= max_chars) {
-				lines.push_back(line);
-				line = MarkdownViewerLayoutLine();
-			}
-		}
-	}
-
-	if (!line.text.is_empty() || lines.is_empty()) {
-		lines.push_back(line);
-	}
-	return lines;
-}
-
 Ref<Font> _get_span_font(const MarkdownViewerLayoutSpan &p_span, const MarkdownViewerLayoutTheme &p_theme) {
 	if (p_span.style_flags & MarkdownViewerLayoutSpan::STYLE_CODE) {
 		return p_theme.mono_font.is_valid() ? p_theme.mono_font : p_theme.font;
@@ -144,6 +116,88 @@ real_t _measure_text(const Ref<Font> &p_font, const String &p_text, int p_font_s
 		return p_font->get_string_size(p_text, HORIZONTAL_ALIGNMENT_LEFT, -1, p_font_size).x;
 	}
 	return p_text.length() * p_font_size * 0.55;
+}
+
+bool _is_inline_wrap_space(char32_t p_char) {
+	return p_char == ' ' || p_char == '\t';
+}
+
+void _push_inline_line(Vector<MarkdownViewerLayoutLine> &r_lines, MarkdownViewerLayoutLine &r_line, real_t &r_line_width) {
+	r_lines.push_back(r_line);
+	r_line = MarkdownViewerLayoutLine();
+	r_line_width = 0.0;
+}
+
+Vector<MarkdownViewerLayoutLine> _wrap_inline_spans(const Vector<MarkdownViewerLayoutSpan> &p_spans, real_t p_available_width, int p_font_size, const MarkdownViewerLayoutTheme &p_theme) {
+	Vector<MarkdownViewerLayoutLine> lines;
+	MarkdownViewerLayoutLine line;
+	real_t line_width = 0.0;
+	const real_t max_width = MAX(real_t(1.0), p_available_width);
+
+	for (const MarkdownViewerLayoutSpan &span : p_spans) {
+		const Ref<Font> font = _get_span_font(span, p_theme);
+		for (int i = 0; i < span.text.length();) {
+			const char32_t c = span.text[i];
+			if (c == '\n') {
+				_push_inline_line(lines, line, line_width);
+				i++;
+				continue;
+			}
+
+			const bool token_is_space = _is_inline_wrap_space(c);
+			const int token_start = i;
+			while (i < span.text.length()) {
+				const char32_t token_char = span.text[i];
+				if (token_char == '\n' || _is_inline_wrap_space(token_char) != token_is_space) {
+					break;
+				}
+				i++;
+			}
+
+			const String token = span.text.substr(token_start, i - token_start);
+			if (token.is_empty()) {
+				continue;
+			}
+			if (token_is_space) {
+				if (line.text.is_empty()) {
+					continue;
+				}
+				const real_t token_width = _measure_text(font, token, p_font_size);
+				if (line_width + token_width > max_width) {
+					_push_inline_line(lines, line, line_width);
+					continue;
+				}
+				_append_span_text(line, token, span.style_flags, span.source);
+				line_width += token_width;
+				continue;
+			}
+
+			const real_t token_width = _measure_text(font, token, p_font_size);
+			if (token_width <= max_width) {
+				if (!line.text.is_empty() && line_width + token_width > max_width) {
+					_push_inline_line(lines, line, line_width);
+				}
+				_append_span_text(line, token, span.style_flags, span.source);
+				line_width += token_width;
+				continue;
+			}
+
+			for (int char_index = 0; char_index < token.length(); char_index++) {
+				const String char_text = String::chr(token[char_index]);
+				const real_t char_width = _measure_text(font, char_text, p_font_size);
+				if (!line.text.is_empty() && line_width + char_width > max_width) {
+					_push_inline_line(lines, line, line_width);
+				}
+				_append_span_text(line, char_text, span.style_flags, span.source);
+				line_width += char_width;
+			}
+		}
+	}
+
+	if (!line.text.is_empty() || lines.is_empty()) {
+		lines.push_back(line);
+	}
+	return lines;
 }
 
 void _assign_inline_span_rects(MarkdownViewerLayoutItem &r_item, const MarkdownViewerLayoutTheme &p_theme) {
@@ -206,7 +260,6 @@ void MarkdownViewerLayoutBuilder::_append_text_block(const MarkdownViewerBlock &
 	const real_t marker_width = has_marker ? MAX(real_t(18.0), _measure_text(p_theme.font, p_marker_text, p_font_size) + 8.0) : 0.0;
 	const real_t left = marker_left + marker_width;
 	const real_t available_width = MAX(32.0, p_width - left - p_theme.document_margin);
-	const int chars_per_line = MAX(8, int(available_width / MAX(4, p_font_size * 0.55)));
 	const String text = _flatten_block_text(p_block);
 	Vector<MarkdownViewerLayoutSpan> spans;
 	_append_layout_spans_from_inlines(p_block.inlines, MarkdownViewerLayoutSpan::STYLE_NONE, String(), spans);
@@ -218,7 +271,7 @@ void MarkdownViewerLayoutBuilder::_append_text_block(const MarkdownViewerBlock &
 	item.type = p_block.type;
 	item.text = text;
 	item.font_size = p_font_size;
-	item.inline_lines = _wrap_inline_spans(spans, chars_per_line);
+	item.inline_lines = _wrap_inline_spans(spans, available_width, p_font_size, p_theme);
 	for (const MarkdownViewerLayoutLine &line : item.inline_lines) {
 		item.lines.push_back(line.text);
 	}
