@@ -158,15 +158,17 @@ MarkdownViewerLayoutTheme MarkdownViewer::_make_layout_theme() const {
 
 void MarkdownViewer::_ensure_layout() {
 	_ensure_document();
-	if (!layout_dirty) {
+	const Size2 current_size = get_size();
+	if (!layout_dirty && current_size.is_equal_approx(last_layout_size)) {
 		return;
 	}
 
 	MarkdownViewerLayoutBuilder builder;
 	builder.set_image_loader(image_loader);
 	const real_t previous_content_height = content_height;
-	layout = builder.build(document, get_size(), _make_layout_theme());
+	layout = builder.build(document, current_size, _make_layout_theme());
 	content_height = layout.content_height;
+	last_layout_size = current_size;
 	layout_dirty = false;
 	_clamp_scroll_offset();
 	if (!scroll_enabled && !Math::is_equal_approx(previous_content_height, content_height)) {
@@ -301,6 +303,16 @@ real_t MarkdownViewer::get_image_max_height() const {
 
 real_t MarkdownViewer::get_content_height() const {
 	return content_height;
+}
+
+real_t MarkdownViewer::get_content_height_for_width(real_t p_width) const {
+	MarkdownViewer *self = const_cast<MarkdownViewer *>(this);
+	self->_ensure_document();
+
+	MarkdownViewerLayoutBuilder builder;
+	builder.set_image_loader(image_loader);
+	const Size2 layout_size(MAX(real_t(1.0), p_width), get_size().y);
+	return builder.build(document, layout_size, _make_layout_theme()).content_height;
 }
 
 void MarkdownViewer::force_layout_for_test() {

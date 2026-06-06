@@ -24,6 +24,7 @@
 #include "scene/gui/text_edit.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
+#include "scene/resources/style_box_flat.h"
 
 TEST_FORCE_LINK(test_ai_model_settings);
 
@@ -984,6 +985,10 @@ TEST_CASE("[Editor][AI] Assistant message bubbles render markdown while user bub
 	CHECK(assistant_label->get_parsed_text().strip_edges() == "Use bold and code.");
 	CHECK(assistant_bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
 	CHECK(assistant_bubble->has_theme_stylebox_override(SceneStringName(panel)));
+	Ref<StyleBoxFlat> assistant_style = assistant_bubble->get_theme_stylebox(SceneStringName(panel));
+	REQUIRE(assistant_style.is_valid());
+	CHECK_FALSE(assistant_style->is_anti_aliased());
+	CHECK(assistant_style->get_border_width(SIDE_BOTTOM) >= 2);
 
 	AIMessageBubble *user_bubble = memnew(AIMessageBubble);
 	Dictionary user_message;
@@ -999,6 +1004,10 @@ TEST_CASE("[Editor][AI] Assistant message bubbles render markdown while user bub
 	CHECK(user_label->get_parsed_text().strip_edges() == "Literal **stars**");
 	CHECK(user_bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
 	CHECK(user_bubble->has_theme_stylebox_override(SceneStringName(panel)));
+	Ref<StyleBoxFlat> user_style = user_bubble->get_theme_stylebox(SceneStringName(panel));
+	REQUIRE(user_style.is_valid());
+	CHECK_FALSE(user_style->is_anti_aliased());
+	CHECK(user_style->get_border_width(SIDE_BOTTOM) >= 2);
 
 	memdelete(assistant_bubble);
 	memdelete(user_bubble);
@@ -1411,6 +1420,85 @@ TEST_CASE("[Editor][AI] Message list scrolls to the bottom of a tall final bubbl
 
 	root->remove_child(list);
 	memdelete(list);
+}
+
+TEST_CASE("[Editor][AI] Markdown label minimum height follows its assigned width") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	AIMarkdownLabel *label = memnew(AIMarkdownLabel);
+	label->set_markdown("你好呀！我在这里。之前我们已经做好了一个完整的贪吃蛇游戏，如果你想：\n\n- 给贪吃蛇加更多功能（比如加速/减速音效、关卡、得分排行榜）\n- 基于刚才看到的那幅艺术家阁楼插画，在 Godot 里搭建一个 2D/3D 场景\n- 或者做其他任何游戏、工具、资源相关的开发");
+	root->add_child(label);
+
+	label->set_size(Size2(760, 120));
+	process_scene_frames(4);
+	const real_t wide_height = label->get_combined_minimum_size().y;
+
+	label->set_size(Size2(260, 120));
+	process_scene_frames(4);
+	const real_t narrow_height = label->get_combined_minimum_size().y;
+
+	CHECK(narrow_height > wide_height);
+
+	root->remove_child(label);
+	memdelete(label);
+}
+
+TEST_CASE("[Editor][AI] Dock-like message list keeps bottom visible at wide and narrow widths") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	const real_t widths[] = { 320.0, 760.0 };
+	for (real_t width : widths) {
+		VBoxContainer *dock_body = memnew(VBoxContainer);
+		dock_body->set_size(Size2(width, 480));
+		dock_body->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		dock_body->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+		dock_body->add_theme_constant_override("separation", 8);
+		root->add_child(dock_body);
+
+		AIMessageList *list = memnew(AIMessageList);
+		dock_body->add_child(list);
+
+		Label *tokens = memnew(Label);
+		tokens->set_text("Tokens  In 389.7k  Out 12.5k  Total 402.2k  Context ~399.4k");
+		tokens->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		dock_body->add_child(tokens);
+
+		TextEdit *input = memnew(TextEdit);
+		input->set_custom_minimum_size(Size2(0, 118));
+		input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		dock_body->add_child(input);
+
+		HBoxContainer *toolbar = memnew(HBoxContainer);
+		toolbar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		dock_body->add_child(toolbar);
+		Control *toolbar_fill = memnew(Control);
+		toolbar_fill->set_custom_minimum_size(Size2(0, 44));
+		toolbar_fill->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		toolbar->add_child(toolbar_fill);
+
+		Dictionary user_message;
+		user_message["role"] = "user";
+		user_message["content"] = "你好";
+		list->add_message(user_message);
+
+		Dictionary message;
+		message["role"] = "assistant";
+		message["content"] = "你好呀！😊 我在这里。刚才的连接小问题不影响我们交流。\n\n之前我们已经做好了一个完整的贪吃蛇游戏，如果你想：\n\n- 给贪吃蛇加更多功能（比如加速/减速音效、关卡、得分排行榜）\n- 基于刚才看到的那幅艺术家阁楼插画，在 Godot 里搭建一个 2D/3D 场景\n- 或者做其他任何游戏、工具、资源相关的开发";
+		list->add_message(message);
+		list->scroll_to_bottom();
+		process_scene_frames(12);
+
+		AIMessageBubble *last_bubble = find_last_child_of_type<AIMessageBubble>(list);
+		REQUIRE(last_bubble != nullptr);
+		const real_t visible_bottom = get_scroll_viewport_bottom(list);
+		const real_t bubble_bottom = last_bubble->get_global_position().y + last_bubble->get_size().y;
+		CHECK(bubble_bottom <= visible_bottom - 6.0);
+
+		root->remove_child(dock_body);
+		memdelete(dock_body);
+	}
 }
 
 } // namespace TestAIModelSettings
