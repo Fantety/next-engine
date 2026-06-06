@@ -7,13 +7,14 @@
 #include "scene/gui/box_container.h"
 #include "servers/text/text_server.h"
 
-class RichTextLabel;
+class MarkdownViewer;
 
 class AIMarkdownLabel : public VBoxContainer {
 	GDCLASS(AIMarkdownLabel, VBoxContainer);
 
 	String markdown_text;
-	RichTextLabel *rich_text_label = nullptr;
+	String parsed_text;
+	MarkdownViewer *markdown_viewer = nullptr;
 
 protected:
 	static void _bind_methods();
@@ -27,7 +28,7 @@ public:
 	void clear();
 	void add_text(const String &p_text);
 	String get_parsed_text() const;
-	RichTextLabel *get_rich_text_label() const;
+	MarkdownViewer *get_markdown_viewer() const;
 
 	void set_autowrap_mode(TextServer::AutowrapMode p_mode);
 	void add_theme_font_size_override(const StringName &p_name, int p_font_size);

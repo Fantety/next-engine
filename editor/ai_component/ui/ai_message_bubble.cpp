@@ -13,7 +13,6 @@
 #include "scene/gui/button.h"
 #include "scene/gui/flow_container.h"
 #include "scene/gui/label.h"
-#include "scene/gui/rich_text_label.h"
 #include "servers/text/text_server.h"
 
 void AIMessageBubble::_bind_methods() {

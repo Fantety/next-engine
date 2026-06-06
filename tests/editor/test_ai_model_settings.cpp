@@ -17,6 +17,7 @@
 #include "editor/settings/editor_settings.h"
 #include "scene/gui/label.h"
 #include "scene/gui/link_button.h"
+#include "scene/gui/markdown_viewer.h"
 #include "scene/gui/rich_text_label.h"
 
 TEST_FORCE_LINK(test_ai_model_settings);
@@ -711,10 +712,12 @@ TEST_CASE("[Editor][AI] Message bubbles render labels without BBCode markup") {
 
 	bubble->set_message(message);
 
-	RichTextLabel *label = find_child_of_type<RichTextLabel>(bubble);
+	AIMarkdownLabel *label = find_child_of_type<AIMarkdownLabel>(bubble);
 	Label *title_label = find_child_of_type<Label>(bubble);
 	REQUIRE(label != nullptr);
 	REQUIRE(title_label != nullptr);
+	CHECK(find_child_of_type<MarkdownViewer>(bubble) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(bubble) == nullptr);
 	CHECK(title_label->get_text() == "You");
 	CHECK(label->get_parsed_text() == "hello [b]plain[/b]");
 
@@ -726,6 +729,8 @@ TEST_CASE("[Editor][AI] Markdown labels render common AI response markdown") {
 
 	label->set_markdown("# Plan\n\nUse **bold**, *italic*, and `code`.\n\n- inspect project\n- apply patch\n\n```gdscript\nextends Node\n```");
 
+	CHECK(find_child_of_type<MarkdownViewer>(label) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(label) == nullptr);
 	const String parsed_text = label->get_parsed_text();
 	CHECK(parsed_text.contains("Plan"));
 	CHECK(parsed_text.contains("Use bold, italic, and code."));
@@ -809,8 +814,10 @@ TEST_CASE("[Editor][AI] Assistant message bubbles render markdown while user bub
 
 	assistant_bubble->set_message(assistant_message);
 
-	RichTextLabel *assistant_label = find_child_of_type<RichTextLabel>(assistant_bubble);
+	AIMarkdownLabel *assistant_label = find_child_of_type<AIMarkdownLabel>(assistant_bubble);
 	REQUIRE(assistant_label != nullptr);
+	CHECK(find_child_of_type<MarkdownViewer>(assistant_bubble) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(assistant_bubble) == nullptr);
 	CHECK(assistant_label->get_parsed_text().strip_edges() == "Use bold and code.");
 
 	AIMessageBubble *user_bubble = memnew(AIMessageBubble);
@@ -820,8 +827,10 @@ TEST_CASE("[Editor][AI] Assistant message bubbles render markdown while user bub
 
 	user_bubble->set_message(user_message);
 
-	RichTextLabel *user_label = find_child_of_type<RichTextLabel>(user_bubble);
+	AIMarkdownLabel *user_label = find_child_of_type<AIMarkdownLabel>(user_bubble);
 	REQUIRE(user_label != nullptr);
+	CHECK(find_child_of_type<MarkdownViewer>(user_bubble) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(user_bubble) == nullptr);
 	CHECK(user_label->get_parsed_text().strip_edges() == "Literal **stars**");
 
 	memdelete(assistant_bubble);
@@ -836,10 +845,12 @@ TEST_CASE("[Editor][AI] Message bubbles ignore null content") {
 
 	bubble->set_message(message);
 
-	RichTextLabel *label = find_child_of_type<RichTextLabel>(bubble);
+	AIMarkdownLabel *label = find_child_of_type<AIMarkdownLabel>(bubble);
 	Label *title_label = find_child_of_type<Label>(bubble);
 	REQUIRE(label != nullptr);
 	REQUIRE(title_label != nullptr);
+	CHECK(find_child_of_type<MarkdownViewer>(bubble) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(bubble) == nullptr);
 	CHECK(title_label->get_text() == "Assistant");
 	CHECK(label->get_parsed_text() == "");
 
@@ -864,10 +875,12 @@ TEST_CASE("[Editor][AI] Message bubbles render tool events with metadata") {
 
 	bubble->set_message(message);
 
-	RichTextLabel *label = find_child_of_type<RichTextLabel>(bubble);
+	AIMarkdownLabel *label = find_child_of_type<AIMarkdownLabel>(bubble);
 	Label *title_label = find_child_of_type<Label>(bubble);
 	REQUIRE(label != nullptr);
 	REQUIRE(title_label != nullptr);
+	CHECK(find_child_of_type<MarkdownViewer>(bubble) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(bubble) == nullptr);
 	CHECK(title_label->get_text() == "Tool: project.read_file (completed)");
 	CHECK(label->get_parsed_text() == "res://player.gd");
 
@@ -893,12 +906,14 @@ TEST_CASE("[Editor][AI] Message bubbles render MCP tool execution metadata") {
 
 	bubble->set_message(message);
 
-	RichTextLabel *label = find_child_of_type<RichTextLabel>(bubble);
+	AIMarkdownLabel *label = find_child_of_type<AIMarkdownLabel>(bubble);
 	Label *title_label = find_child_of_type<Label>(bubble);
 	LinkButton *details_button = find_child_of_type<LinkButton>(bubble);
 	REQUIRE(label != nullptr);
 	REQUIRE(title_label != nullptr);
 	REQUIRE(details_button != nullptr);
+	CHECK(find_child_of_type<MarkdownViewer>(bubble) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(bubble) == nullptr);
 
 	CHECK(title_label->get_text() == "MCP: Filesystem / read_file (completed)");
 	CHECK(label->get_parsed_text().contains("Read 3 files."));
@@ -936,10 +951,12 @@ TEST_CASE("[Editor][AI] Message bubbles render assistant tool call requests") {
 
 	bubble->set_message(message);
 
-	RichTextLabel *label = find_child_of_type<RichTextLabel>(bubble);
+	AIMarkdownLabel *label = find_child_of_type<AIMarkdownLabel>(bubble);
 	Label *title_label = find_child_of_type<Label>(bubble);
 	REQUIRE(label != nullptr);
 	REQUIRE(title_label != nullptr);
+	CHECK(find_child_of_type<MarkdownViewer>(bubble) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(bubble) == nullptr);
 	const String parsed_text = label->get_parsed_text();
 	CHECK(title_label->get_text() == "Tool Call");
 	CHECK(parsed_text.contains("project.read_file"));
@@ -978,10 +995,12 @@ TEST_CASE("[Editor][AI] Message bubbles keep streamed assistant text when tool c
 
 	bubble->set_message(message);
 
-	RichTextLabel *label = find_child_of_type<RichTextLabel>(bubble);
+	AIMarkdownLabel *label = find_child_of_type<AIMarkdownLabel>(bubble);
 	Label *title_label = find_child_of_type<Label>(bubble);
 	REQUIRE(label != nullptr);
 	REQUIRE(title_label != nullptr);
+	CHECK(find_child_of_type<MarkdownViewer>(bubble) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(bubble) == nullptr);
 	const String parsed_text = label->get_parsed_text();
 	CHECK(title_label->get_text() == "Assistant");
 	CHECK(parsed_text.contains("I will inspect the project before editing."));
@@ -1004,10 +1023,12 @@ TEST_CASE("[Editor][AI] Message bubbles collapse long tool results") {
 
 	bubble->set_message(message);
 
-	RichTextLabel *label = find_child_of_type<RichTextLabel>(bubble);
+	AIMarkdownLabel *label = find_child_of_type<AIMarkdownLabel>(bubble);
 	Label *title_label = find_child_of_type<Label>(bubble);
 	REQUIRE(label != nullptr);
 	REQUIRE(title_label != nullptr);
+	CHECK(find_child_of_type<MarkdownViewer>(bubble) != nullptr);
+	CHECK(find_child_of_type<RichTextLabel>(bubble) == nullptr);
 	const String collapsed_text = label->get_parsed_text();
 	CHECK(title_label->get_text() == "Tool: project.read_file (completed)");
 	CHECK(collapsed_text.contains("res://player.gd line 1: extends CharacterBody2D"));
