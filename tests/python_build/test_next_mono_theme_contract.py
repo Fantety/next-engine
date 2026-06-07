@@ -66,6 +66,26 @@ def main() -> int:
         'p_theme->set_color("font_hover_pressed_color", "CheckButton", p_config.font_focus_color);' in theme_cpp,
         "Next Mono must keep hover-pressed CheckButton text visible for the NEXT mode switch.",
     )
+    require(
+        'p_theme->set_color("font_pressed_color", "CheckBox", p_config.font_focus_color);' in theme_cpp,
+        "Next Mono must keep pressed CheckBox text visible for selected project renderer choices.",
+    )
+    require(
+        'p_theme->set_color("font_hover_pressed_color", "CheckBox", p_config.font_focus_color);' in theme_cpp,
+        "Next Mono must keep hover-pressed CheckBox text visible for selected project renderer choices.",
+    )
+    require(
+        'p_theme->set_color("font_selected_color", "ItemList", p_config.font_focus_color);' in theme_cpp,
+        "Next Mono must keep selected ItemList text visible on dark selection backgrounds.",
+    )
+    require(
+        'p_theme->set_color("font_hovered_selected_color", "ItemList", p_config.font_focus_color);' in theme_cpp,
+        "Next Mono must keep hovered selected ItemList text visible on dark selection backgrounds.",
+    )
+    require(
+        'p_theme->set_color("font_selected_color", "LineEdit", p_config.font_focus_color);' in theme_cpp,
+        "Next Mono must keep selected LineEdit text visible on dark selection backgrounds.",
+    )
 
     return 0
 

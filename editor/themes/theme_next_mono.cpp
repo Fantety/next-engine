@@ -288,6 +288,12 @@ void ThemeNextMono::populate_standard_styles(const Ref<EditorTheme> &p_theme, Ed
 	} else {
 		p_theme->set_color("font_pressed_color", "CheckButton", p_config.font_focus_color);
 		p_theme->set_color("font_hover_pressed_color", "CheckButton", p_config.font_focus_color);
+		p_theme->set_color("font_pressed_color", "CheckBox", p_config.font_focus_color);
+		p_theme->set_color("font_hover_pressed_color", "CheckBox", p_config.font_focus_color);
+
+		p_theme->set_color("font_selected_color", "ItemList", p_config.font_focus_color);
+		p_theme->set_color("font_hovered_selected_color", "ItemList", p_config.font_focus_color);
+		p_theme->set_color("font_selected_color", "LineEdit", p_config.font_focus_color);
 	}
 }
 
