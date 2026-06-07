@@ -14,6 +14,7 @@ class AIMessageList : public ScrollContainer {
 
 	VBoxContainer *message_box = nullptr;
 	Control *bottom_spacer = nullptr;
+	Vector<Dictionary> messages;
 	Vector<AIMessageBubble *> bubbles;
 	bool should_scroll_to_bottom = true;
 	bool scroll_to_bottom_queued = false;
@@ -27,6 +28,9 @@ class AIMessageList : public ScrollContainer {
 	void _content_layout_changed();
 	void _scroll_range_changed();
 	void _scroll_value_changed(double p_value);
+	void _clear_bubbles();
+	void _add_bubble(const Dictionary &p_message);
+	void _rebuild_bubbles();
 
 protected:
 	void _notification(int p_what);

@@ -164,6 +164,92 @@ bool _looks_like_markdown(const String &p_text) {
 			p_text.contains("|");
 }
 
+String _get_tool_message_title(const Dictionary &p_message) {
+	Dictionary metadata;
+	if (p_message.has("metadata") && Variant(p_message["metadata"]).get_type() == Variant::DICTIONARY) {
+		metadata = p_message["metadata"];
+	}
+
+	const String role = String(p_message.get("role", String()));
+	if (role == "assistant" && metadata.has("tool_calls") && Variant(metadata["tool_calls"]).get_type() == Variant::ARRAY) {
+		Array tool_calls = metadata["tool_calls"];
+		if (tool_calls.size() == 1 && Variant(tool_calls[0]).get_type() == Variant::DICTIONARY) {
+			Dictionary call = tool_calls[0];
+			return String(call.get("tool_name", "tool"));
+		}
+		return vformat("%d tool request(s)", tool_calls.size());
+	}
+
+	if (_is_mcp_tool_metadata(metadata)) {
+		return _build_mcp_tool_title(metadata);
+	}
+
+	return String(metadata.get("tool_name", "tool"));
+}
+
+String _build_tool_group_summary(const Array &p_messages) {
+	PackedStringArray tool_names;
+	for (int i = 0; i < p_messages.size(); i++) {
+		if (Variant(p_messages[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		Dictionary message = p_messages[i];
+		String status;
+		if (message.has("metadata") && Variant(message["metadata"]).get_type() == Variant::DICTIONARY) {
+			Dictionary metadata = message["metadata"];
+			status = String(metadata.get("status", String()));
+		}
+		String title = _get_tool_message_title(message);
+		if (!status.is_empty()) {
+			title += " " + status;
+		}
+		tool_names.push_back(title);
+	}
+
+	String summary = vformat("%d tool event(s)", p_messages.size());
+	if (!tool_names.is_empty()) {
+		summary += ": " + String(", ").join(tool_names);
+	}
+	return _single_line_summary(summary, 120);
+}
+
+String _build_tool_group_details(const Array &p_messages) {
+	PackedStringArray sections;
+	for (int i = 0; i < p_messages.size(); i++) {
+		if (Variant(p_messages[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		Dictionary message = p_messages[i];
+		const String role = String(message.get("role", String()));
+		const String content = String(message.get("content", String()));
+
+		Dictionary metadata;
+		if (message.has("metadata") && Variant(message["metadata"]).get_type() == Variant::DICTIONARY) {
+			metadata = message["metadata"];
+		}
+
+		String section = vformat("%d. %s", sections.size() + 1, _get_tool_message_title(message));
+		if (role == "assistant" && metadata.has("tool_calls") && Variant(metadata["tool_calls"]).get_type() == Variant::ARRAY) {
+			const String call_details = _build_tool_call_details(metadata["tool_calls"]);
+			if (!call_details.is_empty()) {
+				section += "\n" + call_details;
+			}
+		} else if (_is_mcp_tool_metadata(metadata)) {
+			const String mcp_details = _build_mcp_tool_details(metadata, content);
+			if (!mcp_details.is_empty()) {
+				section += "\n" + mcp_details;
+			}
+		} else if (!content.is_empty()) {
+			section += "\n" + content;
+		}
+		sections.push_back(section);
+	}
+
+	return String("\n\n").join(sections);
+}
+
 String _attachment_label(const Dictionary &p_attachment) {
 	const String path = String(p_attachment.get("path", String()));
 	if (path.is_empty()) {
@@ -274,10 +360,16 @@ void AIMessageBubble::_render_message() {
 	if (message_metadata.has("tool_calls") && Variant(message_metadata["tool_calls"]).get_type() == Variant::ARRAY) {
 		tool_calls = message_metadata["tool_calls"];
 	}
+	Array grouped_tool_messages;
+	if (message_metadata.has("messages") && Variant(message_metadata["messages"]).get_type() == Variant::ARRAY) {
+		grouped_tool_messages = message_metadata["messages"];
+	}
 
 	String title;
 	if (role == "user") {
 		title = "You";
+	} else if (role == "tool_group") {
+		title = vformat("Tool Calls (%d)", grouped_tool_messages.size());
 	} else if (role == "assistant" && content.strip_edges().is_empty() && !tool_calls.is_empty()) {
 		title = "Tool Call";
 	} else if (role == "tool") {
@@ -295,7 +387,8 @@ void AIMessageBubble::_render_message() {
 
 	const bool is_pure_assistant_tool_call = role == "assistant" && content.strip_edges().is_empty() && !tool_calls.is_empty();
 	const bool is_assistant_with_tool_calls = role == "assistant" && !content.strip_edges().is_empty() && !tool_calls.is_empty();
-	const bool is_tool_bubble = (role == "tool") || is_pure_assistant_tool_call;
+	const bool is_tool_group = role == "tool_group";
+	const bool is_tool_bubble = (role == "tool") || is_pure_assistant_tool_call || is_tool_group;
 	set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	_apply_bubble_style(this, title_label, role, is_tool_bubble);
@@ -313,7 +406,11 @@ void AIMessageBubble::_render_message() {
 	String summary = content;
 	String details = content;
 	int tool_call_count = 0;
-	if (is_pure_assistant_tool_call) {
+	if (is_tool_group) {
+		tool_call_count = grouped_tool_messages.size();
+		summary = _build_tool_group_summary(grouped_tool_messages);
+		details = _build_tool_group_details(grouped_tool_messages);
+	} else if (is_pure_assistant_tool_call) {
 		tool_call_count = tool_calls.size();
 		summary = _build_tool_call_summary(tool_calls);
 		details = _build_tool_call_details(tool_calls);

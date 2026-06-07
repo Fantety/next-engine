@@ -27,6 +27,7 @@ class MarkdownViewer : public Control {
 	real_t image_max_height = 420.0;
 	real_t content_height = 0.0;
 	real_t scroll_offset = 0.0;
+	Size2 last_layout_size = Size2(-1.0, -1.0);
 
 	bool parse_dirty = true;
 	bool layout_dirty = true;
@@ -73,6 +74,7 @@ public:
 	real_t get_image_max_height() const;
 
 	real_t get_content_height() const;
+	real_t get_content_height_for_width(real_t p_width) const;
 
 	void force_layout_for_test();
 	bool get_hit_test_at_for_test(const Point2 &p_position, MarkdownViewerHitTest &r_hit);

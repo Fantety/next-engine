@@ -16,11 +16,16 @@ class AIMarkdownLabel : public VBoxContainer {
 	String parsed_text;
 	MarkdownViewer *markdown_viewer = nullptr;
 
+	void _markdown_viewer_minimum_size_changed();
+
 protected:
+	void _notification(int p_what);
 	static void _bind_methods();
 
 public:
 	AIMarkdownLabel();
+
+	virtual Size2 get_minimum_size() const override;
 
 	void set_markdown(const String &p_markdown);
 	String get_markdown() const;

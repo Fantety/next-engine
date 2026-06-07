@@ -4,6 +4,7 @@
 
 #include "ai_markdown_label.h"
 
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "scene/gui/markdown_viewer.h"
 
@@ -123,7 +124,34 @@ AIMarkdownLabel::AIMarkdownLabel() {
 	markdown_viewer->set_remote_images_enabled(false);
 	markdown_viewer->set_open_links_enabled(false);
 	markdown_viewer->set_scroll_enabled(false);
+	markdown_viewer->connect(SceneStringName(minimum_size_changed), callable_mp(this, &AIMarkdownLabel::_markdown_viewer_minimum_size_changed), CONNECT_DEFERRED);
 	add_child(markdown_viewer);
+}
+
+void AIMarkdownLabel::_markdown_viewer_minimum_size_changed() {
+	update_minimum_size();
+}
+
+void AIMarkdownLabel::_notification(int p_what) {
+	if (p_what == NOTIFICATION_RESIZED) {
+		update_minimum_size();
+	}
+}
+
+Size2 AIMarkdownLabel::get_minimum_size() const {
+	if (!markdown_viewer) {
+		return VBoxContainer::get_minimum_size();
+	}
+
+	real_t layout_width = get_size().x;
+	if (layout_width <= 1.0) {
+		layout_width = markdown_viewer->get_size().x;
+	}
+	if (layout_width <= 1.0) {
+		return VBoxContainer::get_minimum_size();
+	}
+
+	return Size2(0, markdown_viewer->get_content_height_for_width(layout_width));
 }
 
 void AIMarkdownLabel::set_markdown(const String &p_markdown) {
@@ -132,6 +160,7 @@ void AIMarkdownLabel::set_markdown(const String &p_markdown) {
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown(markdown_text);
 	}
+	update_minimum_size();
 }
 
 String AIMarkdownLabel::get_markdown() const {
@@ -144,6 +173,7 @@ void AIMarkdownLabel::clear() {
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown(String());
 	}
+	update_minimum_size();
 }
 
 void AIMarkdownLabel::add_text(const String &p_text) {
@@ -152,6 +182,7 @@ void AIMarkdownLabel::add_text(const String &p_text) {
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown(markdown_text);
 	}
+	update_minimum_size();
 }
 
 String AIMarkdownLabel::get_parsed_text() const {
