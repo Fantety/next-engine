@@ -1,0 +1,1545 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "NexusServer",
+    "description": "",
+    "version": "0.0.1"
+  },
+  "tags": [
+    {
+      "name": "User"
+    },
+    {
+      "name": "Auth"
+    }
+  ],
+  "paths": {
+    "/user/order": {
+      "post": {
+        "summary": "User_CreateOrder",
+        "deprecated": false,
+        "description": "CreateOrder 创建订单",
+        "operationId": "User_CreateOrder",
+        "tags": [
+          "User"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.user.v1.CreateOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.user.v1.CreateOrderReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/user/public/batch": {
+      "post": {
+        "summary": "User_GetPublicUsers",
+        "deprecated": false,
+        "description": "批量获取用户公共信息(业务侧调用)",
+        "operationId": "User_GetPublicUsers",
+        "tags": [
+          "User"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.user.v1.GetPublicUsersRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.user.v1.GetPublicUsersReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/user/score/cost": {
+      "post": {
+        "summary": "User_CostUserScore",
+        "deprecated": false,
+        "description": "CostUserScore 消耗用户积分",
+        "operationId": "User_CostUserScore",
+        "tags": [
+          "User"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.user.v1.CostUserScoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.user.v1.CostUserScoreReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/user/score/history": {
+      "get": {
+        "summary": "User_FindScoreHistoryByUserID",
+        "deprecated": false,
+        "description": "FindScoreHistoryByUserID 获取用户积分变动历史",
+        "operationId": "User_FindScoreHistoryByUserID",
+        "tags": [
+          "User"
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "query",
+            "description": "",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.user.v1.FindScoreHistoryByUserIDReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/user/{id}": {
+      "get": {
+        "summary": "User_GetUser",
+        "deprecated": false,
+        "description": "获取用户信息",
+        "operationId": "User_GetUser",
+        "tags": [
+          "User"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": "",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.user.v1.GetUserReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "put": {
+        "summary": "User_UpdateUser",
+        "deprecated": false,
+        "description": "更新用户信息",
+        "operationId": "User_UpdateUser",
+        "tags": [
+          "User"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "user id",
+            "required": true,
+            "example": "",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.user.v1.UpdateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.user.v1.UpdateUserReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/user/giftcard/bind": {
+      "post": {
+        "summary": "User_BindGiftCard",
+        "deprecated": false,
+        "description": "BindGiftCard 绑定礼品卡",
+        "operationId": "User_BindGiftCard",
+        "tags": [
+          "User"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.user.v1.BindGiftCardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.user.v1.BindGiftCardReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth": {
+      "put": {
+        "summary": "Auth_UpdateAuth",
+        "deprecated": false,
+        "description": "更新认证（非注册！用于对已有用户已有认证方式更新）",
+        "operationId": "Auth_UpdateAuth",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.UpdateAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.UpdateAuthReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "post": {
+        "summary": "Auth_CreateAuth",
+        "deprecated": false,
+        "description": "创建认证（非注册！用于对已有用户添加新的认证方式）",
+        "operationId": "Auth_CreateAuth",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.CreateAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.CreateAuthReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "delete": {
+        "summary": "Auth_DeleteAuth",
+        "deprecated": false,
+        "description": "删除认证（用于对已有用户已有认证方式删除）",
+        "operationId": "Auth_DeleteAuth",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.DeleteAuthReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/cli/apply": {
+      "post": {
+        "summary": "Auth_ApplyCliAuth",
+        "deprecated": false,
+        "description": "申请CLI授权",
+        "operationId": "Auth_ApplyCliAuth",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.ApplyCliAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.ApplyCliAuthReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/cli/check": {
+      "post": {
+        "summary": "Auth_CheckCliAuth",
+        "deprecated": false,
+        "description": "CLI检查授权状态",
+        "operationId": "Auth_CheckCliAuth",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.CheckCliAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.CheckCliAuthReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/cli/handle": {
+      "post": {
+        "summary": "Auth_HandleCliAuth",
+        "deprecated": false,
+        "description": "用户处理授权",
+        "operationId": "Auth_HandleCliAuth",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.HandleCliAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.HandleCliAuthReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "summary": "Auth_Logout",
+        "deprecated": false,
+        "description": "登出（用于对已有用户已有认证方式登出）",
+        "operationId": "Auth_Logout",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.LogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.LogoutReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/register": {
+      "post": {
+        "summary": "Auth_RegisterAuth",
+        "deprecated": false,
+        "description": "注册认证(新用户注册认证，注册后自动登录)",
+        "operationId": "Auth_RegisterAuth",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.RegisterAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.RegisterAuthReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/send/phone/code": {
+      "post": {
+        "summary": "Auth_SendPhoneCode",
+        "deprecated": false,
+        "description": "获取手机验证码",
+        "operationId": "Auth_SendPhoneCode",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.SendPhoneCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.SendPhoneCodeReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/token/refresh": {
+      "post": {
+        "summary": "Auth_RefreshToken",
+        "deprecated": false,
+        "description": "刷新token（用于允许范围内刷新过期的Token）",
+        "operationId": "Auth_RefreshToken",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.RefreshTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.RefreshTokenReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/validate/password": {
+      "post": {
+        "summary": "Auth_ValidateAuthByPassword",
+        "deprecated": false,
+        "description": "目前暂不支持获取认证信息，认证相关均在认证服务中处理\n rpc GetAuth (GetAuthRequest) returns (GetAuthReply);\n 验证密码认证（用于对已有用户已有密码认证方式验证）",
+        "operationId": "Auth_ValidateAuthByPassword",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.ValidateAuthByPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.ValidateAuthByPasswordReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/validate/phone/code": {
+      "post": {
+        "summary": "Auth_ValidateAuthByPhoneCode",
+        "deprecated": false,
+        "description": "验证手机号验证码认证（用于对已有用户已有手机号验证码认证方式验证）",
+        "operationId": "Auth_ValidateAuthByPhoneCode",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.ValidateAuthByPhoneCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.ValidateAuthByPhoneCodeReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/security": {
+      "put": {
+        "summary": "Auth_UpdateSecurityInfo",
+        "deprecated": false,
+        "description": "更新安全信息",
+        "operationId": "Auth_UpdateSecurityInfo",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/api.auth.v1.UpdateSecurityInfoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/api.auth.v1.UpdateSecurityInfoReply"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "api.auth.v1.ApplyCliAuthReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/api.auth.v1.ApplyCliAuthReply_Data"
+          }
+        },
+        "description": "ApplyCliAuthReply 申请CLI授权响应"
+      },
+      "api.auth.v1.ApplyCliAuthReply_Data": {
+        "type": "object",
+        "properties": {
+          "authUUID": {
+            "type": "string"
+          }
+        }
+      },
+      "api.auth.v1.ApplyCliAuthRequest": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "clientRandom": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "deviceName": {
+            "type": "string"
+          }
+        },
+        "description": "ApplyCliAuthRequest 申请CLI授权请求"
+      },
+      "api.auth.v1.AuthUser": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          }
+        },
+        "description": "认证用户数据"
+      },
+      "api.auth.v1.CheckCliAuthReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/api.auth.v1.AuthUser"
+          }
+        },
+        "description": "CheckCliAuthReply CLI检查授权状态响应"
+      },
+      "api.auth.v1.CheckCliAuthRequest": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          }
+        },
+        "description": "CheckCliAuthRequest CLI检查授权状态请求"
+      },
+      "api.auth.v1.CreateAuthReply": {
+        "type": "object",
+        "properties": {}
+      },
+      "api.auth.v1.CreateAuthRequest": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "twoFactorAuth": {
+            "type": "string"
+          },
+          "threeAuthId": {
+            "type": "string"
+          },
+          "threeAuthType": {
+            "type": "integer",
+            "format": "enum"
+          }
+        },
+        "description": "创建认证（非注册！用于对已有用户添加新的认证方式）"
+      },
+      "api.auth.v1.DeleteAuthReply": {
+        "type": "object",
+        "properties": {}
+      },
+      "api.auth.v1.HandleCliAuthReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "description": "HandleCliAuthReply 用户处理授权响应"
+      },
+      "api.auth.v1.HandleCliAuthRequest": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "authUUID": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "accept": {
+            "type": "boolean"
+          },
+          "clientRandom": {
+            "type": "string"
+          }
+        },
+        "description": "HandleCliAuthRequest 用户处理授权请求"
+      },
+      "api.auth.v1.LogoutReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "api.auth.v1.LogoutRequest": {
+        "type": "object",
+        "properties": {
+          "scene": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "all": {
+            "type": "boolean"
+          },
+          "deviceId": {
+            "type": "string"
+          }
+        },
+        "description": "登出(默认仅注销当前设备)"
+      },
+      "api.auth.v1.RefreshTokenReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/api.auth.v1.AuthUser"
+          }
+        }
+      },
+      "api.auth.v1.RefreshTokenRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "description": "刷新令牌"
+          },
+          "token": {
+            "type": "string",
+            "description": "认证令牌(旧的认证令牌)"
+          },
+          "scene": {
+            "type": "string",
+            "description": "场景(http请求时不需要传递，会被覆盖)"
+          },
+          "service": {
+            "type": "string",
+            "description": "服务(客户端调用时不用传递)"
+          },
+          "deviceId": {
+            "type": "string",
+            "description": "设备ID"
+          }
+        },
+        "description": "刷新token（用于允许范围内刷新过期的Token）"
+      },
+      "api.auth.v1.RegisterAuthReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/api.auth.v1.AuthUser"
+              }
+            ],
+            "description": "message Data {\n \tint64 userId = 1; // 用户ID\n \tstring nickName = 2; // 昵称\n }"
+          }
+        }
+      },
+      "api.auth.v1.RegisterAuthRequest": {
+        "type": "object",
+        "properties": {
+          "nickName": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "twoFactorAuth": {
+            "type": "string"
+          },
+          "threeAuthId": {
+            "type": "string"
+          },
+          "threeAuthType": {
+            "type": "integer",
+            "format": "enum"
+          },
+          "phoneCode": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          }
+        },
+        "description": "注册认证(新用户注册认证，注册后自动登录一次)"
+      },
+      "api.auth.v1.SendPhoneCodeReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "api.auth.v1.SendPhoneCodeRequest": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string"
+          }
+        },
+        "description": "获取手机验证码"
+      },
+      "api.auth.v1.UpdateAuthReply": {
+        "type": "object",
+        "properties": {}
+      },
+      "api.auth.v1.UpdateAuthRequest": {
+        "type": "object",
+        "properties": {}
+      },
+      "api.auth.v1.UpdateSecurityInfoReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "api.auth.v1.UpdateSecurityInfoRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "description": "新密码(一次只能修改一个字段)"
+          },
+          "secPhone": {
+            "type": "string",
+            "description": "新手机号带国别码，例如：+8613800000000(一次只能修改一个字段)"
+          },
+          "secMail": {
+            "type": "string",
+            "description": "新邮箱(一次只能修改一个字段)"
+          },
+          "phoneCode": {
+            "type": "string",
+            "description": "新手机号验证码"
+          },
+          "oldPhoneCode": {
+            "type": "string",
+            "description": "旧手机号验证码"
+          },
+          "deviceId": {
+            "type": "string",
+            "description": "设备ID"
+          }
+        },
+        "description": "更新安全信息"
+      },
+      "api.auth.v1.ValidateAuthByPasswordReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/api.auth.v1.AuthUser"
+              }
+            ],
+            "description": "message Data {\n \tint64 userId = 1; // 用户ID\n \tstring nickName = 2; // 昵称\n \tstring token = 3; // 认证令牌\n \tstring refreshToken = 4; // 刷新令牌\n }"
+          }
+        }
+      },
+      "api.auth.v1.ValidateAuthByPasswordRequest": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "description": "登录手机号带国别码，例如：+8613800000000"
+          },
+          "password": {
+            "type": "string",
+            "description": "密码"
+          },
+          "twoFactorAuth": {
+            "type": "string",
+            "description": "二因子认证"
+          },
+          "scene": {
+            "type": "string",
+            "description": "场景"
+          },
+          "deviceId": {
+            "type": "string",
+            "description": "设备ID"
+          }
+        },
+        "description": "验证密码认证（用于对已有用户已有密码认证方式验证）"
+      },
+      "api.auth.v1.ValidateAuthByPhoneCodeReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/api.auth.v1.AuthUser"
+          }
+        }
+      },
+      "api.auth.v1.ValidateAuthByPhoneCodeRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "用户ID(用于登录后独立验证手机号场景)"
+          },
+          "phone": {
+            "type": "string",
+            "description": "登录手机号带国别码，例如：+8613800000000"
+          },
+          "code": {
+            "type": "string",
+            "description": "手机号验证码"
+          },
+          "scene": {
+            "type": "string",
+            "description": "场景"
+          },
+          "deviceId": {
+            "type": "string",
+            "description": "设备ID"
+          }
+        },
+        "description": "验证手机号验证码认证（用于对已有用户已有手机号验证码认证方式验证）"
+      },
+      "api.user.v1.BindGiftCardReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "description": "BindGiftCardReply 绑定礼品卡响应"
+      },
+      "api.user.v1.BindGiftCardRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "cardId": {
+            "type": "string"
+          }
+        },
+        "description": "BindGiftCardRequest 绑定礼品卡请求"
+      },
+      "api.user.v1.CostUserScoreReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/api.user.v1.CostUserScoreReply_Data"
+          }
+        },
+        "description": "CostUserScoreReply 消耗用户积分响应"
+      },
+      "api.user.v1.CostUserScoreReply_Data": {
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "string",
+            "description": "更新后积分"
+          }
+        }
+      },
+      "api.user.v1.CostUserScoreRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "用户id(必填,对应签名规则中的uid)"
+          },
+          "score": {
+            "type": "string",
+            "description": "积分变动，正数为增加，负数为减少(必填)"
+          },
+          "title": {
+            "type": "string",
+            "description": "积分变动标题，用于显示(必填)"
+          },
+          "prod": {
+            "type": "string",
+            "description": "产品key（消费方定义，不是产品的id）"
+          },
+          "providerId": {
+            "type": "string",
+            "description": "服务提供方pid(必填,对应签名规则中的provider)"
+          },
+          "remark": {
+            "type": "string",
+            "description": "积分变动备注"
+          },
+          "sign": {
+            "type": "string",
+            "description": "签名(必填) -  签名方式见sign.md"
+          },
+          "signTime": {
+            "type": "string",
+            "description": "签名时的秒级时间戳(必填)"
+          }
+        },
+        "description": "CostUserScoreRequest 消耗用户积分请求"
+      },
+      "api.user.v1.CreateOrderReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/api.user.v1.CreateOrderReply_Data"
+          }
+        },
+        "description": "CreateOrderReply 创建订单响应(hubbot部分)"
+      },
+      "api.user.v1.CreateOrderReply_Data": {
+        "type": "object",
+        "properties": {
+          "payUrl": {
+            "type": "string",
+            "description": "支付链接"
+          }
+        }
+      },
+      "api.user.v1.CreateOrderRequest": {
+        "type": "object",
+        "properties": {
+          "planKey": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "payType": {
+            "type": "integer",
+            "description": "支付方式",
+            "format": "enum"
+          },
+          "prodId": {
+            "type": "string",
+            "description": "产品pid"
+          },
+          "quantity": {
+            "type": "string",
+            "description": "数量"
+          },
+          "provider": {
+            "type": "string",
+            "description": "供应商id（预留，暂时留空）"
+          }
+        },
+        "description": "CreateOrderRequest 创建订单请求(hubbot部分)"
+      },
+      "api.user.v1.FindScoreHistoryByUserIDReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/api.user.v1.FindScoreHistoryByUserIDReply_Data"
+          }
+        },
+        "description": "FindScoreHistoryByUserIDReply 获取用户积分变动历史响应"
+      },
+      "api.user.v1.FindScoreHistoryByUserIDReply_Data": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "string"
+          },
+          "histories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/api.user.v1.ScoreHistory"
+            }
+          }
+        }
+      },
+      "api.user.v1.GetPublicUsersReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/api.user.v1.PublicUserInfo"
+            }
+          }
+        }
+      },
+      "api.user.v1.GetPublicUsersRequest": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "api.user.v1.GetUserReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "data": {
+            "$ref": "#/components/schemas/api.user.v1.UserInfo"
+          }
+        }
+      },
+      "api.user.v1.PublicUserInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ban": {
+            "type": "boolean"
+          }
+        },
+        "description": "用户公开信息"
+      },
+      "api.user.v1.ScoreHistory": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "积分变动历史id"
+          },
+          "userId": {
+            "type": "string",
+            "description": "用户id"
+          },
+          "score": {
+            "type": "string",
+            "description": "积分变动(正数为增加，负数为减少)"
+          },
+          "title": {
+            "type": "string",
+            "description": "积分变动标题"
+          },
+          "prod": {
+            "type": "string",
+            "description": "产品key（消费方定义，不是产品的id）"
+          },
+          "providerId": {
+            "type": "string",
+            "description": "服务提供方pid"
+          },
+          "remark": {
+            "type": "string",
+            "description": "积分变动备注"
+          },
+          "time": {
+            "type": "string",
+            "description": "时间(秒级时间戳)"
+          }
+        },
+        "description": "ScoreHistory 积分变动历史"
+      },
+      "api.user.v1.UpdateUserReply": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "api.user.v1.UpdateUserRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "user id"
+          },
+          "nickname": {
+            "type": "string",
+            "description": "昵称"
+          }
+        }
+      },
+      "api.user.v1.UserInfo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ban": {
+            "type": "boolean"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "score": {
+            "type": "string"
+          },
+          "giftCards": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/api.user.v1.UserInfo_GiftCard"
+            },
+            "properties": {}
+          }
+        },
+        "description": "用户完整信息"
+      },
+      "api.user.v1.UserInfo_GiftCard": {
+        "type": "object",
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "description": "礼品卡id"
+          },
+          "quantity": {
+            "type": "string",
+            "description": "剩余资源数量"
+          },
+          "expireAt": {
+            "type": "string",
+            "description": "过期时间(格式化后时间字符串)"
+          }
+        }
+      }
+    },
+    "responses": {},
+    "securitySchemes": {}
+  },
+  "servers": [],
+  "security": []
+}

@@ -4,6 +4,7 @@
 
 #include "ai_markdown_label.h"
 
+#include "core/math/math_funcs.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "scene/gui/markdown_viewer.h"
@@ -120,7 +121,7 @@ AIMarkdownLabel::AIMarkdownLabel() {
 	markdown_viewer = memnew(MarkdownViewer);
 	markdown_viewer->set_name(SNAME("AIMessageMarkdownViewer"));
 	markdown_viewer->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	markdown_viewer->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+	markdown_viewer->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	markdown_viewer->set_remote_images_enabled(false);
 	markdown_viewer->set_open_links_enabled(false);
 	markdown_viewer->set_scroll_enabled(false);
@@ -129,12 +130,57 @@ AIMarkdownLabel::AIMarkdownLabel() {
 }
 
 void AIMarkdownLabel::_markdown_viewer_minimum_size_changed() {
+	_invalidate_cached_layout();
+	_sync_markdown_viewer_minimum_size();
 	update_minimum_size();
 }
 
 void AIMarkdownLabel::_notification(int p_what) {
-	if (p_what == NOTIFICATION_RESIZED) {
-		update_minimum_size();
+	switch (p_what) {
+		case NOTIFICATION_RESIZED:
+		case NOTIFICATION_THEME_CHANGED: {
+			_invalidate_cached_layout();
+			_sync_markdown_viewer_minimum_size();
+			update_minimum_size();
+		} break;
+	}
+}
+
+real_t AIMarkdownLabel::_get_layout_width() const {
+	if (!markdown_viewer) {
+		return 0.0;
+	}
+
+	real_t layout_width = get_size().x;
+	if (layout_width <= 1.0) {
+		layout_width = markdown_viewer->get_size().x;
+	}
+	return layout_width;
+}
+
+void AIMarkdownLabel::_invalidate_cached_layout() {
+	cached_layout_width = -1.0;
+}
+
+void AIMarkdownLabel::_sync_markdown_viewer_minimum_size() const {
+	if (!markdown_viewer) {
+		return;
+	}
+
+	const real_t layout_width = _get_layout_width();
+	if (layout_width <= 1.0) {
+		return;
+	}
+
+	if (Math::is_equal_approx(cached_layout_width, layout_width)) {
+		return;
+	}
+
+	cached_layout_width = layout_width;
+	cached_content_height = markdown_viewer->get_content_height_for_width(layout_width);
+	const Size2 viewer_minimum_size(0, cached_content_height);
+	if (markdown_viewer->get_custom_minimum_size() != viewer_minimum_size) {
+		markdown_viewer->set_custom_minimum_size(viewer_minimum_size);
 	}
 }
 
@@ -143,15 +189,13 @@ Size2 AIMarkdownLabel::get_minimum_size() const {
 		return VBoxContainer::get_minimum_size();
 	}
 
-	real_t layout_width = get_size().x;
-	if (layout_width <= 1.0) {
-		layout_width = markdown_viewer->get_size().x;
-	}
+	_sync_markdown_viewer_minimum_size();
+	const real_t layout_width = _get_layout_width();
 	if (layout_width <= 1.0) {
 		return VBoxContainer::get_minimum_size();
 	}
 
-	return Size2(0, markdown_viewer->get_content_height_for_width(layout_width));
+	return Size2(0, cached_content_height);
 }
 
 void AIMarkdownLabel::set_markdown(const String &p_markdown) {
@@ -160,6 +204,8 @@ void AIMarkdownLabel::set_markdown(const String &p_markdown) {
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown(markdown_text);
 	}
+	_invalidate_cached_layout();
+	_sync_markdown_viewer_minimum_size();
 	update_minimum_size();
 }
 
@@ -173,6 +219,8 @@ void AIMarkdownLabel::clear() {
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown(String());
 	}
+	_invalidate_cached_layout();
+	_sync_markdown_viewer_minimum_size();
 	update_minimum_size();
 }
 
@@ -182,6 +230,8 @@ void AIMarkdownLabel::add_text(const String &p_text) {
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown(markdown_text);
 	}
+	_invalidate_cached_layout();
+	_sync_markdown_viewer_minimum_size();
 	update_minimum_size();
 }
 
@@ -202,6 +252,9 @@ void AIMarkdownLabel::add_theme_font_size_override(const StringName &p_name, int
 		const StringName mapped_name = (p_name == SNAME("normal_font_size") || p_name == SNAME("bold_font_size")) ? SNAME("font_size") : p_name;
 		markdown_viewer->add_theme_font_size_override(mapped_name, p_font_size);
 	}
+	_invalidate_cached_layout();
+	_sync_markdown_viewer_minimum_size();
+	update_minimum_size();
 }
 
 void AIMarkdownLabel::remove_theme_font_size_override(const StringName &p_name) {
@@ -209,4 +262,7 @@ void AIMarkdownLabel::remove_theme_font_size_override(const StringName &p_name) 
 		const StringName mapped_name = (p_name == SNAME("normal_font_size") || p_name == SNAME("bold_font_size")) ? SNAME("font_size") : p_name;
 		markdown_viewer->remove_theme_font_size_override(mapped_name);
 	}
+	_invalidate_cached_layout();
+	_sync_markdown_viewer_minimum_size();
+	update_minimum_size();
 }
