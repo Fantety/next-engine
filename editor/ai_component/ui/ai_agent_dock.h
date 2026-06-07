@@ -18,6 +18,7 @@
 class ConfirmationDialog;
 class HBoxContainer;
 class ColorRect;
+class AIRequirementFormDialog;
 class ItemList;
 class PopupPanel;
 
@@ -35,6 +36,7 @@ class AIAgentDock : public EditorDock {
 	ItemList *skill_status_list = nullptr;
 	ConfirmationDialog *delete_session_dialog = nullptr;
 	ConfirmationDialog *tool_approval_dialog = nullptr;
+	AIRequirementFormDialog *requirement_form_dialog = nullptr;
 	AIChangeReviewPanel *change_review_panel = nullptr;
 	AIMessageList *message_list = nullptr;
 	HBoxContainer *request_status_row = nullptr;
@@ -71,6 +73,7 @@ class AIAgentDock : public EditorDock {
 	void _confirm_delete_session();
 	void _confirm_tool_approval();
 	void _reject_tool_approval();
+	void _requirement_form_submitted(const Dictionary &p_answers);
 	void _session_selected(int p_index);
 	void _ensure_session();
 	String _get_selected_session_id() const;

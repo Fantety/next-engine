@@ -184,15 +184,24 @@ Dictionary AINextManageProjectTool::get_parameters_schema() const {
 	Dictionary task;
 	task["type"] = "object";
 	Dictionary task_properties;
-	task_properties["id"] = _make_string_property();
-	task_properties["title"] = _make_string_property();
-	task_properties["description"] = _make_string_property();
-	Dictionary assigned_agent_id = _make_string_property();
+	task_properties["id"] = _make_string_property("Stable task id used by dependencies and follow-up edits.");
+	task_properties["title"] = _make_string_property("Short imperative task title.");
+	task_properties["description"] = _make_string_property("Detailed handoff for the assigned TaskAgent. Include Goal, Context, Steps, Acceptance criteria, Expected output_paths, and Out of scope.");
+	Dictionary assigned_agent_id = _make_string_property("One specialized NEXT agent responsible for this task.");
 	assigned_agent_id["enum"] = _make_agent_enum();
 	task_properties["assigned_agent_id"] = assigned_agent_id;
 	task_properties["depends_on"] = _make_string_array_property();
+	Dictionary depends_on = task_properties["depends_on"];
+	depends_on["description"] = "Task ids that must complete before this task can run.";
+	task_properties["depends_on"] = depends_on;
 	task_properties["asset_refs"] = _make_string_array_property();
+	Dictionary asset_refs = task_properties["asset_refs"];
+	asset_refs["description"] = "Existing assets, scenes, scripts, or resources the TaskAgent should inspect or reuse.";
+	task_properties["asset_refs"] = asset_refs;
 	task_properties["output_paths"] = _make_string_array_property();
+	Dictionary output_paths = task_properties["output_paths"];
+	output_paths["description"] = "Expected files/resources/scenes this task should create or modify.";
+	task_properties["output_paths"] = output_paths;
 	task["properties"] = task_properties;
 
 	Dictionary tasks;

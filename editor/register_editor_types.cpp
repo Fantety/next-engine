@@ -168,6 +168,7 @@
 #include "editor/ai_component/tools/editor/ai_scene_editing_service.h"
 #include "editor/ai_component/tools/editor/ai_script_editing_service.h"
 #include "editor/ai_component/tools/editor/ai_shader_editing_service.h"
+#include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 #include "editor/ai_component/ui/ai_agent_dock.h"
 #include "editor/ai_component/ui/next/ai_agent_next_dock.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
@@ -180,6 +181,7 @@
 #include "editor/ai_component/ui/ai_mode_panel.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/ai_component/ui/ai_message_list.h"
+#include "editor/ai_component/ui/ai_requirement_form_dialog.h"
 #include "editor/ai_component/ui/next/ai_next_feedback_panel.h"
 #include "editor/ai_component/ui/next/ai_next_milestone_list.h"
 #include "editor/ai_component/ui/next/ai_next_panel.h"
@@ -308,6 +310,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIMCPToolDiscovery);
 	GDREGISTER_CLASS(AIMCPToolDiscoveryRunner);
 	GDREGISTER_CLASS(AIToolExecutionContext);
+	GDREGISTER_CLASS(AIRequirementFormTool);
 	GDREGISTER_CLASS(AISceneEditingService);
 	GDREGISTER_CLASS(AIScriptEditingService);
 	GDREGISTER_CLASS(AIShaderEditingService);
@@ -321,6 +324,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIModePanel);
 	GDREGISTER_CLASS(AIMessageBubble);
 	GDREGISTER_CLASS(AIMessageList);
+	GDREGISTER_CLASS(AIRequirementFormDialog);
 	GDREGISTER_CLASS(AINextFeedbackPanel);
 	GDREGISTER_CLASS(AINextMilestoneList);
 	GDREGISTER_CLASS(AINextPanel);

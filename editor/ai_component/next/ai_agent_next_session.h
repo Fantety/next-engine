@@ -25,6 +25,7 @@ class AIAgentNextSession : public AISessionBase {
 	enum PendingOperation {
 		PENDING_OPERATION_NONE,
 		PENDING_OPERATION_GENERATE_PLAN,
+		PENDING_OPERATION_REFINE_PLAN,
 		PENDING_OPERATION_RUN_TASK,
 		PENDING_OPERATION_REVIEW,
 		PENDING_OPERATION_FEEDBACK_TASKS,
@@ -60,6 +61,7 @@ class AIAgentNextSession : public AISessionBase {
 	String pending_feedback_text;
 	int pending_feedback_previous_task_count = 0;
 	Array pending_feedback_attachments;
+	Dictionary pending_requirement_form;
 	int milestone_run_guard = 0;
 	Array active_task_batch;
 	int active_task_batch_index = 0;
@@ -98,12 +100,18 @@ class AIAgentNextSession : public AISessionBase {
 	void _mark_active_agent_run_started(const String &p_run_id, const String &p_agent_id, PendingOperation p_operation, const String &p_milestone_id, const String &p_task_id, const Vector<AIAgentMessage> &p_messages);
 	void _store_active_agent_run_progress_message(int p_index, const Dictionary &p_message);
 	void _store_active_agent_run_result(const AIAgentRuntimeResult &p_result);
+	bool _handle_pending_requirement_form_result(const AIAgentRuntimeResult &p_result, const String &p_agent_id);
+	bool _resume_agent_run_after_requirement_form(const Vector<AIAgentMessage> &p_messages);
 	void _fail_workflow(const String &p_event_type, const String &p_milestone_id, const String &p_task_id, const String &p_agent_id, const String &p_error);
 	bool _begin_agent_run(PendingOperation p_operation, const String &p_agent_id, const Vector<AIAgentMessage> &p_messages, const String &p_milestone_id = String(), const String &p_task_id = String(), const String &p_existing_agent_run_id = String());
 	void _on_agent_runtime_finished(const String &p_agent_id);
 	void _on_agent_runtime_message_added(int p_index, const Dictionary &p_message, const String &p_agent_id);
 	void _on_agent_runtime_message_updated(int p_index, const Dictionary &p_message, const String &p_agent_id);
+	AIAgentMessage _make_plan_creation_message() const;
+	AIAgentMessage _make_plan_refinement_message() const;
+	bool _begin_plan_refinement();
 	void _finish_generate_plan(const AIAgentRuntimeResult &p_result);
+	void _finish_refine_plan(const AIAgentRuntimeResult &p_result);
 	void _finish_review_active_milestone(const AIAgentRuntimeResult &p_result, const String &p_milestone_id);
 	void _finish_feedback_tasks(const AIAgentRuntimeResult &p_result, const String &p_milestone_id, int p_previous_task_count);
 	void _continue_active_milestone_run();
@@ -136,6 +144,7 @@ public:
 	String get_active_operation_name() const;
 	Array get_runtime_messages() const;
 	Array get_recent_runtime_messages(int p_limit) const;
+	Dictionary get_pending_requirement_form() const;
 	String get_selected_task_id() const;
 	bool can_run_active_milestone() const;
 	bool can_run_task(const String &p_task_id) const;
@@ -168,6 +177,7 @@ public:
 	bool move_user_task(const String &p_task_id, const String &p_target_milestone_id, int p_to_index);
 	bool set_user_task_dependencies(const String &p_task_id, const Array &p_depends_on);
 	void generate_plan();
+	bool submit_pending_requirement_form(const Dictionary &p_answers);
 	void approve_plan();
 	void run_active_milestone();
 	bool run_task(const String &p_task_id);

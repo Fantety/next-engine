@@ -63,6 +63,7 @@
 #include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_create_markdown_tool.h"
+#include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 #include "editor/ai_component/tools/project/ai_list_project_tool.h"
 #include "editor/ai_component/tools/project/ai_read_file_tool.h"
 #include "editor/ai_component/tools/project/ai_search_project_tool.h"
@@ -734,6 +735,7 @@ TEST_CASE("[Editor][AI] Tool factory registers shared tool groups") {
 	CHECK(registry->get_tool_permission("project.search_text") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
 	CHECK(registry->get_tool_permission("editor.get_context") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
@@ -758,6 +760,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("project.search_text") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
 	CHECK(registry->get_tool_permission("agent.activate_skill") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("agent.manage_plan") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
@@ -830,6 +833,7 @@ TEST_CASE("[Editor][AI] NEXT agents expose shared project context tools") {
 	CHECK(planning_agent->get_profile().id == "ask");
 	CHECK(planning_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(planning_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(planning_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
 
 	Ref<AINextScriptAgent> script_agent;
 	script_agent.instantiate();
@@ -837,12 +841,14 @@ TEST_CASE("[Editor][AI] NEXT agents expose shared project context tools") {
 	CHECK(script_agent->get_profile().review_changes);
 	CHECK(script_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(script_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(script_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
 
 	Ref<AINextSceneAgent> scene_agent;
 	scene_agent.instantiate();
 	CHECK(scene_agent->get_profile().id == "auto");
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(scene_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
 
 	Ref<AINextShaderAgent> shader_agent;
 	shader_agent.instantiate();
@@ -850,12 +856,56 @@ TEST_CASE("[Editor][AI] NEXT agents expose shared project context tools") {
 	CHECK(shader_agent->get_profile().review_changes);
 	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(shader_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
 
 	Ref<AINextReviewAgent> review_agent;
 	review_agent.instantiate();
 	CHECK(review_agent->get_profile().id == "ask");
 	CHECK(review_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(review_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(review_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
+}
+
+TEST_CASE("[Editor][AI] Requirement form tool exposes a structured human confirmation form") {
+	Ref<AIRequirementFormTool> tool;
+	tool.instantiate();
+
+	CHECK(tool->get_name() == "agent.collect_requirements");
+	CHECK(tool->get_description().contains("requirement"));
+
+	Dictionary schema = tool->get_parameters_schema();
+	REQUIRE(schema.has("properties"));
+	Dictionary properties = schema["properties"];
+	REQUIRE(properties.has("questions"));
+	Dictionary questions_schema = properties["questions"];
+	CHECK(String(questions_schema.get("type", "")) == "array");
+
+	Dictionary question;
+	question["id"] = "visual_style";
+	question["label"] = "Visual style";
+	question["type"] = "single_choice";
+	Array options;
+	options.push_back("Arcade");
+	options.push_back("Minimal");
+	question["options"] = options;
+
+	Array questions;
+	questions.push_back(question);
+
+	Dictionary args;
+	args["title"] = "Confirm game requirements";
+	args["purpose"] = "Clarify a short brief before planning.";
+	args["questions"] = questions;
+
+	AIToolResult result = tool->execute(args);
+	CHECK_FALSE(result.is_error());
+	CHECK(result.content.contains("Requirement"));
+	REQUIRE(result.metadata.has("type"));
+	CHECK(String(result.metadata["type"]) == "requirement_form");
+	REQUIRE(result.metadata.has("form"));
+	Dictionary form = result.metadata["form"];
+	CHECK(String(form["title"]) == "Confirm game requirements");
+	CHECK(((Array)form["questions"]).size() == 1);
 }
 
 TEST_CASE("[Editor][AI] Plan manager keeps one active plan and archives completed work") {

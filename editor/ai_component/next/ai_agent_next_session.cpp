@@ -4,6 +4,7 @@
 
 #include "ai_agent_next_session.h"
 
+#include "core/io/json.h"
 #include "core/object/class_db.h"
 #include "core/object/callable_mp.h"
 #include "core/os/time.h"
@@ -11,6 +12,7 @@
 #include "editor/ai_component/next/ai_next_agent_registry.h"
 #include "editor/ai_component/next/ai_next_workflow_context_builder.h"
 #include "editor/ai_component/next/agents/ai_next_agents.h"
+#include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 
 namespace {
 
@@ -168,6 +170,28 @@ bool _runtime_message_should_checkpoint(const Dictionary &p_message) {
 	return metadata.has("tool_calls") && Variant(metadata["tool_calls"]).get_type() == Variant::ARRAY;
 }
 
+void _update_tool_call_status_in_messages(Vector<AIAgentMessage> &r_messages, const AIToolCall &p_call) {
+	for (int i = r_messages.size() - 1; i >= 0; i--) {
+		AIAgentMessage message = r_messages[i];
+		if (!message.metadata.has("tool_calls") || Variant(message.metadata["tool_calls"]).get_type() != Variant::ARRAY) {
+			continue;
+		}
+		Array tool_calls = message.metadata["tool_calls"];
+		for (int j = 0; j < tool_calls.size(); j++) {
+			if (Variant(tool_calls[j]).get_type() != Variant::DICTIONARY) {
+				continue;
+			}
+			Dictionary tool_call = tool_calls[j];
+			if (String(tool_call.get("id", "")) == p_call.id) {
+				tool_calls[j] = p_call.to_dict();
+				message.metadata["tool_calls"] = tool_calls;
+				r_messages.write[i] = message;
+				return;
+			}
+		}
+	}
+}
+
 void _set_message_attachments(AIAgentMessage &r_message, const Array &p_attachments) {
 	if (p_attachments.is_empty()) {
 		return;
@@ -206,6 +230,7 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_workflow_active"), &AIAgentNextSession::is_workflow_active);
 	ClassDB::bind_method(D_METHOD("get_active_operation_name"), &AIAgentNextSession::get_active_operation_name);
 	ClassDB::bind_method(D_METHOD("get_runtime_messages"), &AIAgentNextSession::get_runtime_messages);
+	ClassDB::bind_method(D_METHOD("get_pending_requirement_form"), &AIAgentNextSession::get_pending_requirement_form);
 	ClassDB::bind_method(D_METHOD("get_selected_task_id"), &AIAgentNextSession::get_selected_task_id);
 	ClassDB::bind_method(D_METHOD("can_run_active_milestone"), &AIAgentNextSession::can_run_active_milestone);
 	ClassDB::bind_method(D_METHOD("can_run_task", "task_id"), &AIAgentNextSession::can_run_task);
@@ -235,6 +260,7 @@ void AIAgentNextSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("move_user_task", "task_id", "target_milestone_id", "to_index"), &AIAgentNextSession::move_user_task);
 	ClassDB::bind_method(D_METHOD("set_user_task_dependencies", "task_id", "depends_on"), &AIAgentNextSession::set_user_task_dependencies);
 	ClassDB::bind_method(D_METHOD("generate_plan"), &AIAgentNextSession::generate_plan);
+	ClassDB::bind_method(D_METHOD("submit_pending_requirement_form", "answers"), &AIAgentNextSession::submit_pending_requirement_form);
 	ClassDB::bind_method(D_METHOD("approve_plan"), &AIAgentNextSession::approve_plan);
 	ClassDB::bind_method(D_METHOD("run_active_milestone"), &AIAgentNextSession::run_active_milestone);
 	ClassDB::bind_method(D_METHOD("run_task", "task_id"), &AIAgentNextSession::run_task);
@@ -248,6 +274,7 @@ void AIAgentNextSession::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("workflow_session_changed"));
 	ADD_SIGNAL(MethodInfo("project_state_changed"));
 	ADD_SIGNAL(MethodInfo("agent_progress_changed"));
+	ADD_SIGNAL(MethodInfo("requirement_form_requested", PropertyInfo(Variant::DICTIONARY, "form")));
 }
 
 AIAgentNextSession::AIAgentNextSession() {
@@ -340,6 +367,7 @@ void AIAgentNextSession::_clear_pending_agent_run() {
 	pending_feedback_text.clear();
 	pending_feedback_previous_task_count = 0;
 	pending_feedback_attachments.clear();
+	pending_requirement_form.clear();
 	active_workflow_run_id.clear();
 	active_agent_run_id.clear();
 }
@@ -551,6 +579,50 @@ void AIAgentNextSession::_store_active_agent_run_result(const AIAgentRuntimeResu
 	run_tracker.store_result(active_agent_run_id, p_result);
 }
 
+bool AIAgentNextSession::_handle_pending_requirement_form_result(const AIAgentRuntimeResult &p_result, const String &p_agent_id) {
+	if (p_result.pending_approval.is_empty()) {
+		return false;
+	}
+	const String tool_name = String(p_result.pending_approval.get("tool_name", ""));
+	if (!AIRequirementFormTool::is_requirement_form_tool(tool_name)) {
+		return false;
+	}
+
+	pending_requirement_form = p_result.pending_approval.duplicate(true);
+	pending_requirement_form["agent_id"] = p_agent_id;
+	pending_requirement_form["operation"] = _get_checkpoint_operation_name(pending_operation);
+	pending_requirement_form["agent_run_id"] = active_agent_run_id;
+
+	checkpoint.status = "waiting_requirement_form";
+	AINextAgentRunState *run_state = _find_agent_run(active_agent_run_id);
+	if (run_state) {
+		run_state->status = "waiting_requirement_form";
+		run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+	}
+
+	event_log->record_event("requirement_form_requested", pending_milestone_id, pending_task_id, p_agent_id, "NEXT agent requested requirement confirmation.");
+	_save_current_workflow();
+	emit_signal(SNAME("requirement_form_requested"), pending_requirement_form);
+	_emit_project_state_changed(false);
+	print_line(vformat("[AI Agent][NEXT] Waiting for requirement form submission. agent=%s run=%s", p_agent_id, active_agent_run_id));
+	return true;
+}
+
+bool AIAgentNextSession::_resume_agent_run_after_requirement_form(const Vector<AIAgentMessage> &p_messages) {
+	Ref<AIAgentBase> agent = _get_agent(pending_agent_id);
+	if (agent.is_null()) {
+		return false;
+	}
+
+	AINextWorkflowContextOptions context_options;
+	context_options.operation = _get_checkpoint_operation_name(pending_operation);
+	context_options.milestone_id = pending_milestone_id;
+	context_options.task_id = pending_task_id;
+	Array context_documents = AINextWorkflowContextBuilder::build_context(project_state, event_log.is_valid() ? event_log->get_events() : Array(), context_options);
+	context_documents.append_array(_collect_initial_context());
+	return agent->start(p_messages, context_documents);
+}
+
 void AIAgentNextSession::_fail_workflow(const String &p_event_type, const String &p_milestone_id, const String &p_task_id, const String &p_agent_id, const String &p_error) {
 	AINextWorkflowCheckpoint failed_checkpoint = checkpoint;
 	failed_checkpoint.status = "failed";
@@ -704,11 +776,17 @@ void AIAgentNextSession::_on_agent_runtime_finished(const String &p_agent_id) {
 	const int previous_task_count = pending_feedback_previous_task_count;
 	AIAgentRuntimeResult result = agent->get_runtime_runner()->get_last_result();
 	_store_active_agent_run_result(result);
+	if (_handle_pending_requirement_form_result(result, p_agent_id)) {
+		return;
+	}
 	_clear_pending_agent_run();
 
 	switch (finished_operation) {
 		case PENDING_OPERATION_GENERATE_PLAN:
 			_finish_generate_plan(result);
+			break;
+		case PENDING_OPERATION_REFINE_PLAN:
+			_finish_refine_plan(result);
 			break;
 		case PENDING_OPERATION_RUN_TASK:
 			_finish_active_task(result, finished_milestone_id, finished_task_id, finished_agent_id);
@@ -724,6 +802,44 @@ void AIAgentNextSession::_on_agent_runtime_finished(const String &p_agent_id) {
 	}
 }
 
+AIAgentMessage AIAgentNextSession::_make_plan_creation_message() const {
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+	user_message.content =
+			"Create a detailed NEXT milestone plan for this brief by calling ai_next.manage_project with replace_plan.\n"
+			"If the brief is too short or leaves important product choices unclear, first call agent.collect_requirements with a focused confirmation form. Cover relevant style, UI/menu/home screen, operation logic, rules, scoring, content scope, target platform, and acceptance expectations. Continue planning only after the submitted answers return as tool context.\n"
+			"Use the task template from your system prompt. Prefer small, dependency-aware tasks with clear descriptions, acceptance criteria, and expected output_paths.\n\n" +
+			(project_state.is_valid() ? project_state->get_brief().strip_edges() : String());
+	return user_message;
+}
+
+AIAgentMessage AIAgentNextSession::_make_plan_refinement_message() const {
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+
+	const String plan_json = project_state.is_valid() ? JSON::stringify(project_state->get_milestones_as_array(), "\t", false) : String("[]");
+	user_message.content =
+			"Review the generated NEXT plan before it is shown for human approval.\n"
+			"Self-review every milestone and task against the Task quality checklist in your system prompt. If anything is too coarse, underspecified, missing dependencies, missing acceptance criteria, missing expected output_paths, or assigned to the wrong agent, call ai_next.manage_project again to correct it. If the plan already passes, reply with a concise approval and do not change files.\n\n"
+			"Current structured plan:\n" +
+			plan_json;
+	return user_message;
+}
+
+bool AIAgentNextSession::_begin_plan_refinement() {
+	if (project_state.is_valid()) {
+		project_state->set_session_state(AI_NEXT_SESSION_PLANNING);
+	}
+	event_log->record_event("planning_refinement_started", project_state.is_valid() ? project_state->get_active_milestone_id() : String(), String(), _planning_agent_id(), "NEXT planning self-review started.");
+	_emit_project_state_changed();
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_plan_refinement_message());
+	return _begin_agent_run(PENDING_OPERATION_REFINE_PLAN, _planning_agent_id(), messages);
+}
+
 void AIAgentNextSession::_finish_generate_plan(const AIAgentRuntimeResult &p_result) {
 	if (!p_result.success) {
 		_fail_workflow("planning_failed", String(), String(), _planning_agent_id(), p_result.error);
@@ -735,8 +851,26 @@ void AIAgentNextSession::_finish_generate_plan(const AIAgentRuntimeResult &p_res
 		return;
 	}
 
+	_sync_selected_task_to_active_milestone();
+	if (!_begin_plan_refinement()) {
+		_fail_workflow("planning_failed", project_state->get_active_milestone_id(), String(), _planning_agent_id(), "Failed to start NEXT planning self-review.");
+	}
+}
+
+void AIAgentNextSession::_finish_refine_plan(const AIAgentRuntimeResult &p_result) {
+	if (!p_result.success) {
+		_fail_workflow("planning_failed", project_state.is_valid() ? project_state->get_active_milestone_id() : String(), String(), _planning_agent_id(), p_result.error);
+		return;
+	}
+
+	if (project_state->get_milestone_count() <= 0) {
+		_fail_workflow("planning_failed", String(), String(), _planning_agent_id(), "Planning self-review completed without NEXT milestones.");
+		return;
+	}
+
 	_clear_workflow();
 	_sync_selected_task_to_active_milestone();
+	event_log->record_event("planning_refinement_completed", project_state->get_active_milestone_id(), String(), _planning_agent_id(), "NEXT planning self-review completed.");
 	project_state->set_session_state(AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
 	event_log->record_event("planning_completed", project_state->get_active_milestone_id(), String(), _planning_agent_id(), "NEXT planning completed.");
 	_emit_project_state_changed();
@@ -963,6 +1097,8 @@ String AIAgentNextSession::_get_checkpoint_operation_name(PendingOperation p_ope
 	switch (p_operation) {
 		case PENDING_OPERATION_GENERATE_PLAN:
 			return "generate_plan";
+		case PENDING_OPERATION_REFINE_PLAN:
+			return "refine_plan";
 		case PENDING_OPERATION_RUN_TASK:
 			return single_task_run ? String("run_task") : String("run_milestone");
 		case PENDING_OPERATION_REVIEW:
@@ -1019,6 +1155,8 @@ String AIAgentNextSession::get_active_operation_name() const {
 	switch (pending_operation) {
 		case PENDING_OPERATION_GENERATE_PLAN:
 			return "Planning milestones";
+		case PENDING_OPERATION_REFINE_PLAN:
+			return "Reviewing plan";
 		case PENDING_OPERATION_RUN_TASK: {
 			Dictionary task = project_state->get_task(pending_task_id);
 			const String title = String(task.get("title", String())).strip_edges();
@@ -1058,6 +1196,10 @@ Array AIAgentNextSession::get_recent_runtime_messages(int p_limit) const {
 		}
 	}
 	return messages;
+}
+
+Dictionary AIAgentNextSession::get_pending_requirement_form() const {
+	return pending_requirement_form.duplicate(true);
 }
 
 Array AIAgentNextSession::get_task_session_messages(const String &p_task_id) const {
@@ -1313,20 +1455,16 @@ bool AIAgentNextSession::continue_workflow() {
 		return true;
 	}
 
-	if (checkpoint.operation == "generate_plan") {
+	if (checkpoint.operation == "generate_plan" || checkpoint.operation == "refine_plan") {
 		workflow_active = true;
 		_clear_runtime_messages();
 		project_state->set_session_state(AI_NEXT_SESSION_PLANNING);
-		event_log->record_event("workflow_resumed", String(), String(), _planning_agent_id(), "NEXT planning resumed.");
+		event_log->record_event("workflow_resumed", String(), String(), _planning_agent_id(), checkpoint.operation == "refine_plan" ? "NEXT planning self-review resumed." : "NEXT planning resumed.");
 		_emit_project_state_changed();
 
-		AIAgentMessage user_message;
-		user_message.role = AI_AGENT_ROLE_USER;
-		user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
-		user_message.content = "Create a NEXT milestone plan for this brief:\n\n" + project_state->get_brief().strip_edges();
 		Vector<AIAgentMessage> messages;
-		messages.push_back(user_message);
-		if (!_begin_agent_run(PENDING_OPERATION_GENERATE_PLAN, _planning_agent_id(), messages, String(), String(), checkpoint.agent_run_id)) {
+		messages.push_back(checkpoint.operation == "refine_plan" ? _make_plan_refinement_message() : _make_plan_creation_message());
+		if (!_begin_agent_run(checkpoint.operation == "refine_plan" ? PENDING_OPERATION_REFINE_PLAN : PENDING_OPERATION_GENERATE_PLAN, _planning_agent_id(), messages, String(), String(), checkpoint.agent_run_id)) {
 			_fail_workflow("planning_failed", String(), String(), _planning_agent_id(), "Failed to resume NEXT planning agent runtime.");
 			return false;
 		}
@@ -1604,16 +1742,61 @@ void AIAgentNextSession::generate_plan() {
 		return;
 	}
 
-	AIAgentMessage user_message;
-	user_message.role = AI_AGENT_ROLE_USER;
-	user_message.created_at = Time::get_singleton()->get_unix_time_from_system();
-	user_message.content = "Create a NEXT milestone plan for this brief:\n\n" + brief;
-
 	Vector<AIAgentMessage> messages;
-	messages.push_back(user_message);
+	messages.push_back(_make_plan_creation_message());
 	if (!_begin_agent_run(PENDING_OPERATION_GENERATE_PLAN, _planning_agent_id(), messages)) {
 		_fail_workflow("planning_failed", String(), String(), _planning_agent_id(), "Failed to start NEXT planning agent runtime.");
 	}
+}
+
+bool AIAgentNextSession::submit_pending_requirement_form(const Dictionary &p_answers) {
+	if (pending_requirement_form.is_empty() || active_agent_run_id.is_empty() || pending_operation == PENDING_OPERATION_NONE) {
+		return false;
+	}
+
+	AIToolCall call = AIToolCall::from_dict(pending_requirement_form);
+	if (!AIRequirementFormTool::is_requirement_form_tool(call.tool_name)) {
+		return false;
+	}
+
+	AINextAgentRunState *run_state = _find_agent_run(active_agent_run_id);
+	if (!run_state) {
+		return false;
+	}
+
+	call.status = AI_TOOL_CALL_STATUS_COMPLETED;
+	call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+
+	Vector<AIAgentMessage> messages = run_state->messages;
+	_update_tool_call_status_in_messages(messages, call);
+	AIToolResult result = AIRequirementFormTool::make_submission_result(call.arguments, p_answers);
+
+	AIAgentMessage tool_message;
+	tool_message.role = AI_AGENT_ROLE_TOOL;
+	tool_message.created_at = Time::get_singleton()->get_unix_time_from_system();
+	tool_message.content = result.content;
+	tool_message.metadata = result.metadata;
+	tool_message.metadata["tool_call_id"] = call.id;
+	tool_message.metadata["tool_name"] = call.tool_name;
+	tool_message.metadata["status"] = AIToolCall::status_to_string(AI_TOOL_CALL_STATUS_COMPLETED);
+	tool_message.metadata["truncated"] = result.truncated;
+	messages.push_back(tool_message);
+
+	run_state->messages = messages;
+	run_state->runtime_base_message_count = messages.size();
+	run_state->status = "running";
+	run_state->updated_at = Time::get_singleton()->get_unix_time_from_system();
+	pending_requirement_form.clear();
+	checkpoint.status = "running";
+	event_log->record_event("requirement_form_submitted", pending_milestone_id, pending_task_id, pending_agent_id, "Requirement confirmation submitted.");
+	_save_current_workflow();
+	_emit_project_state_changed(false);
+
+	if (!_resume_agent_run_after_requirement_form(messages)) {
+		_fail_workflow("operation_failed", pending_milestone_id, pending_task_id, pending_agent_id, "Failed to resume NEXT agent after requirement confirmation.");
+		return false;
+	}
+	return true;
 }
 
 void AIAgentNextSession::approve_plan() {

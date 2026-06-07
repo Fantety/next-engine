@@ -7,6 +7,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
+#include "editor/ai_component/ui/ai_requirement_form_dialog.h"
 #include "editor/themes/editor_scale.h"
 #include "ai_next_feedback_panel.h"
 #include "ai_next_milestone_list.h"
@@ -384,6 +385,10 @@ AINextPanel::AINextPanel() {
 	_add_section_label(TTR("Playtest Feedback"));
 	feedback_panel = memnew(AINextFeedbackPanel);
 	add_child(feedback_panel);
+
+	requirement_form_dialog = memnew(AIRequirementFormDialog);
+	requirement_form_dialog->connect("form_submitted", callable_mp(this, &AINextPanel::_requirement_form_submitted));
+	add_child(requirement_form_dialog);
 }
 
 Label *AINextPanel::_add_section_label(const String &p_text) {
@@ -403,6 +408,7 @@ void AINextPanel::set_next_session(AIAgentNextSession *p_session) {
 		next_session->connect("workflow_session_changed", callable_mp(this, &AINextPanel::_refresh_workflow_session), CONNECT_DEFERRED);
 		next_session->connect("project_state_changed", callable_mp(this, &AINextPanel::refresh), CONNECT_DEFERRED);
 		next_session->connect("agent_progress_changed", callable_mp(this, &AINextPanel::_refresh_progress), CONNECT_DEFERRED);
+		next_session->connect("requirement_form_requested", callable_mp(this, &AINextPanel::_requirement_form_requested), CONNECT_DEFERRED);
 	}
 	if (milestone_list) {
 		milestone_list->set_next_session(next_session);
@@ -498,6 +504,25 @@ void AINextPanel::_review_milestone_pressed() {
 		return;
 	}
 	next_session->review_active_milestone();
+}
+
+void AINextPanel::_requirement_form_requested(const Dictionary &p_form) {
+	if (!requirement_form_dialog) {
+		return;
+	}
+	if (p_form.has("arguments") && Variant(p_form["arguments"]).get_type() == Variant::DICTIONARY) {
+		requirement_form_dialog->set_form(p_form["arguments"]);
+	} else {
+		requirement_form_dialog->set_form(p_form);
+	}
+	requirement_form_dialog->popup_centered_ratio(0.45);
+}
+
+void AINextPanel::_requirement_form_submitted(const Dictionary &p_answers) {
+	if (!next_session) {
+		return;
+	}
+	next_session->submit_pending_requirement_form(p_answers);
 }
 
 void AINextPanel::_refresh_workflows() {

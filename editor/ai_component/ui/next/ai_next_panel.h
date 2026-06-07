@@ -7,6 +7,7 @@
 #include "scene/gui/box_container.h"
 
 class AIAgentNextSession;
+class AIRequirementFormDialog;
 class AINextFeedbackPanel;
 class AINextMilestoneList;
 class AINextTaskInspector;
@@ -51,6 +52,7 @@ class AINextPanel : public VBoxContainer {
 	AINextTaskTree *task_tree = nullptr;
 	AINextTaskInspector *task_inspector = nullptr;
 	AINextFeedbackPanel *feedback_panel = nullptr;
+	AIRequirementFormDialog *requirement_form_dialog = nullptr;
 	int spinner_frame = 0;
 	double spinner_elapsed = 0.0;
 	String displayed_workflow_id;
@@ -64,6 +66,8 @@ class AINextPanel : public VBoxContainer {
 	void _generate_plan_pressed();
 	void _run_milestone_pressed();
 	void _review_milestone_pressed();
+	void _requirement_form_requested(const Dictionary &p_form);
+	void _requirement_form_submitted(const Dictionary &p_answers);
 	void _refresh();
 	void _refresh_workflow_session();
 	void _refresh_progress();

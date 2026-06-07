@@ -92,6 +92,7 @@ public:
 	bool delete_session(const String &p_session_id);
 	bool approve_pending_tool();
 	bool reject_pending_tool();
+	bool submit_pending_requirement_form(const Dictionary &p_answers);
 	Dictionary get_pending_tool_approval() const;
 	Array get_messages_as_array() const;
 	String get_session_id() const;

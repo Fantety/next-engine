@@ -14,8 +14,10 @@
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/skills/ai_skill_settings.h"
+#include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_next_marquee_settings.h"
+#include "editor/ai_component/ui/ai_requirement_form_dialog.h"
 #include "editor/ai_component/ui/next/ai_agent_next_dock.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/settings/editor_command_palette.h"
@@ -194,6 +196,11 @@ AIAgentDock::AIAgentDock() {
 	tool_approval_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AIAgentDock::_confirm_tool_approval));
 	tool_approval_dialog->connect("canceled", callable_mp(this, &AIAgentDock::_reject_tool_approval));
 	add_child(tool_approval_dialog);
+
+	requirement_form_dialog = memnew(AIRequirementFormDialog);
+	requirement_form_dialog->connect("form_submitted", callable_mp(this, &AIAgentDock::_requirement_form_submitted));
+	requirement_form_dialog->connect("canceled", callable_mp(this, &AIAgentDock::_reject_tool_approval));
+	add_child(requirement_form_dialog);
 
 	mcp_status_popup = memnew(PopupPanel);
 	mcp_status_popup->set_min_size(Size2(380, 220) * EDSCALE);
@@ -473,6 +480,14 @@ void AIAgentDock::_tool_approval_requested(const Dictionary &p_approval) {
 
 	const String tool_name = String(pending_tool_approval.get("tool_name", ""));
 	const String reason = String(pending_tool_approval.get("reason", ""));
+	if (AIRequirementFormTool::is_requirement_form_tool(tool_name)) {
+		if (requirement_form_dialog && pending_tool_approval.has("arguments") && Variant(pending_tool_approval["arguments"]).get_type() == Variant::DICTIONARY) {
+			requirement_form_dialog->set_form(pending_tool_approval["arguments"]);
+			requirement_form_dialog->popup_centered_ratio(0.45);
+		}
+		return;
+	}
+
 	String text = vformat(TTR("Approve AI tool call `%s`?"), tool_name.is_empty() ? String("unknown") : tool_name);
 	if (!reason.is_empty()) {
 		text += "\n\n" + reason;
@@ -561,6 +576,16 @@ void AIAgentDock::_reject_tool_approval() {
 
 	pending_tool_approval.clear();
 	session->reject_pending_tool();
+}
+
+void AIAgentDock::_requirement_form_submitted(const Dictionary &p_answers) {
+	if (!session) {
+		pending_tool_approval.clear();
+		return;
+	}
+
+	pending_tool_approval.clear();
+	session->submit_pending_requirement_form(p_answers);
 }
 
 void AIAgentDock::_session_selected(int p_index) {

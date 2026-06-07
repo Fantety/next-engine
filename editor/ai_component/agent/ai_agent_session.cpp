@@ -9,6 +9,7 @@
 #include "core/templates/local_vector.h"
 
 #include "editor/ai_component/agent/ai_mcp_service.h"
+#include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 
 namespace {
 
@@ -33,6 +34,7 @@ void AIAgentSession::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("delete_session", "session_id"), &AIAgentSession::delete_session);
 	ClassDB::bind_method(D_METHOD("approve_pending_tool"), &AIAgentSession::approve_pending_tool);
 	ClassDB::bind_method(D_METHOD("reject_pending_tool"), &AIAgentSession::reject_pending_tool);
+	ClassDB::bind_method(D_METHOD("submit_pending_requirement_form", "answers"), &AIAgentSession::submit_pending_requirement_form);
 	ClassDB::bind_method(D_METHOD("get_pending_tool_approval"), &AIAgentSession::get_pending_tool_approval);
 	ClassDB::bind_method(D_METHOD("get_messages_as_array"), &AIAgentSession::get_messages_as_array);
 	ClassDB::bind_method(D_METHOD("set_agent_profile_id", "profile_id"), &AIAgentSession::set_agent_profile_id);
@@ -312,6 +314,29 @@ bool AIAgentSession::reject_pending_tool() {
 	_recalculate_token_usage();
 	_save();
 	print_line(vformat("[AI Agent][Session] Rejected pending tool. name=%s", call.tool_name));
+	_start_runtime_turn();
+	return true;
+}
+
+bool AIAgentSession::submit_pending_requirement_form(const Dictionary &p_answers) {
+	if (pending_tool_approval.is_empty()) {
+		print_line("[AI Agent][Session] No pending requirement form to submit.");
+		return false;
+	}
+
+	AIToolCall call = AIToolCall::from_dict(pending_tool_approval);
+	if (!AIRequirementFormTool::is_requirement_form_tool(call.tool_name)) {
+		print_line(vformat("[AI Agent][Session] Pending tool is not a requirement form. tool=%s", call.tool_name));
+		return false;
+	}
+
+	call.status = AI_TOOL_CALL_STATUS_COMPLETED;
+	call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+	_update_tool_call_status(call);
+	AIToolResult result = AIRequirementFormTool::make_submission_result(call.arguments, p_answers);
+	_append_tool_result_message(call, result);
+	pending_tool_approval.clear();
+	print_line("[AI Agent][Session] Requirement form submitted; continuing runtime turn.");
 	_start_runtime_turn();
 	return true;
 }

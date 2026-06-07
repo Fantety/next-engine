@@ -5,6 +5,7 @@
 #include "tests/test_macros.h"
 
 #include "core/object/callable_mp.h"
+#include "core/object/message_queue.h"
 
 #include "editor/ai_component/agent/ai_agent_base.h"
 #include "editor/ai_component/agent/ai_context_manager.h"
@@ -24,6 +25,7 @@
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
+#include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 
 TEST_FORCE_LINK(test_ai_agent_runtime);
 
@@ -1471,6 +1473,91 @@ TEST_CASE("[Editor][AI] Agent session applies runtime results into message histo
 	CHECK(session->get_state() == AI_AGENT_STATE_IDLE);
 
 	session->delete_session(session->get_session_id());
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] Agent session submits requirement form answers as tool context") {
+	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_requirement_form_submit");
+
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = "Make a platformer.";
+
+	AIAgentMessage assistant_placeholder;
+	assistant_placeholder.role = AI_AGENT_ROLE_ASSISTANT;
+
+	Vector<AIAgentMessage> original_messages;
+	original_messages.push_back(user_message);
+	original_messages.push_back(assistant_placeholder);
+
+	Dictionary question;
+	question["id"] = "visual_style";
+	question["label"] = "Visual style";
+	question["type"] = "single_choice";
+	Array options;
+	options.push_back("Pixel art");
+	options.push_back("Flat UI");
+	question["options"] = options;
+	Array questions;
+	questions.push_back(question);
+
+	Dictionary arguments;
+	arguments["title"] = "Confirm platformer requirements";
+	arguments["purpose"] = "Clarify the short brief before planning.";
+	arguments["questions"] = questions;
+
+	AIToolCall form_call;
+	form_call.id = "call_requirements";
+	form_call.tool_name = AIRequirementFormTool::TOOL_NAME;
+	form_call.arguments = arguments;
+	form_call.status = AI_TOOL_CALL_STATUS_PENDING;
+
+	Array tool_calls;
+	tool_calls.push_back(form_call.to_dict());
+
+	AIAgentMessage assistant_tool_call;
+	assistant_tool_call.role = AI_AGENT_ROLE_ASSISTANT;
+	assistant_tool_call.metadata["tool_calls"] = tool_calls;
+
+	AIAgentRuntimeResult runtime_result;
+	runtime_result.success = true;
+	runtime_result.messages.push_back(user_message);
+	runtime_result.messages.push_back(assistant_tool_call);
+	runtime_result.pending_approval = form_call.to_dict();
+	runtime_result.pending_approval["reason"] = "Collect user requirements before planning.";
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "I will plan using the confirmed requirements.";
+	client->push_response(final_response);
+	session->get_main_agent()->set_runtime_client(client);
+
+	session->replace_messages_for_test(original_messages, 1);
+	session->apply_runtime_result_for_test(runtime_result);
+	CHECK(session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL);
+
+	Dictionary answers;
+	answers["visual_style"] = "Pixel art";
+	CHECK(session->submit_pending_requirement_form(answers));
+
+	Array messages = session->get_messages_as_array();
+	REQUIRE(messages.size() >= 3);
+	Dictionary tool_message = messages[2];
+	CHECK(String(tool_message["role"]) == "tool");
+	CHECK(String(tool_message["content"]).contains("Pixel art"));
+	REQUIRE(tool_message.has("metadata"));
+	Dictionary metadata = tool_message["metadata"];
+	CHECK(String(metadata.get("type", "")) == "requirement_form_result");
+	CHECK(String(metadata.get("tool_name", "")) == AIRequirementFormTool::TOOL_NAME);
+	REQUIRE(metadata.has("answers"));
+	Dictionary stored_answers = metadata["answers"];
+	CHECK(String(stored_answers.get("visual_style", "")) == "Pixel art");
+
+	session->get_agent_runtime_runner()->wait_to_finish();
+	MessageQueue::get_singleton()->flush();
+	session->get_conversation_store_for_test()->delete_conversation(session->get_session_id());
 	memdelete(session);
 }
 

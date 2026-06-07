@@ -18,6 +18,7 @@
 #include "editor/ai_component/next/ai_agent_next_session.h"
 #include "editor/ai_component/next/ai_next_workflow_snapshot.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
+#include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 
 TEST_FORCE_LINK(test_ai_agent_next_session);
 
@@ -32,6 +33,7 @@ public:
 	int request_count = 0;
 	Array last_messages;
 	Array last_tool_schemas;
+	Vector<Array> messages_history;
 
 	void push_response(const AIAgentRuntimeResponse &p_response) {
 		responses.push_back(p_response);
@@ -41,6 +43,7 @@ public:
 		request_count++;
 		last_messages = p_messages;
 		last_tool_schemas = p_tool_schemas;
+		messages_history.push_back(p_messages.duplicate(true));
 		if (responses.is_empty()) {
 			AIAgentRuntimeResponse response;
 			response.error = "No scripted NEXT response.";
@@ -281,6 +284,20 @@ TEST_CASE("[Editor][AI][NEXT] session initializes independent agents") {
 	memdelete(session);
 }
 
+TEST_CASE("[Editor][AI][NEXT] planning agent prompt defines detailed task planning standards") {
+	AIAgentNextSession *session = make_isolated_next_session();
+	const Ref<AIAgentBase> planning_agent = session->get_agent_for_test("planning_agent");
+	REQUIRE(planning_agent.is_valid());
+
+	const String prompt = planning_agent->get_system_prompt();
+	CHECK(prompt.contains("Task template"));
+	CHECK(prompt.contains("Acceptance criteria"));
+	CHECK(prompt.contains("Self-review"));
+	CHECK(prompt.contains("ai_next.manage_project"));
+
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI][NEXT] session manages multiple persisted workflows per project") {
 	const String project_scope = "test_next_session_multi_workflows";
 	cleanup_next_workflows(project_scope);
@@ -436,6 +453,176 @@ TEST_CASE("[Editor][AI][NEXT] continue workflow resumes sub-agent messages from 
 	cleanup_next_workflows(project_scope);
 }
 
+TEST_CASE("[Editor][AI][NEXT] generated plans are self-reviewed before human approval") {
+	AIAgentNextSession *session = make_isolated_next_session();
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse initial_tool_response;
+	AIToolCall replace_call;
+	replace_call.id = "call_replace_plan";
+	replace_call.tool_name = "ai_next.manage_project";
+	replace_call.arguments["action"] = "replace_plan";
+
+	Dictionary milestone;
+	milestone["title"] = "Core Movement";
+	milestone["description"] = "Build movement.";
+	Array tasks;
+	Dictionary task;
+	task["id"] = "task_script";
+	task["title"] = "Create player script";
+	task["assigned_agent_id"] = "script_agent";
+	task["description"] = "Create player movement.";
+	tasks.push_back(task);
+	milestone["tasks"] = tasks;
+	Array milestones;
+	milestones.push_back(milestone);
+	replace_call.arguments["milestones"] = milestones;
+	initial_tool_response.tool_calls.push_back(replace_call);
+	client->push_response(initial_tool_response);
+
+	AIAgentRuntimeResponse initial_final_response;
+	initial_final_response.content = "Initial plan generated.";
+	client->push_response(initial_final_response);
+
+	AIAgentRuntimeResponse refine_tool_response;
+	AIToolCall update_call;
+	update_call.id = "call_update_task";
+	update_call.tool_name = "ai_next.manage_project";
+	update_call.arguments["action"] = "update_task";
+	update_call.arguments["task_id"] = "task_script";
+	Dictionary task_patch;
+	task_patch["description"] = "Goal: create the player movement script.\nContext: use the project tree and current Godot conventions before editing.\nSteps: inspect existing scripts, create or update the controller, expose speed/jump tuning, and avoid scene assembly.\nAcceptance criteria: script compiles, movement parameters are exported, and output_paths includes res://scripts/player_controller.gd.\nExpected output_paths: res://scripts/player_controller.gd.";
+	Array output_paths;
+	output_paths.push_back("res://scripts/player_controller.gd");
+	task_patch["output_paths"] = output_paths;
+	update_call.arguments["task"] = task_patch;
+	refine_tool_response.tool_calls.push_back(update_call);
+	client->push_response(refine_tool_response);
+
+	AIAgentRuntimeResponse refine_final_response;
+	refine_final_response.content = "Plan self-review complete.";
+	client->push_response(refine_final_response);
+
+	session->get_agent_for_test("planning_agent")->set_runtime_client(client);
+	session->submit_brief("Build a 2D movement prototype.");
+	session->generate_plan();
+	wait_for_next_agent(session, "planning_agent");
+	wait_for_next_agent(session, "planning_agent");
+
+	Dictionary refined_task = session->get_project_state()->get_task("task_script");
+	CHECK(client->request_count == 4);
+	CHECK(session->get_project_state()->get_session_state() == AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
+	CHECK(String(refined_task.get("description", String())).contains("Acceptance criteria"));
+	CHECK(refined_task.has("output_paths"));
+
+	bool saw_refinement_prompt = false;
+	for (int i = 0; i < client->last_messages.size(); i++) {
+		Dictionary message = client->last_messages[i];
+		if (String(message.get("content", String())).contains("Review the generated NEXT plan")) {
+			saw_refinement_prompt = true;
+		}
+	}
+	CHECK(saw_refinement_prompt);
+
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI][NEXT] planning can collect requirement form answers before writing the plan") {
+	AIAgentNextSession *session = make_isolated_next_session();
+
+	Ref<NextScriptedRuntimeClient> client;
+	client.instantiate();
+
+	Dictionary question;
+	question["id"] = "visual_style";
+	question["label"] = "Visual style";
+	question["type"] = "single_choice";
+	Array options;
+	options.push_back("Pixel art");
+	options.push_back("Flat UI");
+	question["options"] = options;
+	Array questions;
+	questions.push_back(question);
+
+	AIAgentRuntimeResponse form_response;
+	AIToolCall form_call;
+	form_call.id = "call_requirements";
+	form_call.tool_name = AIRequirementFormTool::TOOL_NAME;
+	form_call.arguments["title"] = "Confirm platformer requirements";
+	form_call.arguments["purpose"] = "Clarify style and rules before planning.";
+	form_call.arguments["questions"] = questions;
+	form_response.tool_calls.push_back(form_call);
+	client->push_response(form_response);
+
+	AIAgentRuntimeResponse replace_response;
+	AIToolCall replace_call;
+	replace_call.id = "call_replace_plan";
+	replace_call.tool_name = "ai_next.manage_project";
+	replace_call.arguments["action"] = "replace_plan";
+	Dictionary milestone;
+	milestone["title"] = "Core Loop";
+	milestone["description"] = "Build the confirmed pixel-art platformer loop.";
+	Array tasks;
+	Dictionary task;
+	task["id"] = "task_player";
+	task["title"] = "Create player movement";
+	task["assigned_agent_id"] = "script_agent";
+	task["description"] = "Implement player movement using the confirmed Pixel art requirement.\nAcceptance criteria: movement works and output_paths lists res://scripts/player_controller.gd.";
+	Array output_paths;
+	output_paths.push_back("res://scripts/player_controller.gd");
+	task["output_paths"] = output_paths;
+	tasks.push_back(task);
+	milestone["tasks"] = tasks;
+	Array milestones;
+	milestones.push_back(milestone);
+	replace_call.arguments["milestones"] = milestones;
+	replace_response.tool_calls.push_back(replace_call);
+	client->push_response(replace_response);
+
+	AIAgentRuntimeResponse initial_final_response;
+	initial_final_response.content = "Plan generated from confirmed requirements.";
+	client->push_response(initial_final_response);
+
+	AIAgentRuntimeResponse refine_final_response;
+	refine_final_response.content = "Plan self-review complete.";
+	client->push_response(refine_final_response);
+
+	session->get_agent_for_test("planning_agent")->set_runtime_client(client);
+	session->submit_brief("Make a platformer.");
+	session->generate_plan();
+	wait_for_next_agent(session, "planning_agent");
+
+	Dictionary pending_form = session->get_pending_requirement_form();
+	REQUIRE_FALSE(pending_form.is_empty());
+	CHECK(String(pending_form.get("tool_name", "")) == AIRequirementFormTool::TOOL_NAME);
+	CHECK(session->get_project_state()->get_session_state() == AI_NEXT_SESSION_PLANNING);
+
+	Dictionary answers;
+	answers["visual_style"] = "Pixel art";
+	CHECK(session->submit_pending_requirement_form(answers));
+	wait_for_next_agent(session, "planning_agent");
+	wait_for_next_agent(session, "planning_agent");
+
+	CHECK(client->request_count == 4);
+	CHECK(session->get_project_state()->get_session_state() == AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
+	CHECK(session->get_pending_requirement_form().is_empty());
+
+	bool saw_requirement_tool_context = false;
+	REQUIRE(client->messages_history.size() >= 2);
+	Array resumed_messages = client->messages_history[1];
+	for (int i = 0; i < resumed_messages.size(); i++) {
+		Dictionary message = resumed_messages[i];
+		if (String(message.get("role", "")) == "tool" && String(message.get("content", "")).contains("Pixel art")) {
+			saw_requirement_tool_context = true;
+		}
+	}
+	CHECK(saw_requirement_tool_context);
+
+	memdelete(session);
+}
+
 TEST_CASE("[Editor][AI][NEXT] agent operations run runtime work off the main thread") {
 	{
 		AIAgentNextSession *session = make_isolated_next_session();
@@ -554,15 +741,20 @@ TEST_CASE("[Editor][AI][NEXT] session generates structured plan through NEXT too
 	final_response.content = "Plan generated.";
 	client->push_response(final_response);
 
+	AIAgentRuntimeResponse refine_final_response;
+	refine_final_response.content = "Plan self-review complete.";
+	client->push_response(refine_final_response);
+
 	session->get_agent_for_test("planning_agent")->set_runtime_client(client);
 	session->submit_brief("Build a 2D movement prototype.");
 	session->generate_plan();
+	wait_for_next_agent(session, "planning_agent");
 	wait_for_next_agent(session, "planning_agent");
 
 	CHECK(session->get_project_state()->get_brief() == "Build a 2D movement prototype.");
 	CHECK(session->get_project_state()->get_milestone_count() == 1);
 	CHECK(session->get_project_state()->get_session_state() == AI_NEXT_SESSION_WAITING_HUMAN_APPROVAL);
-	CHECK(client->request_count == 2);
+	CHECK(client->request_count == 3);
 	CHECK(client->last_tool_schemas.size() >= 1);
 
 	memdelete(session);
@@ -601,6 +793,10 @@ TEST_CASE("[Editor][AI][NEXT] session saves planning tool writes before final pr
 	final_response.content = "Plan generated.";
 	client->push_response(final_response);
 
+	AIAgentRuntimeResponse refine_final_response;
+	refine_final_response.content = "Plan self-review complete.";
+	client->push_response(refine_final_response);
+
 	session->get_agent_for_test("planning_agent")->set_runtime_client(client);
 	session->submit_brief("Build a 2D movement prototype.");
 	session->generate_plan();
@@ -616,6 +812,7 @@ TEST_CASE("[Editor][AI][NEXT] session saves planning tool writes before final pr
 	}
 
 	client->release_second_request.post();
+	wait_for_next_agent(session, "planning_agent");
 	wait_for_next_agent(session, "planning_agent");
 	memdelete(session);
 }
