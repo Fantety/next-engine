@@ -175,6 +175,10 @@ void AINextPanel::_bind_methods() {
 }
 
 void AINextPanel::_notification(int p_what) {
+	if (p_what == NOTIFICATION_EXIT_TREE || p_what == NOTIFICATION_PREDELETE) {
+		_clear_operation_progress_material();
+	}
+
 	if (p_what == NOTIFICATION_POSTINITIALIZE || p_what == NOTIFICATION_THEME_CHANGED) {
 		_refresh_theme_icons();
 		_update_operation_label();
@@ -269,7 +273,6 @@ AINextPanel::AINextPanel() {
 
 	operation_progress = memnew(ColorRect);
 	operation_progress->set_color(Color(1, 1, 1, 1));
-	operation_progress->set_material(_make_operation_progress_material());
 	operation_progress->set_custom_minimum_size(Size2(0, 4) * EDSCALE);
 	operation_progress->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	operation_progress->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
@@ -571,6 +574,7 @@ void AINextPanel::_update_operation_label() {
 		}
 		if (operation_progress) {
 			operation_progress->hide();
+			_clear_operation_progress_material();
 		}
 		return;
 	}
@@ -583,6 +587,7 @@ void AINextPanel::_update_operation_label() {
 			operation_icon->show();
 		}
 		if (operation_progress) {
+			_ensure_operation_progress_material();
 			operation_progress->show();
 		}
 		return;
@@ -595,7 +600,22 @@ void AINextPanel::_update_operation_label() {
 	}
 	if (operation_progress) {
 		operation_progress->hide();
+		_clear_operation_progress_material();
 	}
+}
+
+void AINextPanel::_ensure_operation_progress_material() {
+	if (!operation_progress || operation_progress->get_material().is_valid()) {
+		return;
+	}
+	operation_progress->set_material(_make_operation_progress_material());
+}
+
+void AINextPanel::_clear_operation_progress_material() {
+	if (!operation_progress || operation_progress->get_material().is_null()) {
+		return;
+	}
+	operation_progress->set_material(Ref<Material>());
 }
 
 void AINextPanel::_refresh_theme_icons() {

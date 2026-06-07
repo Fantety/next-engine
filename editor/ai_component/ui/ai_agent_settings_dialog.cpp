@@ -29,6 +29,10 @@ void AIAgentSettingsDialog::_bind_methods() {
 }
 
 void AIAgentSettingsDialog::_notification(int p_what) {
+	if (p_what == NOTIFICATION_PREDELETE && singleton == this) {
+		singleton = nullptr;
+	}
+
 	if (p_what == NOTIFICATION_READY) {
 		_build_ui();
 	}
@@ -36,6 +40,12 @@ void AIAgentSettingsDialog::_notification(int p_what) {
 
 AIAgentSettingsDialog::AIAgentSettingsDialog() {
 	singleton = this;
+}
+
+AIAgentSettingsDialog::~AIAgentSettingsDialog() {
+	if (singleton == this) {
+		singleton = nullptr;
+	}
 }
 
 AIAgentSettingsDialog *AIAgentSettingsDialog::get_singleton() {

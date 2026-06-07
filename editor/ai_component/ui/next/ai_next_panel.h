@@ -77,6 +77,8 @@ class AINextPanel : public VBoxContainer {
 	void _refresh_task_inspector_summary();
 	void _refresh_activity_summary();
 	void _refresh_theme_icons();
+	void _ensure_operation_progress_material();
+	void _clear_operation_progress_material();
 	void _update_operation_label();
 	Label *_add_section_label(const String &p_text);
 

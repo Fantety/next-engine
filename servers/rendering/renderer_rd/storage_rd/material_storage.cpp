@@ -1508,6 +1508,11 @@ MaterialStorage::MaterialStorage() {
 }
 
 MaterialStorage::~MaterialStorage() {
+	{
+		MutexLock lock(material_update_list_mutex);
+		material_update_list.clear();
+	}
+
 	memdelete_arr(global_shader_uniforms.buffer_values);
 	memdelete_arr(global_shader_uniforms.buffer_usage);
 	memdelete_arr(global_shader_uniforms.buffer_dirty_regions);

@@ -85,7 +85,9 @@ class AIAgentDock : public EditorDock {
 	void _refresh_skill_status_button();
 	void _refresh_skill_status_popup();
 	void _refresh_token_usage();
+	void _ensure_request_progress_material();
 	void _refresh_request_progress_material();
+	void _clear_request_progress_material();
 	String _format_token_count(int p_tokens) const;
 	AIProviderConfig _get_provider_config(const String &p_model_id) const;
 	void _activate_mode(const StringName &p_mode_name);
@@ -96,6 +98,7 @@ protected:
 
 public:
 	AIAgentDock();
+	~AIAgentDock();
 	static AIAgentDock *get_singleton();
 	void set_next_mode_enabled(bool p_enabled);
 	bool is_next_mode_enabled() const;

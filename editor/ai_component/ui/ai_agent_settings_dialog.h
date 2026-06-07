@@ -57,6 +57,7 @@ protected:
 
 public:
 	AIAgentSettingsDialog();
+	~AIAgentSettingsDialog();
 	static AIAgentSettingsDialog *get_singleton();
 
 	void build_for_test();

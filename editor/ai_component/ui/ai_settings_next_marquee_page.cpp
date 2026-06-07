@@ -6,7 +6,6 @@
 
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
-#include "core/templates/hash_map.h"
 #include "editor/editor_string_names.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
@@ -27,12 +26,6 @@
 namespace {
 
 Ref<ShaderMaterial> _make_marquee_material(const String &p_shader_code) {
-	static HashMap<String, Ref<ShaderMaterial>> material_cache;
-	Ref<ShaderMaterial> *cached_material = material_cache.getptr(p_shader_code);
-	if (cached_material) {
-		return *cached_material;
-	}
-
 	Ref<Shader> shader;
 	shader.instantiate();
 	shader->set_code(p_shader_code);
@@ -40,7 +33,6 @@ Ref<ShaderMaterial> _make_marquee_material(const String &p_shader_code) {
 	Ref<ShaderMaterial> material;
 	material.instantiate();
 	material->set_shader(shader);
-	material_cache.insert(p_shader_code, material);
 	return material;
 }
 
@@ -74,6 +66,15 @@ void AISettingsNextMarqueePage::_bind_methods() {
 }
 
 void AISettingsNextMarqueePage::_notification(int p_what) {
+	if (p_what == NOTIFICATION_EXIT_TREE || p_what == NOTIFICATION_PREDELETE) {
+		if (selected_preview_rect) {
+			selected_preview_rect->set_material(Ref<Material>());
+		}
+		if (preview_rect) {
+			preview_rect->set_material(Ref<Material>());
+		}
+	}
+
 	if (p_what == NOTIFICATION_READY) {
 		_build_ui();
 	}

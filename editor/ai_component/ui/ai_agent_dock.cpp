@@ -113,6 +113,16 @@ void AIAgentDock::_bind_methods() {
 void AIAgentDock::_notification(int p_what) {
 	EditorDock::_notification(p_what);
 
+	if (p_what == NOTIFICATION_EXIT_TREE || p_what == NOTIFICATION_PREDELETE) {
+		_clear_request_progress_material();
+	}
+
+	if (p_what == NOTIFICATION_PREDELETE) {
+		if (singleton == this) {
+			singleton = nullptr;
+		}
+	}
+
 	if (p_what == NOTIFICATION_THEME_CHANGED) {
 		if (new_session_button) {
 			new_session_button->set_button_icon(get_editor_theme_icon(SNAME("Add")));
@@ -251,7 +261,6 @@ AIAgentDock::AIAgentDock() {
 
 	request_progress = memnew(ColorRect);
 	request_progress->set_color(Color(1, 1, 1, 1));
-	request_progress->set_material(_make_request_progress_material());
 	request_progress->set_custom_minimum_size(Size2(0, 4) * EDSCALE);
 	request_progress->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	request_progress->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
@@ -295,6 +304,13 @@ AIAgentDock::AIAgentDock() {
 	next_panel->hide();
 	add_child(next_panel);
 	_activate_mode(SNAME("normal"));
+}
+
+AIAgentDock::~AIAgentDock() {
+	_clear_request_progress_material();
+	if (singleton == this) {
+		singleton = nullptr;
+	}
 }
 
 AIAgentDock *AIAgentDock::get_singleton() {
@@ -384,6 +400,11 @@ void AIAgentDock::_state_changed(int p_state) {
 		delete_session_button->set_disabled(running || waiting_approval || !session_selector || session_selector->get_item_count() == 0 || session_selector->get_selected() < 0);
 	}
 	if (request_progress) {
+		if (running) {
+			_ensure_request_progress_material();
+		} else {
+			_clear_request_progress_material();
+		}
 		request_progress->set_visible(running);
 	}
 	if (request_status_row) {
@@ -852,11 +873,25 @@ void AIAgentDock::_refresh_token_usage() {
 	token_usage_label->set_text(text);
 }
 
-void AIAgentDock::_refresh_request_progress_material() {
-	if (!request_progress) {
+void AIAgentDock::_ensure_request_progress_material() {
+	if (!request_progress || request_progress->get_material().is_valid()) {
 		return;
 	}
 	request_progress->set_material(_make_request_progress_material());
+}
+
+void AIAgentDock::_refresh_request_progress_material() {
+	if (!request_progress || !request_progress->is_visible()) {
+		return;
+	}
+	request_progress->set_material(_make_request_progress_material());
+}
+
+void AIAgentDock::_clear_request_progress_material() {
+	if (!request_progress || request_progress->get_material().is_null()) {
+		return;
+	}
+	request_progress->set_material(Ref<Material>());
 }
 
 String AIAgentDock::_format_token_count(int p_tokens) const {
