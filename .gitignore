@@ -23,7 +23,7 @@
 ############################
 ### NEXT Engine Configue ###
 ############################
-/docs
+.devdocs
 .superpowers/
 ###########################
 ### Build configuration ###

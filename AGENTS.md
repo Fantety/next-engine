@@ -3,7 +3,7 @@
 - editor/ai_component AI相关功能
 - editor/user_system 新增用户系统
 - scene/gui  新增了MarkdownViewer节点
-- docs 相关文档存放位置
+- .devdocs/ 相关文档存放位置
 
 AI功能分为普通模式和NEXT模式
 普通模式：所有工具挂载在MainAgent下，有单个MainAgent工作
