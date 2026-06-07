@@ -6,13 +6,17 @@
 
 #include "editor/ai_component/agent/ai_agent_base.h"
 #include "editor/ai_component/agent/ai_session_base.h"
+#include "editor/ai_component/context/ai_best_practices_context_provider.h"
+#include "editor/ai_component/context/ai_editor_context_provider.h"
+#include "editor/ai_component/context/ai_project_tree_context_provider.h"
 #include "editor/ai_component/next/ai_next_event_log.h"
-#include "editor/ai_component/next/ai_next_project_memory_store.h"
 #include "editor/ai_component/next/ai_next_project_state.h"
 #include "editor/ai_component/next/ai_next_project_store.h"
 #include "editor/ai_component/next/ai_next_run_tracker.h"
 #include "editor/ai_component/next/ai_next_workflow_snapshot.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
+#include "editor/ai_component/rules/ai_rules_context_provider.h"
+#include "editor/ai_component/skills/ai_skill_context_provider.h"
 #include "core/templates/hash_map.h"
 
 class AIAgentNextSession : public AISessionBase {
@@ -29,8 +33,12 @@ class AIAgentNextSession : public AISessionBase {
 	Ref<AINextProjectState> project_state;
 	Ref<AINextProjectStore> project_store;
 	Ref<AINextWorkflowStore> workflow_store;
-	Ref<AINextProjectMemoryStore> project_memory_store;
 	Ref<AINextEventLog> event_log;
+	Ref<AIProjectTreeContextProvider> project_tree_context;
+	Ref<AIEditorContextProvider> editor_context;
+	Ref<AIBestPracticesContextProvider> best_practices_context;
+	Ref<AIRulesContextProvider> rules_context;
+	Ref<AISkillIndexContextProvider> skill_context;
 	AINextRunTracker run_tracker;
 
 	HashMap<String, Ref<AIAgentBase>> agents;
@@ -74,6 +82,7 @@ class AIAgentNextSession : public AISessionBase {
 	void _clear_workflow();
 	void _clear_runtime_messages();
 	void _reset_checkpoint();
+	Array _collect_initial_context();
 	AINextWorkflowSnapshot _build_workflow_snapshot() const;
 	void _apply_workflow_snapshot(const AINextWorkflowSnapshot &p_snapshot, bool p_normalize_running_checkpoint);
 	void _load_initial_workflow();

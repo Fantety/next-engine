@@ -145,44 +145,6 @@ String AINextWorkflowContextBuilder::_build_workflow_state(const Ref<AINextProje
 	return content.strip_edges();
 }
 
-String AINextWorkflowContextBuilder::_build_project_memory(const AINextProjectMemory &p_memory) {
-	if (p_memory.is_empty()) {
-		return String();
-	}
-
-	String content;
-	if (!p_memory.language.strip_edges().is_empty()) {
-		content += "Language preference: " + p_memory.language.strip_edges() + "\n";
-	}
-	if (!p_memory.renderer.strip_edges().is_empty()) {
-		content += "Renderer: " + p_memory.renderer.strip_edges() + "\n";
-	}
-
-	const struct {
-		const char *title;
-		const Vector<String> *values;
-	} sections[] = {
-		{ "Architecture notes", &p_memory.architecture_notes },
-		{ "Coding conventions", &p_memory.coding_conventions },
-		{ "Scene conventions", &p_memory.scene_conventions },
-		{ "User preferences", &p_memory.user_preferences },
-	};
-
-	for (const auto &section : sections) {
-		if (section.values->is_empty()) {
-			continue;
-		}
-		content += String(section.title) + ":\n";
-		for (const String &value : *section.values) {
-			const String clean_value = value.strip_edges();
-			if (!clean_value.is_empty()) {
-				content += "- " + clean_value + "\n";
-			}
-		}
-	}
-	return content.strip_edges();
-}
-
 String AINextWorkflowContextBuilder::_build_current_task_context(const Ref<AINextProjectState> &p_project_state, const AINextWorkflowContextOptions &p_options, const Array &p_milestones) {
 	if (p_options.task_id.is_empty()) {
 		return String();
@@ -324,13 +286,6 @@ Array AINextWorkflowContextBuilder::build_context(const Ref<AINextProjectState> 
 	}
 
 	const Array milestones = p_project_state->get_milestones_as_array();
-	if (p_options.has_project_memory) {
-		const String project_memory = _build_project_memory(p_options.project_memory);
-		if (!project_memory.is_empty()) {
-			context.push_back(_make_document("NEXT Project Memory", "ai_next/project_memory", project_memory));
-		}
-	}
-
 	const String workflow_state = _build_workflow_state(p_project_state, p_options, milestones);
 	if (!workflow_state.is_empty()) {
 		context.push_back(_make_document("NEXT Workflow State", "ai_next/workflow_state", workflow_state));

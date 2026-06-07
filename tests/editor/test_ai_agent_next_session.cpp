@@ -4,8 +4,6 @@
 
 #include "tests/test_macros.h"
 
-#include "core/io/dir_access.h"
-#include "core/io/file_access.h"
 #include "core/object/message_queue.h"
 #include "core/os/os.h"
 #include "core/os/semaphore.h"
@@ -18,7 +16,6 @@
 #include "editor/ai_component/next/agents/ai_next_script_agent.h"
 #include "editor/ai_component/next/agents/ai_next_shader_agent.h"
 #include "editor/ai_component/next/ai_agent_next_session.h"
-#include "editor/ai_component/next/ai_next_project_memory_store.h"
 #include "editor/ai_component/next/ai_next_workflow_snapshot.h"
 #include "editor/ai_component/next/ai_next_workflow_store.h"
 
@@ -253,17 +250,6 @@ static void cleanup_next_workflows(const String &p_project_scope) {
 		}
 		Dictionary workflow = workflows[i];
 		store->delete_workflow(String(workflow.get("id", String())));
-	}
-}
-
-static void cleanup_next_project_memory(const String &p_project_scope) {
-	Ref<AINextProjectMemoryStore> store;
-	store.instantiate();
-	store->set_project_scope(p_project_scope);
-
-	const String memory_path = store->get_memory_path_for_test();
-	if (FileAccess::exists(memory_path)) {
-		DirAccess::remove_absolute(memory_path);
 	}
 }
 
@@ -809,23 +795,8 @@ TEST_CASE("[Editor][AI][NEXT] later milestone tasks receive prior task result co
 	memdelete(session);
 }
 
-TEST_CASE("[Editor][AI][NEXT] agent runs receive project memory context") {
-	const String project_scope = "test_next_session_project_memory_context";
-	cleanup_next_workflows(project_scope);
-	cleanup_next_project_memory(project_scope);
-
-	Ref<AINextProjectMemoryStore> memory_store;
-	memory_store.instantiate();
-	memory_store->set_project_scope(project_scope);
-	AINextProjectMemory memory;
-	memory.language = "Chinese";
-	memory.renderer = "Forward Plus";
-	memory.architecture_notes.push_back("Use res://scripts/player for player-facing gameplay scripts.");
-	memory.user_preferences.push_back("Keep generated task summaries concise.");
-	CHECK(memory_store->save_memory(memory) == OK);
-
-	AIAgentNextSession *session = memnew(AIAgentNextSession);
-	session->set_workflow_project_scope_for_test(project_scope);
+TEST_CASE("[Editor][AI][NEXT] agent runs receive main agent fixed context") {
+	AIAgentNextSession *session = make_isolated_next_session();
 	Ref<AINextProjectState> state = session->get_project_state();
 	const String milestone_id = state->create_milestone("Core Movement", "Build movement.");
 	const String task_id = state->add_task(milestone_id, "Create player script", "script_agent", Array(), "Create the movement script.");
@@ -840,19 +811,27 @@ TEST_CASE("[Editor][AI][NEXT] agent runs receive project memory context") {
 	CHECK(session->run_task(task_id));
 	wait_for_next_agent(session, "script_agent");
 
-	bool saw_project_memory = false;
+	bool saw_editor_context = false;
+	bool saw_project_tree_context = false;
+	bool saw_best_practices_context = false;
 	for (int i = 0; i < client->last_messages.size(); i++) {
 		Dictionary message = client->last_messages[i];
 		const String content = String(message.get("content", String()));
-		if (content.contains("Use res://scripts/player") && content.contains("Forward Plus")) {
-			saw_project_memory = true;
+		if (content.contains("## Editor Context")) {
+			saw_editor_context = true;
+		}
+		if (content.contains("## Project Tree")) {
+			saw_project_tree_context = true;
+		}
+		if (content.contains("## Agent Best Practices")) {
+			saw_best_practices_context = true;
 		}
 	}
-	CHECK(saw_project_memory);
+	CHECK(saw_editor_context);
+	CHECK(saw_project_tree_context);
+	CHECK(saw_best_practices_context);
 
 	memdelete(session);
-	cleanup_next_workflows(project_scope);
-	cleanup_next_project_memory(project_scope);
 }
 
 TEST_CASE("[Editor][AI][NEXT] later milestones receive previous milestone result context") {

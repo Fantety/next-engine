@@ -7,15 +7,12 @@
 #include "core/string/ustring.h"
 #include "core/variant/array.h"
 #include "core/variant/dictionary.h"
-#include "editor/ai_component/next/ai_next_project_memory_store.h"
 #include "editor/ai_component/next/ai_next_project_state.h"
 
 struct AINextWorkflowContextOptions {
 	String operation;
 	String milestone_id;
 	String task_id;
-	bool has_project_memory = false;
-	AINextProjectMemory project_memory;
 	int max_completed_tasks = 8;
 	int max_previous_milestones = 2;
 	int max_recent_events = 8;
@@ -33,7 +30,6 @@ class AINextWorkflowContextBuilder {
 	static Dictionary _find_task(const Array &p_milestones, const String &p_task_id);
 	static void _append_task_if_relevant(const Dictionary &p_task, Vector<Dictionary> &r_tasks, Vector<String> &r_task_ids);
 	static String _build_workflow_state(const Ref<AINextProjectState> &p_project_state, const AINextWorkflowContextOptions &p_options, const Array &p_milestones);
-	static String _build_project_memory(const AINextProjectMemory &p_memory);
 	static String _build_current_task_context(const Ref<AINextProjectState> &p_project_state, const AINextWorkflowContextOptions &p_options, const Array &p_milestones);
 	static String _build_prior_task_results(const Ref<AINextProjectState> &p_project_state, const AINextWorkflowContextOptions &p_options, const Array &p_milestones);
 	static String _build_prior_milestone_results(const AINextWorkflowContextOptions &p_options, const Array &p_milestones);

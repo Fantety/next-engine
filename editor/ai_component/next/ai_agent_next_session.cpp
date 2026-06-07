@@ -254,8 +254,12 @@ AIAgentNextSession::AIAgentNextSession() {
 	project_state.instantiate();
 	project_store.instantiate();
 	workflow_store.instantiate();
-	project_memory_store.instantiate();
 	event_log.instantiate();
+	project_tree_context.instantiate();
+	editor_context.instantiate();
+	best_practices_context.instantiate();
+	rules_context.instantiate();
+	skill_context.instantiate();
 
 	Vector<String> agent_ids = AINextAgentRegistry::get_agent_ids();
 	for (int i = 0; i < agent_ids.size(); i++) {
@@ -264,7 +268,6 @@ AIAgentNextSession::AIAgentNextSession() {
 	}
 
 	workflow_store->set_project_scope(_get_project_scope_key());
-	project_memory_store->set_project_scope(_get_project_scope_key());
 	_load_initial_workflow();
 }
 
@@ -360,6 +363,16 @@ void AIAgentNextSession::_clear_runtime_messages() {
 
 void AIAgentNextSession::_reset_checkpoint() {
 	checkpoint = AINextWorkflowCheckpoint();
+}
+
+Array AIAgentNextSession::_collect_initial_context() {
+	Array context;
+	context.append_array(editor_context->collect_context());
+	context.append_array(project_tree_context->collect_context());
+	context.append_array(best_practices_context->collect_context());
+	context.append_array(rules_context->collect_context());
+	context.append_array(skill_context->collect_context());
+	return context;
 }
 
 AINextWorkflowSnapshot AIAgentNextSession::_build_workflow_snapshot() const {
@@ -595,14 +608,8 @@ bool AIAgentNextSession::_begin_agent_run(PendingOperation p_operation, const St
 	context_options.operation = _get_checkpoint_operation_name(p_operation);
 	context_options.milestone_id = p_milestone_id;
 	context_options.task_id = p_task_id;
-	if (project_memory_store.is_valid()) {
-		AINextProjectMemory project_memory;
-		if (project_memory_store->load_memory(project_memory) && !project_memory.is_empty()) {
-			context_options.has_project_memory = true;
-			context_options.project_memory = project_memory;
-		}
-	}
-	const Array context_documents = AINextWorkflowContextBuilder::build_context(project_state, event_log.is_valid() ? event_log->get_events() : Array(), context_options);
+	Array context_documents = AINextWorkflowContextBuilder::build_context(project_state, event_log.is_valid() ? event_log->get_events() : Array(), context_options);
+	context_documents.append_array(_collect_initial_context());
 	if (!agent->start(run_messages, context_documents)) {
 		AINextAgentRunState *run_state = _find_agent_run(active_agent_run_id);
 		if (run_state) {
@@ -1903,11 +1910,7 @@ void AIAgentNextSession::set_workflow_project_scope_for_test(const String &p_pro
 	if (workflow_store.is_null()) {
 		workflow_store.instantiate();
 	}
-	if (project_memory_store.is_null()) {
-		project_memory_store.instantiate();
-	}
 	workflow_store->set_project_scope(p_project_scope_key);
-	project_memory_store->set_project_scope(p_project_scope_key);
 	_load_initial_workflow();
 }
 
