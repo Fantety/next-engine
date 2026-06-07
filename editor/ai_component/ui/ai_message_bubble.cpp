@@ -179,8 +179,10 @@ Ref<StyleBoxFlat> _make_bubble_style(const Color &p_bg_color, const Color &p_bor
 	style->set_border_color(p_border_color);
 	style->set_border_width_all(MAX(1, int(EDSCALE)));
 	style->set_border_width(SIDE_LEFT, MAX(1, int(3 * EDSCALE)));
+	style->set_border_width(SIDE_BOTTOM, MAX(2, int(2 * EDSCALE)));
 	style->set_content_margin_individual(10 * EDSCALE, 7 * EDSCALE, 10 * EDSCALE, 8 * EDSCALE);
 	style->set_corner_radius_all(6 * EDSCALE);
+	style->set_anti_aliased(false);
 	return style;
 }
 

@@ -24,6 +24,7 @@
 #include "scene/gui/text_edit.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
+#include "scene/resources/style_box_flat.h"
 
 TEST_FORCE_LINK(test_ai_model_settings);
 
@@ -984,6 +985,10 @@ TEST_CASE("[Editor][AI] Assistant message bubbles render markdown while user bub
 	CHECK(assistant_label->get_parsed_text().strip_edges() == "Use bold and code.");
 	CHECK(assistant_bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
 	CHECK(assistant_bubble->has_theme_stylebox_override(SceneStringName(panel)));
+	Ref<StyleBoxFlat> assistant_style = assistant_bubble->get_theme_stylebox(SceneStringName(panel));
+	REQUIRE(assistant_style.is_valid());
+	CHECK_FALSE(assistant_style->is_anti_aliased());
+	CHECK(assistant_style->get_border_width(SIDE_BOTTOM) >= 2);
 
 	AIMessageBubble *user_bubble = memnew(AIMessageBubble);
 	Dictionary user_message;
@@ -999,6 +1004,10 @@ TEST_CASE("[Editor][AI] Assistant message bubbles render markdown while user bub
 	CHECK(user_label->get_parsed_text().strip_edges() == "Literal **stars**");
 	CHECK(user_bubble->get_h_size_flags() == Control::SIZE_EXPAND_FILL);
 	CHECK(user_bubble->has_theme_stylebox_override(SceneStringName(panel)));
+	Ref<StyleBoxFlat> user_style = user_bubble->get_theme_stylebox(SceneStringName(panel));
+	REQUIRE(user_style.is_valid());
+	CHECK_FALSE(user_style->is_anti_aliased());
+	CHECK(user_style->get_border_width(SIDE_BOTTOM) >= 2);
 
 	memdelete(assistant_bubble);
 	memdelete(user_bubble);
