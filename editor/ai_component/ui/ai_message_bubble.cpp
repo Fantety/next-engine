@@ -444,6 +444,7 @@ void AIMessageBubble::_render_message() {
 	}
 
 	_render_attachments(message_metadata);
+	_queue_layout_update();
 }
 
 void AIMessageBubble::_render_attachments(const Dictionary &p_metadata) {
@@ -498,4 +499,41 @@ void AIMessageBubble::_toggle_details() {
 
 	details_expanded = !details_expanded;
 	_render_message();
+}
+
+void AIMessageBubble::_queue_layout_update() {
+	if (layout_update_queued) {
+		return;
+	}
+
+	layout_update_queued = true;
+	callable_mp(this, &AIMessageBubble::_flush_layout_update).call_deferred();
+}
+
+void AIMessageBubble::_flush_layout_update() {
+	layout_update_queued = false;
+
+	if (title_label) {
+		title_label->update_minimum_size();
+	}
+	if (details_button) {
+		details_button->update_minimum_size();
+	}
+	if (label) {
+		label->update_minimum_size();
+	}
+	if (attachments_box) {
+		attachments_box->update_minimum_size();
+	}
+	if (header_box) {
+		header_box->update_minimum_size();
+	}
+	if (content_box) {
+		content_box->update_minimum_size();
+	}
+
+	update_minimum_size();
+	if (Control *parent_control = get_parent_control()) {
+		parent_control->update_minimum_size();
+	}
 }

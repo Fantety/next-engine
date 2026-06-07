@@ -24,10 +24,13 @@ class AIMessageBubble : public PanelContainer {
 	Dictionary current_message;
 	bool details_expanded = false;
 	bool details_available = false;
+	bool layout_update_queued = false;
 
 	void _render_message();
 	void _render_attachments(const Dictionary &p_metadata);
 	void _toggle_details();
+	void _queue_layout_update();
+	void _flush_layout_update();
 
 protected:
 	static void _bind_methods();
