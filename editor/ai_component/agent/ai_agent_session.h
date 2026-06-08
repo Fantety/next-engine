@@ -7,6 +7,7 @@
 #include "core/object/class_db.h"
 #include "core/os/mutex.h"
 #include "core/os/safe_binary_mutex.h"
+#include "core/os/semaphore.h"
 #include "core/os/thread.h"
 #include "core/templates/hash_map.h"
 
@@ -61,12 +62,14 @@ class AIAgentSession : public AISessionBase {
 	Ref<AISkillIndexContextProvider> skill_context;
 	Thread approved_tool_thread;
 	SafeFlag approved_tool_running;
+	Semaphore approved_tool_finished;
 	Mutex approved_tool_result_mutex;
 	AIToolCall approved_tool_call;
 	AIToolResult approved_tool_result;
 	String approved_tool_result_session_id;
 	uint64_t approved_tool_result_turn_generation = 0;
 	bool approved_tool_result_available = false;
+	bool shutting_down = false;
 
 	int active_assistant_index = -1;
 	int runtime_base_message_count = 0;
@@ -85,6 +88,7 @@ class AIAgentSession : public AISessionBase {
 	bool _update_tool_call_status(const AIToolCall &p_call);
 	bool _start_runtime_turn();
 	bool _is_busy() const;
+	void _wait_for_approved_tool_thread();
 	static void _approved_tool_thread_func(void *p_userdata);
 	void _set_approved_tool_result(const AIToolCall &p_call, const AIToolResult &p_result, const String &p_session_id, uint64_t p_turn_generation);
 	void _on_approved_tool_finished(const String &p_session_id, uint64_t p_turn_generation);

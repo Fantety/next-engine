@@ -10,6 +10,7 @@
 #include "core/os/mutex.h"
 #include "core/os/thread.h"
 #include "core/string/ustring.h"
+#include "core/templates/vector.h"
 #include "core/variant/variant.h"
 
 class Node;
@@ -18,7 +19,18 @@ class AIEditorToolService : public RefCounted {
 	GDCLASS(AIEditorToolService, RefCounted);
 
 protected:
+	struct MainThreadDispatchItem {
+		uint64_t id = 0;
+		Callable callable;
+		Variant argument;
+	};
+
+	static Mutex main_thread_dispatch_mutex;
+	static Vector<MainThreadDispatchItem> main_thread_dispatch_items;
+	static uint64_t main_thread_dispatch_next_id;
+
 	static void _bind_methods();
+	static Error _queue_main_thread_dispatch(const Callable &p_callable, const Variant &p_argument);
 
 	template <typename TResult, typename TRequest, typename TService>
 	static TResult _dispatch_main_thread_request(TRequest &r_request, TService *p_dispatcher, void (TService::*p_execute_request)(uint64_t), Mutex &r_request_mutex, const String &p_schedule_error) {
@@ -35,7 +47,7 @@ protected:
 		}
 
 		Variant request_ptr = reinterpret_cast<uint64_t>(&r_request);
-		Error err = MessageQueue::get_main_singleton()->push_callable(callable_mp(p_dispatcher, p_execute_request), request_ptr);
+		Error err = _queue_main_thread_dispatch(callable_mp(p_dispatcher, p_execute_request), request_ptr);
 		if (err != OK) {
 			TResult result;
 			result.error = p_schedule_error;
@@ -56,5 +68,6 @@ protected:
 	void _update_scene_tree() const;
 
 public:
+	static void flush_pending_main_thread_dispatches_for_wait();
 	static Node *resolve_scene_node_path_for_test(Node *p_scene_root, const String &p_path, bool p_allow_root, String &r_error);
 };

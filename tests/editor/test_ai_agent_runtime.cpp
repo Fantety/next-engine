@@ -27,6 +27,7 @@
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
+#include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 #include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 
 TEST_FORCE_LINK(test_ai_agent_runtime);
@@ -150,6 +151,79 @@ public:
 
 		AIToolResult result;
 		result.content = String(p_arguments.get("value", ""));
+		return result;
+	}
+};
+
+struct MainThreadDispatchToolServiceResult {
+	bool success = false;
+	String error;
+};
+
+class MainThreadDispatchToolService : public AIEditorToolService {
+	GDCLASS(MainThreadDispatchToolService, AIEditorToolService);
+
+	struct MainThreadRequest {
+		MainThreadDispatchToolServiceResult result;
+		Semaphore done;
+	};
+
+	Mutex request_mutex;
+
+	void _execute_request(uint64_t p_request_ptr) {
+		MainThreadRequest *request = reinterpret_cast<MainThreadRequest *>(p_request_ptr);
+		if (!request) {
+			return;
+		}
+		request->result.success = true;
+		request->done.post();
+	}
+
+public:
+	MainThreadDispatchToolServiceResult dispatch() {
+		MainThreadRequest request;
+		return _dispatch_main_thread_request<MainThreadDispatchToolServiceResult>(request, this, &MainThreadDispatchToolService::_execute_request, request_mutex, "Failed to schedule test main-thread dispatch.");
+	}
+};
+
+class MainThreadDispatchRuntimeTool : public AITool {
+	GDCLASS(MainThreadDispatchRuntimeTool, AITool);
+
+public:
+	Semaphore execute_started;
+	int execute_count = 0;
+	Ref<MainThreadDispatchToolService> service;
+
+	MainThreadDispatchRuntimeTool() {
+		service.instantiate();
+	}
+
+	virtual String get_name() const override {
+		return "test.main_thread_dispatch";
+	}
+
+	virtual String get_description() const override {
+		return "Queues a main-thread request, waits for it, then returns.";
+	}
+
+	virtual Dictionary get_parameters_schema() const override {
+		Dictionary schema;
+		schema["type"] = "object";
+		return schema;
+	}
+
+	virtual AIToolResult execute(const Dictionary &p_arguments) override {
+		(void)p_arguments;
+		execute_count++;
+		execute_started.post();
+
+		const MainThreadDispatchToolServiceResult service_result = service->dispatch();
+		AIToolResult result;
+		if (!service_result.success) {
+			result.error = service_result.error;
+			return result;
+		}
+		result.content = "main thread dispatch completed";
 		return result;
 	}
 };
@@ -1724,6 +1798,60 @@ TEST_CASE("[Editor][AI] Agent session ignores approved tool results after switch
 	session->get_conversation_store_for_test()->delete_conversation(old_session_id);
 	session->get_conversation_store_for_test()->delete_conversation(new_session_id);
 	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] Agent session destructor drains main-thread dispatch for approved tools") {
+	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_approved_tool_destructor_dispatch");
+	Ref<AIConversationStore> store = session->get_conversation_store_for_test();
+	const String session_id = session->get_session_id();
+
+	Ref<MainThreadDispatchRuntimeTool> dispatch_tool;
+	dispatch_tool.instantiate();
+	CHECK(session->get_tool_registry()->register_tool(dispatch_tool, AI_TOOL_PERMISSION_ASK));
+
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = "Run a tool that dispatches to the main thread.";
+
+	AIAgentMessage assistant_placeholder;
+	assistant_placeholder.role = AI_AGENT_ROLE_ASSISTANT;
+
+	Vector<AIAgentMessage> original_messages;
+	original_messages.push_back(user_message);
+	original_messages.push_back(assistant_placeholder);
+
+	AIToolCall call;
+	call.id = "call_main_thread_dispatch";
+	call.tool_name = "test.main_thread_dispatch";
+	call.status = AI_TOOL_CALL_STATUS_PENDING;
+
+	Array tool_calls;
+	tool_calls.push_back(call.to_dict());
+
+	AIAgentMessage assistant_tool_call;
+	assistant_tool_call.role = AI_AGENT_ROLE_ASSISTANT;
+	assistant_tool_call.metadata["tool_calls"] = tool_calls;
+
+	AIAgentRuntimeResult runtime_result;
+	runtime_result.success = true;
+	runtime_result.messages.push_back(user_message);
+	runtime_result.messages.push_back(assistant_tool_call);
+	runtime_result.pending_approval = call.to_dict();
+	runtime_result.pending_approval["reason"] = "Test approval.";
+
+	session->replace_messages_for_test(original_messages, 1);
+	session->apply_runtime_result_for_test(runtime_result);
+	CHECK(session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL);
+
+	CHECK(session->approve_pending_tool());
+	REQUIRE(wait_for_semaphore(dispatch_tool->execute_started));
+
+	memdelete(session);
+	MessageQueue::get_singleton()->flush();
+
+	CHECK(dispatch_tool->execute_count == 1);
+	store->delete_conversation(session_id);
 }
 
 TEST_CASE("[Editor][AI] Agent session maps runtime progress messages without duplicating final results") {

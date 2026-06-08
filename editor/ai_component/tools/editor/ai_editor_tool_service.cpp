@@ -18,9 +18,75 @@
 #include "scene/main/node.h"
 #include "scene/resources/packed_scene.h"
 
+Mutex AIEditorToolService::main_thread_dispatch_mutex;
+Vector<AIEditorToolService::MainThreadDispatchItem> AIEditorToolService::main_thread_dispatch_items;
+uint64_t AIEditorToolService::main_thread_dispatch_next_id = 0;
+
 void AIEditorToolService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_update_scene_tree"), &AIEditorToolService::_update_scene_tree);
 	ClassDB::bind_method(D_METHOD("_refresh_file_system", "path"), &AIEditorToolService::_refresh_file_system);
+}
+
+Error AIEditorToolService::_queue_main_thread_dispatch(const Callable &p_callable, const Variant &p_argument) {
+	CallQueue *message_queue = MessageQueue::get_main_singleton();
+	if (!message_queue) {
+		return ERR_UNAVAILABLE;
+	}
+
+	uint64_t item_id = 0;
+	{
+		MutexLock lock(main_thread_dispatch_mutex);
+		MainThreadDispatchItem item;
+		item.id = ++main_thread_dispatch_next_id;
+		item.callable = p_callable;
+		item.argument = p_argument;
+		item_id = item.id;
+		main_thread_dispatch_items.push_back(item);
+	}
+
+	const Error err = message_queue->push_callable(callable_mp_static(&AIEditorToolService::flush_pending_main_thread_dispatches_for_wait));
+	if (err != OK) {
+		bool removed_item = false;
+		MutexLock lock(main_thread_dispatch_mutex);
+		for (int i = main_thread_dispatch_items.size() - 1; i >= 0; i--) {
+			if (main_thread_dispatch_items[i].id == item_id) {
+				main_thread_dispatch_items.remove_at(i);
+				removed_item = true;
+				break;
+			}
+		}
+		return removed_item ? err : OK;
+	}
+
+	return OK;
+}
+
+void AIEditorToolService::flush_pending_main_thread_dispatches_for_wait() {
+	if (!Thread::is_main_thread()) {
+		return;
+	}
+
+	while (true) {
+		Vector<MainThreadDispatchItem> dispatch_items;
+		{
+			MutexLock lock(main_thread_dispatch_mutex);
+			if (main_thread_dispatch_items.is_empty()) {
+				return;
+			}
+			dispatch_items = main_thread_dispatch_items;
+			main_thread_dispatch_items.clear();
+		}
+
+		for (int i = 0; i < dispatch_items.size(); i++) {
+			const Variant *argptrs[1] = { &dispatch_items[i].argument };
+			Callable::CallError ce;
+			Variant ret;
+			dispatch_items[i].callable.callp(argptrs, 1, ret, ce);
+			if (ce.error != Callable::CallError::CALL_OK) {
+				ERR_PRINT("Failed to dispatch AI editor tool request: " + Variant::get_callable_error_text(dispatch_items[i].callable, argptrs, 1, ce) + ".");
+			}
+		}
+	}
 }
 
 Node *AIEditorToolService::_get_edited_scene(String &r_error) const {

@@ -5,14 +5,19 @@
 #include "ai_agent_session.h"
 
 #include "core/object/callable_mp.h"
+#include "core/object/message_queue.h"
+#include "core/os/os.h"
 #include "core/os/time.h"
 #include "core/templates/local_vector.h"
 
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/tools/ai_tool_execution_context.h"
+#include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 #include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 
 namespace {
+
+constexpr uint32_t APPROVED_TOOL_THREAD_WAIT_USEC = 1000;
 
 AIAgentMessage _make_user_message(const String &p_message, const Array &p_attachments) {
 	AIAgentMessage user_message;
@@ -85,9 +90,8 @@ AIAgentSession::AIAgentSession() {
 }
 
 AIAgentSession::~AIAgentSession() {
-	if (approved_tool_thread.is_started()) {
-		approved_tool_thread.wait_to_finish();
-	}
+	shutting_down = true;
+	_wait_for_approved_tool_thread();
 }
 
 void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
@@ -296,7 +300,7 @@ bool AIAgentSession::approve_pending_tool() {
 	}
 
 	if (approved_tool_thread.is_started()) {
-		approved_tool_thread.wait_to_finish();
+		_wait_for_approved_tool_thread();
 	}
 
 	print_line(vformat("[AI Agent][Session] Approved pending tool; executing off the main thread. name=%s", call.tool_name));
@@ -593,6 +597,38 @@ bool AIAgentSession::_is_busy() const {
 	return state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT || state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL;
 }
 
+void AIAgentSession::_wait_for_approved_tool_thread() {
+	if (!approved_tool_thread.is_started()) {
+		return;
+	}
+
+	if (Thread::is_main_thread()) {
+		CallQueue *message_queue = MessageQueue::get_main_singleton();
+		while (approved_tool_thread.is_started() && !approved_tool_finished.try_wait()) {
+			if (message_queue) {
+				message_queue->flush();
+			}
+			AIEditorToolService::flush_pending_main_thread_dispatches_for_wait();
+
+			if (!approved_tool_thread.is_started()) {
+				return;
+			}
+
+			if (OS::get_singleton()) {
+				OS::get_singleton()->delay_usec(APPROVED_TOOL_THREAD_WAIT_USEC);
+			} else {
+				Thread::yield();
+			}
+		}
+	} else {
+		approved_tool_finished.wait();
+	}
+
+	if (approved_tool_thread.is_started()) {
+		approved_tool_thread.wait_to_finish();
+	}
+}
+
 void AIAgentSession::_approved_tool_thread_func(void *p_userdata) {
 	ApprovedToolThreadParams *params = static_cast<ApprovedToolThreadParams *>(p_userdata);
 	AIAgentSession *session = params->session;
@@ -622,6 +658,7 @@ void AIAgentSession::_approved_tool_thread_func(void *p_userdata) {
 	if (session) {
 		session->_set_approved_tool_result(call, result, active_session_id, active_turn_generation);
 		session->approved_tool_running.clear();
+		session->approved_tool_finished.post();
 		callable_mp(session, &AIAgentSession::_on_approved_tool_finished).bind(active_session_id, active_turn_generation).call_deferred();
 	}
 }
@@ -637,7 +674,7 @@ void AIAgentSession::_set_approved_tool_result(const AIToolCall &p_call, const A
 
 void AIAgentSession::_on_approved_tool_finished(const String &p_session_id, uint64_t p_turn_generation) {
 	if (approved_tool_thread.is_started()) {
-		approved_tool_thread.wait_to_finish();
+		_wait_for_approved_tool_thread();
 	}
 
 	AIToolCall call;
@@ -654,9 +691,9 @@ void AIAgentSession::_on_approved_tool_finished(const String &p_session_id, uint
 		approved_tool_result_available = false;
 	}
 
-	if (state == AI_AGENT_STATE_CANCELLED || p_session_id != session_id || p_turn_generation != turn_generation) {
+	if (shutting_down || state == AI_AGENT_STATE_CANCELLED || p_session_id != session_id || p_turn_generation != turn_generation) {
 		print_line(vformat("[AI Agent][Session] Approved tool finished for a stale turn; result ignored. name=%s", call.tool_name));
-		if (pending_tool_runtime_reload) {
+		if (!shutting_down && pending_tool_runtime_reload) {
 			reload_tool_runtime();
 		}
 		return;
@@ -868,7 +905,7 @@ Error AIAgentSession::save_for_test() {
 
 void AIAgentSession::wait_for_approved_tool_for_test() {
 	if (approved_tool_thread.is_started()) {
-		approved_tool_thread.wait_to_finish();
+		_wait_for_approved_tool_thread();
 	}
 }
 
