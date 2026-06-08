@@ -144,35 +144,6 @@ void _append_security_headers(Vector<String> &r_headers, const String &p_token) 
 	r_headers.push_back("sec-sign: 1");
 }
 
-String _decode_base64url_utf8(const String &p_value, bool &r_ok) {
-	r_ok = false;
-	if (p_value.is_empty()) {
-		return String();
-	}
-
-	String encoded = p_value.strip_edges().replace("-", "+").replace("_", "/");
-	const int remainder = encoded.length() % 4;
-	if (remainder == 1) {
-		return String();
-	}
-	if (remainder > 0) {
-		encoded += String("=").repeat(4 - remainder);
-	}
-
-	const int encoded_length = encoded.length();
-	CharString cstr = encoded.ascii();
-	Vector<uint8_t> buffer;
-	buffer.resize(encoded_length / 4 * 3 + 2);
-
-	size_t decoded_length = 0;
-	if (CryptoCore::b64_decode(buffer.ptrw(), buffer.size(), &decoded_length, (unsigned char *)cstr.get_data(), encoded_length) != OK) {
-		return String();
-	}
-
-	r_ok = true;
-	return String::utf8(reinterpret_cast<const char *>(buffer.ptr()), decoded_length);
-}
-
 String _describe_token_for_debug(const String &p_token) {
 	const String token = p_token.strip_edges();
 	if (token.is_empty()) {
@@ -180,19 +151,17 @@ String _describe_token_for_debug(const String &p_token) {
 	}
 
 	const Vector<String> parts = token.split(".");
-	if (parts.size() < 2) {
-		return vformat("jwt_parts=%d decode=not_jwt", parts.size());
+	CharString token_utf8 = token.utf8();
+	unsigned char hash[32];
+	String hash_prefix = "unavailable";
+	if (CryptoCore::sha256(reinterpret_cast<const uint8_t *>(token_utf8.get_data()), token_utf8.length(), hash) == OK) {
+		hash_prefix = String::hex_encode_buffer(hash, 32).substr(0, 12);
 	}
-
-	bool header_ok = false;
-	bool payload_ok = false;
-	const String header = _decode_base64url_utf8(parts[0], header_ok);
-	const String payload = _decode_base64url_utf8(parts[1], payload_ok);
-	return vformat("jwt_parts=%d jwt_header_ok=%s jwt_header=%s jwt_payload_ok=%s jwt_payload=%s", parts.size(), header_ok ? "true" : "false", header, payload_ok ? "true" : "false", payload);
+	const String tail = token.length() <= 16 ? "<short>" : token.substr(token.length() - 6, 6);
+	return vformat("jwt_parts=%d token_length=%d token_sha256_12=%s token_tail=%s", parts.size(), token.length(), hash_prefix, tail);
 }
 
 void _print_token_debug(const String &p_context, const String &p_token) {
-	print_line(vformat("[User Auth] %s token=%s", p_context, p_token));
 	print_line(vformat("[User Auth] %s token_details=%s", p_context, _describe_token_for_debug(p_token)));
 }
 
@@ -581,7 +550,7 @@ AuthResult AuthClient::get_user(const String &p_token) {
 	const String path = "/user/info";
 	_print_token_debug("get_user", token);
 	const bool request_ok = transport->request_json(HTTPClient::METHOD_GET, path, String(), headers, response, http_code, error);
-	print_line(vformat("[User Auth] raw response path=%s transport_ok=%s http_code=%d error=%s body=%s", path, request_ok ? "true" : "false", http_code, error, response));
+	print_line(vformat("[User Auth] response path=%s transport_ok=%s http_code=%d error=%s body_length=%d", path, request_ok ? "true" : "false", http_code, error, response.length()));
 	if (!request_ok) {
 		result.http_code = http_code;
 		result.error = error.is_empty() ? "Failed to load account information." : error;

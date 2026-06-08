@@ -13,14 +13,14 @@
 namespace {
 
 static const char *SESSION_PATH = "user_system/session";
+static const char *TOKEN_KEY = "token";
+static const char *REFRESH_TOKEN_KEY = "refreshToken";
 
 } // namespace
 
 Dictionary EditorUserSession::_session_to_dictionary(const AuthSessionData &p_session) {
 	Dictionary storage;
 	storage["userId"] = p_session.user_id;
-	storage["token"] = p_session.token;
-	storage["refreshToken"] = p_session.refresh_token;
 	storage["deviceId"] = p_session.device_id;
 	storage["phone"] = p_session.phone;
 	return storage;
@@ -29,8 +29,6 @@ Dictionary EditorUserSession::_session_to_dictionary(const AuthSessionData &p_se
 AuthSessionData EditorUserSession::_session_from_dictionary(const Dictionary &p_storage) {
 	AuthSessionData session;
 	session.user_id = String(p_storage.get("userId", String()));
-	session.token = String(p_storage.get("token", String()));
-	session.refresh_token = String(p_storage.get("refreshToken", String()));
 	session.device_id = String(p_storage.get("deviceId", String()));
 	session.phone = String(p_storage.get("phone", String()));
 	return session;
@@ -50,7 +48,13 @@ AuthSessionData EditorUserSession::load_session() {
 	if (value.get_type() != Variant::DICTIONARY) {
 		return AuthSessionData();
 	}
-	return _session_from_dictionary(value);
+	Dictionary storage = value;
+	AuthSessionData session = _session_from_dictionary(storage);
+	if (storage.has(TOKEN_KEY) || storage.has(REFRESH_TOKEN_KEY)) {
+		settings->set_setting(SESSION_PATH, _session_to_dictionary(session));
+		EditorSettings::save();
+	}
+	return session;
 }
 
 void EditorUserSession::save_session(const AuthSessionData &p_session) {

@@ -130,6 +130,12 @@ static bool has_header_prefix(const Vector<String> &p_headers, const String &p_p
 	return false;
 }
 
+static void check_no_session_credentials_in_storage() {
+	Dictionary storage = EditorUserSession::get_session_storage_for_test();
+	CHECK_FALSE(storage.has("token"));
+	CHECK_FALSE(storage.has("refreshToken"));
+}
+
 static bool wait_for_semaphore(const Semaphore &p_semaphore, uint64_t p_timeout_msec = 1000) {
 	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
 	while (OS::get_singleton()->get_ticks_msec() - start_time < p_timeout_msec) {
@@ -213,13 +219,22 @@ TEST_CASE("[Editor][UserSystem] Auth client sends password login with client sce
 	CHECK(String(body["deviceId"]) == "device-1");
 }
 
-TEST_CASE("[Editor][UserSystem] Auth client describes JWT payload for diagnostics") {
+TEST_CASE("[Editor][UserSystem] Auth client redacts JWT diagnostics") {
 	const String token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.signature";
 
 	const String description = AuthClient::describe_token_for_debug_for_test(token);
 
-	CHECK(description.contains("jwt_header={\"alg\":\"HS256\",\"typ\":\"JWT\"}"));
-	CHECK(description.contains("jwt_payload={\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022}"));
+	CHECK(description.contains("jwt_parts=3"));
+	CHECK(description.contains("token_length="));
+	CHECK(description.contains("token_sha256_12="));
+	CHECK(description.contains("token_tail=nature"));
+	CHECK_FALSE(description.contains("jwt_header="));
+	CHECK_FALSE(description.contains("jwt_payload="));
+	CHECK_FALSE(description.contains("John Doe"));
+
+	const String short_description = AuthClient::describe_token_for_debug_for_test("abc123");
+	CHECK(short_description.contains("token_tail=<short>"));
+	CHECK_FALSE(short_description.contains("abc123"));
 }
 
 TEST_CASE("[Editor][UserSystem] Auth client accepts HTTP-style success codes from auth replies") {
@@ -381,6 +396,29 @@ TEST_CASE("[Editor][UserSystem] Auth client parses server error messages") {
 	CHECK(result.error == "invalid code");
 }
 
+TEST_CASE("[Editor][UserSystem] Session load removes legacy stored credentials") {
+	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
+
+	Dictionary legacy_storage;
+	legacy_storage["userId"] = "user-legacy";
+	legacy_storage["token"] = "token-legacy";
+	legacy_storage["refreshToken"] = "refresh-legacy";
+	legacy_storage["deviceId"] = "device-legacy";
+	legacy_storage["phone"] = "+8613000000000";
+	EditorUserSession::set_session_storage_for_test(legacy_storage);
+
+	AuthSessionData session = EditorUserSession::load_session();
+
+	CHECK(session.user_id == "user-legacy");
+	CHECK(session.token.is_empty());
+	CHECK(session.refresh_token.is_empty());
+	CHECK(session.device_id == "device-legacy");
+	CHECK(session.phone == "+8613000000000");
+	check_no_session_credentials_in_storage();
+
+	EditorUserSession::set_session_storage_for_test(original_storage);
+}
+
 TEST_CASE("[Editor][UserSystem] Manager saves phone-code login session and keeps nickname separate from phone") {
 	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
 	EditorUserSession::set_session_storage_for_test(Dictionary());
@@ -407,10 +445,14 @@ TEST_CASE("[Editor][UserSystem] Manager saves phone-code login session and keeps
 
 	AuthSessionData session = EditorUserSession::load_session();
 	CHECK(session.user_id == "user-1");
-	CHECK(session.token == "token-1");
-	CHECK(session.refresh_token == "refresh-1");
+	CHECK(session.token.is_empty());
+	CHECK(session.refresh_token.is_empty());
 	CHECK(session.phone == "+8613800000000");
 	CHECK(!session.device_id.is_empty());
+	AuthSessionData live_session = manager->get_session_for_test();
+	CHECK(live_session.token == "token-1");
+	CHECK(live_session.refresh_token == "refresh-1");
+	check_no_session_credentials_in_storage();
 	REQUIRE(transport->request_count == 2);
 	CHECK(transport->request_paths[0] == "/v1/auth/validate/phone/code");
 	CHECK(transport->request_paths[1] == "/user/info");
@@ -490,7 +532,7 @@ TEST_CASE("[Editor][UserSystem] Manager async login refreshes profile nickname a
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }
 
-TEST_CASE("[Editor][UserSystem] Manager initializes profile refresh even when token refresh fails") {
+TEST_CASE("[Editor][UserSystem] Manager does not restore credentials from editor settings") {
 	Dictionary original_storage = EditorUserSession::get_session_storage_for_test();
 
 	AuthSessionData session;
@@ -499,11 +541,10 @@ TEST_CASE("[Editor][UserSystem] Manager initializes profile refresh even when to
 	session.refresh_token = "refresh-9";
 	session.device_id = "device-9";
 	EditorUserSession::save_session(session);
+	check_no_session_credentials_in_storage();
 
 	Ref<FakeAuthTransport> transport;
 	transport.instantiate();
-	transport->push_error("refresh unavailable");
-	transport->push_json("{\"code\":0,\"data\":{\"id\":\"user-9\",\"nickname\":\"Nora\",\"phone\":\"\",\"email\":\"\",\"credits\":\"77\"}}");
 
 	Ref<AuthClient> client;
 	client.instantiate();
@@ -514,20 +555,16 @@ TEST_CASE("[Editor][UserSystem] Manager initializes profile refresh even when to
 	manager->set_auth_client_for_test(client);
 
 	manager->initialize();
-	manager->wait_for_request_for_test();
-	if (MessageQueue::get_main_singleton()) {
-		MessageQueue::get_main_singleton()->flush();
-	}
-	manager->wait_for_request_for_test();
-	if (MessageQueue::get_main_singleton()) {
-		MessageQueue::get_main_singleton()->flush();
-	}
 
-	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_IN);
-	CHECK(manager->get_display_name() == "Nora");
-	CHECK(manager->get_credits_text() == "77");
-	CHECK(transport->request_count == 2);
-	CHECK(transport->last_path == "/user/info");
+	CHECK(manager->get_state() == EditorUserManager::STATE_LOGGED_OUT);
+	CHECK(manager->get_display_name().is_empty());
+	CHECK(manager->get_credits_text() == "--");
+	CHECK(transport->request_count == 0);
+	AuthSessionData restored_session = EditorUserSession::load_session();
+	CHECK(restored_session.user_id == "user-9");
+	CHECK(restored_session.token.is_empty());
+	CHECK(restored_session.refresh_token.is_empty());
+	CHECK(restored_session.device_id == "device-9");
 
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }
@@ -574,6 +611,7 @@ TEST_CASE("[Editor][UserSystem] Manager refreshes token and retries profile when
 	CHECK(refreshed_session.refresh_token == "refresh-2");
 	CHECK(refreshed_session.user_id == "78");
 	CHECK(refreshed_session.device_id == "device-1");
+	check_no_session_credentials_in_storage();
 	CHECK(transport->request_count == 3);
 	if (transport->request_count == 3) {
 		CHECK(transport->request_paths[0] == "/user/info");
@@ -627,6 +665,7 @@ TEST_CASE("[Editor][UserSystem] Manager signs out when expired profile token can
 	CHECK(cleared_session.token.is_empty());
 	CHECK(cleared_session.refresh_token.is_empty());
 	CHECK(cleared_session.device_id == "device-1");
+	check_no_session_credentials_in_storage();
 	CHECK(transport->request_count == 2);
 	if (transport->request_count == 2) {
 		CHECK(transport->request_paths[0] == "/user/info");
@@ -663,7 +702,12 @@ TEST_CASE("[Editor][UserSystem] Manager keeps auth when profile load fails") {
 
 	AuthSessionData session = EditorUserSession::load_session();
 	CHECK(session.user_id == "user-2");
-	CHECK(session.token == "token-2");
+	CHECK(session.token.is_empty());
+	CHECK(session.refresh_token.is_empty());
+	AuthSessionData live_session = manager->get_session_for_test();
+	CHECK(live_session.token == "token-2");
+	CHECK(live_session.refresh_token == "refresh-2");
+	check_no_session_credentials_in_storage();
 
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }
@@ -708,6 +752,7 @@ TEST_CASE("[Editor][UserSystem] Logout clears local session even when server log
 	CHECK(cleared.token.is_empty());
 	CHECK(cleared.refresh_token.is_empty());
 	CHECK(cleared.device_id == "device-3");
+	check_no_session_credentials_in_storage();
 
 	EditorUserSession::set_session_storage_for_test(original_storage);
 }
