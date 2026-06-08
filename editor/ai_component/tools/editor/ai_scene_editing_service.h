@@ -85,6 +85,7 @@ class AISceneEditingService : public AIEditorToolService {
 	bool _ensure_scene_save_directory(const String &p_path, String &r_error) const;
 	bool _save_scene_main_thread(Node *p_scene, const String &p_path, String &r_saved_path, String &r_error) const;
 	bool _save_current_scene_main_thread(Node *p_scene, String &r_saved_path, String &r_error) const;
+	void _rollback_new_scene_main_thread(Node *p_scene) const;
 	bool _normalize_property_path(const String &p_property_path, Vector<StringName> &r_names, String &r_error) const;
 	Array _get_resource_hint_types(const String &p_hint_string) const;
 	bool _is_resource_type_allowed(const String &p_type, const String &p_hint_string) const;

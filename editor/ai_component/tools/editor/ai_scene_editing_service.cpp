@@ -313,6 +313,18 @@ bool AISceneEditingService::_save_current_scene_main_thread(Node *p_scene, Strin
 	return _save_scene_main_thread(p_scene, scene_path, r_saved_path, r_error);
 }
 
+void AISceneEditingService::_rollback_new_scene_main_thread(Node *p_scene) const {
+	ERR_FAIL_NULL(p_scene);
+
+	EditorNode *editor = EditorNode::get_singleton();
+	ERR_FAIL_NULL(editor);
+	if (editor->get_edited_scene() != p_scene) {
+		return;
+	}
+
+	editor->close_scene();
+}
+
 bool AISceneEditingService::_normalize_property_path(const String &p_property_path, Vector<StringName> &r_names, String &r_error) const {
 	const String stripped_path = p_property_path.strip_edges();
 	if (stripped_path.is_empty()) {
@@ -1329,6 +1341,7 @@ AISceneEditingResult AISceneEditingService::_create_scene_main_thread(const Stri
 
 	String saved_path;
 	if (!_save_scene_main_thread(root, scene_path, saved_path, error)) {
+		_rollback_new_scene_main_thread(root);
 		result.error = error;
 		result.metadata["saved"] = false;
 		result.metadata["scene_path"] = scene_path;
@@ -2879,6 +2892,7 @@ AISceneEditingResult AISceneEditingService::_apply_patch_main_thread(const Dicti
 		_select_node(last_selected_node);
 		_update_scene_tree();
 		if (!_save_scene_main_thread(scene, target_scene_path, saved_path, error)) {
+			_rollback_new_scene_main_thread(scene);
 			result.error = error;
 			result.metadata["saved"] = false;
 			result.metadata["applied_ops"] = applied_ops;
