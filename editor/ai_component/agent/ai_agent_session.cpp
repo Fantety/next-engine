@@ -183,6 +183,7 @@ void AIAgentSession::send_user_message(const String &p_message, const Array &p_a
 void AIAgentSession::cancel_request() {
 	if (state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
 		print_line(vformat("[AI Agent][Session] Cancelling active request. state=%d", (int)state));
+		turn_generation++;
 		if (runtime_runner.is_valid() && runtime_runner->is_running() && active_assistant_index >= 0 && active_assistant_index < messages.size() && messages[active_assistant_index].content.is_empty()) {
 			_remove_message_at(active_assistant_index);
 			active_assistant_index = -1;
@@ -202,6 +203,7 @@ void AIAgentSession::start_new_session() {
 	if (state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
 		pending_tool_approval.clear();
 	}
+	turn_generation++;
 	session_id = _make_unique_id();
 	title = "New Chat";
 	messages.clear();
@@ -231,6 +233,7 @@ bool AIAgentSession::load_session(const String &p_session_id) {
 		return false;
 	}
 
+	turn_generation++;
 	session_id = p_session_id;
 	title = loaded_title.is_empty() ? String("New Chat") : loaded_title;
 	messages = loaded_messages;
@@ -297,6 +300,8 @@ bool AIAgentSession::approve_pending_tool() {
 	}
 
 	print_line(vformat("[AI Agent][Session] Approved pending tool; executing off the main thread. name=%s", call.tool_name));
+	const String active_session_id = session_id;
+	const uint64_t active_turn_generation = turn_generation;
 	call.status = AI_TOOL_CALL_STATUS_RUNNING;
 	call.updated_at = Time::get_singleton()->get_unix_time_from_system();
 	_update_tool_call_status(call);
@@ -309,7 +314,8 @@ bool AIAgentSession::approve_pending_tool() {
 	params->call = call;
 	params->agent_profile_id = agent_profile.id;
 	params->review_changes = agent_profile.review_changes;
-	params->session_id = session_id;
+	params->session_id = active_session_id;
+	params->turn_generation = active_turn_generation;
 
 	approved_tool_running.set();
 	approved_tool_thread.start(_approved_tool_thread_func, params);
@@ -555,6 +561,7 @@ bool AIAgentSession::_start_runtime_turn() {
 		return false;
 	}
 
+	turn_generation++;
 	_set_state(AI_AGENT_STATE_PREPARING_CONTEXT);
 	print_line("[AI Agent][Session] Collecting editor/project context...");
 	Array context = _collect_context();
@@ -594,6 +601,7 @@ void AIAgentSession::_approved_tool_thread_func(void *p_userdata) {
 	const String agent_profile_id = params->agent_profile_id;
 	const bool review_changes = params->review_changes;
 	const String active_session_id = params->session_id;
+	const uint64_t active_turn_generation = params->turn_generation;
 	memdelete(params);
 
 	AIToolResult result;
@@ -612,20 +620,22 @@ void AIAgentSession::_approved_tool_thread_func(void *p_userdata) {
 	}
 
 	if (session) {
-		session->_set_approved_tool_result(call, result);
+		session->_set_approved_tool_result(call, result, active_session_id, active_turn_generation);
 		session->approved_tool_running.clear();
-		callable_mp(session, &AIAgentSession::_on_approved_tool_finished).call_deferred();
+		callable_mp(session, &AIAgentSession::_on_approved_tool_finished).bind(active_session_id, active_turn_generation).call_deferred();
 	}
 }
 
-void AIAgentSession::_set_approved_tool_result(const AIToolCall &p_call, const AIToolResult &p_result) {
+void AIAgentSession::_set_approved_tool_result(const AIToolCall &p_call, const AIToolResult &p_result, const String &p_session_id, uint64_t p_turn_generation) {
 	MutexLock lock(approved_tool_result_mutex);
 	approved_tool_call = p_call;
 	approved_tool_result = p_result;
+	approved_tool_result_session_id = p_session_id;
+	approved_tool_result_turn_generation = p_turn_generation;
 	approved_tool_result_available = true;
 }
 
-void AIAgentSession::_on_approved_tool_finished() {
+void AIAgentSession::_on_approved_tool_finished(const String &p_session_id, uint64_t p_turn_generation) {
 	if (approved_tool_thread.is_started()) {
 		approved_tool_thread.wait_to_finish();
 	}
@@ -634,16 +644,18 @@ void AIAgentSession::_on_approved_tool_finished() {
 	AIToolResult result;
 	{
 		MutexLock lock(approved_tool_result_mutex);
-		if (!approved_tool_result_available) {
+		if (!approved_tool_result_available || approved_tool_result_session_id != p_session_id || approved_tool_result_turn_generation != p_turn_generation) {
 			return;
 		}
 		call = approved_tool_call;
 		result = approved_tool_result;
+		approved_tool_result_session_id.clear();
+		approved_tool_result_turn_generation = 0;
 		approved_tool_result_available = false;
 	}
 
-	if (state == AI_AGENT_STATE_CANCELLED) {
-		print_line(vformat("[AI Agent][Session] Approved tool finished after cancellation; result ignored. name=%s", call.tool_name));
+	if (state == AI_AGENT_STATE_CANCELLED || p_session_id != session_id || p_turn_generation != turn_generation) {
+		print_line(vformat("[AI Agent][Session] Approved tool finished for a stale turn; result ignored. name=%s", call.tool_name));
 		if (pending_tool_runtime_reload) {
 			reload_tool_runtime();
 		}
@@ -852,6 +864,12 @@ Dictionary AIAgentSession::make_user_message_for_test(const String &p_message, c
 Error AIAgentSession::save_for_test() {
 	_save();
 	return OK;
+}
+
+void AIAgentSession::wait_for_approved_tool_for_test() {
+	if (approved_tool_thread.is_started()) {
+		approved_tool_thread.wait_to_finish();
+	}
 }
 
 void AIAgentSession::set_conversation_project_scope_for_test(const String &p_project_scope_key) {

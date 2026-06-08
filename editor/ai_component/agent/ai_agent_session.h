@@ -36,6 +36,7 @@ class AIAgentSession : public AISessionBase {
 	Dictionary token_usage;
 	Dictionary pending_tool_approval;
 	bool pending_tool_runtime_reload = false;
+	uint64_t turn_generation = 0;
 
 	struct ApprovedToolThreadParams {
 		AIAgentSession *session = nullptr;
@@ -44,6 +45,7 @@ class AIAgentSession : public AISessionBase {
 		String agent_profile_id;
 		bool review_changes = false;
 		String session_id;
+		uint64_t turn_generation = 0;
 	};
 
 	Ref<AIMainAgent> main_agent;
@@ -62,6 +64,8 @@ class AIAgentSession : public AISessionBase {
 	Mutex approved_tool_result_mutex;
 	AIToolCall approved_tool_call;
 	AIToolResult approved_tool_result;
+	String approved_tool_result_session_id;
+	uint64_t approved_tool_result_turn_generation = 0;
 	bool approved_tool_result_available = false;
 
 	int active_assistant_index = -1;
@@ -82,8 +86,8 @@ class AIAgentSession : public AISessionBase {
 	bool _start_runtime_turn();
 	bool _is_busy() const;
 	static void _approved_tool_thread_func(void *p_userdata);
-	void _set_approved_tool_result(const AIToolCall &p_call, const AIToolResult &p_result);
-	void _on_approved_tool_finished();
+	void _set_approved_tool_result(const AIToolCall &p_call, const AIToolResult &p_result, const String &p_session_id, uint64_t p_turn_generation);
+	void _on_approved_tool_finished(const String &p_session_id, uint64_t p_turn_generation);
 
 	void _on_provider_request_failed(const String &p_message);
 	void _on_runtime_finished();
@@ -129,6 +133,7 @@ public:
 	void update_runtime_message_for_test(int p_index, const AIAgentMessage &p_message);
 	static Dictionary make_user_message_for_test(const String &p_message, const Array &p_attachments);
 	Error save_for_test();
+	void wait_for_approved_tool_for_test();
 	void set_conversation_project_scope_for_test(const String &p_project_scope_key);
 	Ref<AIConversationStore> get_conversation_store_for_test() const;
 };

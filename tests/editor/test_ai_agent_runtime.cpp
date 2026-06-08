@@ -6,6 +6,8 @@
 
 #include "core/object/callable_mp.h"
 #include "core/object/message_queue.h"
+#include "core/os/os.h"
+#include "core/os/semaphore.h"
 
 #include "editor/ai_component/agent/ai_agent_base.h"
 #include "editor/ai_component/agent/ai_context_manager.h"
@@ -109,6 +111,45 @@ public:
 
 		AIToolResult result;
 		result.error = "simulated missing scene";
+		return result;
+	}
+};
+
+class BlockingRuntimeTool : public AITool {
+	GDCLASS(BlockingRuntimeTool, AITool);
+
+public:
+	Semaphore execute_started;
+	Semaphore release_execute;
+	int execute_count = 0;
+
+	virtual String get_name() const override {
+		return "test.blocking_echo";
+	}
+
+	virtual String get_description() const override {
+		return "Blocks until the test releases it, then echoes a value.";
+	}
+
+	virtual Dictionary get_parameters_schema() const override {
+		Dictionary schema;
+		schema["type"] = "object";
+
+		Dictionary properties;
+		Dictionary value_property;
+		value_property["type"] = "string";
+		properties["value"] = value_property;
+		schema["properties"] = properties;
+		return schema;
+	}
+
+	virtual AIToolResult execute(const Dictionary &p_arguments) override {
+		execute_count++;
+		execute_started.post();
+		release_execute.wait();
+
+		AIToolResult result;
+		result.content = String(p_arguments.get("value", ""));
 		return result;
 	}
 };
@@ -241,6 +282,17 @@ public:
 		partial_responses.push_back(p_response);
 	}
 };
+
+static bool wait_for_semaphore(const Semaphore &p_semaphore, uint64_t p_timeout_msec = 1000) {
+	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
+	while (OS::get_singleton()->get_ticks_msec() - start_time < p_timeout_msec) {
+		if (p_semaphore.try_wait()) {
+			return true;
+		}
+		OS::get_singleton()->delay_usec(1000);
+	}
+	return false;
+}
 
 static AIAgentProfile _make_test_profile(bool p_allow_echo) {
 	(void)p_allow_echo;
@@ -1595,6 +1647,82 @@ TEST_CASE("[Editor][AI] Agent session submits requirement form answers as tool c
 	session->get_agent_runtime_runner()->wait_to_finish();
 	MessageQueue::get_singleton()->flush();
 	session->get_conversation_store_for_test()->delete_conversation(session->get_session_id());
+	memdelete(session);
+}
+
+TEST_CASE("[Editor][AI] Agent session ignores approved tool results after switching sessions") {
+	AIAgentSession *session = memnew(AIAgentSession);
+	session->set_conversation_project_scope_for_test("test_project_scope_stale_approved_tool");
+
+	Ref<BlockingRuntimeTool> blocking_tool;
+	blocking_tool.instantiate();
+	CHECK(session->get_tool_registry()->register_tool(blocking_tool, AI_TOOL_PERMISSION_ASK));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "This continuation should not run.";
+	client->push_response(final_response);
+	session->get_main_agent()->set_runtime_client(client);
+
+	AIAgentMessage user_message;
+	user_message.role = AI_AGENT_ROLE_USER;
+	user_message.content = "Run a blocking approved tool.";
+
+	AIAgentMessage assistant_placeholder;
+	assistant_placeholder.role = AI_AGENT_ROLE_ASSISTANT;
+
+	Vector<AIAgentMessage> original_messages;
+	original_messages.push_back(user_message);
+	original_messages.push_back(assistant_placeholder);
+
+	AIToolCall call;
+	call.id = "call_stale_approval";
+	call.tool_name = "test.blocking_echo";
+	call.arguments["value"] = "old session result";
+	call.status = AI_TOOL_CALL_STATUS_PENDING;
+
+	Array tool_calls;
+	tool_calls.push_back(call.to_dict());
+
+	AIAgentMessage assistant_tool_call;
+	assistant_tool_call.role = AI_AGENT_ROLE_ASSISTANT;
+	assistant_tool_call.metadata["tool_calls"] = tool_calls;
+
+	AIAgentRuntimeResult runtime_result;
+	runtime_result.success = true;
+	runtime_result.messages.push_back(user_message);
+	runtime_result.messages.push_back(assistant_tool_call);
+	runtime_result.pending_approval = call.to_dict();
+	runtime_result.pending_approval["reason"] = "Test approval.";
+
+	session->replace_messages_for_test(original_messages, 1);
+	session->apply_runtime_result_for_test(runtime_result);
+	CHECK(session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL);
+	const String old_session_id = session->get_session_id();
+
+	CHECK(session->approve_pending_tool());
+	REQUIRE(wait_for_semaphore(blocking_tool->execute_started));
+	session->cancel_request();
+	session->start_new_session();
+	const String new_session_id = session->get_session_id();
+	CHECK(new_session_id != old_session_id);
+
+	blocking_tool->release_execute.post();
+	session->wait_for_approved_tool_for_test();
+	MessageQueue::get_singleton()->flush();
+	if (session->get_agent_runtime_runner()->is_running()) {
+		session->get_agent_runtime_runner()->wait_to_finish();
+		MessageQueue::get_singleton()->flush();
+	}
+
+	CHECK(blocking_tool->execute_count == 1);
+	CHECK(client->request_count == 0);
+	CHECK(session->get_state() == AI_AGENT_STATE_IDLE);
+	CHECK(session->get_messages_as_array().is_empty());
+
+	session->get_conversation_store_for_test()->delete_conversation(old_session_id);
+	session->get_conversation_store_for_test()->delete_conversation(new_session_id);
 	memdelete(session);
 }
 
