@@ -9,6 +9,7 @@
 #include "core/templates/local_vector.h"
 
 #include "editor/ai_component/agent/ai_mcp_service.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 #include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 
 namespace {
@@ -52,6 +53,7 @@ void AIAgentSession::_bind_methods() {
 }
 
 AIAgentSession::AIAgentSession() {
+	approved_tool_running.clear();
 	store.instantiate();
 	main_agent.instantiate();
 	runtime = main_agent->get_runtime();
@@ -80,6 +82,12 @@ AIAgentSession::AIAgentSession() {
 			callable_mp(this, &AIAgentSession::_on_runtime_message_updated));
 
 	_load_initial_session();
+}
+
+AIAgentSession::~AIAgentSession() {
+	if (approved_tool_thread.is_started()) {
+		approved_tool_thread.wait_to_finish();
+	}
 }
 
 void AIAgentSession::configure_provider(const AIProviderConfig &p_config) {
@@ -265,6 +273,10 @@ bool AIAgentSession::approve_pending_tool() {
 		print_line("[AI Agent][Session] No pending tool approval to approve.");
 		return false;
 	}
+	if (approved_tool_running.is_set()) {
+		print_line("[AI Agent][Session] A previously approved tool is still running.");
+		return false;
+	}
 
 	AIToolCall call = AIToolCall::from_dict(pending_tool_approval);
 	Ref<AITool> tool = tool_registry->get_tool(call.tool_name);
@@ -280,15 +292,28 @@ bool AIAgentSession::approve_pending_tool() {
 		return false;
 	}
 
-	print_line(vformat("[AI Agent][Session] Approved pending tool. name=%s", call.tool_name));
-	AIToolResult result = tool->execute(call.arguments);
-	call.status = result.is_error() ? AI_TOOL_CALL_STATUS_FAILED : AI_TOOL_CALL_STATUS_COMPLETED;
+	if (approved_tool_thread.is_started()) {
+		approved_tool_thread.wait_to_finish();
+	}
+
+	print_line(vformat("[AI Agent][Session] Approved pending tool; executing off the main thread. name=%s", call.tool_name));
+	call.status = AI_TOOL_CALL_STATUS_RUNNING;
 	call.updated_at = Time::get_singleton()->get_unix_time_from_system();
 	_update_tool_call_status(call);
-	_append_tool_result_message(call, result);
 	pending_tool_approval.clear();
-	_start_runtime_turn();
-	return !result.is_error();
+	_set_state(AI_AGENT_STATE_STREAMING);
+
+	ApprovedToolThreadParams *params = memnew(ApprovedToolThreadParams);
+	params->session = this;
+	params->tool = tool;
+	params->call = call;
+	params->agent_profile_id = agent_profile.id;
+	params->review_changes = agent_profile.review_changes;
+	params->session_id = session_id;
+
+	approved_tool_running.set();
+	approved_tool_thread.start(_approved_tool_thread_func, params);
+	return true;
 }
 
 bool AIAgentSession::reject_pending_tool() {
@@ -559,6 +584,78 @@ bool AIAgentSession::_start_runtime_turn() {
 
 bool AIAgentSession::_is_busy() const {
 	return state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT || state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL;
+}
+
+void AIAgentSession::_approved_tool_thread_func(void *p_userdata) {
+	ApprovedToolThreadParams *params = static_cast<ApprovedToolThreadParams *>(p_userdata);
+	AIAgentSession *session = params->session;
+	Ref<AITool> tool = params->tool;
+	AIToolCall call = params->call;
+	const String agent_profile_id = params->agent_profile_id;
+	const bool review_changes = params->review_changes;
+	const String active_session_id = params->session_id;
+	memdelete(params);
+
+	AIToolResult result;
+	if (tool.is_valid()) {
+		Ref<AIToolExecutionContext> tool_context;
+		tool_context.instantiate();
+		tool_context->set_agent_profile_id(agent_profile_id);
+		tool_context->set_review_changes(review_changes);
+		tool_context->set_session_id(active_session_id);
+		tool_context->set_tool_call_id(call.id);
+		AIToolExecutionContext::set_current(tool_context);
+		result = tool->execute(call.arguments);
+		AIToolExecutionContext::clear_current();
+	} else {
+		result.error = "Tool is not registered.";
+	}
+
+	if (session) {
+		session->_set_approved_tool_result(call, result);
+		session->approved_tool_running.clear();
+		callable_mp(session, &AIAgentSession::_on_approved_tool_finished).call_deferred();
+	}
+}
+
+void AIAgentSession::_set_approved_tool_result(const AIToolCall &p_call, const AIToolResult &p_result) {
+	MutexLock lock(approved_tool_result_mutex);
+	approved_tool_call = p_call;
+	approved_tool_result = p_result;
+	approved_tool_result_available = true;
+}
+
+void AIAgentSession::_on_approved_tool_finished() {
+	if (approved_tool_thread.is_started()) {
+		approved_tool_thread.wait_to_finish();
+	}
+
+	AIToolCall call;
+	AIToolResult result;
+	{
+		MutexLock lock(approved_tool_result_mutex);
+		if (!approved_tool_result_available) {
+			return;
+		}
+		call = approved_tool_call;
+		result = approved_tool_result;
+		approved_tool_result_available = false;
+	}
+
+	if (state == AI_AGENT_STATE_CANCELLED) {
+		print_line(vformat("[AI Agent][Session] Approved tool finished after cancellation; result ignored. name=%s", call.tool_name));
+		if (pending_tool_runtime_reload) {
+			reload_tool_runtime();
+		}
+		return;
+	}
+
+	call.status = result.is_error() ? AI_TOOL_CALL_STATUS_FAILED : AI_TOOL_CALL_STATUS_COMPLETED;
+	call.updated_at = Time::get_singleton()->get_unix_time_from_system();
+	_update_tool_call_status(call);
+	_append_tool_result_message(call, result);
+	print_line(vformat("[AI Agent][Session] Approved tool finished. name=%s status=%s", call.tool_name, AIToolCall::status_to_string(call.status)));
+	_start_runtime_turn();
 }
 
 void AIAgentSession::_configure_tool_runtime() {

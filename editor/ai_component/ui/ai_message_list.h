@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include "core/variant/array.h"
+#include "core/variant/dictionary.h"
+
 #include "scene/gui/box_container.h"
 #include "scene/gui/scroll_container.h"
 
@@ -12,10 +15,17 @@
 class AIMessageList : public ScrollContainer {
 	GDCLASS(AIMessageList, ScrollContainer);
 
+	struct BubbleEntry {
+		AIMessageBubble *bubble = nullptr;
+		int first_message_index = 0;
+		int message_count = 0;
+	};
+
 	VBoxContainer *message_box = nullptr;
 	Control *bottom_spacer = nullptr;
 	Vector<Dictionary> messages;
-	Vector<AIMessageBubble *> bubbles;
+	Vector<BubbleEntry> bubbles;
+	Vector<int> message_to_bubble_indices;
 	bool should_scroll_to_bottom = true;
 	bool scroll_to_bottom_queued = false;
 	bool scrolling_to_bottom = false;
@@ -29,7 +39,8 @@ class AIMessageList : public ScrollContainer {
 	void _scroll_range_changed();
 	void _scroll_value_changed(double p_value);
 	void _clear_bubbles();
-	void _add_bubble(const Dictionary &p_message);
+	int _add_bubble(const Dictionary &p_message, int p_first_message_index, int p_message_count);
+	void _update_bubble(int p_bubble_index);
 	void _rebuild_bubbles();
 
 protected:
@@ -39,6 +50,7 @@ protected:
 public:
 	AIMessageList();
 	void clear_messages();
+	void set_messages(const Array &p_messages);
 	void add_message(const Dictionary &p_message);
 	void update_message(int p_index, const Dictionary &p_message);
 	void remove_message(int p_index);

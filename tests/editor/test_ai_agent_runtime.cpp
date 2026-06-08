@@ -1168,6 +1168,43 @@ TEST_CASE("[Editor][AI] Conversation store deletes saved conversations") {
 	CHECK_FALSE(store->delete_conversation(session_id));
 }
 
+TEST_CASE("[Editor][AI] Conversation store lists conversations from lightweight metadata") {
+	Ref<AIConversationStore> store;
+	store.instantiate();
+	store->set_project_scope("test_project_scope_conversation_metadata");
+
+	const String session_id = "test_conversation_metadata";
+	store->delete_conversation(session_id);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Summarize this project."));
+	messages.push_back(_make_message(AI_AGENT_ROLE_ASSISTANT, String("Long answer ").repeat(120)));
+
+	CHECK(store->save_conversation(session_id, "Metadata title", messages) == OK);
+
+	Dictionary metadata;
+	REQUIRE(store->load_conversation_metadata(session_id, metadata));
+	CHECK(String(metadata.get("id", String())) == session_id);
+	CHECK(String(metadata.get("title", String())) == "Metadata title");
+	CHECK((int)metadata.get("message_count", 0) == 2);
+
+	Array listed = store->list_conversations();
+	int matching_items = 0;
+	for (int i = 0; i < listed.size(); i++) {
+		REQUIRE(Variant(listed[i]).get_type() == Variant::DICTIONARY);
+		Dictionary item = listed[i];
+		const String listed_id = item.get("id", String());
+		CHECK_FALSE(listed_id.ends_with(".meta"));
+		if (listed_id == session_id) {
+			matching_items++;
+			CHECK((int)item.get("message_count", 0) == 2);
+		}
+	}
+	CHECK(matching_items == 1);
+
+	CHECK(store->delete_conversation(session_id));
+}
+
 TEST_CASE("[Editor][AI] Conversation store isolates conversations by project scope") {
 	Ref<AIConversationStore> first_store;
 	first_store.instantiate();

@@ -13,6 +13,7 @@ class AIConversationStore : public AIStorageBase {
 	GDCLASS(AIConversationStore, AIStorageBase);
 
 	String _get_session_path(const String &p_session_id) const;
+	String _get_metadata_path(const String &p_session_id) const;
 
 protected:
 	static void _bind_methods();

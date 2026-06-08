@@ -5,6 +5,9 @@
 #pragma once
 
 #include "core/object/class_db.h"
+#include "core/os/mutex.h"
+#include "core/os/safe_binary_mutex.h"
+#include "core/os/thread.h"
 #include "core/templates/hash_map.h"
 
 #include "editor/ai_component/agent/ai_agent_runtime.h"
@@ -18,6 +21,7 @@
 #include "editor/ai_component/rules/ai_rules_context_provider.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/skills/ai_skill_context_provider.h"
+#include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 
@@ -33,6 +37,15 @@ class AIAgentSession : public AISessionBase {
 	Dictionary pending_tool_approval;
 	bool pending_tool_runtime_reload = false;
 
+	struct ApprovedToolThreadParams {
+		AIAgentSession *session = nullptr;
+		Ref<AITool> tool;
+		AIToolCall call;
+		String agent_profile_id;
+		bool review_changes = false;
+		String session_id;
+	};
+
 	Ref<AIMainAgent> main_agent;
 	Ref<AIAgentRuntime> runtime;
 	Ref<AIAgentRuntimeRunner> runtime_runner;
@@ -44,6 +57,12 @@ class AIAgentSession : public AISessionBase {
 	Ref<AIBestPracticesContextProvider> best_practices_context;
 	Ref<AIRulesContextProvider> rules_context;
 	Ref<AISkillIndexContextProvider> skill_context;
+	Thread approved_tool_thread;
+	SafeFlag approved_tool_running;
+	Mutex approved_tool_result_mutex;
+	AIToolCall approved_tool_call;
+	AIToolResult approved_tool_result;
+	bool approved_tool_result_available = false;
 
 	int active_assistant_index = -1;
 	int runtime_base_message_count = 0;
@@ -62,6 +81,9 @@ class AIAgentSession : public AISessionBase {
 	bool _update_tool_call_status(const AIToolCall &p_call);
 	bool _start_runtime_turn();
 	bool _is_busy() const;
+	static void _approved_tool_thread_func(void *p_userdata);
+	void _set_approved_tool_result(const AIToolCall &p_call, const AIToolResult &p_result);
+	void _on_approved_tool_finished();
 
 	void _on_provider_request_failed(const String &p_message);
 	void _on_runtime_finished();
@@ -74,6 +96,7 @@ protected:
 
 public:
 	AIAgentSession();
+	~AIAgentSession();
 
 	void configure_provider(const AIProviderConfig &p_config);
 	void set_agent_profile_id(const String &p_profile_id);

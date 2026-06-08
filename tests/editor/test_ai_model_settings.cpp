@@ -1341,6 +1341,73 @@ TEST_CASE("[Editor][AI] Message list groups consecutive tool bubbles by default"
 	memdelete(list);
 }
 
+TEST_CASE("[Editor][AI] Message list updates grouped tool bubbles in place") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	AIMessageList *list = memnew(AIMessageList);
+	list->set_size(Size2(420, 260));
+	root->add_child(list);
+
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Run project checks";
+
+	Dictionary assistant_tool_call;
+	assistant_tool_call["role"] = "assistant";
+	assistant_tool_call["content"] = "";
+	Dictionary tool_call_metadata;
+	Array tool_calls;
+	Dictionary call;
+	call["id"] = "call_read";
+	call["tool_name"] = "project.read_file";
+	Dictionary arguments;
+	arguments["path"] = "res://player.gd";
+	call["arguments"] = arguments;
+	tool_calls.push_back(call);
+	tool_call_metadata["tool_calls"] = tool_calls;
+	assistant_tool_call["metadata"] = tool_call_metadata;
+
+	Dictionary tool_result;
+	tool_result["role"] = "tool";
+	tool_result["content"] = "Old file contents.";
+	Dictionary result_metadata;
+	result_metadata["tool_name"] = "project.read_file";
+	result_metadata["status"] = "running";
+	tool_result["metadata"] = result_metadata;
+
+	Array history;
+	history.push_back(user_message);
+	history.push_back(assistant_tool_call);
+	history.push_back(tool_result);
+	list->set_messages(history);
+	process_scene_frames(6);
+
+	CHECK(count_children_of_type<AIMessageBubble>(list) == 2);
+
+	tool_result["content"] = "Updated file contents.";
+	result_metadata["status"] = "completed";
+	tool_result["metadata"] = result_metadata;
+	list->update_message(2, tool_result);
+	process_scene_frames(6);
+
+	CHECK(count_children_of_type<AIMessageBubble>(list) == 2);
+	AIMessageBubble *group_bubble = find_bubble_with_title(list, "Tool Calls (2)");
+	REQUIRE(group_bubble != nullptr);
+
+	LinkButton *details_button = find_child_of_type<LinkButton>(group_bubble);
+	REQUIRE(details_button != nullptr);
+	details_button->emit_signal(SceneStringName(pressed));
+	process_scene_frames(2);
+
+	AIMarkdownLabel *label = find_child_of_type<AIMarkdownLabel>(group_bubble);
+	REQUIRE(label != nullptr);
+	CHECK(label->get_parsed_text().contains("Updated file contents."));
+
+	root->remove_child(list);
+	memdelete(list);
+}
+
 TEST_CASE("[Editor][AI] Message list keeps the last bubble visible after markdown relayout") {
 	Window *root = SceneTree::get_singleton()->get_root();
 	REQUIRE(root != nullptr);

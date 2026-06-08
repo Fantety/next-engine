@@ -49,6 +49,7 @@ class AIAgentDock : public EditorDock {
 	String pending_delete_session_id;
 	Dictionary pending_tool_approval;
 	bool mcp_failure_toast_visible = false;
+	bool session_list_refresh_queued = false;
 	StringName active_mode_name;
 
 	static inline AIAgentDock *singleton = nullptr;
@@ -77,6 +78,8 @@ class AIAgentDock : public EditorDock {
 	void _session_selected(int p_index);
 	void _ensure_session();
 	String _get_selected_session_id() const;
+	void _queue_refresh_session_list();
+	void _flush_session_list_refresh();
 	void _refresh_session_list();
 	void _select_current_session();
 	void _reload_messages_from_session();

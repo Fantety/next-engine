@@ -376,7 +376,9 @@ void AIAgentDock::_cancel_requested() {
 void AIAgentDock::_message_added(const Dictionary &p_message) {
 	message_list->add_message(p_message);
 	_refresh_token_usage();
-	_refresh_session_list();
+	if (String(p_message.get("role", String())) == "user") {
+		_queue_refresh_session_list();
+	}
 }
 
 void AIAgentDock::_message_updated(int p_index, const Dictionary &p_message) {
@@ -411,7 +413,7 @@ void AIAgentDock::_state_changed(int p_state) {
 		request_status_row->set_visible(running);
 	}
 	if (p_state == AI_AGENT_STATE_IDLE || p_state == AI_AGENT_STATE_FAILED || p_state == AI_AGENT_STATE_CANCELLED || p_state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
-		_refresh_session_list();
+		_queue_refresh_session_list();
 	}
 	_refresh_token_usage();
 }
@@ -659,7 +661,26 @@ String AIAgentDock::_get_selected_session_id() const {
 	return session_selector->get_item_metadata(session_selector->get_selected());
 }
 
+void AIAgentDock::_queue_refresh_session_list() {
+	if (session_list_refresh_queued) {
+		return;
+	}
+
+	session_list_refresh_queued = true;
+	callable_mp(this, &AIAgentDock::_flush_session_list_refresh).call_deferred();
+}
+
+void AIAgentDock::_flush_session_list_refresh() {
+	if (!session_list_refresh_queued) {
+		return;
+	}
+
+	session_list_refresh_queued = false;
+	_refresh_session_list();
+}
+
 void AIAgentDock::_refresh_session_list() {
+	session_list_refresh_queued = false;
 	if (!session_selector || !session) {
 		return;
 	}
@@ -710,13 +731,7 @@ void AIAgentDock::_select_current_session() {
 
 void AIAgentDock::_reload_messages_from_session() {
 	ERR_FAIL_NULL(session);
-	message_list->clear_messages();
-	Array messages = session->get_messages_as_array();
-	for (int i = 0; i < messages.size(); i++) {
-		if (Variant(messages[i]).get_type() == Variant::DICTIONARY) {
-			message_list->add_message(messages[i]);
-		}
-	}
+	message_list->set_messages(session->get_messages_as_array());
 	message_list->scroll_to_bottom();
 	_refresh_token_usage();
 }

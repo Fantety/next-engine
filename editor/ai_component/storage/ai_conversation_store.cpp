@@ -32,6 +32,10 @@ String AIConversationStore::_get_session_path(const String &p_session_id) const 
 	return _get_file_path(p_session_id, ".json", false);
 }
 
+String AIConversationStore::_get_metadata_path(const String &p_session_id) const {
+	return _get_file_path(p_session_id, ".meta.json", false);
+}
+
 void AIConversationStore::set_project_scope(const String &p_project_scope_key) {
 	base_dir = String("user://ai_agent/projects").path_join(_sanitize_path_segment(p_project_scope_key)).path_join("conversations");
 }
@@ -48,12 +52,25 @@ Error AIConversationStore::save_conversation(const String &p_session_id, const S
 	Dictionary root;
 	root["id"] = p_session_id;
 	root["title"] = p_title;
-	root["updated_at"] = Time::get_singleton()->get_unix_time_from_system();
+	const uint64_t updated_at = Time::get_singleton()->get_unix_time_from_system();
+	root["updated_at"] = updated_at;
 	root["messages"] = AIConversationSerializer::messages_to_array(p_messages);
 
 	Ref<FileAccess> file = FileAccess::open(_get_session_path(p_session_id), FileAccess::WRITE, &err);
 	ERR_FAIL_COND_V(file.is_null() || err != OK, err);
 	file->store_string(JSON::stringify(root, "\t"));
+
+	Dictionary metadata_root;
+	metadata_root["id"] = p_session_id;
+	metadata_root["title"] = p_title;
+	metadata_root["updated_at"] = updated_at;
+	metadata_root["message_count"] = p_messages.size();
+
+	Error metadata_err = OK;
+	Ref<FileAccess> metadata_file = FileAccess::open(_get_metadata_path(p_session_id), FileAccess::WRITE, &metadata_err);
+	if (metadata_file.is_valid() && metadata_err == OK) {
+		metadata_file->store_string(JSON::stringify(metadata_root));
+	}
 	return OK;
 }
 
@@ -90,6 +107,25 @@ bool AIConversationStore::load_conversation_metadata(const String &p_session_id,
 		return false;
 	}
 
+	const String metadata_path = _get_metadata_path(p_session_id);
+	if (FileAccess::exists(metadata_path)) {
+		Error metadata_err = OK;
+		Ref<FileAccess> metadata_file = FileAccess::open(metadata_path, FileAccess::READ, &metadata_err);
+		if (metadata_file.is_valid() && metadata_err == OK) {
+			Ref<JSON> metadata_json;
+			metadata_json.instantiate();
+			metadata_err = metadata_json->parse(metadata_file->get_as_text());
+			if (metadata_err == OK && metadata_json->get_data().get_type() == Variant::DICTIONARY) {
+				Dictionary metadata_root = metadata_json->get_data();
+				r_metadata["id"] = metadata_root.get("id", p_session_id);
+				r_metadata["title"] = metadata_root.get("title", TTR("New Chat"));
+				r_metadata["updated_at"] = metadata_root.get("updated_at", 0);
+				r_metadata["message_count"] = metadata_root.get("message_count", 0);
+				return true;
+			}
+		}
+	}
+
 	Error err = OK;
 	Ref<FileAccess> file = FileAccess::open(_get_session_path(p_session_id), FileAccess::READ, &err);
 	if (file.is_null() || err != OK) {
@@ -122,7 +158,12 @@ bool AIConversationStore::delete_conversation(const String &p_session_id) const 
 		return false;
 	}
 
-	return DirAccess::remove_absolute(session_path) == OK;
+	const bool removed_session = DirAccess::remove_absolute(session_path) == OK;
+	const String metadata_path = _get_metadata_path(p_session_id);
+	if (FileAccess::exists(metadata_path)) {
+		DirAccess::remove_absolute(metadata_path);
+	}
+	return removed_session;
 }
 
 bool AIConversationStore::get_most_recent_conversation_id(String &r_session_id) const {
@@ -146,7 +187,7 @@ Array AIConversationStore::list_conversations() const {
 	dir->list_dir_begin();
 	String entry = dir->get_next();
 	while (!entry.is_empty()) {
-		if (!dir->current_is_dir() && entry.get_extension().to_lower() == "json") {
+		if (!dir->current_is_dir() && entry.get_extension().to_lower() == "json" && !entry.ends_with(".meta.json")) {
 			Dictionary item;
 			String session_id = entry.get_basename();
 			if (load_conversation_metadata(session_id, item)) {

@@ -56,6 +56,7 @@ Dictionary _make_tool_group_message(const Vector<Dictionary> &p_messages, int p_
 
 void AIMessageList::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("clear_messages"), &AIMessageList::clear_messages);
+	ClassDB::bind_method(D_METHOD("set_messages", "messages"), &AIMessageList::set_messages);
 	ClassDB::bind_method(D_METHOD("add_message", "message"), &AIMessageList::add_message);
 	ClassDB::bind_method(D_METHOD("update_message", "index", "message"), &AIMessageList::update_message);
 	ClassDB::bind_method(D_METHOD("remove_message", "index"), &AIMessageList::remove_message);
@@ -162,26 +163,54 @@ void AIMessageList::_scroll_value_changed(double p_value) {
 
 void AIMessageList::_clear_bubbles() {
 	for (int i = 0; i < bubbles.size(); i++) {
-		if (bubbles[i]->get_parent()) {
-			bubbles[i]->get_parent()->remove_child(bubbles[i]);
+		AIMessageBubble *bubble = bubbles[i].bubble;
+		if (!bubble) {
+			continue;
 		}
-		memdelete(bubbles[i]);
+		if (bubble->get_parent()) {
+			bubble->get_parent()->remove_child(bubble);
+		}
+		memdelete(bubble);
 	}
 	bubbles.clear();
+	message_to_bubble_indices.clear();
 }
 
-void AIMessageList::_add_bubble(const Dictionary &p_message) {
+int AIMessageList::_add_bubble(const Dictionary &p_message, int p_first_message_index, int p_message_count) {
 	AIMessageBubble *bubble = memnew(AIMessageBubble);
-	bubbles.push_back(bubble);
+	BubbleEntry entry;
+	entry.bubble = bubble;
+	entry.first_message_index = p_first_message_index;
+	entry.message_count = p_message_count;
+	bubbles.push_back(entry);
 	message_box->add_child(bubble);
 	if (bottom_spacer) {
 		message_box->move_child(bottom_spacer, message_box->get_child_count() - 1);
 	}
 	bubble->set_message(p_message);
+	return bubbles.size() - 1;
+}
+
+void AIMessageList::_update_bubble(int p_bubble_index) {
+	if (p_bubble_index < 0 || p_bubble_index >= bubbles.size()) {
+		return;
+	}
+
+	BubbleEntry &entry = bubbles.write[p_bubble_index];
+	if (!entry.bubble || entry.first_message_index < 0 || entry.first_message_index >= messages.size()) {
+		return;
+	}
+
+	if (entry.message_count > 1) {
+		entry.bubble->set_message(_make_tool_group_message(messages, entry.first_message_index, MIN(entry.first_message_index + entry.message_count, messages.size())));
+	} else {
+		entry.bubble->set_message(messages[entry.first_message_index]);
+	}
 }
 
 void AIMessageList::_rebuild_bubbles() {
 	_clear_bubbles();
+	message_to_bubble_indices.resize(messages.size());
 
 	for (int i = 0; i < messages.size();) {
 		if (_is_tool_like_message(messages[i])) {
@@ -191,13 +220,17 @@ void AIMessageList::_rebuild_bubbles() {
 			}
 
 			if (group_end - i > 1) {
-				_add_bubble(_make_tool_group_message(messages, i, group_end));
+				const int bubble_index = _add_bubble(_make_tool_group_message(messages, i, group_end), i, group_end - i);
+				for (int j = i; j < group_end; j++) {
+					message_to_bubble_indices.write[j] = bubble_index;
+				}
 				i = group_end;
 				continue;
 			}
 		}
 
-		_add_bubble(messages[i]);
+		const int bubble_index = _add_bubble(messages[i], i, 1);
+		message_to_bubble_indices.write[i] = bubble_index;
 		i++;
 	}
 
@@ -216,10 +249,46 @@ void AIMessageList::clear_messages() {
 	set_v_scroll(0);
 }
 
+void AIMessageList::set_messages(const Array &p_messages) {
+	should_scroll_to_bottom = true;
+	pending_scroll_to_bottom_passes = 0;
+	scroll_to_bottom_queued = false;
+	scrolling_to_bottom = false;
+	messages.clear();
+	_clear_bubbles();
+
+	for (int i = 0; i < p_messages.size(); i++) {
+		if (Variant(p_messages[i]).get_type() == Variant::DICTIONARY) {
+			messages.push_back(p_messages[i]);
+		}
+	}
+
+	_rebuild_bubbles();
+	set_v_scroll(0);
+	_request_scroll_to_bottom_if_needed();
+}
+
 void AIMessageList::add_message(const Dictionary &p_message) {
 	should_scroll_to_bottom = scroll_to_bottom_queued || _is_at_bottom();
+	const int new_message_index = messages.size();
+	const bool append_to_previous_tool_group = new_message_index > 0 && _is_tool_like_message(messages[new_message_index - 1]) && _is_tool_like_message(p_message);
 	messages.push_back(p_message);
-	_rebuild_bubbles();
+
+	if (append_to_previous_tool_group && message_to_bubble_indices.size() == new_message_index && !bubbles.is_empty()) {
+		const int bubble_index = message_to_bubble_indices[new_message_index - 1];
+		if (bubble_index >= 0 && bubble_index < bubbles.size() && bubbles[bubble_index].first_message_index + bubbles[bubble_index].message_count == new_message_index) {
+			bubbles.write[bubble_index].message_count++;
+			message_to_bubble_indices.push_back(bubble_index);
+			_update_bubble(bubble_index);
+		} else {
+			_rebuild_bubbles();
+		}
+	} else if (message_to_bubble_indices.size() == new_message_index) {
+		const int bubble_index = _add_bubble(p_message, new_message_index, 1);
+		message_to_bubble_indices.push_back(bubble_index);
+	} else {
+		_rebuild_bubbles();
+	}
 	_request_scroll_to_bottom_if_needed();
 }
 
@@ -228,8 +297,19 @@ void AIMessageList::update_message(int p_index, const Dictionary &p_message) {
 		return;
 	}
 	should_scroll_to_bottom = scroll_to_bottom_queued || _is_at_bottom();
+	const Dictionary old_message = messages[p_index];
+	const bool grouping_changed = _is_tool_like_message(old_message) != _is_tool_like_message(p_message);
 	messages.write[p_index] = p_message;
-	_rebuild_bubbles();
+	if (grouping_changed || p_index >= message_to_bubble_indices.size()) {
+		_rebuild_bubbles();
+	} else {
+		const int bubble_index = message_to_bubble_indices[p_index];
+		if (bubble_index >= 0 && bubble_index < bubbles.size()) {
+			_update_bubble(bubble_index);
+		} else {
+			_rebuild_bubbles();
+		}
+	}
 	_request_scroll_to_bottom_if_needed();
 }
 
