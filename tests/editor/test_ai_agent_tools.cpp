@@ -34,6 +34,7 @@
 #include "editor/ai_component/skills/ai_skill_settings.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 #include "editor/ai_component/tools/ai_tool_factory.h"
 #include "editor/ai_component/tools/ai_tool_helpers.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
@@ -1752,6 +1753,28 @@ TEST_CASE("[Editor][AI] Editor context tool exposes safe metadata only") {
 	CHECK_FALSE(result.content.contains("Authorization"));
 }
 
+TEST_CASE("[Editor][AI] Editor context tool reflects active agent profile capabilities") {
+	Ref<AIGetEditorContextTool> editor_context;
+	editor_context.instantiate();
+
+	Ref<AIToolExecutionContext> execution_context;
+	execution_context.instantiate();
+	execution_context->set_agent_profile_id("auto");
+	AIToolExecutionContext::set_current(execution_context);
+
+	AIToolResult result = editor_context->execute(Dictionary());
+	AIToolExecutionContext::clear_current();
+
+	CHECK_FALSE(result.is_error());
+	CHECK(String(result.metadata.get("capabilities", "")) == "auto-review-write");
+	CHECK(String(result.metadata.get("capabilities_summary", "")).contains("Auto:"));
+	CHECK(result.content.contains("Agent capabilities: Auto:"));
+	CHECK_FALSE(result.content.contains("Agent capabilities: read-only"));
+
+	execution_context.unref();
+	editor_context.unref();
+}
+
 TEST_CASE("[Editor][AI] Fixed editor context includes scene sizing guidance") {
 	Ref<AIEditorContextProvider> editor_context;
 	editor_context.instantiate();
@@ -1763,6 +1786,22 @@ TEST_CASE("[Editor][AI] Fixed editor context includes scene sizing guidance") {
 	CHECK(content.contains("Project viewport size"));
 	CHECK(content.contains("Placement guidance"));
 	CHECK(String(document.get("source", "")) == "editor");
+}
+
+TEST_CASE("[Editor][AI] Fixed editor context reflects configured agent profile capabilities") {
+	Ref<AIEditorContextProvider> editor_context;
+	editor_context.instantiate();
+	editor_context->set_agent_profile(AIAgentProfile::get_auto_profile());
+
+	Array context = editor_context->collect_context();
+	REQUIRE(context.size() == 1);
+	Dictionary document = context[0];
+	const String content = document.get("content", "");
+	CHECK(content.contains("Agent capabilities: Auto:"));
+	CHECK(content.contains("read/write editor and project tools"));
+	CHECK_FALSE(content.contains("Agent capabilities: read-only"));
+
+	editor_context.unref();
 }
 
 TEST_CASE("[Editor][AI] Runtime control tools are available to Main and Review agents") {

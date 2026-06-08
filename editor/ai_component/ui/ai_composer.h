@@ -25,6 +25,7 @@ class AIComposer : public VBoxContainer {
 	bool has_model = false;
 	bool running = false;
 
+	void _mode_selected(int p_index);
 	void _action_pressed();
 	void _input_text_changed();
 	void _input_gui_input(const Ref<InputEvent> &p_event);

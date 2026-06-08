@@ -71,6 +71,7 @@ AIAgentSession::AIAgentSession() {
 	rules_context.instantiate();
 	skill_context.instantiate();
 	agent_profile = main_agent->get_profile();
+	_sync_editor_context_profile();
 
 	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
 	if (mcp_service.is_valid()) {
@@ -108,6 +109,7 @@ void AIAgentSession::set_agent_profile_id(const String &p_profile_id) {
 	if (main_agent.is_valid()) {
 		main_agent->set_agent_profile_id(p_profile_id);
 		agent_profile = main_agent->get_profile();
+		_sync_editor_context_profile();
 		runtime = main_agent->get_runtime();
 		runtime_runner = main_agent->get_runtime_runner();
 		runtime_client = main_agent->get_openai_runtime_client();
@@ -715,10 +717,17 @@ void AIAgentSession::_configure_tool_runtime() {
 		main_agent->reload_tools();
 	}
 	agent_profile = main_agent->get_profile();
+	_sync_editor_context_profile();
 	runtime = main_agent->get_runtime();
 	runtime_runner = main_agent->get_runtime_runner();
 	runtime_client = main_agent->get_openai_runtime_client();
 	tool_registry = main_agent->get_tool_registry();
+}
+
+void AIAgentSession::_sync_editor_context_profile() {
+	if (editor_context.is_valid()) {
+		editor_context->set_agent_profile(agent_profile);
+	}
 }
 
 void AIAgentSession::_mcp_tools_changed() {

@@ -77,6 +77,7 @@ class AIAgentSession : public AISessionBase {
 	HashMap<int, int> runtime_to_local_message_indices;
 
 	void _configure_tool_runtime();
+	void _sync_editor_context_profile();
 	void _mcp_tools_changed();
 	void _load_initial_session();
 	void _apply_runtime_result(const AIAgentRuntimeResult &p_result);

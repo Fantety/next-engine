@@ -155,6 +155,26 @@ void AIAgentRuntime::clear_progress_callbacks() {
 	message_updated_callback = Callable();
 }
 
+String AIAgentRuntime::_build_system_prompt_for_profile() const {
+	String prompt = system_prompt;
+	prompt += "\nCurrent agent profile: ";
+	prompt += profile.display_name.is_empty() ? profile.id : profile.display_name;
+	if (!profile.id.is_empty()) {
+		prompt += " (" + profile.id + ")";
+	}
+	prompt += ".\n";
+	prompt += "Agent capabilities: " + profile.get_capabilities_summary() + "\n";
+
+	if (profile.id == "auto") {
+		prompt += "Mode behavior: Auto. Use the tool schemas sent with this request as the current tool list; allowed mutating tools may be used, and ask-gated tools require user approval. Editor changes are recorded for review.\n";
+	} else if (profile.id == "ask") {
+		prompt += "Mode behavior: Ask. Inspect context and propose only; mutating editor/project tools are intentionally unavailable in this request.\n";
+	} else {
+		prompt += "Mode behavior: Custom. Use the tool schemas sent with this request as the current tool list; permissions are enforced by the editor.\n";
+	}
+	return prompt;
+}
+
 Array AIAgentRuntime::_get_available_tool_schemas() const {
 	if (tool_registry.is_null()) {
 		return Array();
@@ -281,7 +301,7 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 	print_line(vformat("[AI Agent][Runtime] Available tool schemas prepared. count=%d max_provider_turns=%d max_tool_calls=%d", tool_schemas.size(), max_provider_turns, max_tool_calls));
 
 	for (int turn = 0; turn < max_provider_turns; turn++) {
-		AIContextBuildResult context_result = context_manager->build_messages(system_prompt, result.messages, p_context_documents);
+		AIContextBuildResult context_result = context_manager->build_messages(_build_system_prompt_for_profile(), result.messages, p_context_documents);
 		Array provider_messages = context_result.messages;
 		result.metadata["last_context"] = context_result.metadata;
 		print_line(vformat("[AI Agent][Runtime] Provider turn started. turn=%d provider_messages=%d estimated_chars=%d omitted_history=%d truncated_tools=%d truncated_context=%d executed_tools=%d",

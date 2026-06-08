@@ -615,6 +615,57 @@ TEST_CASE("[Editor][AI] Agent base runs with bound tools prompt and model profil
 	CHECK(String(system_message.get("content", "")).contains("Custom agent prompt."));
 }
 
+TEST_CASE("[Editor][AI] Agent runtime includes active profile in provider system prompt") {
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse auto_response;
+	auto_response.content = "Auto ready.";
+	client->push_response(auto_response);
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_system_prompt("Base prompt.");
+	runtime->set_profile(AIAgentProfile::get_auto_profile());
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Check the active mode."));
+
+	AIAgentRuntimeResult result = runtime->run(messages);
+	CHECK(result.success);
+	REQUIRE(client->last_messages.size() >= 1);
+
+	Dictionary auto_system_message = client->last_messages[0];
+	const String auto_system_prompt = String(auto_system_message.get("content", ""));
+	CHECK(auto_system_prompt.contains("Base prompt."));
+	CHECK(auto_system_prompt.contains("Current agent profile: Auto (auto)."));
+	CHECK(auto_system_prompt.contains("Agent capabilities: Auto:"));
+	CHECK(auto_system_prompt.contains("read/write editor and project tools"));
+	CHECK(auto_system_prompt.contains("Mode behavior: Auto."));
+	CHECK_FALSE(auto_system_prompt.contains("Mode behavior: Ask."));
+
+	AIAgentRuntimeResponse ask_response;
+	ask_response.content = "Ask ready.";
+	client->push_response(ask_response);
+	runtime->set_profile(AIAgentProfile::get_ask_profile());
+
+	result = runtime->run(messages);
+	CHECK(result.success);
+	REQUIRE(client->last_messages.size() >= 1);
+
+	Dictionary ask_system_message = client->last_messages[0];
+	const String ask_system_prompt = String(ask_system_message.get("content", ""));
+	CHECK(ask_system_prompt.contains("Current agent profile: Ask (ask)."));
+	CHECK(ask_system_prompt.contains("Agent capabilities: Ask:"));
+	CHECK(ask_system_prompt.contains("Mode behavior: Ask."));
+	CHECK_FALSE(ask_system_prompt.contains("Mode behavior: Auto."));
+}
+
 TEST_CASE("[Editor][AI] Main agent owns the current editor tool set") {
 	Ref<AIMainAgent> agent;
 	agent.instantiate();

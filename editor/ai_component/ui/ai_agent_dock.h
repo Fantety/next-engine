@@ -55,6 +55,7 @@ class AIAgentDock : public EditorDock {
 	static inline AIAgentDock *singleton = nullptr;
 
 	void _send_requested(const String &p_message, const String &p_model, const String &p_agent_profile_id, const Array &p_attachments);
+	void _agent_profile_selected(const String &p_agent_profile_id);
 	void _cancel_requested();
 	void _message_added(const Dictionary &p_message);
 	void _message_updated(int p_index, const Dictionary &p_message);
@@ -77,6 +78,7 @@ class AIAgentDock : public EditorDock {
 	void _requirement_form_submitted(const Dictionary &p_answers);
 	void _session_selected(int p_index);
 	void _ensure_session();
+	void _sync_composer_agent_profile();
 	String _get_selected_session_id() const;
 	void _queue_refresh_session_list();
 	void _flush_session_list_refresh();

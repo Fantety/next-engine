@@ -277,6 +277,7 @@ AIAgentDock::AIAgentDock() {
 	main->add_child(composer);
 
 	composer->connect("send_requested", callable_mp(this, &AIAgentDock::_send_requested));
+	composer->connect("agent_profile_selected", callable_mp(this, &AIAgentDock::_agent_profile_selected));
 	composer->connect("cancel_requested", callable_mp(this, &AIAgentDock::_cancel_requested));
 
 	if (AIAgentSettingsDialog::get_singleton()) {
@@ -293,6 +294,7 @@ AIAgentDock::AIAgentDock() {
 	}
 
 	_ensure_session();
+	_sync_composer_agent_profile();
 	_reload_messages_from_session();
 	_refresh_session_list();
 	_refresh_mcp_status_button();
@@ -365,6 +367,17 @@ void AIAgentDock::_send_requested(const String &p_message, const String &p_model
 	session->set_agent_profile_id(p_agent_profile_id);
 	session->send_user_message(p_message, p_attachments);
 	composer->clear_input();
+}
+
+void AIAgentDock::_agent_profile_selected(const String &p_agent_profile_id) {
+	_ensure_session();
+	ERR_FAIL_NULL(session);
+
+	if (session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT || session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
+		return;
+	}
+
+	session->set_agent_profile_id(p_agent_profile_id);
 }
 
 void AIAgentDock::_cancel_requested() {
@@ -528,6 +541,7 @@ void AIAgentDock::_new_session_pressed() {
 	ERR_FAIL_NULL(session);
 
 	session->start_new_session();
+	_sync_composer_agent_profile();
 	message_list->clear_messages();
 	_refresh_token_usage();
 	_refresh_session_list();
@@ -651,6 +665,14 @@ void AIAgentDock::_ensure_session() {
 	if (mcp_service.is_valid()) {
 		_mcp_status_changed(mcp_service->get_statuses(), mcp_service->get_status_summary());
 	}
+}
+
+void AIAgentDock::_sync_composer_agent_profile() {
+	if (!composer) {
+		return;
+	}
+
+	_agent_profile_selected(composer->get_selected_agent_profile_id());
 }
 
 String AIAgentDock::_get_selected_session_id() const {

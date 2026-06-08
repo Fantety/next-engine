@@ -61,6 +61,7 @@ class AIAgentRuntime : public RefCounted {
 	int max_provider_turns = 255;
 	int max_tool_calls = 60;
 
+	String _build_system_prompt_for_profile() const;
 	Array _get_available_tool_schemas() const;
 	AIAgentMessage _make_assistant_tool_call_message(const AIAgentRuntimeResponse &p_response) const;
 	AIAgentMessage _make_tool_result_message(const AIToolCall &p_call, const String &p_content, const String &p_status, const Dictionary &p_metadata) const;

@@ -5,7 +5,9 @@
 #include "ai_get_editor_context_tool.h"
 
 #include "core/variant/variant.h"
+#include "editor/ai_component/agent/ai_agent_profile.h"
 #include "editor/ai_component/context/ai_editor_context_snapshot.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 
 String AIGetEditorContextTool::get_name() const {
 	return "editor.get_context";
@@ -31,7 +33,12 @@ AIToolResult AIGetEditorContextTool::execute(const Dictionary &p_arguments) {
 
 	Ref<AIEditorContextSnapshotService> snapshot_service;
 	snapshot_service.instantiate();
-	AIEditorContextSnapshotResult snapshot = snapshot_service->collect();
+	AIAgentProfile profile = AIAgentProfile::get_ask_profile();
+	Ref<AIToolExecutionContext> execution_context = AIToolExecutionContext::get_current();
+	if (execution_context.is_valid()) {
+		profile = AIAgentProfile::from_id(execution_context->get_agent_profile_id());
+	}
+	AIEditorContextSnapshotResult snapshot = snapshot_service->collect(profile.get_capabilities_id(), profile.get_capabilities_summary());
 	if (!snapshot.success) {
 		result.error = snapshot.error.is_empty() ? String("Failed to collect editor context.") : snapshot.error;
 		print_line(vformat("[AI Agent][Tool:editor.get_context] Failed: %s", result.error));

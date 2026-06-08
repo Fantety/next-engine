@@ -16,7 +16,10 @@ struct AIAgentProfile {
 	bool review_changes = false;
 
 	bool denies_tool(const String &p_tool_name) const;
+	String get_capabilities_id() const;
+	String get_capabilities_summary() const;
 
+	static AIAgentProfile from_id(const String &p_profile_id);
 	static AIAgentProfile get_ask_profile();
 	static AIAgentProfile get_auto_profile();
 };

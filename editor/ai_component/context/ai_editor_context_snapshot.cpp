@@ -6,6 +6,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/version.h"
+#include "editor/ai_component/agent/ai_agent_profile.h"
 #include "editor/editor_node.h"
 #include "scene/2d/node_2d.h"
 #include "scene/3d/node_3d.h"
@@ -67,31 +68,26 @@ String _scene_root_kind(Node *p_scene_root) {
 void AIEditorContextSnapshotService::_bind_methods() {
 }
 
-AIEditorContextSnapshotService *AIEditorContextSnapshotService::get_dispatcher_singleton() {
-	static Ref<AIEditorContextSnapshotService> dispatcher;
-	if (dispatcher.is_null()) {
-		dispatcher.instantiate();
-	}
-	return dispatcher.ptr();
-}
-
 void AIEditorContextSnapshotService::_execute_request(uint64_t p_request_ptr) {
 	_execute_request_ptr(reinterpret_cast<MainThreadRequest *>(p_request_ptr));
 }
 
 void AIEditorContextSnapshotService::_execute_request_ptr(MainThreadRequest *p_request) {
 	ERR_FAIL_NULL(p_request);
-	p_request->result = _collect_main_thread();
+	p_request->result = _collect_main_thread(p_request->capabilities_id, p_request->capabilities_summary);
 	p_request->done.post();
 }
 
 AIEditorContextSnapshotResult AIEditorContextSnapshotService::_dispatch_to_main_thread(MainThreadRequest &r_request) {
-	return _dispatch_main_thread_request<AIEditorContextSnapshotResult>(r_request, get_dispatcher_singleton(), &AIEditorContextSnapshotService::_execute_request, request_mutex, "Failed to schedule editor context collection on the main thread.");
+	return _dispatch_main_thread_request<AIEditorContextSnapshotResult>(r_request, this, &AIEditorContextSnapshotService::_execute_request, request_mutex, "Failed to schedule editor context collection on the main thread.");
 }
 
-AIEditorContextSnapshotResult AIEditorContextSnapshotService::_collect_main_thread() const {
+AIEditorContextSnapshotResult AIEditorContextSnapshotService::_collect_main_thread(const String &p_capabilities_id, const String &p_capabilities_summary) const {
 	AIEditorContextSnapshotResult result;
 	Dictionary context_metadata;
+	const AIAgentProfile fallback_profile = AIAgentProfile::get_ask_profile();
+	const String capabilities_id = p_capabilities_id.is_empty() ? fallback_profile.get_capabilities_id() : p_capabilities_id;
+	const String capabilities_summary = p_capabilities_summary.is_empty() ? fallback_profile.get_capabilities_summary() : p_capabilities_summary;
 
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
 	String resource_path;
@@ -112,7 +108,8 @@ AIEditorContextSnapshotResult AIEditorContextSnapshotService::_collect_main_thre
 	context_metadata["application_name"] = application_name;
 	context_metadata["engine_name"] = String(VERSION_NAME);
 	context_metadata["engine_version"] = String(VERSION_FULL_CONFIG);
-	context_metadata["capabilities"] = "read-only";
+	context_metadata["capabilities"] = capabilities_id;
+	context_metadata["capabilities_summary"] = capabilities_summary;
 
 	Dictionary display;
 	display["project_viewport_size"] = _make_size_dict(project_viewport_size);
@@ -174,7 +171,7 @@ AIEditorContextSnapshotResult AIEditorContextSnapshotService::_collect_main_thre
 	content += "Engine: " + String(VERSION_NAME) + " " + String(VERSION_FULL_CONFIG) + "\n";
 	content += "Project name: " + (application_name.is_empty() ? String("<unnamed>") : application_name) + "\n";
 	content += "Project path: " + (resource_path.is_empty() ? String("<unknown>") : resource_path) + "\n";
-	content += "Agent capabilities: read-only\n";
+	content += "Agent capabilities: " + capabilities_summary + "\n";
 	content += "Scene/window sizing:\n";
 	content += "- Project viewport size: " + _format_size(project_viewport_size) + " from display/window/size/viewport_width,height. Use this as the runtime game/window coordinate frame for Control UI and screen-space 2D placement.\n";
 	if (window_override_size.width > 0 || window_override_size.height > 0) {
@@ -203,7 +200,9 @@ AIEditorContextSnapshotResult AIEditorContextSnapshotService::_collect_main_thre
 	return result;
 }
 
-AIEditorContextSnapshotResult AIEditorContextSnapshotService::collect() {
+AIEditorContextSnapshotResult AIEditorContextSnapshotService::collect(const String &p_capabilities_id, const String &p_capabilities_summary) {
 	MainThreadRequest request;
+	request.capabilities_id = p_capabilities_id;
+	request.capabilities_summary = p_capabilities_summary;
 	return _dispatch_to_main_thread(request);
 }

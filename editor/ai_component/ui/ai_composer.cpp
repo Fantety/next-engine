@@ -17,6 +17,7 @@
 void AIComposer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reload_models"), &AIComposer::reload_models);
 	ADD_SIGNAL(MethodInfo("send_requested", PropertyInfo(Variant::STRING, "message"), PropertyInfo(Variant::STRING, "model_id"), PropertyInfo(Variant::STRING, "agent_profile_id"), PropertyInfo(Variant::ARRAY, "attachments")));
+	ADD_SIGNAL(MethodInfo("agent_profile_selected", PropertyInfo(Variant::STRING, "agent_profile_id")));
 	ADD_SIGNAL(MethodInfo("cancel_requested"));
 }
 
@@ -61,6 +62,7 @@ AIComposer::AIComposer() {
 	mode_selector->add_item(TTR("Ask"));
 	mode_selector->set_item_metadata(1, "ask");
 	mode_selector->select(0);
+	mode_selector->connect("item_selected", callable_mp(this, &AIComposer::_mode_selected));
 	bar->add_child(mode_selector);
 
 	Label *model_label = memnew(Label);
@@ -104,6 +106,11 @@ String AIComposer::get_selected_agent_profile_id() const {
 
 Array AIComposer::get_attachments() const {
 	return attachment_bar ? attachment_bar->get_attachments() : Array();
+}
+
+void AIComposer::_mode_selected(int p_index) {
+	(void)p_index;
+	emit_signal(SNAME("agent_profile_selected"), get_selected_agent_profile_id());
 }
 
 void AIComposer::clear_input() {

@@ -22,20 +22,21 @@ class AIEditorContextSnapshotService : public AIEditorToolService {
 
 	struct MainThreadRequest {
 		AIEditorContextSnapshotResult result;
+		String capabilities_id;
+		String capabilities_summary;
 		Semaphore done;
 	};
 
 	mutable Mutex request_mutex;
 
-	static AIEditorContextSnapshotService *get_dispatcher_singleton();
 	void _execute_request(uint64_t p_request_ptr);
 	void _execute_request_ptr(MainThreadRequest *p_request);
 	AIEditorContextSnapshotResult _dispatch_to_main_thread(MainThreadRequest &r_request);
-	AIEditorContextSnapshotResult _collect_main_thread() const;
+	AIEditorContextSnapshotResult _collect_main_thread(const String &p_capabilities_id, const String &p_capabilities_summary) const;
 
 protected:
 	static void _bind_methods();
 
 public:
-	AIEditorContextSnapshotResult collect();
+	AIEditorContextSnapshotResult collect(const String &p_capabilities_id = String(), const String &p_capabilities_summary = String());
 };

@@ -10,10 +10,22 @@
 void AIEditorContextProvider::_bind_methods() {
 }
 
+AIEditorContextProvider::AIEditorContextProvider() {
+	agent_profile = AIAgentProfile::get_ask_profile();
+}
+
+void AIEditorContextProvider::set_agent_profile(const AIAgentProfile &p_profile) {
+	agent_profile = p_profile;
+}
+
+AIAgentProfile AIEditorContextProvider::get_agent_profile() const {
+	return agent_profile;
+}
+
 Array AIEditorContextProvider::collect_context() {
 	Ref<AIEditorContextSnapshotService> snapshot_service;
 	snapshot_service.instantiate();
-	AIEditorContextSnapshotResult snapshot = snapshot_service->collect();
+	AIEditorContextSnapshotResult snapshot = snapshot_service->collect(agent_profile.get_capabilities_id(), agent_profile.get_capabilities_summary());
 
 	AIContextDocument doc;
 	doc.title = "Editor Context";
@@ -21,7 +33,7 @@ Array AIEditorContextProvider::collect_context() {
 	if (snapshot.success) {
 		doc.content = snapshot.content;
 	} else {
-		doc.content = "Godot Editor AI context is read-only in this phase.\nEditor context details are unavailable: " + snapshot.error;
+		doc.content = "Godot Editor AI context capabilities: " + agent_profile.get_capabilities_summary() + "\nEditor context details are unavailable: " + snapshot.error;
 	}
 
 	Array result;

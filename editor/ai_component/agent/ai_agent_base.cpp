@@ -62,11 +62,7 @@ void AIAgentBase::_apply_provider_config() {
 }
 
 void AIAgentBase::set_agent_profile_id(const String &p_profile_id) {
-	if (p_profile_id == "auto") {
-		set_profile(AIAgentProfile::get_auto_profile());
-	} else {
-		set_profile(AIAgentProfile::get_ask_profile());
-	}
+	set_profile(AIAgentProfile::from_id(p_profile_id));
 }
 
 String AIAgentBase::get_agent_profile_id() const {
