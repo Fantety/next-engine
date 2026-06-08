@@ -28,38 +28,19 @@ class AISceneEditingService : public AIEditorToolService {
 
 	struct MainThreadRequest {
 		enum Operation {
-			OP_CREATE_SCENE,
-			OP_ADD_NODE,
-			OP_INSTANTIATE_SCENE,
 			OP_DELETE_NODE,
-			OP_RENAME_NODE,
-			OP_MOVE_NODE,
-			OP_SET_PROPERTY,
 			OP_LIST_PROPERTIES,
 			OP_INSPECT_NODE,
 			OP_DESCRIBE_TREE,
 			OP_APPLY_PATCH,
-			OP_SAVE_CURRENT_SCENE,
-			OP_OPEN_SCENE,
 		};
 
-		Operation operation = OP_CREATE_SCENE;
-		String root_type;
-		String root_name;
-		String scene_path;
-		String parent_path;
-		String node_type;
-		String node_name;
+		Operation operation = OP_APPLY_PATCH;
 		String node_path;
-		String new_name;
-		String new_parent_path;
-		String property_path;
 		String property_filter;
 		String root_path;
 		Array property_paths;
 		Dictionary patch;
-		Variant value;
-		int position = -1;
 		int max_properties = 120;
 		int max_depth = 8;
 		int max_nodes = 200;
@@ -110,36 +91,20 @@ class AISceneEditingService : public AIEditorToolService {
 	Array _get_default_inspection_property_paths(Node *p_node) const;
 	Array _get_common_subproperty_paths(const String &p_property_path, Variant::Type p_type) const;
 	String _build_resource_value_example(const PropertyInfo &p_property_info) const;
-	AISceneEditingResult _create_scene_main_thread(const String &p_root_type, const String &p_root_name, const String &p_path);
-	AISceneEditingResult _add_node_main_thread(const String &p_parent_path, const String &p_type, const String &p_name);
-	AISceneEditingResult _instantiate_scene_main_thread(const String &p_parent_path, const String &p_scene_path, const String &p_name, int p_position);
 	AISceneEditingResult _delete_node_main_thread(const String &p_node_path);
-	AISceneEditingResult _rename_node_main_thread(const String &p_node_path, const String &p_new_name);
-	AISceneEditingResult _move_node_main_thread(const String &p_node_path, const String &p_new_parent_path, int p_position);
-	AISceneEditingResult _set_property_main_thread(const String &p_node_path, const String &p_property_path, const Variant &p_value);
 	AISceneEditingResult _list_properties_main_thread(const String &p_node_path, const String &p_filter, int p_max_properties, bool p_include_read_only, bool p_include_current_values);
 	AISceneEditingResult _inspect_node_main_thread(const String &p_node_path, const Array &p_property_paths);
 	AISceneEditingResult _describe_tree_main_thread(const String &p_root_path, int p_max_depth, int p_max_nodes, bool p_include_internal);
 	AISceneEditingResult _apply_patch_main_thread(const Dictionary &p_patch);
-	AISceneEditingResult _save_current_scene_request_main_thread();
-	AISceneEditingResult _open_scene_main_thread(const String &p_path);
 	void _select_node(Node *p_node) const;
 
 protected:
 	static void _bind_methods();
 
 public:
-	AISceneEditingResult create_scene(const String &p_root_type, const String &p_root_name, const String &p_path);
-	AISceneEditingResult add_node(const String &p_parent_path, const String &p_type, const String &p_name);
-	AISceneEditingResult instantiate_scene(const String &p_parent_path, const String &p_scene_path, const String &p_name, int p_position);
 	AISceneEditingResult delete_node(const String &p_node_path);
-	AISceneEditingResult rename_node(const String &p_node_path, const String &p_new_name);
-	AISceneEditingResult move_node(const String &p_node_path, const String &p_new_parent_path, int p_position);
-	AISceneEditingResult set_property(const String &p_node_path, const String &p_property_path, const Variant &p_value);
 	AISceneEditingResult list_properties(const String &p_node_path, const String &p_filter, int p_max_properties, bool p_include_read_only, bool p_include_current_values);
 	AISceneEditingResult inspect_node(const String &p_node_path, const Array &p_property_paths);
 	AISceneEditingResult describe_tree(const String &p_root_path, int p_max_depth, int p_max_nodes, bool p_include_internal);
 	AISceneEditingResult apply_patch(const Dictionary &p_patch);
-	AISceneEditingResult save_current_scene();
-	AISceneEditingResult open_scene(const String &p_path);
 };
