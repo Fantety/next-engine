@@ -16,19 +16,54 @@
 
 namespace {
 
-struct AIDocScoredResult {
-	float score = 0.0f;
-	String sort_key;
-	Dictionary data;
+enum class AIDocSearchSource {
+	DOC_DATA,
+	CLASS_DB,
 };
 
-struct AIDocScoredResultCompare {
-	_FORCE_INLINE_ bool operator()(const AIDocScoredResult &p_l, const AIDocScoredResult &p_r) const {
+enum class AIDocSearchKind {
+	CLASS,
+	PROPERTY,
+	METHOD,
+	SIGNAL,
+	CONSTANT,
+	THEME_ITEM,
+	ENUM,
+	CONSTRUCTOR,
+	OPERATOR,
+	ANNOTATION,
+};
+
+struct AIDocSearchCandidate {
+	float score = 0.0f;
+	String sort_key;
+	AIDocSearchSource source = AIDocSearchSource::DOC_DATA;
+	AIDocSearchKind kind = AIDocSearchKind::CLASS;
+	String class_name;
+	String name;
+	const DocData::ClassDoc *class_doc = nullptr;
+	const DocData::PropertyDoc *property_doc = nullptr;
+	const DocData::MethodDoc *method_doc = nullptr;
+	const DocData::ConstantDoc *constant_doc = nullptr;
+	const DocData::ThemeItemDoc *theme_item_doc = nullptr;
+	const DocData::EnumDoc *enum_doc = nullptr;
+	PropertyInfo classdb_property;
+	MethodInfo classdb_method;
+};
+
+struct AIDocSearchCandidateCompare {
+	_FORCE_INLINE_ bool operator()(const AIDocSearchCandidate &p_l, const AIDocSearchCandidate &p_r) const {
 		if (p_l.score == p_r.score) {
 			return p_l.sort_key.naturalcasecmp_to(p_r.sort_key) < 0;
 		}
 		return p_l.score > p_r.score;
 	}
+};
+
+struct AIDocSearchTopResults {
+	Vector<AIDocSearchCandidate> candidates;
+	int total_matches = 0;
+	int max_results = 20;
 };
 
 struct AIDocPropertySuggestion {
@@ -98,7 +133,6 @@ float _score_match(const String &p_query, const String &p_name, const String &p_
 
 	const String name = p_name.to_lower();
 	const String qualified_name = p_qualified_name.to_lower();
-	const String description = p_description.to_lower();
 	const String normalized_query = _normalize_identifier(query);
 	const String normalized_name = _normalize_identifier(name);
 	const String normalized_qualified_name = _normalize_identifier(qualified_name);
@@ -119,10 +153,28 @@ float _score_match(const String &p_query, const String &p_name, const String &p_
 	if (!normalized_query.is_empty() && (normalized_query.contains(normalized_name) || normalized_query.contains(normalized_qualified_name))) {
 		score = MAX(score, 1.35f);
 	}
-	if (!query.is_empty() && description.contains(query)) {
+	if (!p_description.is_empty() && p_description.to_lower().contains(query)) {
 		score = MAX(score, 0.85f);
 	}
 	return score;
+}
+
+String _make_score_description(const String &p_query, const String &p_description, const String &p_keywords = String(), const String &p_extra_description = String()) {
+	if (p_query.strip_edges().is_empty()) {
+		return String();
+	}
+
+	String description;
+	if (!p_description.is_empty()) {
+		description = p_description;
+	}
+	if (!p_extra_description.is_empty()) {
+		description = description.is_empty() ? p_extra_description : description + " " + p_extra_description;
+	}
+	if (!p_keywords.is_empty()) {
+		description = description.is_empty() ? p_keywords : description + " " + p_keywords;
+	}
+	return description;
 }
 
 bool _kind_matches(const String &p_filter, const String &p_kind) {
@@ -422,32 +474,127 @@ Dictionary _make_class_dict(const DocData::ClassDoc &p_doc, bool p_include_descr
 	return dict;
 }
 
-void _push_scored_result(Vector<AIDocScoredResult> &r_results, Dictionary p_data, float p_score) {
-	if (p_score <= 0.05f) {
-		return;
+String _search_kind_to_string(AIDocSearchKind p_kind) {
+	switch (p_kind) {
+		case AIDocSearchKind::CLASS:
+			return "class";
+		case AIDocSearchKind::PROPERTY:
+			return "property";
+		case AIDocSearchKind::METHOD:
+			return "method";
+		case AIDocSearchKind::SIGNAL:
+			return "signal";
+		case AIDocSearchKind::CONSTANT:
+			return "constant";
+		case AIDocSearchKind::THEME_ITEM:
+			return "theme_item";
+		case AIDocSearchKind::ENUM:
+			return "enum";
+		case AIDocSearchKind::CONSTRUCTOR:
+			return "constructor";
+		case AIDocSearchKind::OPERATOR:
+			return "operator";
+		case AIDocSearchKind::ANNOTATION:
+			return "annotation";
 	}
-	p_data["score"] = p_score;
-	AIDocScoredResult result;
-	result.score = p_score;
-	result.sort_key = String(p_data.get("qualified_name", p_data.get("name", String())));
-	result.data = p_data;
-	r_results.push_back(result);
+
+	return String();
 }
 
-void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_query, const String &p_kind_filter, bool p_include_descriptions, Vector<AIDocScoredResult> &r_results) {
-	const String class_text = p_class_doc.brief_description + " " + p_class_doc.description + " " + p_class_doc.keywords;
+String _make_candidate_sort_key(AIDocSearchKind p_kind, const String &p_class_name, const String &p_name) {
+	if (p_kind == AIDocSearchKind::CLASS) {
+		return p_class_name;
+	}
+	return p_class_name + "." + p_name;
+}
 
+bool _is_candidate_before(const AIDocSearchCandidate &p_l, const AIDocSearchCandidate &p_r) {
+	return AIDocSearchCandidateCompare()(p_l, p_r);
+}
+
+int _find_worst_candidate_index(const Vector<AIDocSearchCandidate> &p_candidates) {
+	ERR_FAIL_COND_V(p_candidates.is_empty(), -1);
+
+	int worst_index = 0;
+	for (int i = 1; i < p_candidates.size(); i++) {
+		if (_is_candidate_before(p_candidates[worst_index], p_candidates[i])) {
+			worst_index = i;
+		}
+	}
+	return worst_index;
+}
+
+bool _try_accept_candidate(AIDocSearchTopResults &r_results, float p_score, const String &p_sort_key, int &r_candidate_index) {
+	if (p_score <= 0.05f) {
+		return false;
+	}
+
+	r_results.total_matches++;
+
+	AIDocSearchCandidate probe;
+	probe.score = p_score;
+	probe.sort_key = p_sort_key;
+
+	if (r_results.candidates.size() < r_results.max_results) {
+		r_candidate_index = r_results.candidates.size();
+		return true;
+	}
+
+	const int worst_index = _find_worst_candidate_index(r_results.candidates);
+	if (worst_index < 0 || !_is_candidate_before(probe, r_results.candidates[worst_index])) {
+		return false;
+	}
+
+	r_candidate_index = worst_index;
+	return true;
+}
+
+void _store_candidate(AIDocSearchTopResults &r_results, int p_candidate_index, AIDocSearchCandidate p_candidate) {
+	if (p_candidate_index == r_results.candidates.size()) {
+		r_results.candidates.push_back(p_candidate);
+		return;
+	}
+
+	ERR_FAIL_INDEX(p_candidate_index, r_results.candidates.size());
+	r_results.candidates.write[p_candidate_index] = p_candidate;
+}
+
+void _push_doc_candidate(AIDocSearchTopResults &r_results, AIDocSearchKind p_kind, const String &p_class_name, const String &p_name, float p_score, const DocData::ClassDoc *p_class_doc = nullptr, const DocData::PropertyDoc *p_property_doc = nullptr, const DocData::MethodDoc *p_method_doc = nullptr, const DocData::ConstantDoc *p_constant_doc = nullptr, const DocData::ThemeItemDoc *p_theme_item_doc = nullptr, const DocData::EnumDoc *p_enum_doc = nullptr) {
+	const String sort_key = _make_candidate_sort_key(p_kind, p_class_name, p_name);
+	int candidate_index = -1;
+	if (!_try_accept_candidate(r_results, p_score, sort_key, candidate_index)) {
+		return;
+	}
+
+	AIDocSearchCandidate candidate;
+	candidate.score = p_score;
+	candidate.sort_key = sort_key;
+	candidate.source = AIDocSearchSource::DOC_DATA;
+	candidate.kind = p_kind;
+	candidate.class_name = p_class_name;
+	candidate.name = p_name;
+	candidate.class_doc = p_class_doc;
+	candidate.property_doc = p_property_doc;
+	candidate.method_doc = p_method_doc;
+	candidate.constant_doc = p_constant_doc;
+	candidate.theme_item_doc = p_theme_item_doc;
+	candidate.enum_doc = p_enum_doc;
+	_store_candidate(r_results, candidate_index, candidate);
+}
+
+void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_query, const String &p_kind_filter, AIDocSearchTopResults &r_results) {
 	if (_kind_matches(p_kind_filter, "class")) {
+		const String class_text = _make_score_description(p_query, p_class_doc.brief_description, p_class_doc.keywords, p_class_doc.description);
 		const float score = _score_match(p_query, p_class_doc.name, p_class_doc.name, class_text);
-		_push_scored_result(r_results, _make_class_dict(p_class_doc, p_include_descriptions), score);
+		_push_doc_candidate(r_results, AIDocSearchKind::CLASS, p_class_doc.name, p_class_doc.name, score, &p_class_doc);
 	}
 
 	if (_kind_matches(p_kind_filter, "property")) {
 		for (int i = 0; i < p_class_doc.properties.size(); i++) {
 			const DocData::PropertyDoc &property_doc = p_class_doc.properties[i];
 			const String qualified_name = p_class_doc.name + "." + property_doc.name;
-			const float score = _score_match(p_query, property_doc.name, qualified_name, property_doc.description + " " + property_doc.keywords);
-			_push_scored_result(r_results, _make_property_dict(property_doc, p_class_doc.name, p_include_descriptions), score);
+			const float score = _score_match(p_query, property_doc.name, qualified_name, _make_score_description(p_query, property_doc.description, property_doc.keywords));
+			_push_doc_candidate(r_results, AIDocSearchKind::PROPERTY, p_class_doc.name, property_doc.name, score, &p_class_doc, &property_doc);
 		}
 	}
 
@@ -455,8 +602,8 @@ void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_que
 		for (int i = 0; i < p_class_doc.methods.size(); i++) {
 			const DocData::MethodDoc &method_doc = p_class_doc.methods[i];
 			const String qualified_name = p_class_doc.name + "." + method_doc.name;
-			const float score = _score_match(p_query, method_doc.name, qualified_name, method_doc.description + " " + method_doc.keywords);
-			_push_scored_result(r_results, _make_method_dict(method_doc, p_class_doc.name, "method", p_include_descriptions), score);
+			const float score = _score_match(p_query, method_doc.name, qualified_name, _make_score_description(p_query, method_doc.description, method_doc.keywords));
+			_push_doc_candidate(r_results, AIDocSearchKind::METHOD, p_class_doc.name, method_doc.name, score, &p_class_doc, nullptr, &method_doc);
 		}
 	}
 
@@ -464,8 +611,8 @@ void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_que
 		for (int i = 0; i < p_class_doc.signals.size(); i++) {
 			const DocData::MethodDoc &signal_doc = p_class_doc.signals[i];
 			const String qualified_name = p_class_doc.name + "." + signal_doc.name;
-			const float score = _score_match(p_query, signal_doc.name, qualified_name, signal_doc.description + " " + signal_doc.keywords);
-			_push_scored_result(r_results, _make_method_dict(signal_doc, p_class_doc.name, "signal", p_include_descriptions), score);
+			const float score = _score_match(p_query, signal_doc.name, qualified_name, _make_score_description(p_query, signal_doc.description, signal_doc.keywords));
+			_push_doc_candidate(r_results, AIDocSearchKind::SIGNAL, p_class_doc.name, signal_doc.name, score, &p_class_doc, nullptr, &signal_doc);
 		}
 	}
 
@@ -473,8 +620,8 @@ void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_que
 		for (int i = 0; i < p_class_doc.constants.size(); i++) {
 			const DocData::ConstantDoc &constant_doc = p_class_doc.constants[i];
 			const String qualified_name = p_class_doc.name + "." + constant_doc.name;
-			const float score = _score_match(p_query, constant_doc.name, qualified_name, constant_doc.description + " " + constant_doc.keywords);
-			_push_scored_result(r_results, _make_constant_dict(constant_doc, p_class_doc.name, p_include_descriptions), score);
+			const float score = _score_match(p_query, constant_doc.name, qualified_name, _make_score_description(p_query, constant_doc.description, constant_doc.keywords));
+			_push_doc_candidate(r_results, AIDocSearchKind::CONSTANT, p_class_doc.name, constant_doc.name, score, &p_class_doc, nullptr, nullptr, &constant_doc);
 		}
 	}
 
@@ -482,8 +629,8 @@ void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_que
 		for (int i = 0; i < p_class_doc.theme_properties.size(); i++) {
 			const DocData::ThemeItemDoc &theme_item_doc = p_class_doc.theme_properties[i];
 			const String qualified_name = p_class_doc.name + "." + theme_item_doc.name;
-			const float score = _score_match(p_query, theme_item_doc.name, qualified_name, theme_item_doc.description + " " + theme_item_doc.keywords);
-			_push_scored_result(r_results, _make_theme_item_dict(theme_item_doc, p_class_doc.name, p_include_descriptions), score);
+			const float score = _score_match(p_query, theme_item_doc.name, qualified_name, _make_score_description(p_query, theme_item_doc.description, theme_item_doc.keywords));
+			_push_doc_candidate(r_results, AIDocSearchKind::THEME_ITEM, p_class_doc.name, theme_item_doc.name, score, &p_class_doc, nullptr, nullptr, nullptr, &theme_item_doc);
 		}
 	}
 
@@ -491,7 +638,7 @@ void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_que
 		for (const KeyValue<String, DocData::EnumDoc> &E : p_class_doc.enums) {
 			const String qualified_name = p_class_doc.name + "." + E.key;
 			const float score = _score_match(p_query, E.key, qualified_name, E.value.description);
-			_push_scored_result(r_results, _make_enum_dict(E.key, E.value, p_class_doc.name, p_include_descriptions), score);
+			_push_doc_candidate(r_results, AIDocSearchKind::ENUM, p_class_doc.name, E.key, score, &p_class_doc, nullptr, nullptr, nullptr, nullptr, &E.value);
 		}
 	}
 
@@ -499,8 +646,8 @@ void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_que
 		for (int i = 0; i < p_class_doc.constructors.size(); i++) {
 			const DocData::MethodDoc &constructor_doc = p_class_doc.constructors[i];
 			const String qualified_name = p_class_doc.name + "." + constructor_doc.name;
-			const float score = _score_match(p_query, constructor_doc.name, qualified_name, constructor_doc.description + " " + constructor_doc.keywords);
-			_push_scored_result(r_results, _make_method_dict(constructor_doc, p_class_doc.name, "constructor", p_include_descriptions), score);
+			const float score = _score_match(p_query, constructor_doc.name, qualified_name, _make_score_description(p_query, constructor_doc.description, constructor_doc.keywords));
+			_push_doc_candidate(r_results, AIDocSearchKind::CONSTRUCTOR, p_class_doc.name, constructor_doc.name, score, &p_class_doc, nullptr, &constructor_doc);
 		}
 	}
 
@@ -508,8 +655,8 @@ void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_que
 		for (int i = 0; i < p_class_doc.operators.size(); i++) {
 			const DocData::MethodDoc &operator_doc = p_class_doc.operators[i];
 			const String qualified_name = p_class_doc.name + "." + operator_doc.name;
-			const float score = _score_match(p_query, operator_doc.name, qualified_name, operator_doc.description + " " + operator_doc.keywords);
-			_push_scored_result(r_results, _make_method_dict(operator_doc, p_class_doc.name, "operator", p_include_descriptions), score);
+			const float score = _score_match(p_query, operator_doc.name, qualified_name, _make_score_description(p_query, operator_doc.description, operator_doc.keywords));
+			_push_doc_candidate(r_results, AIDocSearchKind::OPERATOR, p_class_doc.name, operator_doc.name, score, &p_class_doc, nullptr, &operator_doc);
 		}
 	}
 
@@ -517,8 +664,8 @@ void _search_class_doc(const DocData::ClassDoc &p_class_doc, const String &p_que
 		for (int i = 0; i < p_class_doc.annotations.size(); i++) {
 			const DocData::MethodDoc &annotation_doc = p_class_doc.annotations[i];
 			const String qualified_name = p_class_doc.name + "." + annotation_doc.name;
-			const float score = _score_match(p_query, annotation_doc.name, qualified_name, annotation_doc.description + " " + annotation_doc.keywords);
-			_push_scored_result(r_results, _make_method_dict(annotation_doc, p_class_doc.name, "annotation", p_include_descriptions), score);
+			const float score = _score_match(p_query, annotation_doc.name, qualified_name, _make_score_description(p_query, annotation_doc.description, annotation_doc.keywords));
+			_push_doc_candidate(r_results, AIDocSearchKind::ANNOTATION, p_class_doc.name, annotation_doc.name, score, &p_class_doc, nullptr, &annotation_doc);
 		}
 	}
 }
@@ -641,9 +788,136 @@ bool _is_classdb_visible_property(const PropertyInfo &p_info) {
 	return true;
 }
 
-void _search_classdb_class(const String &p_class_name, const String &p_query, const String &p_kind_filter, Vector<AIDocScoredResult> &r_results) {
+void _push_classdb_candidate(AIDocSearchTopResults &r_results, AIDocSearchKind p_kind, const String &p_class_name, const String &p_name, float p_score) {
+	const String sort_key = _make_candidate_sort_key(p_kind, p_class_name, p_name);
+	int candidate_index = -1;
+	if (!_try_accept_candidate(r_results, p_score, sort_key, candidate_index)) {
+		return;
+	}
+
+	AIDocSearchCandidate candidate;
+	candidate.score = p_score;
+	candidate.sort_key = sort_key;
+	candidate.source = AIDocSearchSource::CLASS_DB;
+	candidate.kind = p_kind;
+	candidate.class_name = p_class_name;
+	candidate.name = p_name;
+	_store_candidate(r_results, candidate_index, candidate);
+}
+
+void _push_classdb_property_candidate(AIDocSearchTopResults &r_results, const String &p_class_name, const PropertyInfo &p_info, float p_score) {
+	const String property_name = String(p_info.name);
+	const String sort_key = _make_candidate_sort_key(AIDocSearchKind::PROPERTY, p_class_name, property_name);
+	int candidate_index = -1;
+	if (!_try_accept_candidate(r_results, p_score, sort_key, candidate_index)) {
+		return;
+	}
+
+	AIDocSearchCandidate candidate;
+	candidate.score = p_score;
+	candidate.sort_key = sort_key;
+	candidate.source = AIDocSearchSource::CLASS_DB;
+	candidate.kind = AIDocSearchKind::PROPERTY;
+	candidate.class_name = p_class_name;
+	candidate.name = property_name;
+	candidate.classdb_property = p_info;
+	_store_candidate(r_results, candidate_index, candidate);
+}
+
+void _push_classdb_method_candidate(AIDocSearchTopResults &r_results, AIDocSearchKind p_kind, const String &p_class_name, const MethodInfo &p_info, float p_score) {
+	const String method_name = String(p_info.name);
+	const String sort_key = _make_candidate_sort_key(p_kind, p_class_name, method_name);
+	int candidate_index = -1;
+	if (!_try_accept_candidate(r_results, p_score, sort_key, candidate_index)) {
+		return;
+	}
+
+	AIDocSearchCandidate candidate;
+	candidate.score = p_score;
+	candidate.sort_key = sort_key;
+	candidate.source = AIDocSearchSource::CLASS_DB;
+	candidate.kind = p_kind;
+	candidate.class_name = p_class_name;
+	candidate.name = method_name;
+	candidate.classdb_method = p_info;
+	_store_candidate(r_results, candidate_index, candidate);
+}
+
+Dictionary _make_search_candidate_dict(const AIDocSearchCandidate &p_candidate, bool p_include_descriptions) {
+	Dictionary dict;
+
+	if (p_candidate.source == AIDocSearchSource::DOC_DATA) {
+		switch (p_candidate.kind) {
+			case AIDocSearchKind::CLASS:
+				if (p_candidate.class_doc) {
+					dict = _make_class_dict(*p_candidate.class_doc, p_include_descriptions);
+				}
+				break;
+			case AIDocSearchKind::PROPERTY:
+				if (p_candidate.property_doc) {
+					dict = _make_property_dict(*p_candidate.property_doc, p_candidate.class_name, p_include_descriptions);
+				}
+				break;
+			case AIDocSearchKind::METHOD:
+			case AIDocSearchKind::SIGNAL:
+			case AIDocSearchKind::CONSTRUCTOR:
+			case AIDocSearchKind::OPERATOR:
+			case AIDocSearchKind::ANNOTATION:
+				if (p_candidate.method_doc) {
+					dict = _make_method_dict(*p_candidate.method_doc, p_candidate.class_name, _search_kind_to_string(p_candidate.kind), p_include_descriptions);
+				}
+				break;
+			case AIDocSearchKind::CONSTANT:
+				if (p_candidate.constant_doc) {
+					dict = _make_constant_dict(*p_candidate.constant_doc, p_candidate.class_name, p_include_descriptions);
+				}
+				break;
+			case AIDocSearchKind::THEME_ITEM:
+				if (p_candidate.theme_item_doc) {
+					dict = _make_theme_item_dict(*p_candidate.theme_item_doc, p_candidate.class_name, p_include_descriptions);
+				}
+				break;
+			case AIDocSearchKind::ENUM:
+				if (p_candidate.enum_doc) {
+					dict = _make_enum_dict(p_candidate.name, *p_candidate.enum_doc, p_candidate.class_name, p_include_descriptions);
+				}
+				break;
+		}
+	} else {
+		switch (p_candidate.kind) {
+			case AIDocSearchKind::CLASS:
+				dict = _make_classdb_class_dict(p_candidate.class_name);
+				break;
+			case AIDocSearchKind::PROPERTY:
+				dict = _make_classdb_property_dict(p_candidate.classdb_property, p_candidate.class_name);
+				break;
+			case AIDocSearchKind::METHOD:
+			case AIDocSearchKind::SIGNAL:
+				dict = _make_classdb_method_dict(p_candidate.classdb_method, p_candidate.class_name, _search_kind_to_string(p_candidate.kind));
+				break;
+			case AIDocSearchKind::CONSTANT:
+				dict = _make_classdb_constant_dict(p_candidate.name, p_candidate.class_name);
+				break;
+			case AIDocSearchKind::ENUM:
+				dict = _make_classdb_enum_dict(StringName(p_candidate.name), p_candidate.class_name);
+				break;
+			case AIDocSearchKind::THEME_ITEM:
+			case AIDocSearchKind::CONSTRUCTOR:
+			case AIDocSearchKind::OPERATOR:
+			case AIDocSearchKind::ANNOTATION:
+				break;
+		}
+	}
+
+	if (!dict.is_empty()) {
+		dict["score"] = p_candidate.score;
+	}
+	return dict;
+}
+
+void _search_classdb_class(const String &p_class_name, const String &p_query, const String &p_kind_filter, AIDocSearchTopResults &r_results) {
 	if (_kind_matches(p_kind_filter, "class")) {
-		_push_scored_result(r_results, _make_classdb_class_dict(p_class_name), _score_match(p_query, p_class_name, p_class_name));
+		_push_classdb_candidate(r_results, AIDocSearchKind::CLASS, p_class_name, p_class_name, _score_match(p_query, p_class_name, p_class_name));
 	}
 
 	if (_kind_matches(p_kind_filter, "property")) {
@@ -655,7 +929,7 @@ void _search_classdb_class(const String &p_class_name, const String &p_query, co
 			}
 			const String property_name = String(E.name);
 			const String qualified_name = p_class_name + "." + property_name;
-			_push_scored_result(r_results, _make_classdb_property_dict(E, p_class_name), _score_match(p_query, property_name, qualified_name, E.hint_string));
+			_push_classdb_property_candidate(r_results, p_class_name, E, _score_match(p_query, property_name, qualified_name, E.hint_string));
 		}
 	}
 
@@ -664,7 +938,7 @@ void _search_classdb_class(const String &p_class_name, const String &p_query, co
 		ClassDB::get_method_list(p_class_name, &method_list, false, true);
 		for (const MethodInfo &E : method_list) {
 			const String qualified_name = p_class_name + "." + E.name;
-			_push_scored_result(r_results, _make_classdb_method_dict(E, p_class_name, "method"), _score_match(p_query, E.name, qualified_name));
+			_push_classdb_method_candidate(r_results, AIDocSearchKind::METHOD, p_class_name, E, _score_match(p_query, E.name, qualified_name));
 		}
 	}
 
@@ -673,7 +947,7 @@ void _search_classdb_class(const String &p_class_name, const String &p_query, co
 		ClassDB::get_signal_list(p_class_name, &signal_list);
 		for (const MethodInfo &E : signal_list) {
 			const String qualified_name = p_class_name + "." + E.name;
-			_push_scored_result(r_results, _make_classdb_method_dict(E, p_class_name, "signal"), _score_match(p_query, E.name, qualified_name));
+			_push_classdb_method_candidate(r_results, AIDocSearchKind::SIGNAL, p_class_name, E, _score_match(p_query, E.name, qualified_name));
 		}
 	}
 
@@ -682,7 +956,7 @@ void _search_classdb_class(const String &p_class_name, const String &p_query, co
 		ClassDB::get_integer_constant_list(p_class_name, &constants);
 		for (const String &E : constants) {
 			const String qualified_name = p_class_name + "." + E;
-			_push_scored_result(r_results, _make_classdb_constant_dict(E, p_class_name), _score_match(p_query, E, qualified_name));
+			_push_classdb_candidate(r_results, AIDocSearchKind::CONSTANT, p_class_name, E, _score_match(p_query, E, qualified_name));
 		}
 	}
 
@@ -692,7 +966,7 @@ void _search_classdb_class(const String &p_class_name, const String &p_query, co
 		for (const StringName &E : enums) {
 			const String enum_name = String(E);
 			const String qualified_name = p_class_name + "." + enum_name;
-			_push_scored_result(r_results, _make_classdb_enum_dict(E, p_class_name), _score_match(p_query, enum_name, qualified_name));
+			_push_classdb_candidate(r_results, AIDocSearchKind::ENUM, p_class_name, enum_name, _score_match(p_query, enum_name, qualified_name));
 		}
 	}
 }
@@ -761,14 +1035,15 @@ AIDocumentationResult AIDocumentationService::_search_main_thread(const String &
 	const bool has_doc_data = doc && !doc->class_list.is_empty();
 
 	const int max_results = CLAMP(p_max_results, 1, 80);
-	Vector<AIDocScoredResult> scored_results;
+	AIDocSearchTopResults search_results;
+	search_results.max_results = max_results;
 
 	if (has_doc_data && !requested_class_name.is_empty()) {
 		const DocData::ClassDoc *class_doc = _find_class_doc(doc, requested_class_name);
 		if (class_doc) {
-			_search_class_doc(*class_doc, query, kind_filter, p_include_descriptions, scored_results);
+			_search_class_doc(*class_doc, query, kind_filter, search_results);
 		} else if (ClassDB::class_exists(requested_class_name)) {
-			_search_classdb_class(requested_class_name, query, kind_filter, scored_results);
+			_search_classdb_class(requested_class_name, query, kind_filter, search_results);
 		} else {
 			Array suggestions;
 			for (const KeyValue<String, DocData::ClassDoc> &E : doc->class_list) {
@@ -787,7 +1062,7 @@ AIDocumentationResult AIDocumentationService::_search_main_thread(const String &
 		}
 	} else if (has_doc_data) {
 		for (const KeyValue<String, DocData::ClassDoc> &E : doc->class_list) {
-			_search_class_doc(E.value, query, kind_filter, p_include_descriptions, scored_results);
+			_search_class_doc(E.value, query, kind_filter, search_results);
 		}
 	} else if (!requested_class_name.is_empty()) {
 		if (!ClassDB::class_exists(requested_class_name)) {
@@ -809,16 +1084,16 @@ AIDocumentationResult AIDocumentationService::_search_main_thread(const String &
 			result.metadata["suggestions"] = suggestions;
 			return result;
 		}
-		_search_classdb_class(requested_class_name, query, kind_filter, scored_results);
+		_search_classdb_class(requested_class_name, query, kind_filter, search_results);
 	} else {
 		LocalVector<StringName> classes;
 		ClassDB::get_class_list(classes);
 		for (uint32_t i = 0; i < classes.size(); i++) {
-			_search_classdb_class(String(classes[i]), query, kind_filter, scored_results);
+			_search_classdb_class(String(classes[i]), query, kind_filter, search_results);
 		}
 	}
 
-	scored_results.sort_custom<AIDocScoredResultCompare>();
+	search_results.candidates.sort_custom<AIDocSearchCandidateCompare>();
 
 	Array results;
 	String content;
@@ -831,8 +1106,11 @@ AIDocumentationResult AIDocumentationService::_search_main_thread(const String &
 	}
 	content += "\n";
 
-	for (int i = 0; i < scored_results.size() && results.size() < max_results; i++) {
-		Dictionary item = scored_results[i].data;
+	for (int i = 0; i < search_results.candidates.size() && results.size() < max_results; i++) {
+		Dictionary item = _make_search_candidate_dict(search_results.candidates[i], p_include_descriptions);
+		if (item.is_empty()) {
+			continue;
+		}
 		results.push_back(item);
 
 		content += vformat("- [%s] %s", String(item["kind"]), String(item["qualified_name"]));
@@ -852,8 +1130,8 @@ AIDocumentationResult AIDocumentationService::_search_main_thread(const String &
 	if (results.is_empty()) {
 		content += "No matching documentation entries found.\n";
 	}
-	if (scored_results.size() > results.size()) {
-		content += vformat("... %d more results omitted. Narrow query, class_name, or kind.\n", scored_results.size() - results.size());
+	if (search_results.total_matches > results.size()) {
+		content += vformat("... %d more results omitted. Narrow query, class_name, or kind.\n", search_results.total_matches - results.size());
 	}
 
 	result.success = true;
@@ -863,7 +1141,7 @@ AIDocumentationResult AIDocumentationService::_search_main_thread(const String &
 	result.metadata["kind"] = kind_filter;
 	result.metadata["results"] = results;
 	result.metadata["result_count"] = results.size();
-	result.metadata["total_matches"] = scored_results.size();
+	result.metadata["total_matches"] = search_results.total_matches;
 	result.metadata["max_results"] = max_results;
 	result.metadata["source"] = has_doc_data ? String("DocData") : String("ClassDB");
 	return result;

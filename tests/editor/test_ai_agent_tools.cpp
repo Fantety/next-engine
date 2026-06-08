@@ -1603,6 +1603,34 @@ TEST_CASE("[Editor][AI] Documentation search returns structured Godot class memb
 	CHECK(saw_process_mode);
 }
 
+TEST_CASE("[Editor][AI] Documentation search caps global results while preserving total matches") {
+	Ref<AIDocsSearchTool> docs_search;
+	docs_search.instantiate();
+
+	Dictionary arguments;
+	arguments["query"] = "process";
+	arguments["kind"] = "property";
+	arguments["max_results"] = 3;
+	arguments["include_descriptions"] = true;
+
+	AIToolResult result = docs_search->execute(arguments);
+	REQUIRE_FALSE(result.is_error());
+
+	Array results = result.metadata["results"];
+	CHECK(results.size() > 0);
+	CHECK(results.size() <= 3);
+	CHECK(int(result.metadata["max_results"]) == 3);
+	CHECK(int(result.metadata["result_count"]) == results.size());
+	CHECK(int(result.metadata["total_matches"]) >= results.size());
+
+	for (int i = 0; i < results.size(); i++) {
+		Dictionary item = results[i];
+		CHECK(String(item.get("kind", "")) == "property");
+		CHECK_FALSE(String(item.get("qualified_name", "")).is_empty());
+		CHECK(item.has("score"));
+	}
+}
+
 TEST_CASE("[Editor][AI] Markdown creation tool writes project Markdown files") {
 	Ref<AICreateMarkdownTool> create_markdown;
 	create_markdown.instantiate();
