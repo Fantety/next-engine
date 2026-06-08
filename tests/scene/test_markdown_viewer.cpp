@@ -483,6 +483,22 @@ TEST_CASE("[SceneTree][MarkdownViewer] Control updates content height after layo
 	memdelete(viewer);
 }
 
+TEST_CASE("[SceneTree][MarkdownViewer] Content height query reuses current-width layout cache") {
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(220, 120));
+	viewer->set_markdown("This paragraph is long enough to wrap when measured at the current viewer width, so the height query should populate the same layout cache used for drawing.");
+
+	const real_t queried_height = viewer->get_content_height_for_width(220);
+
+	CHECK(queried_height > 0.0);
+	CHECK(viewer->get_content_height() == doctest::Approx(queried_height));
+
+	viewer->force_layout_for_test();
+	CHECK(viewer->get_content_height() == doctest::Approx(queried_height));
+
+	memdelete(viewer);
+}
+
 TEST_CASE("[SceneTree][MarkdownViewer] Hit test resolves links with scroll offset") {
 	MarkdownViewer *viewer = memnew(MarkdownViewer);
 	viewer->set_size(Size2(320, 120));

@@ -17,10 +17,13 @@ class AIMarkdownLabel : public VBoxContainer {
 	MarkdownViewer *markdown_viewer = nullptr;
 	mutable real_t cached_layout_width = -1.0;
 	mutable real_t cached_content_height = 0.0;
+	bool layout_sync_queued = false;
 
 	void _markdown_viewer_minimum_size_changed();
 	real_t _get_layout_width() const;
 	void _invalidate_cached_layout();
+	void _queue_markdown_viewer_minimum_size_sync();
+	void _flush_markdown_viewer_minimum_size_sync();
 	void _sync_markdown_viewer_minimum_size() const;
 
 protected:

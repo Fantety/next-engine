@@ -52,7 +52,16 @@ void MarkdownViewer::_notification(int p_what) {
 			_ensure_layout();
 			MarkdownViewerDrawHelper::draw(*this, layout, _make_layout_theme(), scroll_offset);
 		} break;
-		case NOTIFICATION_RESIZED:
+		case NOTIFICATION_RESIZED: {
+			const Size2 current_size = get_size();
+			if (layout_dirty || !Math::is_equal_approx(current_size.x, last_layout_size.x)) {
+				_mark_layout_dirty();
+			} else {
+				last_layout_size = current_size;
+				_clamp_scroll_offset();
+				queue_redraw();
+			}
+		} break;
 		case NOTIFICATION_THEME_CHANGED: {
 			_mark_layout_dirty();
 		} break;
@@ -159,16 +168,24 @@ MarkdownViewerLayoutTheme MarkdownViewer::_make_layout_theme() const {
 void MarkdownViewer::_ensure_layout() {
 	_ensure_document();
 	const Size2 current_size = get_size();
-	if (!layout_dirty && current_size.is_equal_approx(last_layout_size)) {
+	if (!layout_dirty && Math::is_equal_approx(current_size.x, last_layout_size.x)) {
+		if (!Math::is_equal_approx(current_size.y, last_layout_size.y)) {
+			last_layout_size = current_size;
+			_clamp_scroll_offset();
+		}
 		return;
 	}
 
+	_build_layout(current_size);
+}
+
+void MarkdownViewer::_build_layout(const Size2 &p_layout_size) {
 	MarkdownViewerLayoutBuilder builder;
 	builder.set_image_loader(image_loader);
 	const real_t previous_content_height = content_height;
-	layout = builder.build(document, current_size, _make_layout_theme());
+	layout = builder.build(document, p_layout_size, _make_layout_theme());
 	content_height = layout.content_height;
-	last_layout_size = current_size;
+	last_layout_size = p_layout_size;
 	layout_dirty = false;
 	_clamp_scroll_offset();
 	if (!scroll_enabled && !Math::is_equal_approx(previous_content_height, content_height)) {
@@ -220,6 +237,17 @@ void MarkdownViewer::set_markdown(const String &p_markdown) {
 	}
 	markdown = p_markdown;
 	_mark_parse_dirty();
+}
+
+void MarkdownViewer::set_markdown_document(const String &p_markdown, const MarkdownViewerDocument &p_document) {
+	if (markdown == p_markdown && !parse_dirty) {
+		return;
+	}
+
+	markdown = p_markdown;
+	document = p_document;
+	parse_dirty = false;
+	_mark_layout_dirty();
 }
 
 String MarkdownViewer::get_markdown() const {
@@ -307,11 +335,21 @@ real_t MarkdownViewer::get_content_height() const {
 
 real_t MarkdownViewer::get_content_height_for_width(real_t p_width) const {
 	MarkdownViewer *self = const_cast<MarkdownViewer *>(this);
+	const real_t layout_width = MAX(real_t(1.0), p_width);
 	self->_ensure_document();
+
+	if (!self->layout_dirty && Math::is_equal_approx(self->last_layout_size.x, layout_width)) {
+		return self->content_height;
+	}
+
+	if (Math::is_equal_approx(get_size().x, layout_width)) {
+		self->_ensure_layout();
+		return self->content_height;
+	}
 
 	MarkdownViewerLayoutBuilder builder;
 	builder.set_image_loader(image_loader);
-	const Size2 layout_size(MAX(real_t(1.0), p_width), get_size().y);
+	const Size2 layout_size(layout_width, get_size().y);
 	return builder.build(document, layout_size, _make_layout_theme()).content_height;
 }
 

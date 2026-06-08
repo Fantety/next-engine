@@ -36,6 +36,7 @@ class MarkdownViewer : public Control {
 	void _mark_layout_dirty();
 	void _ensure_document();
 	void _ensure_layout();
+	void _build_layout(const Size2 &p_layout_size);
 	void _clamp_scroll_offset();
 	MarkdownViewerLayoutTheme _make_layout_theme() const;
 	bool _resolve_hit_test(const Point2 &p_position, MarkdownViewerHitTest &r_hit);
@@ -50,6 +51,7 @@ public:
 	virtual Size2 get_minimum_size() const override;
 
 	void set_markdown(const String &p_markdown);
+	void set_markdown_document(const String &p_markdown, const MarkdownViewerDocument &p_document);
 	String get_markdown() const;
 
 	void set_remote_images_enabled(bool p_enabled);

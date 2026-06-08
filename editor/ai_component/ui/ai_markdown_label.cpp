@@ -96,11 +96,9 @@ String _flatten_block(const MarkdownViewerBlock &p_block) {
 	return String();
 }
 
-String _flatten_markdown(const String &p_markdown) {
-	MarkdownViewerDocumentBuilder builder;
-	const MarkdownViewerDocument document = builder.build(p_markdown);
+String _flatten_document(const MarkdownViewerDocument &p_document) {
 	String text;
-	for (const MarkdownViewerBlock &block : document.blocks) {
+	for (const MarkdownViewerBlock &block : p_document.blocks) {
 		_append_joined(text, _flatten_block(block));
 	}
 	return text;
@@ -131,8 +129,7 @@ AIMarkdownLabel::AIMarkdownLabel() {
 
 void AIMarkdownLabel::_markdown_viewer_minimum_size_changed() {
 	_invalidate_cached_layout();
-	_sync_markdown_viewer_minimum_size();
-	update_minimum_size();
+	_queue_markdown_viewer_minimum_size_sync();
 }
 
 void AIMarkdownLabel::_notification(int p_what) {
@@ -140,8 +137,7 @@ void AIMarkdownLabel::_notification(int p_what) {
 		case NOTIFICATION_RESIZED:
 		case NOTIFICATION_THEME_CHANGED: {
 			_invalidate_cached_layout();
-			_sync_markdown_viewer_minimum_size();
-			update_minimum_size();
+			_queue_markdown_viewer_minimum_size_sync();
 		} break;
 	}
 }
@@ -160,6 +156,24 @@ real_t AIMarkdownLabel::_get_layout_width() const {
 
 void AIMarkdownLabel::_invalidate_cached_layout() {
 	cached_layout_width = -1.0;
+}
+
+void AIMarkdownLabel::_queue_markdown_viewer_minimum_size_sync() {
+	if (layout_sync_queued) {
+		return;
+	}
+
+	layout_sync_queued = true;
+	callable_mp(this, &AIMarkdownLabel::_flush_markdown_viewer_minimum_size_sync).call_deferred();
+}
+
+void AIMarkdownLabel::_flush_markdown_viewer_minimum_size_sync() {
+	layout_sync_queued = false;
+	_sync_markdown_viewer_minimum_size();
+	update_minimum_size();
+	if (Control *parent_control = get_parent_control()) {
+		parent_control->update_minimum_size();
+	}
 }
 
 void AIMarkdownLabel::_sync_markdown_viewer_minimum_size() const {
@@ -189,24 +203,32 @@ Size2 AIMarkdownLabel::get_minimum_size() const {
 		return VBoxContainer::get_minimum_size();
 	}
 
-	_sync_markdown_viewer_minimum_size();
 	const real_t layout_width = _get_layout_width();
 	if (layout_width <= 1.0) {
 		return VBoxContainer::get_minimum_size();
+	}
+
+	if (!layout_sync_queued && !Math::is_equal_approx(cached_layout_width, layout_width)) {
+		_sync_markdown_viewer_minimum_size();
 	}
 
 	return Size2(0, cached_content_height);
 }
 
 void AIMarkdownLabel::set_markdown(const String &p_markdown) {
+	if (markdown_text == p_markdown) {
+		return;
+	}
+
 	markdown_text = p_markdown;
-	parsed_text = _flatten_markdown(markdown_text);
+	MarkdownViewerDocumentBuilder builder;
+	const MarkdownViewerDocument document = builder.build(markdown_text);
+	parsed_text = _flatten_document(document);
 	if (markdown_viewer) {
-		markdown_viewer->set_markdown(markdown_text);
+		markdown_viewer->set_markdown_document(markdown_text, document);
 	}
 	_invalidate_cached_layout();
-	_sync_markdown_viewer_minimum_size();
-	update_minimum_size();
+	_queue_markdown_viewer_minimum_size_sync();
 }
 
 String AIMarkdownLabel::get_markdown() const {
@@ -214,25 +236,32 @@ String AIMarkdownLabel::get_markdown() const {
 }
 
 void AIMarkdownLabel::clear() {
+	if (markdown_text.is_empty() && parsed_text.is_empty()) {
+		return;
+	}
+
 	markdown_text.clear();
 	parsed_text.clear();
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown(String());
 	}
 	_invalidate_cached_layout();
-	_sync_markdown_viewer_minimum_size();
-	update_minimum_size();
+	_queue_markdown_viewer_minimum_size_sync();
 }
 
 void AIMarkdownLabel::add_text(const String &p_text) {
-	markdown_text = _escape_plain_markdown(p_text);
+	const String escaped_text = _escape_plain_markdown(p_text);
+	if (markdown_text == escaped_text && parsed_text == p_text) {
+		return;
+	}
+
+	markdown_text = escaped_text;
 	parsed_text = p_text;
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown(markdown_text);
 	}
 	_invalidate_cached_layout();
-	_sync_markdown_viewer_minimum_size();
-	update_minimum_size();
+	_queue_markdown_viewer_minimum_size_sync();
 }
 
 String AIMarkdownLabel::get_parsed_text() const {
@@ -253,8 +282,7 @@ void AIMarkdownLabel::add_theme_font_size_override(const StringName &p_name, int
 		markdown_viewer->add_theme_font_size_override(mapped_name, p_font_size);
 	}
 	_invalidate_cached_layout();
-	_sync_markdown_viewer_minimum_size();
-	update_minimum_size();
+	_queue_markdown_viewer_minimum_size_sync();
 }
 
 void AIMarkdownLabel::remove_theme_font_size_override(const StringName &p_name) {
@@ -263,6 +291,5 @@ void AIMarkdownLabel::remove_theme_font_size_override(const StringName &p_name) 
 		markdown_viewer->remove_theme_font_size_override(mapped_name);
 	}
 	_invalidate_cached_layout();
-	_sync_markdown_viewer_minimum_size();
-	update_minimum_size();
+	_queue_markdown_viewer_minimum_size_sync();
 }
