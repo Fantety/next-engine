@@ -44,6 +44,7 @@
 #include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_apply_patch_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_describe_tree_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_inspect_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_list_properties_tool.h"
@@ -691,6 +692,7 @@ TEST_CASE("[Editor][AI] Agent profiles describe tool denylist and review behavio
 	CHECK_FALSE(ask.denies_tool("project.read_file"));
 	CHECK(ask.denies_tool("project.create_folder"));
 	CHECK(ask.denies_tool("scene.apply_patch"));
+	CHECK(ask.denies_tool("scene.delete_node"));
 	CHECK(ask.denies_tool("script.write"));
 	CHECK(ask.denies_tool("shader.delete"));
 
@@ -698,6 +700,7 @@ TEST_CASE("[Editor][AI] Agent profiles describe tool denylist and review behavio
 	CHECK(auto_profile.display_name == "Auto");
 	CHECK(auto_profile.review_changes);
 	CHECK_FALSE(auto_profile.denies_tool("project.create_folder"));
+	CHECK_FALSE(auto_profile.denies_tool("scene.delete_node"));
 	CHECK_FALSE(auto_profile.denies_tool("script.write"));
 	CHECK_FALSE(auto_profile.denies_tool("shader.delete"));
 }
@@ -711,9 +714,11 @@ TEST_CASE("[Editor][AI] Prompt registry preserves Normal and NEXT prompt entrypo
 	CHECK(String(AIPrompts::get_review_prompt()) == String(AINextPrompts::get_review_prompt()));
 	CHECK(String(AIPrompts::get_system_prompt()).contains("Godot Editor"));
 	CHECK(String(AIPrompts::get_system_prompt()).contains("scene.inspect_node"));
+	CHECK(String(AIPrompts::get_system_prompt()).contains("scene.delete_node"));
 	CHECK(String(AIPrompts::get_system_prompt()).contains("Resource-backed properties"));
 	CHECK(String(AIPrompts::get_planning_prompt()).contains("Godot planning agent"));
 	CHECK(String(AIPrompts::get_scene_prompt()).contains("scene.inspect_node"));
+	CHECK(String(AIPrompts::get_scene_prompt()).contains("scene.delete_node"));
 	CHECK(String(AIPrompts::get_scene_prompt()).contains("CollisionShape2D.shape"));
 }
 
@@ -745,7 +750,7 @@ TEST_CASE("[Editor][AI] Tool factory registers shared tool groups") {
 	CHECK(registry->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.apply_patch") == AI_TOOL_PERMISSION_DENY);
 	CHECK_FALSE(registry->has_tool("scene.create_scene"));
-	CHECK_FALSE(registry->has_tool("scene.delete_node"));
+	CHECK(registry->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_ASK);
 	CHECK(registry->get_tool_permission("script.inspect") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
@@ -774,6 +779,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("scene.describe_tree") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.inspect_node") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.apply_patch") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_DENY);
 	CHECK_FALSE(registry->has_tool("scene.create_scene"));
 	CHECK_FALSE(registry->has_tool("scene.instantiate_scene"));
 	CHECK(registry->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
@@ -793,10 +799,10 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("scene.describe_tree") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.inspect_node") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.apply_patch") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK_FALSE(registry->has_tool("scene.create_scene"));
 	CHECK_FALSE(registry->has_tool("scene.add_node"));
 	CHECK_FALSE(registry->has_tool("scene.instantiate_scene"));
-	CHECK_FALSE(registry->has_tool("scene.delete_node"));
 	CHECK_FALSE(registry->has_tool("scene.rename_node"));
 	CHECK_FALSE(registry->has_tool("scene.move_node"));
 	CHECK_FALSE(registry->has_tool("scene.set_property"));
@@ -816,6 +822,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	agent->set_agent_profile_id("unknown");
 	CHECK(agent->get_profile().id == "ask");
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_DENY);
@@ -866,6 +873,7 @@ TEST_CASE("[Editor][AI] NEXT agents expose shared project context tools") {
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.inspect_node") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.apply_patch") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_ASK);
 	CHECK_FALSE(scene_agent->get_tool_registry()->has_tool("scene.add_node"));
 
 	Ref<AINextShaderAgent> shader_agent;
@@ -1270,6 +1278,9 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	Dictionary op_item_properties = op_item_schema["properties"];
 	CHECK(String(Dictionary(op_item_properties["properties"]).get("description", "")).contains("resource_type"));
 	CHECK(String(Dictionary(op_item_properties["properties"]).get("description", "")).contains("CollisionShape2D.shape"));
+	Dictionary op_schema = op_item_properties["op"];
+	Array op_enum = op_schema["enum"];
+	CHECK_FALSE(op_enum.has("delete_node"));
 	Dictionary create_scene_schema = patch_properties["create_scene"];
 	Array create_scene_required = create_scene_schema["required"];
 	CHECK(create_scene_required.has("path"));
@@ -1285,6 +1296,15 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	CHECK(list_properties_properties.has("max_properties"));
 	CHECK(list_properties_properties.has("include_read_only"));
 	CHECK(list_properties_properties.has("include_current_values"));
+
+	Ref<AISceneDeleteNodeTool> scene_delete_node;
+	scene_delete_node.instantiate();
+	CHECK(scene_delete_node->get_name() == "scene.delete_node");
+	Dictionary scene_delete_node_schema = scene_delete_node->get_parameters_schema();
+	Dictionary scene_delete_node_properties = scene_delete_node_schema["properties"];
+	CHECK(scene_delete_node_properties.has("node_path"));
+	Array scene_delete_node_required = scene_delete_node_schema["required"];
+	CHECK(scene_delete_node_required.has("node_path"));
 
 	Ref<AICreateFolderTool> create_folder;
 	create_folder.instantiate();
@@ -1414,6 +1434,15 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	CHECK(apply_patch->execute(scene_patch_arguments).is_error());
 	scene_patch_arguments["ops"] = "not an array";
 	CHECK(apply_patch->execute(scene_patch_arguments).is_error());
+	Array scene_patch_ops;
+	Dictionary delete_node_op;
+	delete_node_op["op"] = "delete_node";
+	delete_node_op["node"] = "Child";
+	scene_patch_ops.push_back(delete_node_op);
+	scene_patch_arguments["ops"] = scene_patch_ops;
+	AIToolResult delete_node_patch_result = apply_patch->execute(scene_patch_arguments);
+	CHECK(delete_node_patch_result.is_error());
+	CHECK(delete_node_patch_result.error.contains("scene.delete_node"));
 
 	Ref<AISceneListPropertiesTool> list_properties;
 	list_properties.instantiate();
@@ -1427,6 +1456,11 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	inspect_node_arguments["node_path"] = ".";
 	inspect_node_arguments["properties"] = "not an array";
 	CHECK(inspect_node->execute(inspect_node_arguments).is_error());
+
+	Ref<AISceneDeleteNodeTool> scene_delete_node;
+	scene_delete_node.instantiate();
+	Dictionary delete_node_arguments;
+	CHECK(scene_delete_node->execute(delete_node_arguments).is_error());
 
 	Ref<AICreateFolderTool> create_folder;
 	create_folder.instantiate();

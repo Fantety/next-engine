@@ -6,6 +6,31 @@
 
 #include "core/variant/variant.h"
 
+namespace {
+
+bool _patch_contains_delete_node(const Dictionary &p_arguments, String &r_error) {
+	if (!p_arguments.has("ops")) {
+		return false;
+	}
+
+	const Array ops = p_arguments["ops"];
+	for (int i = 0; i < ops.size(); i++) {
+		if (Variant(ops[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		const Dictionary op_dict = ops[i];
+		if (String(op_dict.get("op", "")).strip_edges() == "delete_node") {
+			r_error = vformat("ops[%d].op: delete_node is not supported by scene.apply_patch. Use scene.delete_node so delete permission is evaluated separately.", i);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+} // namespace
+
 AISceneApplyPatchTool::AISceneApplyPatchTool() {
 	service.instantiate();
 }
@@ -15,7 +40,7 @@ String AISceneApplyPatchTool::get_name() const {
 }
 
 String AISceneApplyPatchTool::get_description() const {
-	return "Applies a validated scene patch through Godot editor APIs. Use it for scene creation, node add/instantiate/delete/rename/move, and batch property edits. It never writes scene files directly.";
+	return "Applies a validated scene patch through Godot editor APIs. Use it for scene creation, node add/instantiate/rename/move, and batch property edits. Use scene.delete_node for node deletion. It never writes scene files directly.";
 }
 
 Dictionary AISceneApplyPatchTool::get_parameters_schema() const {
@@ -56,7 +81,7 @@ Dictionary AISceneApplyPatchTool::get_parameters_schema() const {
 
 	Dictionary ops_property;
 	ops_property["type"] = "array";
-	ops_property["description"] = "Ordered operations. Supported op values: add_node, instantiate_scene, set_property, set_properties, rename_node, move_node, delete_node. New nodes may define id and later ops can reference that id instead of a NodePath.";
+	ops_property["description"] = "Ordered operations. Supported op values: add_node, instantiate_scene, set_property, set_properties, rename_node, move_node. Use scene.delete_node for node deletion. New nodes may define id and later ops can reference that id instead of a NodePath.";
 	Dictionary item_schema;
 	item_schema["type"] = "object";
 	Dictionary item_properties;
@@ -69,7 +94,6 @@ Dictionary AISceneApplyPatchTool::get_parameters_schema() const {
 	op_enum.push_back("set_properties");
 	op_enum.push_back("rename_node");
 	op_enum.push_back("move_node");
-	op_enum.push_back("delete_node");
 	op_property["enum"] = op_enum;
 	item_properties["op"] = op_property;
 
@@ -155,6 +179,12 @@ AIToolResult AISceneApplyPatchTool::execute(const Dictionary &p_arguments) {
 	if (p_arguments.has("ops") && Variant(p_arguments["ops"]).get_type() != Variant::ARRAY) {
 		result.error = "ops must be an array.";
 		print_line("[AI Agent][Tool:scene.apply_patch] Failed: ops is not an array.");
+		return result;
+	}
+	String delete_node_error;
+	if (_patch_contains_delete_node(p_arguments, delete_node_error)) {
+		result.error = delete_node_error;
+		print_line(vformat("[AI Agent][Tool:scene.apply_patch] Failed: %s", result.error));
 		return result;
 	}
 	if (p_arguments.has("create_scene") && Variant(p_arguments["create_scene"]).get_type() != Variant::DICTIONARY) {

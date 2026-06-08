@@ -8,6 +8,7 @@
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
 #include "editor/ai_component/tools/editor/ai_editor_runtime_tools.h"
 #include "editor/ai_component/tools/editor/ai_scene_apply_patch_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_describe_tree_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_inspect_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_list_properties_tool.h"
@@ -73,8 +74,8 @@ void register_scene_inspection_tools(AIAgentBase *p_agent, AIToolPermission p_pe
 }
 
 void register_scene_write_tools(AIAgentBase *p_agent, AIToolPermission p_write_permission, AIToolPermission p_delete_permission, const String &p_log_prefix) {
-	(void)p_delete_permission;
 	register_tool<AISceneApplyPatchTool>(p_agent, p_write_permission, p_log_prefix);
+	register_tool<AISceneDeleteNodeTool>(p_agent, p_delete_permission, p_log_prefix);
 }
 
 void register_script_inspection_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix) {

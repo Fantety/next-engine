@@ -8,6 +8,7 @@
 static void _deny_write_tools(AIAgentProfile &r_profile) {
 	r_profile.denied_tools.insert("project.create_folder");
 	r_profile.denied_tools.insert("scene.apply_patch");
+	r_profile.denied_tools.insert("scene.delete_node");
 	r_profile.denied_tools.insert("script.create");
 	r_profile.denied_tools.insert("script.write");
 	r_profile.denied_tools.insert("script.patch_function");
