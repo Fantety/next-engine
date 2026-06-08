@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  ai_scene_create_scene_tool.h                                          */
+/*  ai_scene_apply_patch_tool.h                                           */
 /**************************************************************************/
 
 #pragma once
@@ -7,13 +7,13 @@
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_editing_service.h"
 
-class AISceneCreateSceneTool : public AITool {
-	GDCLASS(AISceneCreateSceneTool, AITool);
+class AISceneApplyPatchTool : public AITool {
+	GDCLASS(AISceneApplyPatchTool, AITool);
 
 	Ref<AISceneEditingService> service;
 
 public:
-	AISceneCreateSceneTool();
+	AISceneApplyPatchTool();
 
 	virtual String get_name() const override;
 	virtual String get_description() const override;

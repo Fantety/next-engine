@@ -117,6 +117,7 @@ public:
 	void end_force_keep_in_merge_ends();
 
 	bool is_committing_action() const;
+	void cancel_action();
 	void commit_action(bool p_execute = true);
 
 	bool redo();

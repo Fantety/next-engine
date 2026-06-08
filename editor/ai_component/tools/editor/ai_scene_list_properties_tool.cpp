@@ -15,7 +15,7 @@ String AISceneListPropertiesTool::get_name() const {
 }
 
 String AISceneListPropertiesTool::get_description() const {
-	return "Lists editable properties, types, hints, Resource expectations, current value previews, and set_property paths for a node in the current edited scene.";
+	return "Lists editable properties, types, hints, Resource expectations, current value previews, and property paths for scene.apply_patch.";
 }
 
 Dictionary AISceneListPropertiesTool::get_parameters_schema() const {

@@ -243,6 +243,17 @@ void EditorUndoRedoManager::add_undo_reference(Object *p_object) {
 	undo_redo->add_undo_reference(p_object);
 }
 
+void EditorUndoRedoManager::cancel_action() {
+	if (pending_action.history_id == INVALID_HISTORY) {
+		return;
+	}
+
+	History &history = get_or_create_history(pending_action.history_id);
+	history.undo_redo->cancel_action();
+	forced_history = false;
+	pending_action = Action();
+}
+
 void EditorUndoRedoManager::commit_action(bool p_execute) {
 	if (pending_action.history_id == INVALID_HISTORY) {
 		return; // Empty action, do nothing.

@@ -124,6 +124,7 @@ public:
 	void add_do_reference(Object *p_object);
 	void add_undo_reference(Object *p_object);
 
+	void cancel_action();
 	void commit_action(bool p_execute = true);
 	bool is_committing_action() const;
 

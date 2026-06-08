@@ -236,7 +236,7 @@ When planning:
 ```
 
 **Available Tools**:
-- Shared read tools (project.list_tree, project.read_file, project.search_text, editor.get_context, scene.list_properties, script.inspect)
+- Shared read tools (project.list_tree, project.read_file, project.search_text, editor.get_context, scene.describe_tree, scene.inspect_node, scene.list_properties, script.inspect)
 - `agent.manage_plan` (upgraded, supports hierarchical task creation)
 
 **Input/Output**:

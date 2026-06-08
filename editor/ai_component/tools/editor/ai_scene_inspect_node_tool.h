@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  ai_scene_save_current_scene_tool.h                                    */
+/*  ai_scene_inspect_node_tool.h                                          */
 /**************************************************************************/
 
 #pragma once
@@ -7,13 +7,13 @@
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_editing_service.h"
 
-class AISceneSaveCurrentSceneTool : public AITool {
-	GDCLASS(AISceneSaveCurrentSceneTool, AITool);
+class AISceneInspectNodeTool : public AITool {
+	GDCLASS(AISceneInspectNodeTool, AITool);
 
 	Ref<AISceneEditingService> service;
 
 public:
-	AISceneSaveCurrentSceneTool();
+	AISceneInspectNodeTool();
 
 	virtual String get_name() const override;
 	virtual String get_description() const override;

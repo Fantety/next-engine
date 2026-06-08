@@ -354,7 +354,7 @@ TEST_CASE("[Editor][AI] System prompt prioritizes clarification planning and pro
 	CHECK(prompt.contains("Auto mode"));
 	CHECK_FALSE(prompt.contains("Review mode"));
 	CHECK_FALSE(prompt.contains("Write mode"));
-	CHECK(prompt.contains("confirm design"));
+	CHECK(prompt.contains("structured confirmation form"));
 	CHECK(prompt.contains("agent.manage_plan"));
 	CHECK(prompt.contains("in_progress"));
 	CHECK(prompt.contains("completed"));

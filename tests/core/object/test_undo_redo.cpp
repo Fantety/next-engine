@@ -120,6 +120,37 @@ TEST_CASE("[UndoRedo] Simple Property UndoRedo") {
 	memdelete(undo_redo);
 }
 
+TEST_CASE("[UndoRedo] Cancel Action") {
+	GDREGISTER_CLASS(_TestUndoRedoObject);
+	UndoRedo *undo_redo = memnew(UndoRedo());
+
+	_TestUndoRedoObject *test_object = memnew(_TestUndoRedoObject());
+
+	undo_redo->create_action("Cancel Property");
+	undo_redo->add_do_property(test_object, "property", 10);
+	undo_redo->add_undo_property(test_object, "property", test_object->get_property());
+	undo_redo->cancel_action();
+
+	CHECK(test_object->get_property() == 0);
+	CHECK(undo_redo->get_action_level() == 0);
+	CHECK(undo_redo->get_version() == 1);
+	CHECK(undo_redo->get_history_count() == 0);
+	CHECK_FALSE(undo_redo->has_undo());
+
+	_TestUndoRedoObject *referenced_object = memnew(_TestUndoRedoObject());
+	const ObjectID referenced_id = referenced_object->get_instance_id();
+	undo_redo->create_action("Cancel Reference");
+	undo_redo->add_do_reference(referenced_object);
+	undo_redo->cancel_action();
+
+	CHECK(ObjectDB::get_instance(referenced_id) == nullptr);
+	CHECK(undo_redo->get_action_level() == 0);
+	CHECK(undo_redo->get_history_count() == 0);
+
+	memdelete(test_object);
+	memdelete(undo_redo);
+}
+
 TEST_CASE("[UndoRedo] Merge Property UndoRedo") {
 	GDREGISTER_CLASS(_TestUndoRedoObject);
 	UndoRedo *undo_redo = memnew(UndoRedo());

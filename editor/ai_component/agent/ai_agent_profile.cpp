@@ -7,15 +7,7 @@
 // 受限 profile 禁用所有会修改项目/场景/脚本/着色器状态的工具
 static void _deny_write_tools(AIAgentProfile &r_profile) {
 	r_profile.denied_tools.insert("project.create_folder");
-	r_profile.denied_tools.insert("scene.create_scene");
-	r_profile.denied_tools.insert("scene.add_node");
-	r_profile.denied_tools.insert("scene.instantiate_scene");
-	r_profile.denied_tools.insert("scene.delete_node");
-	r_profile.denied_tools.insert("scene.rename_node");
-	r_profile.denied_tools.insert("scene.move_node");
-	r_profile.denied_tools.insert("scene.set_property");
-	r_profile.denied_tools.insert("scene.save_current_scene");
-	r_profile.denied_tools.insert("scene.open_scene");
+	r_profile.denied_tools.insert("scene.apply_patch");
 	r_profile.denied_tools.insert("script.create");
 	r_profile.denied_tools.insert("script.write");
 	r_profile.denied_tools.insert("script.patch_function");

@@ -14,6 +14,7 @@
 #include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 
 class Node;
+class EditorUndoRedoManager;
 
 struct AISceneEditingResult {
 	bool success = false;
@@ -35,6 +36,9 @@ class AISceneEditingService : public AIEditorToolService {
 			OP_MOVE_NODE,
 			OP_SET_PROPERTY,
 			OP_LIST_PROPERTIES,
+			OP_INSPECT_NODE,
+			OP_DESCRIBE_TREE,
+			OP_APPLY_PATCH,
 			OP_SAVE_CURRENT_SCENE,
 			OP_OPEN_SCENE,
 		};
@@ -51,11 +55,17 @@ class AISceneEditingService : public AIEditorToolService {
 		String new_parent_path;
 		String property_path;
 		String property_filter;
+		String root_path;
+		Array property_paths;
+		Dictionary patch;
 		Variant value;
 		int position = -1;
 		int max_properties = 120;
+		int max_depth = 8;
+		int max_nodes = 200;
 		bool include_read_only = false;
 		bool include_current_values = true;
+		bool include_internal = false;
 		AISceneEditingResult result;
 		Semaphore done;
 	};
@@ -85,9 +95,18 @@ class AISceneEditingService : public AIEditorToolService {
 	bool _convert_value_for_target_type(const Variant &p_value, Variant::Type p_target_type, Variant &r_value, String &r_error) const;
 	bool _convert_dictionary_typed_value(const Dictionary &p_value, Variant::Type p_target_type, Variant &r_value, String &r_error) const;
 	bool _convert_array_typed_value(const Array &p_value, Variant::Type p_target_type, Variant &r_value, String &r_error) const;
+	bool _prepare_property_assignment(Object *p_object, const String &p_object_label, const String &p_property_path, const Variant &p_value, NodePath &r_property_path, Variant &r_current_value, Variant &r_converted_value, String &r_property_type, String &r_error) const;
+	bool _apply_properties_direct(Node *p_node, const String &p_node_label, const Dictionary &p_properties, Array &r_applied_properties, String &r_error, String *r_failed_property_path = nullptr) const;
+	bool _queue_properties_for_undo(EditorUndoRedoManager *p_undo_redo, Node *p_node, const String &p_node_label, const Dictionary &p_properties, Array &r_applied_properties, String &r_error, String *r_failed_property_path = nullptr) const;
 	bool _set_indexed_property(Object *p_object, const String &p_property_path, const Variant &p_value, String &r_error) const;
 	bool _node_tree_contains_scene_path(Node *p_node, const String &p_scene_path) const;
+	bool _validate_patch_id(const String &p_id, String &r_error) const;
+	Node *_resolve_patch_node(Node *p_scene_root, const String &p_locator, const HashMap<String, Node *> &p_created_nodes, bool p_allow_root, String &r_error) const;
+	bool _describe_node_tree(Node *p_scene_root, Node *p_node, int p_depth, int p_max_depth, int p_max_nodes, bool p_include_internal, Array &r_nodes, String &r_content) const;
 	String _preview_variant_value(const Variant &p_value) const;
+	String _format_property_not_found_error(Object *p_object, const String &p_object_label, const String &p_property_path, const Vector<StringName> &p_property_names) const;
+	bool _inspect_property_value(Node *p_node, const String &p_node_label, const String &p_property_path, Dictionary &r_property, String &r_error) const;
+	Array _get_default_inspection_property_paths(Node *p_node) const;
 	Array _get_common_subproperty_paths(const String &p_property_path, Variant::Type p_type) const;
 	String _build_resource_value_example(const PropertyInfo &p_property_info) const;
 	AISceneEditingResult _create_scene_main_thread(const String &p_root_type, const String &p_root_name, const String &p_path);
@@ -98,6 +117,9 @@ class AISceneEditingService : public AIEditorToolService {
 	AISceneEditingResult _move_node_main_thread(const String &p_node_path, const String &p_new_parent_path, int p_position);
 	AISceneEditingResult _set_property_main_thread(const String &p_node_path, const String &p_property_path, const Variant &p_value);
 	AISceneEditingResult _list_properties_main_thread(const String &p_node_path, const String &p_filter, int p_max_properties, bool p_include_read_only, bool p_include_current_values);
+	AISceneEditingResult _inspect_node_main_thread(const String &p_node_path, const Array &p_property_paths);
+	AISceneEditingResult _describe_tree_main_thread(const String &p_root_path, int p_max_depth, int p_max_nodes, bool p_include_internal);
+	AISceneEditingResult _apply_patch_main_thread(const Dictionary &p_patch);
 	AISceneEditingResult _save_current_scene_request_main_thread();
 	AISceneEditingResult _open_scene_main_thread(const String &p_path);
 	void _select_node(Node *p_node) const;
@@ -114,6 +136,9 @@ public:
 	AISceneEditingResult move_node(const String &p_node_path, const String &p_new_parent_path, int p_position);
 	AISceneEditingResult set_property(const String &p_node_path, const String &p_property_path, const Variant &p_value);
 	AISceneEditingResult list_properties(const String &p_node_path, const String &p_filter, int p_max_properties, bool p_include_read_only, bool p_include_current_values);
+	AISceneEditingResult inspect_node(const String &p_node_path, const Array &p_property_paths);
+	AISceneEditingResult describe_tree(const String &p_root_path, int p_max_depth, int p_max_nodes, bool p_include_internal);
+	AISceneEditingResult apply_patch(const Dictionary &p_patch);
 	AISceneEditingResult save_current_scene();
 	AISceneEditingResult open_scene(const String &p_path);
 };

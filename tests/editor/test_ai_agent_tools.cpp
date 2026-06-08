@@ -11,6 +11,7 @@
 #include "editor/ai_component/agent/ai_main_agent.h"
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
+#include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/next/agents/ai_next_agents.h"
 #include "editor/ai_component/next/ai_next_prompts.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
@@ -38,18 +39,14 @@
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 #include "editor/ai_component/tools/ai_mcp_tool.h"
+#include "editor/ai_component/tools/editor/ai_docs_search_tool.h"
+#include "editor/ai_component/tools/editor/ai_documentation_service.h"
 #include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 #include "editor/ai_component/tools/editor/ai_get_editor_context_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_add_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_create_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_delete_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_instantiate_scene_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_apply_patch_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_describe_tree_tool.h"
+#include "editor/ai_component/tools/editor/ai_scene_inspect_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_list_properties_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_move_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_open_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_rename_node_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_save_current_scene_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_set_property_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_bind_to_node_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_create_tool.h"
 #include "editor/ai_component/tools/editor/ai_script_delete_tool.h"
@@ -693,7 +690,7 @@ TEST_CASE("[Editor][AI] Agent profiles describe tool denylist and review behavio
 	CHECK_FALSE(ask.review_changes);
 	CHECK_FALSE(ask.denies_tool("project.read_file"));
 	CHECK(ask.denies_tool("project.create_folder"));
-	CHECK(ask.denies_tool("scene.instantiate_scene"));
+	CHECK(ask.denies_tool("scene.apply_patch"));
 	CHECK(ask.denies_tool("script.write"));
 	CHECK(ask.denies_tool("shader.delete"));
 
@@ -713,7 +710,11 @@ TEST_CASE("[Editor][AI] Prompt registry preserves Normal and NEXT prompt entrypo
 	CHECK(String(AIPrompts::get_shader_prompt()) == String(AINextPrompts::get_shader_prompt()));
 	CHECK(String(AIPrompts::get_review_prompt()) == String(AINextPrompts::get_review_prompt()));
 	CHECK(String(AIPrompts::get_system_prompt()).contains("Godot Editor"));
-	CHECK(String(AIPrompts::get_planning_prompt()).contains("NEXT planning agent"));
+	CHECK(String(AIPrompts::get_system_prompt()).contains("scene.inspect_node"));
+	CHECK(String(AIPrompts::get_system_prompt()).contains("Resource-backed properties"));
+	CHECK(String(AIPrompts::get_planning_prompt()).contains("Godot planning agent"));
+	CHECK(String(AIPrompts::get_scene_prompt()).contains("scene.inspect_node"));
+	CHECK(String(AIPrompts::get_scene_prompt()).contains("CollisionShape2D.shape"));
 }
 
 TEST_CASE("[Editor][AI] Tool factory registers shared tool groups") {
@@ -737,10 +738,14 @@ TEST_CASE("[Editor][AI] Tool factory registers shared tool groups") {
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
 	CHECK(registry->get_tool_permission("editor.get_context") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("docs.search") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("scene.describe_tree") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.inspect_node") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_DENY);
-	CHECK(registry->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission("scene.apply_patch") == AI_TOOL_PERMISSION_DENY);
+	CHECK_FALSE(registry->has_tool("scene.create_scene"));
+	CHECK_FALSE(registry->has_tool("scene.delete_node"));
 	CHECK(registry->get_tool_permission("script.inspect") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.delete") == AI_TOOL_PERMISSION_ASK);
@@ -765,8 +770,12 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("agent.manage_plan") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("editor.get_context") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_DENY);
-	CHECK(registry->get_tool_permission("scene.instantiate_scene") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("docs.search") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.describe_tree") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.inspect_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.apply_patch") == AI_TOOL_PERMISSION_DENY);
+	CHECK_FALSE(registry->has_tool("scene.create_scene"));
+	CHECK_FALSE(registry->has_tool("scene.instantiate_scene"));
 	CHECK(registry->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.inspect") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
@@ -781,15 +790,18 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(agent->get_profile().id == "auto");
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.create_scene") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.add_node") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.instantiate_scene") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.rename_node") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.move_node") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.set_property") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.save_current_scene") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(registry->get_tool_permission("scene.open_scene") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.describe_tree") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.inspect_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("scene.apply_patch") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK_FALSE(registry->has_tool("scene.create_scene"));
+	CHECK_FALSE(registry->has_tool("scene.add_node"));
+	CHECK_FALSE(registry->has_tool("scene.instantiate_scene"));
+	CHECK_FALSE(registry->has_tool("scene.delete_node"));
+	CHECK_FALSE(registry->has_tool("scene.rename_node"));
+	CHECK_FALSE(registry->has_tool("scene.move_node"));
+	CHECK_FALSE(registry->has_tool("scene.set_property"));
+	CHECK_FALSE(registry->has_tool("scene.save_current_scene"));
+	CHECK_FALSE(registry->has_tool("scene.open_scene"));
 	CHECK(registry->get_tool_permission("script.create") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.patch_function") == AI_TOOL_PERMISSION_ALLOW);
@@ -849,6 +861,12 @@ TEST_CASE("[Editor][AI] NEXT agents expose shared project context tools") {
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(scene_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
+	CHECK(scene_agent->get_tool_registry()->get_tool_permission("docs.search") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.describe_tree") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.inspect_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.apply_patch") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK_FALSE(scene_agent->get_tool_registry()->has_tool("scene.add_node"));
 
 	Ref<AINextShaderAgent> shader_agent;
 	shader_agent.instantiate();
@@ -1209,46 +1227,53 @@ TEST_CASE("[Editor][AI] Change set store drops create-then-delete review changes
 }
 
 TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
-	Ref<AISceneCreateSceneTool> create_scene;
-	create_scene.instantiate();
-	CHECK(create_scene->get_name() == "scene.create_scene");
-	Dictionary create_schema = create_scene->get_parameters_schema();
-	Dictionary create_properties = create_schema["properties"];
-	CHECK(create_properties.has("root_type"));
-	CHECK(create_properties.has("root_name"));
-	CHECK(create_properties.has("path"));
-	Array create_required = create_schema["required"];
-	CHECK(create_required.has("root_type"));
-	CHECK(create_required.has("path"));
+	Ref<AIDocsSearchTool> docs_search;
+	docs_search.instantiate();
+	CHECK(docs_search->get_name() == "docs.search");
+	Dictionary docs_schema = docs_search->get_parameters_schema();
+	Dictionary docs_properties = docs_schema["properties"];
+	CHECK(docs_properties.has("query"));
+	CHECK(docs_properties.has("class_name"));
+	CHECK(docs_properties.has("kind"));
+	CHECK(docs_properties.has("max_results"));
+	CHECK(docs_properties.has("include_descriptions"));
 
-	Ref<AISceneAddNodeTool> add_node;
-	add_node.instantiate();
-	CHECK(add_node->get_name() == "scene.add_node");
-	Dictionary add_schema = add_node->get_parameters_schema();
-	Dictionary add_properties = add_schema["properties"];
-	CHECK(add_properties.has("parent_path"));
-	CHECK(add_properties.has("type"));
-	CHECK(add_properties.has("name"));
+	Ref<AISceneDescribeTreeTool> describe_tree;
+	describe_tree.instantiate();
+	CHECK(describe_tree->get_name() == "scene.describe_tree");
+	Dictionary describe_schema = describe_tree->get_parameters_schema();
+	Dictionary describe_properties = describe_schema["properties"];
+	CHECK(describe_properties.has("root_path"));
+	CHECK(describe_properties.has("max_depth"));
+	CHECK(describe_properties.has("max_nodes"));
+	CHECK(describe_properties.has("include_internal"));
 
-	Ref<AISceneInstantiateSceneTool> instantiate_scene;
-	instantiate_scene.instantiate();
-	CHECK(instantiate_scene->get_name() == "scene.instantiate_scene");
-	Dictionary instantiate_schema = instantiate_scene->get_parameters_schema();
-	Dictionary instantiate_properties = instantiate_schema["properties"];
-	CHECK(instantiate_properties.has("parent_path"));
-	CHECK(instantiate_properties.has("scene_path"));
-	CHECK(instantiate_properties.has("name"));
-	CHECK(instantiate_properties.has("position"));
-	Array instantiate_required = instantiate_schema["required"];
-	CHECK(instantiate_required.has("parent_path"));
-	CHECK(instantiate_required.has("scene_path"));
+	Ref<AISceneInspectNodeTool> inspect_node;
+	inspect_node.instantiate();
+	CHECK(inspect_node->get_name() == "scene.inspect_node");
+	Dictionary inspect_node_schema = inspect_node->get_parameters_schema();
+	Dictionary inspect_node_properties = inspect_node_schema["properties"];
+	CHECK(inspect_node_properties.has("node_path"));
+	CHECK(inspect_node_properties.has("properties"));
+	Array inspect_node_required = inspect_node_schema["required"];
+	CHECK(inspect_node_required.has("node_path"));
 
-	Ref<AISceneDeleteNodeTool> delete_node;
-	delete_node.instantiate();
-	CHECK(delete_node->get_name() == "scene.delete_node");
-	Dictionary delete_schema = delete_node->get_parameters_schema();
-	Dictionary delete_properties = delete_schema["properties"];
-	CHECK(delete_properties.has("node_path"));
+	Ref<AISceneApplyPatchTool> apply_patch;
+	apply_patch.instantiate();
+	CHECK(apply_patch->get_name() == "scene.apply_patch");
+	Dictionary patch_schema = apply_patch->get_parameters_schema();
+	Dictionary patch_properties = patch_schema["properties"];
+	CHECK(patch_properties.has("create_scene"));
+	CHECK(patch_properties.has("ops"));
+	Dictionary ops_schema = patch_properties["ops"];
+	Dictionary op_item_schema = ops_schema["items"];
+	Dictionary op_item_properties = op_item_schema["properties"];
+	CHECK(String(Dictionary(op_item_properties["properties"]).get("description", "")).contains("resource_type"));
+	CHECK(String(Dictionary(op_item_properties["properties"]).get("description", "")).contains("CollisionShape2D.shape"));
+	Dictionary create_scene_schema = patch_properties["create_scene"];
+	Array create_scene_required = create_scene_schema["required"];
+	CHECK(create_scene_required.has("path"));
+	CHECK(create_scene_required.has("root_type"));
 
 	Ref<AISceneListPropertiesTool> list_properties;
 	list_properties.instantiate();
@@ -1260,46 +1285,6 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	CHECK(list_properties_properties.has("max_properties"));
 	CHECK(list_properties_properties.has("include_read_only"));
 	CHECK(list_properties_properties.has("include_current_values"));
-
-	Ref<AISceneRenameNodeTool> rename_node;
-	rename_node.instantiate();
-	CHECK(rename_node->get_name() == "scene.rename_node");
-	Dictionary rename_schema = rename_node->get_parameters_schema();
-	Dictionary rename_properties = rename_schema["properties"];
-	CHECK(rename_properties.has("node_path"));
-	CHECK(rename_properties.has("new_name"));
-	Array rename_required = rename_schema["required"];
-	CHECK(rename_required.has("node_path"));
-	CHECK(rename_required.has("new_name"));
-
-	Ref<AISceneMoveNodeTool> move_node;
-	move_node.instantiate();
-	CHECK(move_node->get_name() == "scene.move_node");
-	Dictionary move_schema = move_node->get_parameters_schema();
-	Dictionary move_properties = move_schema["properties"];
-	CHECK(move_properties.has("node_path"));
-	CHECK(move_properties.has("new_parent_path"));
-	CHECK(move_properties.has("position"));
-
-	Ref<AISceneSetPropertyTool> set_property;
-	set_property.instantiate();
-	CHECK(set_property->get_name() == "scene.set_property");
-	Dictionary set_schema = set_property->get_parameters_schema();
-	Dictionary set_properties = set_schema["properties"];
-	CHECK(set_properties.has("node_path"));
-	CHECK(set_properties.has("property_path"));
-	CHECK(set_properties.has("value"));
-
-	Ref<AISceneSaveCurrentSceneTool> save_current_scene;
-	save_current_scene.instantiate();
-	CHECK(save_current_scene->get_name() == "scene.save_current_scene");
-
-	Ref<AISceneOpenSceneTool> open_scene;
-	open_scene.instantiate();
-	CHECK(open_scene->get_name() == "scene.open_scene");
-	Dictionary open_schema = open_scene->get_parameters_schema();
-	Dictionary open_properties = open_schema["properties"];
-	CHECK(open_properties.has("path"));
 
 	Ref<AICreateFolderTool> create_folder;
 	create_folder.instantiate();
@@ -1418,55 +1403,30 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 }
 
 TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before touching editor state") {
-	Ref<AISceneCreateSceneTool> create_scene;
-	create_scene.instantiate();
-	Dictionary create_arguments;
-	CHECK(create_scene->execute(create_arguments).is_error());
-	create_arguments["root_type"] = "Node2D";
-	CHECK(create_scene->execute(create_arguments).is_error());
+	Ref<AIDocsSearchTool> docs_search;
+	docs_search.instantiate();
+	Dictionary docs_arguments;
+	CHECK(docs_search->execute(docs_arguments).is_error());
 
-	Ref<AISceneAddNodeTool> add_node;
-	add_node.instantiate();
-	Dictionary add_arguments;
-	CHECK(add_node->execute(add_arguments).is_error());
-
-	Ref<AISceneDeleteNodeTool> delete_node;
-	delete_node.instantiate();
-	Dictionary delete_arguments;
-	CHECK(delete_node->execute(delete_arguments).is_error());
+	Ref<AISceneApplyPatchTool> apply_patch;
+	apply_patch.instantiate();
+	Dictionary scene_patch_arguments;
+	CHECK(apply_patch->execute(scene_patch_arguments).is_error());
+	scene_patch_arguments["ops"] = "not an array";
+	CHECK(apply_patch->execute(scene_patch_arguments).is_error());
 
 	Ref<AISceneListPropertiesTool> list_properties;
 	list_properties.instantiate();
 	Dictionary list_properties_arguments;
 	CHECK(list_properties->execute(list_properties_arguments).is_error());
 
-	Ref<AISceneRenameNodeTool> rename_node;
-	rename_node.instantiate();
-	Dictionary rename_arguments;
-	CHECK(rename_node->execute(rename_arguments).is_error());
-	rename_arguments["node_path"] = "Player";
-	CHECK(rename_node->execute(rename_arguments).is_error());
-
-	Ref<AISceneMoveNodeTool> move_node;
-	move_node.instantiate();
-	Dictionary move_arguments;
-	CHECK(move_node->execute(move_arguments).is_error());
-	move_arguments["node_path"] = "Player";
-	CHECK(move_node->execute(move_arguments).is_error());
-
-	Ref<AISceneSetPropertyTool> set_property;
-	set_property.instantiate();
-	Dictionary property_arguments;
-	CHECK(set_property->execute(property_arguments).is_error());
-	property_arguments["node_path"] = "Player";
-	CHECK(set_property->execute(property_arguments).is_error());
-	property_arguments["property_path"] = "position";
-	CHECK(set_property->execute(property_arguments).is_error());
-
-	Ref<AISceneOpenSceneTool> open_scene;
-	open_scene.instantiate();
-	Dictionary open_arguments;
-	CHECK(open_scene->execute(open_arguments).is_error());
+	Ref<AISceneInspectNodeTool> inspect_node;
+	inspect_node.instantiate();
+	Dictionary inspect_node_arguments;
+	CHECK(inspect_node->execute(inspect_node_arguments).is_error());
+	inspect_node_arguments["node_path"] = ".";
+	inspect_node_arguments["properties"] = "not an array";
+	CHECK(inspect_node->execute(inspect_node_arguments).is_error());
 
 	Ref<AICreateFolderTool> create_folder;
 	create_folder.instantiate();
@@ -1564,13 +1524,49 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	CHECK(shader_apply->execute(shader_arguments).is_error());
 }
 
-TEST_CASE("[Editor][AI] Scene instantiate scene tool validates required arguments before touching editor state") {
-	Ref<AISceneInstantiateSceneTool> instantiate_scene;
-	instantiate_scene.instantiate();
-	Dictionary instantiate_arguments;
-	CHECK(instantiate_scene->execute(instantiate_arguments).is_error());
-	instantiate_arguments["parent_path"] = ".";
-	CHECK(instantiate_scene->execute(instantiate_arguments).is_error());
+TEST_CASE("[Editor][AI] Documentation service suggests writable properties for typo-like paths") {
+	Node node;
+	node.set_name("Root");
+
+	Array suggestions = AIDocumentationService::get_writable_property_suggestions(&node, "processmode", 5);
+	bool saw_process_mode = false;
+	for (int i = 0; i < suggestions.size(); i++) {
+		Dictionary suggestion = suggestions[i];
+		if (String(suggestion.get("property_path", "")) == "process_mode") {
+			saw_process_mode = true;
+			CHECK(String(suggestion.get("type", "")).is_empty() == false);
+			break;
+		}
+	}
+	CHECK(saw_process_mode);
+}
+
+TEST_CASE("[Editor][AI] Documentation search returns structured Godot class members") {
+	Ref<AIDocsSearchTool> docs_search;
+	docs_search.instantiate();
+
+	Dictionary arguments;
+	arguments["query"] = "process_mode";
+	arguments["class_name"] = "Node";
+	arguments["kind"] = "property";
+	arguments["max_results"] = 10;
+	arguments["include_descriptions"] = false;
+
+	AIToolResult result = docs_search->execute(arguments);
+	REQUIRE_FALSE(result.is_error());
+	Array results = result.metadata["results"];
+	CHECK(results.size() > 0);
+
+	bool saw_process_mode = false;
+	for (int i = 0; i < results.size(); i++) {
+		Dictionary item = results[i];
+		if (String(item.get("kind", "")) == "property" && String(item.get("class_name", "")) == "Node" && String(item.get("name", "")) == "process_mode") {
+			saw_process_mode = true;
+			CHECK(String(item.get("qualified_name", "")) == "Node.process_mode");
+			break;
+		}
+	}
+	CHECK(saw_process_mode);
 }
 
 TEST_CASE("[Editor][AI] Markdown creation tool writes project Markdown files") {
@@ -1679,9 +1675,32 @@ TEST_CASE("[Editor][AI] Editor context tool exposes safe metadata only") {
 
 	CHECK_FALSE(result.is_error());
 	CHECK(result.content.contains("Editor Context"));
+	CHECK(result.content.contains("Project viewport size"));
+	REQUIRE(result.metadata.has("display"));
+	Dictionary display = result.metadata["display"];
+	REQUIRE(display.has("project_viewport_size"));
+	Dictionary project_viewport_size = display["project_viewport_size"];
+	CHECK(int(project_viewport_size.get("width", 0)) > 0);
+	CHECK(int(project_viewport_size.get("height", 0)) > 0);
+	REQUIRE(result.metadata.has("placement_guidance"));
+	Dictionary placement_guidance = result.metadata["placement_guidance"];
+	CHECK(String(placement_guidance.get("primary_canvas_size_source", "")) == "project_viewport_size");
 	CHECK_FALSE(result.content.contains("api_key"));
 	CHECK_FALSE(result.content.contains("API Key"));
 	CHECK_FALSE(result.content.contains("Authorization"));
+}
+
+TEST_CASE("[Editor][AI] Fixed editor context includes scene sizing guidance") {
+	Ref<AIEditorContextProvider> editor_context;
+	editor_context.instantiate();
+
+	Array context = editor_context->collect_context();
+	REQUIRE(context.size() == 1);
+	Dictionary document = context[0];
+	const String content = document.get("content", "");
+	CHECK(content.contains("Project viewport size"));
+	CHECK(content.contains("Placement guidance"));
+	CHECK(String(document.get("source", "")) == "editor");
 }
 
 TEST_CASE("[Editor][AI] Runtime control tools are available to Main and Review agents") {

@@ -114,9 +114,9 @@ Main Agent (orchestrator)
 **Agent 权限模型**:
 | Agent | 可读工具 | 写入工具 |
 |-------|---------|---------|
-| Main Agent | project.*, editor.get_context, scene.list_properties, script.inspect | agent.manage_plan, agent.activate_skill + 编排工具 |
+| Main Agent | project.*, editor.get_context, scene.describe_tree, scene.inspect_node, scene.list_properties, script.inspect | agent.manage_plan, agent.activate_skill + 编排工具 |
 | Shader Agent | 共享只读工具 | shader.apply_to_node |
-| Scene Agent | 共享只读工具 | scene.create/add/delete/rename/move/set_property/save/open |
+| Scene Agent | 共享只读工具 | scene.apply_patch |
 | Script Agent | 共享只读工具 | script.create/write/patch_function/bind/unbind/delete |
 
 **评价**: ✅ 关注点分离清晰，权限模型合理。⚠️ 见下方问题。

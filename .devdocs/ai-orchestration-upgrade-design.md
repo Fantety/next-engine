@@ -236,7 +236,7 @@ When planning:
 ```
 
 **可用工具**:
-- 共享只读工具（project.list_tree, project.read_file, project.search_text, editor.get_context, scene.list_properties, script.inspect）
+- 共享只读工具（project.list_tree, project.read_file, project.search_text, editor.get_context, scene.describe_tree, scene.inspect_node, scene.list_properties, script.inspect）
 - `agent.manage_plan`（升级版，支持层级任务创建）
 
 **输入/输出**:

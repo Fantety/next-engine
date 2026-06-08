@@ -4,16 +4,15 @@
 
 #include "ai_get_editor_context_tool.h"
 
-#include "core/config/project_settings.h"
-#include "core/version.h"
 #include "core/variant/variant.h"
+#include "editor/ai_component/context/ai_editor_context_snapshot.h"
 
 String AIGetEditorContextTool::get_name() const {
 	return "editor.get_context";
 }
 
 String AIGetEditorContextTool::get_description() const {
-	return "Returns safe, read-only metadata about the current Godot editor project.";
+	return "Returns safe, read-only metadata about the current Godot editor project, scene root, and available viewport/window sizes.";
 }
 
 Dictionary AIGetEditorContextTool::get_parameters_schema() const {
@@ -29,31 +28,18 @@ AIToolResult AIGetEditorContextTool::execute(const Dictionary &p_arguments) {
 	(void)p_arguments;
 	print_line("[AI Agent][Tool:editor.get_context] Start.");
 	AIToolResult result;
-	Dictionary context_metadata;
 
-	ProjectSettings *project_settings = ProjectSettings::get_singleton();
-	String resource_path;
-	String application_name;
-	if (project_settings) {
-		resource_path = project_settings->get_resource_path();
-		application_name = GLOBAL_GET("application/config/name");
+	Ref<AIEditorContextSnapshotService> snapshot_service;
+	snapshot_service.instantiate();
+	AIEditorContextSnapshotResult snapshot = snapshot_service->collect();
+	if (!snapshot.success) {
+		result.error = snapshot.error.is_empty() ? String("Failed to collect editor context.") : snapshot.error;
+		print_line(vformat("[AI Agent][Tool:editor.get_context] Failed: %s", result.error));
+		return result;
 	}
 
-	context_metadata["resource_path"] = resource_path;
-	context_metadata["application_name"] = application_name;
-	context_metadata["engine_name"] = String(VERSION_NAME);
-	context_metadata["engine_version"] = String(VERSION_FULL_CONFIG);
-	context_metadata["capabilities"] = "read-only";
-
-	String content;
-	content += "Editor Context\n";
-	content += "Engine: " + String(VERSION_NAME) + " " + String(VERSION_FULL_CONFIG) + "\n";
-	content += "Project name: " + (application_name.is_empty() ? String("<unnamed>") : application_name) + "\n";
-	content += "Project path: " + (resource_path.is_empty() ? String("<unknown>") : resource_path) + "\n";
-	content += "Agent capabilities: read-only\n";
-
-	result.content = content;
-	result.metadata = context_metadata;
-	print_line(vformat("[AI Agent][Tool:editor.get_context] Completed. project=%s path=%s", application_name, resource_path));
+	result.content = snapshot.content;
+	result.metadata = snapshot.metadata;
+	print_line(vformat("[AI Agent][Tool:editor.get_context] Completed. project=%s path=%s", String(result.metadata.get("application_name", "")), String(result.metadata.get("resource_path", ""))));
 	return result;
 }

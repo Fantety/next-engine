@@ -310,6 +310,28 @@ bool UndoRedo::is_committing_action() const {
 	return committing > 0;
 }
 
+void UndoRedo::cancel_action() {
+	ERR_FAIL_COND(action_level <= 0);
+	ERR_FAIL_COND_MSG(merging, "Cannot cancel a merged UndoRedo action.");
+
+	action_level--;
+	if (action_level > 0) {
+		return; // Still nested.
+	}
+
+	const int pending_action = current_action + 1;
+	ERR_FAIL_INDEX(pending_action, actions.size());
+
+	for (Operation &E : actions.write[pending_action].do_ops) {
+		E.delete_reference();
+	}
+
+	actions.remove_at(pending_action);
+	force_keep_in_merge_ends = false;
+	merge_mode = MERGE_DISABLE;
+	merge_total = 0;
+}
+
 void UndoRedo::commit_action(bool p_execute) {
 	ERR_FAIL_COND(action_level <= 0);
 	action_level--;

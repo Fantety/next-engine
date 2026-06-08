@@ -1,19 +1,19 @@
 /**************************************************************************/
-/*  ai_scene_open_scene_tool.h                                            */
+/*  ai_docs_search_tool.h                                                 */
 /**************************************************************************/
 
 #pragma once
 
 #include "editor/ai_component/tools/ai_tool.h"
-#include "editor/ai_component/tools/editor/ai_scene_editing_service.h"
+#include "editor/ai_component/tools/editor/ai_documentation_service.h"
 
-class AISceneOpenSceneTool : public AITool {
-	GDCLASS(AISceneOpenSceneTool, AITool);
+class AIDocsSearchTool : public AITool {
+	GDCLASS(AIDocsSearchTool, AITool);
 
-	Ref<AISceneEditingService> service;
+	Ref<AIDocumentationService> service;
 
 public:
-	AISceneOpenSceneTool();
+	AIDocsSearchTool();
 
 	virtual String get_name() const override;
 	virtual String get_description() const override;

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  ai_scene_add_node_tool.h                                              */
+/*  ai_scene_describe_tree_tool.h                                         */
 /**************************************************************************/
 
 #pragma once
@@ -7,13 +7,13 @@
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/editor/ai_scene_editing_service.h"
 
-class AISceneAddNodeTool : public AITool {
-	GDCLASS(AISceneAddNodeTool, AITool);
+class AISceneDescribeTreeTool : public AITool {
+	GDCLASS(AISceneDescribeTreeTool, AITool);
 
 	Ref<AISceneEditingService> service;
 
 public:
-	AISceneAddNodeTool();
+	AISceneDescribeTreeTool();
 
 	virtual String get_name() const override;
 	virtual String get_description() const override;
