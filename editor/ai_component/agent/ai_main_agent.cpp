@@ -7,6 +7,7 @@
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/planning/ai_manage_plan_tool.h"
 #include "editor/ai_component/skills/ai_activate_skill_tool.h"
+#include "editor/ai_component/tools/ai_activate_tool_category_tool.h"
 #include "editor/ai_component/tools/ai_tool_factory.h"
 
 namespace {
@@ -23,6 +24,11 @@ AIMainAgent::AIMainAgent() {
 }
 
 void AIMainAgent::_register_local_tools() {
+	Ref<AIActivateToolCategoryTool> activate_tool_category_tool;
+	activate_tool_category_tool.instantiate();
+	Ref<AIToolRegistry> registry = get_tool_registry();
+	activate_tool_category_tool->setup(registry.ptr());
+	AIToolFactory::register_tool(this, activate_tool_category_tool, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_shared_project_tools(this, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_tool<AIActivateSkillTool>(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);
 	AIToolFactory::register_tool<AIManagePlanTool>(this, AI_TOOL_PERMISSION_ALLOW, MAIN_AGENT_TOOL_LOG_PREFIX);

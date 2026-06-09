@@ -135,6 +135,7 @@ void AIMCPService::register_discovered_tools(const Ref<AIToolRegistry> &p_tool_r
 			print_line(vformat("[AI Agent][MCP] Skipped cached tool because registration failed: %s server=%s source_tool=%s", tool_name, discovered_tools[i].server.display_name, discovered_tools[i].descriptor.name));
 			continue;
 		}
+		p_tool_registry->set_tool_exposure(tool_name, "mcp:" + discovered_tools[i].server.id, false);
 
 		print_line(vformat("[AI Agent][MCP] Registered tool from service cache: %s server=%s source_tool=%s", tool_name, discovered_tools[i].server.display_name, discovered_tools[i].descriptor.name));
 	}

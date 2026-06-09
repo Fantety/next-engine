@@ -34,6 +34,16 @@
 
 namespace AIToolFactory {
 
+namespace {
+
+const char *TOOL_CATEGORY_PROJECT = "project";
+const char *TOOL_CATEGORY_EDITOR_RUNTIME = "editor_runtime";
+const char *TOOL_CATEGORY_SCENE = "scene";
+const char *TOOL_CATEGORY_SCRIPT = "script";
+const char *TOOL_CATEGORY_SHADER = "shader";
+
+} // namespace
+
 bool register_tool(AIAgentBase *p_agent, const Ref<AITool> &p_tool, AIToolPermission p_permission, const String &p_log_prefix) {
 	if (!p_agent || p_tool.is_null()) {
 		return false;
@@ -47,57 +57,70 @@ bool register_tool(AIAgentBase *p_agent, const Ref<AITool> &p_tool, AIToolPermis
 	return registered;
 }
 
+bool register_tool_with_exposure(AIAgentBase *p_agent, const Ref<AITool> &p_tool, AIToolPermission p_permission, const String &p_category, bool p_pinned, const String &p_log_prefix) {
+	const bool registered = register_tool(p_agent, p_tool, p_permission, p_log_prefix);
+	if (!registered || !p_agent || p_tool.is_null()) {
+		return registered;
+	}
+
+	Ref<AIToolRegistry> registry = p_agent->get_tool_registry();
+	if (registry.is_valid()) {
+		registry->set_tool_exposure(p_tool->get_name(), p_category, p_pinned);
+	}
+	return registered;
+}
+
 void register_shared_project_tools(AIAgentBase *p_agent, const String &p_log_prefix) {
 	register_tool<AIListProjectTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 	register_tool<AIReadFileTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 	register_tool<AISearchProjectTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
-	register_tool<AIAttachMultimodalFileTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
-	register_tool<AICreateMarkdownTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
+	register_tool_with_exposure<AIAttachMultimodalFileTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, TOOL_CATEGORY_PROJECT, false, p_log_prefix);
+	register_tool_with_exposure<AICreateMarkdownTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, TOOL_CATEGORY_PROJECT, false, p_log_prefix);
 	register_tool<AIRequirementFormTool>(p_agent, AI_TOOL_PERMISSION_ASK, p_log_prefix);
 	register_tool<AIGetEditorContextTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 	register_tool<AIDocsSearchTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
 }
 
 void register_editor_runtime_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix) {
-	register_tool<AIEditorRunSceneTool>(p_agent, p_permission, p_log_prefix);
-	register_tool<AIEditorStopRunningSceneTool>(p_agent, p_permission, p_log_prefix);
-	register_tool<AIEditorGetTerminalErrorsTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, p_log_prefix);
+	register_tool_with_exposure<AIEditorRunSceneTool>(p_agent, p_permission, TOOL_CATEGORY_EDITOR_RUNTIME, false, p_log_prefix);
+	register_tool_with_exposure<AIEditorStopRunningSceneTool>(p_agent, p_permission, TOOL_CATEGORY_EDITOR_RUNTIME, false, p_log_prefix);
+	register_tool_with_exposure<AIEditorGetTerminalErrorsTool>(p_agent, AI_TOOL_PERMISSION_ALLOW, TOOL_CATEGORY_EDITOR_RUNTIME, false, p_log_prefix);
 }
 
 void register_project_write_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix) {
-	register_tool<AICreateFolderTool>(p_agent, p_permission, p_log_prefix);
+	register_tool_with_exposure<AICreateFolderTool>(p_agent, p_permission, TOOL_CATEGORY_PROJECT, false, p_log_prefix);
 }
 
 void register_scene_inspection_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix) {
-	register_tool<AISceneDescribeTreeTool>(p_agent, p_permission, p_log_prefix);
-	register_tool<AISceneInspectNodeTool>(p_agent, p_permission, p_log_prefix);
-	register_tool<AISceneListPropertiesTool>(p_agent, p_permission, p_log_prefix);
+	register_tool_with_exposure<AISceneDescribeTreeTool>(p_agent, p_permission, TOOL_CATEGORY_SCENE, false, p_log_prefix);
+	register_tool_with_exposure<AISceneInspectNodeTool>(p_agent, p_permission, TOOL_CATEGORY_SCENE, false, p_log_prefix);
+	register_tool_with_exposure<AISceneListPropertiesTool>(p_agent, p_permission, TOOL_CATEGORY_SCENE, false, p_log_prefix);
 }
 
 void register_scene_write_tools(AIAgentBase *p_agent, AIToolPermission p_write_permission, AIToolPermission p_delete_permission, const String &p_log_prefix) {
-	register_tool<AISceneApplyPatchTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AISceneDeleteNodeTool>(p_agent, p_delete_permission, p_log_prefix);
+	register_tool_with_exposure<AISceneApplyPatchTool>(p_agent, p_write_permission, TOOL_CATEGORY_SCENE, false, p_log_prefix);
+	register_tool_with_exposure<AISceneDeleteNodeTool>(p_agent, p_delete_permission, TOOL_CATEGORY_SCENE, false, p_log_prefix);
 }
 
 void register_script_inspection_tools(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix) {
-	register_tool<AIScriptInspectTool>(p_agent, p_permission, p_log_prefix);
+	register_tool_with_exposure<AIScriptInspectTool>(p_agent, p_permission, TOOL_CATEGORY_SCRIPT, false, p_log_prefix);
 }
 
 void register_script_write_tools(AIAgentBase *p_agent, AIToolPermission p_write_permission, AIToolPermission p_delete_permission, const String &p_log_prefix) {
-	register_tool<AIScriptCreateTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AIScriptWriteTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AIScriptPatchFunctionTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AIScriptBindToNodeTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AIScriptUnbindFromNodeTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AIScriptDeleteTool>(p_agent, p_delete_permission, p_log_prefix);
+	register_tool_with_exposure<AIScriptCreateTool>(p_agent, p_write_permission, TOOL_CATEGORY_SCRIPT, false, p_log_prefix);
+	register_tool_with_exposure<AIScriptWriteTool>(p_agent, p_write_permission, TOOL_CATEGORY_SCRIPT, false, p_log_prefix);
+	register_tool_with_exposure<AIScriptPatchFunctionTool>(p_agent, p_write_permission, TOOL_CATEGORY_SCRIPT, false, p_log_prefix);
+	register_tool_with_exposure<AIScriptBindToNodeTool>(p_agent, p_write_permission, TOOL_CATEGORY_SCRIPT, false, p_log_prefix);
+	register_tool_with_exposure<AIScriptUnbindFromNodeTool>(p_agent, p_write_permission, TOOL_CATEGORY_SCRIPT, false, p_log_prefix);
+	register_tool_with_exposure<AIScriptDeleteTool>(p_agent, p_delete_permission, TOOL_CATEGORY_SCRIPT, false, p_log_prefix);
 }
 
 void register_shader_tools(AIAgentBase *p_agent, AIToolPermission p_write_permission, AIToolPermission p_delete_permission, const String &p_log_prefix) {
-	register_tool<AIShaderCreateTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AIShaderEditTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AIShaderApplyToNodeTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AIShaderSetParametersTool>(p_agent, p_write_permission, p_log_prefix);
-	register_tool<AIShaderDeleteTool>(p_agent, p_delete_permission, p_log_prefix);
+	register_tool_with_exposure<AIShaderCreateTool>(p_agent, p_write_permission, TOOL_CATEGORY_SHADER, false, p_log_prefix);
+	register_tool_with_exposure<AIShaderEditTool>(p_agent, p_write_permission, TOOL_CATEGORY_SHADER, false, p_log_prefix);
+	register_tool_with_exposure<AIShaderApplyToNodeTool>(p_agent, p_write_permission, TOOL_CATEGORY_SHADER, false, p_log_prefix);
+	register_tool_with_exposure<AIShaderSetParametersTool>(p_agent, p_write_permission, TOOL_CATEGORY_SHADER, false, p_log_prefix);
+	register_tool_with_exposure<AIShaderDeleteTool>(p_agent, p_delete_permission, TOOL_CATEGORY_SHADER, false, p_log_prefix);
 }
 
 } // namespace AIToolFactory

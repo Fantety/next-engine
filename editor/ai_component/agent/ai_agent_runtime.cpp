@@ -192,6 +192,10 @@ String AIAgentRuntime::_build_system_prompt_for_profile() const {
 	} else {
 		prompt += "Mode behavior: Custom. Use the tool schemas sent with this request as the current tool list; permissions are enforced by the editor.\n";
 	}
+	if (tool_registry.is_valid()) {
+		prompt += "\n";
+		prompt += tool_registry->get_tool_context_prompt();
+	}
 	return prompt;
 }
 
@@ -345,20 +349,21 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 
 	int executed_tool_calls = 0;
 	Dictionary token_usage;
-	const Array tool_schemas = _get_available_tool_schemas();
-	print_line(vformat("[AI Agent][Runtime] Available tool schemas prepared. count=%d max_provider_turns=%d max_tool_calls=%d", tool_schemas.size(), max_provider_turns, max_tool_calls));
+	print_line(vformat("[AI Agent][Runtime] Tool runtime prepared. max_provider_turns=%d max_tool_calls=%d", max_provider_turns, max_tool_calls));
 
 	for (int turn = 0; turn < max_provider_turns; turn++) {
 		if (_finish_if_cancel_requested(result, "before_provider_turn")) {
 			return result;
 		}
 
+		const Array tool_schemas = _get_available_tool_schemas();
 		AIContextBuildResult context_result = context_manager->build_messages(_build_system_prompt_for_profile(), result.messages, p_context_documents);
 		Array provider_messages = context_result.messages;
 		result.metadata["last_context"] = context_result.metadata;
-		print_line(vformat("[AI Agent][Runtime] Provider turn started. turn=%d provider_messages=%d estimated_chars=%d omitted_history=%d truncated_tools=%d truncated_context=%d executed_tools=%d",
+		print_line(vformat("[AI Agent][Runtime] Provider turn started. turn=%d provider_messages=%d tool_schemas=%d estimated_chars=%d omitted_history=%d truncated_tools=%d truncated_context=%d executed_tools=%d",
 				turn + 1,
 				provider_messages.size(),
+				tool_schemas.size(),
 				(int)context_result.metadata.get("estimated_input_chars", 0),
 				(int)context_result.metadata.get("omitted_history_messages", 0),
 				(int)context_result.metadata.get("truncated_tool_results", 0),

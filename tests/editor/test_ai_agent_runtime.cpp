@@ -24,6 +24,7 @@
 #include "editor/ai_component/providers/ai_openai_runtime_client.h"
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
+#include "editor/ai_component/tools/ai_activate_tool_category_tool.h"
 #include "editor/ai_component/tools/ai_tool.h"
 #include "editor/ai_component/tools/ai_tool_execution_context.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
@@ -242,6 +243,7 @@ public:
 	int request_count = 0;
 	Array last_messages;
 	Array last_tool_schemas;
+	Vector<Array> tool_schema_history;
 
 	void push_response(const AIAgentRuntimeResponse &p_response) {
 		responses.push_back(p_response);
@@ -255,6 +257,7 @@ public:
 		request_count++;
 		last_messages = p_messages;
 		last_tool_schemas = p_tool_schemas;
+		tool_schema_history.push_back(p_tool_schemas.duplicate(true));
 
 		if (responses.is_empty()) {
 			AIAgentRuntimeResponse response;
@@ -271,6 +274,7 @@ public:
 		request_count++;
 		last_messages = p_messages;
 		last_tool_schemas = p_tool_schemas;
+		tool_schema_history.push_back(p_tool_schemas.duplicate(true));
 
 		for (int i = 0; i < partial_responses.size(); i++) {
 			Dictionary partial;
@@ -458,6 +462,54 @@ static bool _has_provider_tool_schema(const Array &p_tool_schemas, const String 
 		}
 	}
 	return false;
+}
+
+TEST_CASE("[Editor][AI] Runtime refreshes tool schemas after activating a tool category") {
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<AIActivateToolCategoryTool> activate_category_tool;
+	activate_category_tool.instantiate();
+	activate_category_tool->setup(registry.ptr());
+	CHECK(registry->register_tool(activate_category_tool, AI_TOOL_PERMISSION_ALLOW));
+
+	Ref<EchoRuntimeTool> echo_tool;
+	echo_tool.instantiate();
+	CHECK(registry->register_tool(echo_tool, AI_TOOL_PERMISSION_ALLOW));
+	CHECK(registry->set_tool_exposure("test.echo", "script", false));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse activate_response;
+	AIToolCall activate_call;
+	activate_call.id = "call_activate";
+	activate_call.tool_name = "agent.activate_tool_category";
+	activate_call.arguments["category"] = "script";
+	activate_response.tool_calls.push_back(activate_call);
+	client->push_response(activate_response);
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "Script tools are available.";
+	client->push_response(final_response);
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Use script tools."));
+	AIAgentRuntimeResult result = runtime->run(messages);
+
+	CHECK(result.success);
+	CHECK(result.error.is_empty());
+	CHECK(registry->get_active_tool_category() == "script");
+	REQUIRE(client->tool_schema_history.size() == 2);
+	CHECK(_has_provider_tool_schema(client->tool_schema_history[0], "agent.activate_tool_category"));
+	CHECK_FALSE(_has_provider_tool_schema(client->tool_schema_history[0], "test.echo"));
+	CHECK(_has_provider_tool_schema(client->tool_schema_history[1], "agent.activate_tool_category"));
+	CHECK(_has_provider_tool_schema(client->tool_schema_history[1], "test.echo"));
 }
 
 TEST_CASE("[Editor][AI] Best practices context provider injects static guidance document") {

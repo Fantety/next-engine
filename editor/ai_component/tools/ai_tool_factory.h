@@ -18,10 +18,16 @@ Ref<AITool> make_tool() {
 }
 
 bool register_tool(AIAgentBase *p_agent, const Ref<AITool> &p_tool, AIToolPermission p_permission, const String &p_log_prefix = String());
+bool register_tool_with_exposure(AIAgentBase *p_agent, const Ref<AITool> &p_tool, AIToolPermission p_permission, const String &p_category, bool p_pinned, const String &p_log_prefix = String());
 
 template <typename T>
 bool register_tool(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_log_prefix = String()) {
 	return register_tool(p_agent, make_tool<T>(), p_permission, p_log_prefix);
+}
+
+template <typename T>
+bool register_tool_with_exposure(AIAgentBase *p_agent, AIToolPermission p_permission, const String &p_category, bool p_pinned, const String &p_log_prefix = String()) {
+	return register_tool_with_exposure(p_agent, make_tool<T>(), p_permission, p_category, p_pinned, p_log_prefix);
 }
 
 void register_shared_project_tools(AIAgentBase *p_agent, const String &p_log_prefix = String());

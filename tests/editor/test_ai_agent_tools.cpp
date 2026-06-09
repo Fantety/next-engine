@@ -76,8 +76,10 @@ class EchoAITool : public AITool {
 	GDCLASS(EchoAITool, AITool);
 
 public:
+	String name = "test.echo";
+
 	virtual String get_name() const override {
-		return "test.echo";
+		return name;
 	}
 
 	virtual String get_description() const override {
@@ -106,6 +108,23 @@ public:
 		return result;
 	}
 };
+
+static bool _has_tool_schema(const Array &p_tool_schemas, const String &p_tool_name) {
+	for (int i = 0; i < p_tool_schemas.size(); i++) {
+		if (Variant(p_tool_schemas[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary schema = p_tool_schemas[i];
+		if (!schema.has("function") || Variant(schema["function"]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary function = schema["function"];
+		if (String(function.get("name", "")) == p_tool_name) {
+			return true;
+		}
+	}
+	return false;
+}
 
 struct TestAIEditingResult {
 	bool success = false;
@@ -238,6 +257,46 @@ TEST_CASE("[Editor][AI] Tool registry stores permissions and exposes available s
 	Dictionary function_schema = schema["function"];
 	CHECK(String(function_schema["name"]) == "test.echo");
 	CHECK(registry->get_tool_permission("missing.tool") == AI_TOOL_PERMISSION_DENY);
+}
+
+TEST_CASE("[Editor][AI] Tool registry exposes pinned tools plus the active category") {
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<EchoAITool> pinned_tool;
+	pinned_tool.instantiate();
+	pinned_tool->name = "test.pinned";
+	CHECK(registry->register_tool(pinned_tool, AI_TOOL_PERMISSION_ALLOW));
+
+	Ref<EchoAITool> category_tool;
+	category_tool.instantiate();
+	category_tool->name = "test.category";
+	CHECK(registry->register_tool(category_tool, AI_TOOL_PERMISSION_ALLOW));
+	CHECK(registry->set_tool_exposure("test.category", "script", false));
+
+	Array default_schemas = registry->get_available_tool_schemas();
+	CHECK(_has_tool_schema(default_schemas, "test.pinned"));
+	CHECK_FALSE(_has_tool_schema(default_schemas, "test.category"));
+
+	Vector<String> categories = registry->get_tool_categories();
+	REQUIRE(categories.size() == 1);
+	CHECK(categories[0] == "script");
+	CHECK(registry->set_active_tool_category("script"));
+	CHECK(registry->get_active_tool_category() == "script");
+
+	Array active_schemas = registry->get_available_tool_schemas();
+	CHECK(_has_tool_schema(active_schemas, "test.pinned"));
+	CHECK(_has_tool_schema(active_schemas, "test.category"));
+
+	String context = registry->get_tool_context_prompt();
+	CHECK(context.contains("Always available tools"));
+	CHECK(context.contains("Available tool categories"));
+	CHECK(context.contains("Active tool category: script"));
+	CHECK(context.contains("test.category"));
+
+	CHECK(registry->set_active_tool_category("none"));
+	CHECK(registry->get_active_tool_category().is_empty());
+	CHECK_FALSE(registry->set_active_tool_category("missing"));
 }
 
 TEST_CASE("[Editor][AI] Skill settings manage prompt context skills") {
@@ -765,6 +824,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
+	CHECK(registry->get_tool_permission("agent.activate_tool_category") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("agent.activate_skill") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("agent.manage_plan") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("project.create_folder") == AI_TOOL_PERMISSION_DENY);
@@ -786,6 +846,34 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("shader.set_parameters") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("unknown.tool") == AI_TOOL_PERMISSION_DENY);
+
+	CHECK(registry->is_tool_pinned("agent.activate_tool_category"));
+	CHECK(registry->is_tool_pinned("agent.manage_plan"));
+	CHECK(registry->is_tool_pinned("agent.activate_skill"));
+	CHECK(registry->is_tool_pinned("agent.collect_requirements"));
+	CHECK(registry->is_tool_pinned("editor.get_context"));
+	CHECK(registry->is_tool_pinned("docs.search"));
+	CHECK(registry->is_tool_pinned("project.list_tree"));
+	CHECK(registry->is_tool_pinned("project.read_file"));
+	CHECK(registry->is_tool_pinned("project.search_text"));
+	CHECK_FALSE(registry->is_tool_pinned("scene.describe_tree"));
+	CHECK(registry->get_tool_category("scene.describe_tree") == "scene");
+	CHECK(registry->get_tool_category("script.inspect") == "script");
+	CHECK(registry->get_tool_category("project.create_markdown") == "project");
+
+	Array default_schemas = registry->get_available_tool_schemas();
+	CHECK(_has_tool_schema(default_schemas, "agent.activate_tool_category"));
+	CHECK(_has_tool_schema(default_schemas, "project.read_file"));
+	CHECK_FALSE(_has_tool_schema(default_schemas, "scene.describe_tree"));
+	CHECK_FALSE(_has_tool_schema(default_schemas, "script.inspect"));
+
+	CHECK(registry->set_active_tool_category("scene"));
+	Array scene_schemas = registry->get_available_tool_schemas();
+	CHECK(_has_tool_schema(scene_schemas, "agent.activate_tool_category"));
+	CHECK(_has_tool_schema(scene_schemas, "project.read_file"));
+	CHECK(_has_tool_schema(scene_schemas, "scene.describe_tree"));
+	CHECK(_has_tool_schema(scene_schemas, "scene.inspect_node"));
+	CHECK_FALSE(_has_tool_schema(scene_schemas, "scene.apply_patch"));
 
 	agent->set_agent_profile_id("auto");
 	CHECK(agent->get_profile().id == "auto");
