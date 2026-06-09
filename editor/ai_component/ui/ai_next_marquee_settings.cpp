@@ -306,6 +306,32 @@ String AINextMarqueeSettings::add_custom_marquee(const String &p_display_name, c
 	return marquee.id;
 }
 
+bool AINextMarqueeSettings::update_custom_marquee(const String &p_marquee_id, const String &p_display_name, const String &p_shader_code) {
+	if (p_shader_code.strip_edges().is_empty()) {
+		return false;
+	}
+
+	Array storage = _get_custom_marquee_storage();
+	for (int i = 0; i < storage.size(); i++) {
+		if (Variant(storage[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		AINextMarqueePreset marquee = _marquee_from_dictionary(storage[i]);
+		if (marquee.id != p_marquee_id) {
+			continue;
+		}
+
+		marquee.display_name = _normalize_display_name(p_display_name);
+		marquee.shader_code = p_shader_code;
+		storage[i] = _marquee_to_dictionary(marquee);
+		_set_custom_marquee_storage(storage);
+		return true;
+	}
+
+	return false;
+}
+
 bool AINextMarqueeSettings::remove_custom_marquee(const String &p_marquee_id) {
 	Array storage = _get_custom_marquee_storage();
 	for (int i = 0; i < storage.size(); i++) {
@@ -314,9 +340,10 @@ bool AINextMarqueeSettings::remove_custom_marquee(const String &p_marquee_id) {
 		}
 		Dictionary existing = storage[i];
 		if (String(existing.get("id", String())) == p_marquee_id) {
+			const bool was_current = get_current_preset_id() == p_marquee_id;
 			storage.remove_at(i);
 			_set_custom_marquee_storage(storage);
-			if (get_current_preset_id() == p_marquee_id) {
+			if (was_current) {
 				set_current_preset_id(_get_default_preset_id());
 			}
 			return true;

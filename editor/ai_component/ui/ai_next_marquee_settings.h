@@ -37,6 +37,7 @@ public:
 	static String get_current_preset_id();
 	static bool set_current_preset_id(const String &p_preset_id);
 	static String add_custom_marquee(const String &p_display_name, const String &p_shader_code);
+	static bool update_custom_marquee(const String &p_marquee_id, const String &p_display_name, const String &p_shader_code);
 	static bool remove_custom_marquee(const String &p_marquee_id);
 	static String get_custom_shader_code();
 	static bool set_custom_shader_code(const String &p_shader_code);

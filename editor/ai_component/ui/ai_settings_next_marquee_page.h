@@ -27,15 +27,18 @@ class AISettingsNextMarqueePage : public MarginContainer {
 	TextEdit *shader_editor = nullptr;
 	Label *status_label = nullptr;
 	Vector<AINextMarqueePreset> marquee_rows;
+	String editing_marquee_id;
 
 	void _build_ui();
-	void _build_add_dialog();
+	void _build_marquee_dialog();
 	void _refresh_marquee_table();
 	void _add_marquee_table_row(const AINextMarqueePreset &p_marquee, const String &p_current_id);
 	void _select_current_marquee();
 	void _marquee_selected(const String &p_marquee_id);
 	void _popup_add_marquee_dialog();
-	void _add_marquee_confirmed();
+	void _popup_edit_marquee_dialog(const String &p_marquee_id);
+	void _marquee_dialog_confirmed();
+	void _remove_marquee_pressed(const String &p_marquee_id);
 	void _dialog_shader_changed();
 	void _apply_selected_preview_shader(const String &p_shader_code);
 	void _apply_dialog_preview_shader(const String &p_shader_code);
@@ -53,4 +56,6 @@ public:
 	int get_preset_count_for_test() const;
 	void select_preset_for_test(const String &p_preset_id);
 	String add_marquee_for_test(const String &p_display_name, const String &p_shader_code);
+	bool edit_marquee_for_test(const String &p_marquee_id, const String &p_display_name, const String &p_shader_code);
+	bool remove_marquee_for_test(const String &p_marquee_id);
 };

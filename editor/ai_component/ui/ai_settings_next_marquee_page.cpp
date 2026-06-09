@@ -110,12 +110,12 @@ void AISettingsNextMarqueePage::_build_ui() {
 	page_scroll->add_child(content);
 
 	Label *title = memnew(Label);
-	title->set_text(TTR("NEXT Marquee"));
+	title->set_text(TTR("Marquee"));
 	title->add_theme_font_size_override(SceneStringName(font_size), int(22 * EDSCALE));
 	content->add_child(title);
 
 	Label *description = memnew(Label);
-	description->set_text(TTR("Choose the loading marquee shown while the AI Agent is working. Presets are read-only; custom marquees are added from the button above the list."));
+	description->set_text(TTR("Choose the loading marquee shown while the AI Agent is working. Presets are read-only; custom marquees can be added, edited, and removed."));
 	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	content->add_child(description);
@@ -172,16 +172,16 @@ void AISettingsNextMarqueePage::_build_ui() {
 	_select_current_marquee();
 }
 
-void AISettingsNextMarqueePage::_build_add_dialog() {
+void AISettingsNextMarqueePage::_build_marquee_dialog() {
 	if (marquee_dialog) {
 		return;
 	}
 
 	marquee_dialog = memnew(ConfirmationDialog);
-	marquee_dialog->set_title(TTR("Add NEXT Marquee"));
+	marquee_dialog->set_title(TTR("Add Marquee"));
 	marquee_dialog->set_ok_button_text(TTR("Save"));
 	marquee_dialog->set_hide_on_ok(false);
-	marquee_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AISettingsNextMarqueePage::_add_marquee_confirmed));
+	marquee_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AISettingsNextMarqueePage::_marquee_dialog_confirmed));
 	add_child(marquee_dialog);
 
 	VBoxContainer *dialog_content = memnew(VBoxContainer);
@@ -245,7 +245,7 @@ void AISettingsNextMarqueePage::_refresh_marquee_table() {
 	type_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(type_header);
 
-	Label *action_header = _make_table_label(TTR("Actions"), 110);
+	Label *action_header = _make_table_label(TTR("Actions"), 250);
 	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(action_header);
 
@@ -299,13 +299,34 @@ void AISettingsNextMarqueePage::_add_marquee_table_row(const AINextMarqueePreset
 	Label *type_label = _make_table_label(p_marquee.custom ? TTR("Custom") : TTR("Preset"), 110);
 	row->add_child(type_label);
 
+	HBoxContainer *action_cell = memnew(HBoxContainer);
+	action_cell->set_custom_minimum_size(Size2(250, 0) * EDSCALE);
+	action_cell->add_theme_constant_override("separation", 6 * EDSCALE);
+	row->add_child(action_cell);
+
 	Button *use_button = memnew(Button);
 	use_button->set_text(current ? TTR("Current") : TTR("Use"));
 	use_button->set_disabled(current);
-	use_button->set_custom_minimum_size(Size2(110, 0) * EDSCALE);
+	use_button->set_custom_minimum_size(Size2(80, 0) * EDSCALE);
 	use_button->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
 	use_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsNextMarqueePage::_marquee_selected).bind(p_marquee.id), CONNECT_DEFERRED);
-	row->add_child(use_button);
+	action_cell->add_child(use_button);
+
+	if (p_marquee.custom) {
+		Button *edit_button = memnew(Button);
+		edit_button->set_text(TTR("Edit"));
+		edit_button->set_custom_minimum_size(Size2(60, 0) * EDSCALE);
+		edit_button->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+		edit_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsNextMarqueePage::_popup_edit_marquee_dialog).bind(p_marquee.id), CONNECT_DEFERRED);
+		action_cell->add_child(edit_button);
+
+		Button *remove_button = memnew(Button);
+		remove_button->set_text(TTR("Remove"));
+	remove_button->set_custom_minimum_size(Size2(90, 0) * EDSCALE);
+		remove_button->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
+		remove_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsNextMarqueePage::_remove_marquee_pressed).bind(p_marquee.id), CONNECT_DEFERRED);
+		action_cell->add_child(remove_button);
+	}
 
 	HSeparator *row_separator = memnew(HSeparator);
 	marquee_table->add_child(row_separator);
@@ -342,34 +363,80 @@ void AISettingsNextMarqueePage::_marquee_selected(const String &p_marquee_id) {
 
 void AISettingsNextMarqueePage::_popup_add_marquee_dialog() {
 	if (!marquee_dialog) {
-		_build_add_dialog();
+		_build_marquee_dialog();
 	}
 	ERR_FAIL_NULL(marquee_dialog);
 	ERR_FAIL_NULL(name_edit);
 	ERR_FAIL_NULL(shader_editor);
 
+	editing_marquee_id.clear();
+	marquee_dialog->set_title(TTR("Add Marquee"));
 	name_edit->clear();
 	shader_editor->set_text(AINextMarqueeSettings::get_preset("aurora").shader_code);
 	_apply_dialog_preview_shader(shader_editor->get_text());
 	marquee_dialog->popup_centered(Size2(760, 520) * EDSCALE);
 }
 
-void AISettingsNextMarqueePage::_add_marquee_confirmed() {
+void AISettingsNextMarqueePage::_popup_edit_marquee_dialog(const String &p_marquee_id) {
+	if (!marquee_dialog) {
+		_build_marquee_dialog();
+	}
+	ERR_FAIL_NULL(marquee_dialog);
 	ERR_FAIL_NULL(name_edit);
 	ERR_FAIL_NULL(shader_editor);
 
-	const String marquee_id = AINextMarqueeSettings::add_custom_marquee(name_edit->get_text(), shader_editor->get_text());
-	if (marquee_id.is_empty()) {
-		_set_status(TTR("Custom marquee shader cannot be empty."), true);
+	const AINextMarqueePreset marquee = AINextMarqueeSettings::get_preset(p_marquee_id);
+	if (marquee.id.is_empty() || !marquee.custom) {
 		return;
 	}
 
-	AINextMarqueeSettings::set_current_preset_id(marquee_id);
+	editing_marquee_id = marquee.id;
+	marquee_dialog->set_title(TTR("Edit Marquee"));
+	name_edit->set_text(marquee.display_name);
+	shader_editor->set_text(marquee.shader_code);
+	_apply_dialog_preview_shader(shader_editor->get_text());
+	marquee_dialog->popup_centered(Size2(760, 520) * EDSCALE);
+}
+
+void AISettingsNextMarqueePage::_marquee_dialog_confirmed() {
+	ERR_FAIL_NULL(name_edit);
+	ERR_FAIL_NULL(shader_editor);
+
+	if (editing_marquee_id.is_empty()) {
+		const String marquee_id = AINextMarqueeSettings::add_custom_marquee(name_edit->get_text(), shader_editor->get_text());
+		if (marquee_id.is_empty()) {
+			_set_status(TTR("Custom marquee shader cannot be empty."), true);
+			return;
+		}
+		AINextMarqueeSettings::set_current_preset_id(marquee_id);
+	} else {
+		if (!AINextMarqueeSettings::update_custom_marquee(editing_marquee_id, name_edit->get_text(), shader_editor->get_text())) {
+			_set_status(TTR("Could not update marquee. Custom marquee shader cannot be empty."), true);
+			return;
+		}
+		editing_marquee_id.clear();
+	}
+
 	_refresh_marquee_table();
 	_select_current_marquee();
 	if (marquee_dialog) {
 		marquee_dialog->hide();
 	}
+	_set_status(String(), false);
+	emit_signal(SNAME("settings_changed"));
+}
+
+void AISettingsNextMarqueePage::_remove_marquee_pressed(const String &p_marquee_id) {
+	if (!AINextMarqueeSettings::remove_custom_marquee(p_marquee_id)) {
+		_set_status(TTR("Could not remove marquee."), true);
+		return;
+	}
+
+	if (editing_marquee_id == p_marquee_id) {
+		editing_marquee_id.clear();
+	}
+	_refresh_marquee_table();
+	_select_current_marquee();
 	_set_status(String(), false);
 	emit_signal(SNAME("settings_changed"));
 }
@@ -432,4 +499,28 @@ String AISettingsNextMarqueePage::add_marquee_for_test(const String &p_display_n
 		emit_signal(SNAME("settings_changed"));
 	}
 	return marquee_id;
+}
+
+bool AISettingsNextMarqueePage::edit_marquee_for_test(const String &p_marquee_id, const String &p_display_name, const String &p_shader_code) {
+	_build_ui();
+	if (!AINextMarqueeSettings::update_custom_marquee(p_marquee_id, p_display_name, p_shader_code)) {
+		return false;
+	}
+
+	_refresh_marquee_table();
+	_select_current_marquee();
+	emit_signal(SNAME("settings_changed"));
+	return true;
+}
+
+bool AISettingsNextMarqueePage::remove_marquee_for_test(const String &p_marquee_id) {
+	_build_ui();
+	if (!AINextMarqueeSettings::remove_custom_marquee(p_marquee_id)) {
+		return false;
+	}
+
+	_refresh_marquee_table();
+	_select_current_marquee();
+	emit_signal(SNAME("settings_changed"));
+	return true;
 }

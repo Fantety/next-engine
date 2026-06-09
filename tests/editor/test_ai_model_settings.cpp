@@ -452,6 +452,7 @@ TEST_CASE("[Editor][AI] NEXT marquee settings provide read-only presets and mult
 
 	const String custom_shader_a = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(UV.x, UV.y, 1.0, 1.0); }\n";
 	const String custom_shader_b = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(1.0, UV.x, UV.y, 1.0); }\n";
+	const String edited_custom_shader = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(0.1, 0.9, UV.x, 1.0); }\n";
 	const String custom_a_id = AINextMarqueeSettings::add_custom_marquee("Blue Custom", custom_shader_a);
 	const String custom_b_id = AINextMarqueeSettings::add_custom_marquee("Warm Custom", custom_shader_b);
 	CHECK(!custom_a_id.is_empty());
@@ -464,6 +465,17 @@ TEST_CASE("[Editor][AI] NEXT marquee settings provide read-only presets and mult
 	CHECK(AINextMarqueeSettings::set_current_preset_id(custom_b_id));
 	CHECK(AINextMarqueeSettings::get_effective_shader_code() == custom_shader_b);
 	CHECK_FALSE(AINextMarqueeSettings::set_current_preset_id("missing_marquee"));
+	CHECK(AINextMarqueeSettings::update_custom_marquee(custom_a_id, "Edited Custom", edited_custom_shader));
+	AINextMarqueePreset edited_custom = AINextMarqueeSettings::get_preset(custom_a_id);
+	CHECK(edited_custom.display_name == "Edited Custom");
+	CHECK(edited_custom.shader_code == edited_custom_shader);
+	CHECK_FALSE(AINextMarqueeSettings::update_custom_marquee("aurora", "Edited Built-in", edited_custom_shader));
+	CHECK_FALSE(AINextMarqueeSettings::update_custom_marquee(custom_a_id, "Edited Custom", "   "));
+	CHECK(AINextMarqueeSettings::remove_custom_marquee(custom_a_id));
+	CHECK(AINextMarqueeSettings::get_preset(custom_a_id).id.is_empty());
+	CHECK_FALSE(AINextMarqueeSettings::remove_custom_marquee(custom_a_id));
+	CHECK(AINextMarqueeSettings::remove_custom_marquee(custom_b_id));
+	CHECK(AINextMarqueeSettings::get_current_preset_id() == "aurora");
 
 	AINextMarqueeSettings::set_custom_marquee_storage_for_test(original_custom_marquees);
 	AINextMarqueeSettings::set_current_preset_id(original_preset);
@@ -489,8 +501,18 @@ TEST_CASE("[Editor][AI] NEXT marquee settings dialog lists built-ins and added c
 	CHECK(!custom_id.is_empty());
 	CHECK(dialog.get_next_marquee_preset_count_for_test() == initial_marquee_count + 1);
 
+	const String edited_shader = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(0.8, 0.1, 0.4, 1.0); }\n";
+	CHECK(dialog.edit_next_marquee_for_test(custom_id, "Dialog Edited", edited_shader));
+	AINextMarqueePreset edited = AINextMarqueeSettings::get_preset(custom_id);
+	CHECK(edited.display_name == "Dialog Edited");
+	CHECK(edited.shader_code == edited_shader);
+
 	dialog.select_next_marquee_preset_for_test(custom_id);
 	CHECK(AINextMarqueeSettings::get_current_preset_id() == custom_id);
+	CHECK(dialog.remove_next_marquee_for_test(custom_id));
+	CHECK(dialog.get_next_marquee_preset_count_for_test() == initial_marquee_count);
+	CHECK(AINextMarqueeSettings::get_preset(custom_id).id.is_empty());
+	CHECK(AINextMarqueeSettings::get_current_preset_id() == "aurora");
 
 	AINextMarqueeSettings::set_custom_marquee_storage_for_test(original_custom_marquees);
 	AINextMarqueeSettings::set_current_preset_id(original_preset);

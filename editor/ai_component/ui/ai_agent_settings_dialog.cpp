@@ -92,7 +92,7 @@ void AIAgentSettingsDialog::_build_navigation(HBoxContainer *p_root) {
 	navigation->add_theme_constant_override("line_separation", int(4 * EDSCALE));
 	navigation->add_item(TTR("LLM"), get_editor_theme_icon(SNAME("AIModel")));
 	navigation->set_item_metadata(PAGE_MODELS, PAGE_MODELS);
-	navigation->add_item(TTR("NEXT Marquee"), get_editor_theme_icon(SNAME("Animation")));
+	navigation->add_item(TTR("Marquee"), get_editor_theme_icon(SNAME("Animation")));
 	navigation->set_item_metadata(PAGE_NEXT_MARQUEE, PAGE_NEXT_MARQUEE);
 	navigation->add_item(TTR("MCP"), get_editor_theme_icon(SNAME("AIMCP")));
 	navigation->set_item_metadata(PAGE_MCP, PAGE_MCP);
@@ -118,7 +118,7 @@ void AIAgentSettingsDialog::_build_pages(HBoxContainer *p_root) {
 	pages->add_child(models_page);
 
 	next_marquee_page = memnew(AISettingsNextMarqueePage);
-	next_marquee_page->set_name(TTR("NEXT Marquee"));
+	next_marquee_page->set_name(TTR("Marquee"));
 	next_marquee_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_next_marquee_settings));
 	pages->add_child(next_marquee_page);
 
@@ -273,6 +273,16 @@ void AIAgentSettingsDialog::select_next_marquee_preset_for_test(const String &p_
 String AIAgentSettingsDialog::add_next_marquee_for_test(const String &p_display_name, const String &p_shader_code) {
 	ERR_FAIL_NULL_V(next_marquee_page, String());
 	return next_marquee_page->add_marquee_for_test(p_display_name, p_shader_code);
+}
+
+bool AIAgentSettingsDialog::edit_next_marquee_for_test(const String &p_marquee_id, const String &p_display_name, const String &p_shader_code) {
+	ERR_FAIL_NULL_V(next_marquee_page, false);
+	return next_marquee_page->edit_marquee_for_test(p_marquee_id, p_display_name, p_shader_code);
+}
+
+bool AIAgentSettingsDialog::remove_next_marquee_for_test(const String &p_marquee_id) {
+	ERR_FAIL_NULL_V(next_marquee_page, false);
+	return next_marquee_page->remove_marquee_for_test(p_marquee_id);
 }
 
 void AIAgentSettingsDialog::edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {

@@ -70,6 +70,8 @@ public:
 	void add_rule_for_test(const String &p_content, bool p_enabled = true);
 	void select_next_marquee_preset_for_test(const String &p_preset_id);
 	String add_next_marquee_for_test(const String &p_display_name, const String &p_shader_code);
+	bool edit_next_marquee_for_test(const String &p_marquee_id, const String &p_display_name, const String &p_shader_code);
+	bool remove_next_marquee_for_test(const String &p_marquee_id);
 	void edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key);
 	void edit_custom_model_for_test(const String &p_current_model, const String &p_new_model, const String &p_base_url, const String &p_api_key);
 	void remove_custom_model_for_test(const String &p_provider_id, const String &p_model);
