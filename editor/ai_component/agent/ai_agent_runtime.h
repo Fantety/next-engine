@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "core/os/mutex.h"
+#include "core/os/safe_binary_mutex.h"
 #include "core/object/ref_counted.h"
 #include "core/templates/vector.h"
 #include "core/variant/array.h"
@@ -14,6 +16,7 @@
 #include "editor/ai_component/agent/ai_context_manager.h"
 #include "editor/ai_component/agent/ai_agent_profile.h"
 #include "editor/ai_component/tools/ai_tool_call.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 
 struct AIAgentRuntimeResponse {
@@ -58,6 +61,9 @@ class AIAgentRuntime : public RefCounted {
 	Callable message_updated_callback;
 	AIAgentRuntimeResult *streaming_result = nullptr;
 	int streaming_assistant_message_index = -1;
+	SafeFlag cancel_requested;
+	Mutex active_tool_context_mutex;
+	Ref<AIToolExecutionContext> active_tool_context;
 	int max_provider_turns = 255;
 	int max_tool_calls = 60;
 
@@ -69,6 +75,9 @@ class AIAgentRuntime : public RefCounted {
 	String _make_tool_failure_message(const String &p_tool_name, const String &p_reason) const;
 	void _emit_message_added(int p_index, const AIAgentMessage &p_message) const;
 	void _emit_message_updated(int p_index, const AIAgentMessage &p_message) const;
+	bool _finish_if_cancel_requested(AIAgentRuntimeResult &r_result, const String &p_stage) const;
+	void _set_active_tool_context(const Ref<AIToolExecutionContext> &p_context);
+	void _clear_active_tool_context(const Ref<AIToolExecutionContext> &p_context);
 	void _on_provider_partial_response(const Dictionary &p_response);
 
 protected:
@@ -103,6 +112,9 @@ public:
 
 	void set_progress_callbacks(const Callable &p_message_added_callback, const Callable &p_message_updated_callback);
 	void clear_progress_callbacks();
+	void request_cancel();
+	void clear_cancel_request();
+	bool is_cancel_requested() const;
 
 	AIAgentRuntimeResult run(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents = Array());
 };

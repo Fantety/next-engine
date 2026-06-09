@@ -25,6 +25,7 @@
 #include "editor/ai_component/storage/ai_conversation_serializer.h"
 #include "editor/ai_component/storage/ai_conversation_store.h"
 #include "editor/ai_component/tools/ai_tool.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 #include "editor/ai_component/tools/ai_tool_permission.h"
 #include "editor/ai_component/tools/ai_tool_registry.h"
 #include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
@@ -123,6 +124,7 @@ public:
 	Semaphore execute_started;
 	Semaphore release_execute;
 	int execute_count = 0;
+	bool context_cancel_requested = false;
 
 	virtual String get_name() const override {
 		return "test.blocking_echo";
@@ -148,6 +150,8 @@ public:
 		execute_count++;
 		execute_started.post();
 		release_execute.wait();
+		Ref<AIToolExecutionContext> context = AIToolExecutionContext::get_current();
+		context_cancel_requested = context.is_valid() && context->is_cancel_requested();
 
 		AIToolResult result;
 		result.content = String(p_arguments.get("value", ""));
@@ -2658,6 +2662,60 @@ TEST_CASE("[Editor][AI] Agent runtime fails closed when tool iteration limit is 
 	CHECK(result.error.contains("turn limit"));
 	CHECK(client->request_count == 2);
 	CHECK(echo_tool->execute_count == 2);
+}
+
+TEST_CASE("[Editor][AI] Agent runtime runner cancels after an active automatic tool returns") {
+	Ref<BlockingRuntimeTool> blocking_tool;
+	blocking_tool.instantiate();
+
+	Ref<AIToolRegistry> registry;
+	registry.instantiate();
+	CHECK(registry->register_tool(blocking_tool, AI_TOOL_PERMISSION_ALLOW));
+
+	Ref<ScriptedRuntimeClient> client;
+	client.instantiate();
+
+	AIAgentRuntimeResponse tool_response;
+	AIToolCall call;
+	call.id = "call_cancel_auto_tool";
+	call.tool_name = "test.blocking_echo";
+	call.arguments["value"] = "cancelled value";
+	tool_response.tool_calls.push_back(call);
+	client->push_response(tool_response);
+
+	AIAgentRuntimeResponse final_response;
+	final_response.content = "This continuation should not run.";
+	client->push_response(final_response);
+
+	Ref<AIAgentRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_client(client);
+	runtime->set_tool_registry(registry);
+	runtime->set_profile(_make_test_profile(false));
+
+	Ref<AIAgentRuntimeRunner> runner;
+	runner.instantiate();
+	runner->set_runtime(runtime);
+
+	Vector<AIAgentMessage> messages;
+	messages.push_back(_make_user_message("Run a blocking automatic tool."));
+
+	CHECK(runner->start(messages));
+	REQUIRE(wait_for_semaphore(blocking_tool->execute_started));
+	runner->cancel();
+	blocking_tool->release_execute.post();
+	runner->wait_to_finish();
+
+	CHECK_FALSE(runner->is_running());
+	CHECK(blocking_tool->execute_count == 1);
+	CHECK(blocking_tool->context_cancel_requested);
+	CHECK(client->request_count == 1);
+
+	AIAgentRuntimeResult result = runner->get_last_result();
+	CHECK_FALSE(result.success);
+	CHECK(result.error.contains("cancel"));
+	CHECK(bool(result.metadata.get("cancelled", false)));
+	CHECK(String(result.metadata.get("cancel_stage", "")) == "after_tool_execution");
 }
 
 TEST_CASE("[Editor][AI] Agent runtime runner executes runtime on a background thread") {

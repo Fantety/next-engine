@@ -189,6 +189,9 @@ void AIAgentSession::send_user_message(const String &p_message, const Array &p_a
 void AIAgentSession::cancel_request() {
 	if (state == AI_AGENT_STATE_STREAMING || state == AI_AGENT_STATE_PREPARING_CONTEXT) {
 		print_line(vformat("[AI Agent][Session] Cancelling active request. state=%d", (int)state));
+		if (runtime_runner.is_valid()) {
+			runtime_runner->cancel();
+		}
 		turn_generation++;
 		if (runtime_runner.is_valid() && runtime_runner->is_running() && active_assistant_index >= 0 && active_assistant_index < messages.size() && messages[active_assistant_index].content.is_empty()) {
 			_remove_message_at(active_assistant_index);

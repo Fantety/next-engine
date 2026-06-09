@@ -38,6 +38,7 @@ bool AIAgentRuntimeRunner::start(const Vector<AIAgentMessage> &p_messages, const
 	if (thread.is_started()) {
 		thread.wait_to_finish();
 	}
+	runtime->clear_cancel_request();
 
 	ThreadParams *params = memnew(ThreadParams);
 	params->runner = Ref<AIAgentRuntimeRunner>(this);
@@ -47,6 +48,12 @@ bool AIAgentRuntimeRunner::start(const Vector<AIAgentMessage> &p_messages, const
 	running.set();
 	thread.start(_thread_func, params);
 	return true;
+}
+
+void AIAgentRuntimeRunner::cancel() {
+	if (runtime.is_valid()) {
+		runtime->request_cancel();
+	}
 }
 
 void AIAgentRuntimeRunner::wait_to_finish() {

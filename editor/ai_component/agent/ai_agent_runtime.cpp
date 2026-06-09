@@ -155,6 +155,26 @@ void AIAgentRuntime::clear_progress_callbacks() {
 	message_updated_callback = Callable();
 }
 
+void AIAgentRuntime::request_cancel() {
+	cancel_requested.set();
+	MutexLock lock(active_tool_context_mutex);
+	if (active_tool_context.is_valid()) {
+		active_tool_context->request_cancel();
+	}
+}
+
+void AIAgentRuntime::clear_cancel_request() {
+	cancel_requested.clear();
+	MutexLock lock(active_tool_context_mutex);
+	if (active_tool_context.is_valid()) {
+		active_tool_context->clear_cancel_request();
+	}
+}
+
+bool AIAgentRuntime::is_cancel_requested() const {
+	return cancel_requested.is_set();
+}
+
 String AIAgentRuntime::_build_system_prompt_for_profile() const {
 	String prompt = system_prompt;
 	prompt += "\nCurrent agent profile: ";
@@ -232,8 +252,36 @@ void AIAgentRuntime::_emit_message_updated(int p_index, const AIAgentMessage &p_
 	}
 }
 
+bool AIAgentRuntime::_finish_if_cancel_requested(AIAgentRuntimeResult &r_result, const String &p_stage) const {
+	if (!is_cancel_requested()) {
+		return false;
+	}
+
+	r_result.success = false;
+	r_result.error = "Agent run cancelled.";
+	r_result.metadata["cancelled"] = true;
+	r_result.metadata["cancel_stage"] = p_stage;
+	print_line(vformat("[AI Agent][Runtime] Run cancelled. stage=%s result_messages=%d tool_calls=%d", p_stage, r_result.messages.size(), r_result.tool_calls.size()));
+	return true;
+}
+
+void AIAgentRuntime::_set_active_tool_context(const Ref<AIToolExecutionContext> &p_context) {
+	MutexLock lock(active_tool_context_mutex);
+	active_tool_context = p_context;
+	if (cancel_requested.is_set() && active_tool_context.is_valid()) {
+		active_tool_context->request_cancel();
+	}
+}
+
+void AIAgentRuntime::_clear_active_tool_context(const Ref<AIToolExecutionContext> &p_context) {
+	MutexLock lock(active_tool_context_mutex);
+	if (active_tool_context == p_context) {
+		active_tool_context.unref();
+	}
+}
+
 void AIAgentRuntime::_on_provider_partial_response(const Dictionary &p_response) {
-	if (!streaming_result) {
+	if (!streaming_result || is_cancel_requested()) {
 		return;
 	}
 
@@ -301,6 +349,10 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 	print_line(vformat("[AI Agent][Runtime] Available tool schemas prepared. count=%d max_provider_turns=%d max_tool_calls=%d", tool_schemas.size(), max_provider_turns, max_tool_calls));
 
 	for (int turn = 0; turn < max_provider_turns; turn++) {
+		if (_finish_if_cancel_requested(result, "before_provider_turn")) {
+			return result;
+		}
+
 		AIContextBuildResult context_result = context_manager->build_messages(_build_system_prompt_for_profile(), result.messages, p_context_documents);
 		Array provider_messages = context_result.messages;
 		result.metadata["last_context"] = context_result.metadata;
@@ -316,6 +368,11 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 		streaming_assistant_message_index = -1;
 		AIAgentRuntimeResponse response = client->complete_streaming(provider_messages, tool_schemas, callable_mp(this, &AIAgentRuntime::_on_provider_partial_response));
 		streaming_result = nullptr;
+
+		if (_finish_if_cancel_requested(result, "after_provider_turn")) {
+			streaming_assistant_message_index = -1;
+			return result;
+		}
 
 		if (!response.error.is_empty()) {
 			streaming_assistant_message_index = -1;
@@ -377,6 +434,10 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 		print_line(vformat("[AI Agent][Runtime] Assistant tool-call message appended. tool_calls=%d", response.tool_calls.size()));
 
 		for (int i = 0; i < response.tool_calls.size(); i++) {
+			if (_finish_if_cancel_requested(result, "before_tool_call")) {
+				return result;
+			}
+
 			if (executed_tool_calls >= max_tool_calls) {
 				result.error = "Agent tool call limit exceeded.";
 				print_line(vformat("[AI Agent][Runtime] Tool call limit exceeded. max_tool_calls=%d", max_tool_calls));
@@ -496,9 +557,16 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			tool_context->set_review_changes(profile.review_changes);
 			tool_context->set_session_id(session_id);
 			tool_context->set_tool_call_id(call.id);
+			_set_active_tool_context(tool_context);
 			AIToolExecutionContext::set_current(tool_context);
 			AIToolResult tool_result = tool->execute(call.arguments);
 			AIToolExecutionContext::clear_current();
+			_clear_active_tool_context(tool_context);
+
+			if (_finish_if_cancel_requested(result, "after_tool_execution")) {
+				return result;
+			}
+
 			result_metadata = tool_result.metadata;
 			result_metadata["truncated"] = tool_result.truncated;
 

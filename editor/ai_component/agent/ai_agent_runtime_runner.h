@@ -50,6 +50,7 @@ public:
 	Ref<AIAgentRuntime> get_runtime() const;
 
 	bool start(const Vector<AIAgentMessage> &p_messages, const Array &p_context_documents = Array());
+	void cancel();
 	void wait_to_finish();
 	bool is_running() const;
 	AIAgentRuntimeResult get_last_result() const;

@@ -52,3 +52,15 @@ void AIToolExecutionContext::set_review_changes(bool p_review_changes) {
 bool AIToolExecutionContext::should_review_changes() const {
 	return review_changes;
 }
+
+void AIToolExecutionContext::request_cancel() {
+	cancel_requested.set();
+}
+
+void AIToolExecutionContext::clear_cancel_request() {
+	cancel_requested.clear();
+}
+
+bool AIToolExecutionContext::is_cancel_requested() const {
+	return cancel_requested.is_set();
+}

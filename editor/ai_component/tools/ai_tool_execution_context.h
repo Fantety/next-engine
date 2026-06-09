@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "core/os/safe_binary_mutex.h"
 #include "core/object/ref_counted.h"
 #include "core/string/ustring.h"
 
@@ -13,6 +14,7 @@ class AIToolExecutionContext : public RefCounted {
 	String session_id;
 	String agent_profile_id;
 	String tool_call_id;
+	SafeFlag cancel_requested;
 	bool review_changes = false;
 
 	static thread_local Ref<AIToolExecutionContext> current;
@@ -36,4 +38,8 @@ public:
 
 	void set_review_changes(bool p_review_changes);
 	bool should_review_changes() const;
+
+	void request_cancel();
+	void clear_cancel_request();
+	bool is_cancel_requested() const;
 };
