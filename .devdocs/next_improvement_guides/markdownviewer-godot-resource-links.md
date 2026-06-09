@@ -57,4 +57,4 @@ Later, optionally auto-link plain `res://` text.
 
 ## First Implementation Step
 
-Add a resource-link callback path to `MarkdownViewer`, then wire it in NEXT report views for explicit markdown links.
+Add a resource-link callback path to `MarkdownViewer`, then wire it into AI report views for explicit markdown links.

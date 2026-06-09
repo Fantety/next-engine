@@ -9228,8 +9228,6 @@ EditorNode::EditorNode() {
 
 	history_dock = memnew(HistoryDock);
 	ai_dock = memnew(AIAgentDock);
-	EditorRunBar::get_singleton()->connect("next_mode_toggled", callable_mp(ai_dock, &AIAgentDock::set_next_mode_enabled));
-	ai_dock->set_next_mode_enabled(EditorRunBar::get_singleton()->is_next_mode_enabled());
 	editor_dock_manager->add_dock(history_dock);
 	editor_dock_manager->add_dock(ai_dock);
 

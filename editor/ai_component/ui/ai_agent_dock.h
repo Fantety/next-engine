@@ -9,7 +9,6 @@
 #include "editor/ai_component/agent/ai_agent_session.h"
 #include "editor/ai_component/ui/ai_change_review_panel.h"
 #include "editor/ai_component/ui/ai_composer.h"
-#include "editor/ai_component/ui/ai_mode_panel.h"
 #include "editor/ai_component/ui/ai_message_list.h"
 #include "scene/gui/button.h"
 #include "scene/gui/label.h"
@@ -21,6 +20,7 @@ class ColorRect;
 class AIRequirementFormDialog;
 class ItemList;
 class PopupPanel;
+class VBoxContainer;
 
 class AIAgentDock : public EditorDock {
 	GDCLASS(AIAgentDock, EditorDock);
@@ -44,13 +44,11 @@ class AIAgentDock : public EditorDock {
 	Label *token_usage_label = nullptr;
 	AIComposer *composer = nullptr;
 	AIAgentSession *session = nullptr;
-	AIModePanel *normal_panel = nullptr;
-	AIModePanel *next_panel = nullptr;
+	VBoxContainer *normal_panel = nullptr;
 	String pending_delete_session_id;
 	Dictionary pending_tool_approval;
 	bool mcp_failure_toast_visible = false;
 	bool session_list_refresh_queued = false;
-	StringName active_mode_name;
 
 	static inline AIAgentDock *singleton = nullptr;
 
@@ -95,7 +93,6 @@ class AIAgentDock : public EditorDock {
 	void _clear_request_progress_material();
 	String _format_token_count(int p_tokens) const;
 	AIProviderConfig _get_provider_config(const String &p_model_id) const;
-	void _activate_mode(const StringName &p_mode_name);
 
 protected:
 	static void _bind_methods();
@@ -105,6 +102,4 @@ public:
 	AIAgentDock();
 	~AIAgentDock();
 	static AIAgentDock *get_singleton();
-	void set_next_mode_enabled(bool p_enabled);
-	bool is_next_mode_enabled() const;
 };

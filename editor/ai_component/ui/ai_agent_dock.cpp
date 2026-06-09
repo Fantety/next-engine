@@ -18,7 +18,6 @@
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_next_marquee_settings.h"
 #include "editor/ai_component/ui/ai_requirement_form_dialog.h"
-#include "editor/ai_component/ui/next/ai_agent_next_dock.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/settings/editor_command_palette.h"
 #include "editor/themes/editor_scale.h"
@@ -106,8 +105,6 @@ Ref<ShaderMaterial> _make_request_progress_material() {
 } // namespace
 
 void AIAgentDock::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("set_next_mode_enabled", "enabled"), &AIAgentDock::set_next_mode_enabled);
-	ClassDB::bind_method(D_METHOD("is_next_mode_enabled"), &AIAgentDock::is_next_mode_enabled);
 }
 
 void AIAgentDock::_notification(int p_what) {
@@ -150,7 +147,7 @@ AIAgentDock::AIAgentDock() {
 	set_dock_shortcut(ED_SHORTCUT_AND_COMMAND("docks/open_ai_agent", TTRC("Open AI Agent Dock")));
 	set_default_slot(EditorDock::DOCK_SLOT_RIGHT_UL);
 
-	normal_panel = memnew(AIModePanel);
+	normal_panel = memnew(VBoxContainer);
 	normal_panel->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	normal_panel->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	normal_panel->add_theme_constant_override("separation", 8 * EDSCALE);
@@ -282,7 +279,6 @@ AIAgentDock::AIAgentDock() {
 
 	if (AIAgentSettingsDialog::get_singleton()) {
 		AIAgentSettingsDialog::get_singleton()->connect("ai_settings_changed", callable_mp(this, &AIAgentDock::_settings_changed));
-		AIAgentSettingsDialog::get_singleton()->connect("ai_next_settings_changed", callable_mp(this, &AIAgentDock::_settings_changed));
 		AIAgentSettingsDialog::get_singleton()->connect("ai_next_marquee_settings_changed", callable_mp(this, &AIAgentDock::_next_marquee_settings_changed));
 		AIAgentSettingsDialog::get_singleton()->connect("ai_mcp_settings_changed", callable_mp(this, &AIAgentDock::_mcp_settings_changed));
 		AIAgentSettingsDialog::get_singleton()->connect("ai_skill_settings_changed", callable_mp(this, &AIAgentDock::_skill_settings_changed));
@@ -299,13 +295,6 @@ AIAgentDock::AIAgentDock() {
 	_refresh_session_list();
 	_refresh_mcp_status_button();
 	_refresh_skill_status_button();
-
-	next_panel = memnew(AIAgentNextDock);
-	next_panel->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	next_panel->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-	next_panel->hide();
-	add_child(next_panel);
-	_activate_mode(SNAME("normal"));
 }
 
 AIAgentDock::~AIAgentDock() {
@@ -317,46 +306,6 @@ AIAgentDock::~AIAgentDock() {
 
 AIAgentDock *AIAgentDock::get_singleton() {
 	return singleton;
-}
-
-void AIAgentDock::set_next_mode_enabled(bool p_enabled) {
-	_activate_mode(p_enabled ? SNAME("next") : SNAME("normal"));
-	if (p_enabled) {
-		make_visible();
-	}
-}
-
-bool AIAgentDock::is_next_mode_enabled() const {
-	return active_mode_name == SNAME("next");
-}
-
-void AIAgentDock::_activate_mode(const StringName &p_mode_name) {
-	if (active_mode_name == p_mode_name) {
-		return;
-	}
-
-	AIModePanel *target_panel = nullptr;
-	if (p_mode_name == SNAME("next")) {
-		target_panel = next_panel;
-	} else if (p_mode_name == SNAME("normal")) {
-		target_panel = normal_panel;
-	}
-	ERR_FAIL_NULL(target_panel);
-
-	AIModePanel *previous_panel = nullptr;
-	if (active_mode_name == SNAME("next")) {
-		previous_panel = next_panel;
-	} else if (active_mode_name == SNAME("normal")) {
-		previous_panel = normal_panel;
-	}
-	if (previous_panel) {
-		previous_panel->on_deactivated();
-		previous_panel->hide();
-	}
-
-	active_mode_name = p_mode_name;
-	target_panel->show();
-	target_panel->on_activated();
 }
 
 void AIAgentDock::_send_requested(const String &p_message, const String &p_model, const String &p_agent_profile_id, const Array &p_attachments) {
@@ -453,9 +402,6 @@ void AIAgentDock::_mcp_status_changed(const Array &p_statuses, const Dictionary 
 
 void AIAgentDock::_settings_changed() {
 	composer->reload_models();
-	if (next_panel) {
-		next_panel->apply_settings();
-	}
 	_refresh_request_progress_material();
 }
 

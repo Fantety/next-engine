@@ -2159,13 +2159,13 @@ TEST_CASE("[Editor][AI] OpenAI-compatible stream accumulator keeps invalid tool 
 	AIOpenAICompatibleStreamAccumulator accumulator;
 	AIOpenAIStreamParseResult result;
 
-	CHECK(accumulator.apply_event("{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_plan\",\"type\":\"function\",\"function\":{\"name\":\"ai_next_manage_project\",\"arguments\":\"{\\\"action\\\":\"}}]},\"finish_reason\":null}]}", result));
+	CHECK(accumulator.apply_event("{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_read\",\"type\":\"function\",\"function\":{\"name\":\"project_read_file\",\"arguments\":\"{\\\"path\\\":\"}}]},\"finish_reason\":null}]}", result));
 	CHECK(accumulator.apply_event("{\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}", result));
 	CHECK(result.done);
 	CHECK(result.error.is_empty());
 	REQUIRE(result.response.tool_calls.size() == 1);
-	CHECK(result.response.tool_calls[0].id == "call_plan");
-	CHECK(result.response.tool_calls[0].tool_name == "ai_next_manage_project");
+	CHECK(result.response.tool_calls[0].id == "call_read");
+	CHECK(result.response.tool_calls[0].tool_name == "project_read_file");
 	CHECK(result.response.tool_calls[0].status == AI_TOOL_CALL_STATUS_FAILED);
 	CHECK(String(result.response.tool_calls[0].arguments.get("_provider_tool_arguments_parse_error", String())).contains("Failed to parse provider tool arguments"));
 }

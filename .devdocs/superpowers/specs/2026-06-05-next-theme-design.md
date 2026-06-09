@@ -12,7 +12,7 @@ The implementation should add a new theme style rather than rewriting controls o
 - Keep the implementation low-intrusion by adding a new theme builder and narrow registration points.
 - Avoid modifying AI feature logic, user system logic, scene GUI behavior, or existing Godot editor controls.
 - Make the theme visibly distinct from Godot's default theme through color, shape, contrast, and spacing.
-- Preserve usability in the editor, script editor, inspector, docks, output panel, and AI/NEXT panels.
+- Preserve usability in the editor, script editor, inspector, docks, output panel, and AI panels.
 
 ## Non-Goals
 
@@ -175,7 +175,7 @@ Manual verification should cover:
 - Color preset appears in the color preset dropdown.
 - Switching between Modern, Classic, and Next Mono regenerates the theme without restart.
 - Editor startup with Next Mono selected succeeds.
-- Main editor, scene dock, inspector, filesystem dock, output panel, script editor, project settings, popups, and AI/NEXT panels are readable.
+- Main editor, scene dock, inspector, filesystem dock, output panel, script editor, project settings, popups, and AI panels are readable.
 - Focus rings, selected rows, disabled controls, and hover states are visible.
 - Text editor syntax highlighting remains legible.
 - No accidental changes to AI runtime behavior, user auth behavior, or MarkdownViewer node behavior.

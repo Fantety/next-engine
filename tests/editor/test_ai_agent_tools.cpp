@@ -12,8 +12,6 @@
 #include "editor/ai_component/agent/ai_mcp_service.h"
 #include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
 #include "editor/ai_component/context/ai_editor_context_provider.h"
-#include "editor/ai_component/next/agents/ai_next_agents.h"
-#include "editor/ai_component/next/ai_next_prompts.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
 #include "editor/ai_component/providers/ai_mcp_protocol.h"
@@ -709,21 +707,12 @@ TEST_CASE("[Editor][AI] Agent profiles describe tool denylist and review behavio
 	CHECK_FALSE(auto_profile.denies_tool("shader.delete"));
 }
 
-TEST_CASE("[Editor][AI] Prompt registry preserves Normal and NEXT prompt entrypoints") {
+TEST_CASE("[Editor][AI] Prompt registry preserves the normal agent system prompt entrypoint") {
 	CHECK(String(AIPrompts::get_system_prompt()) == String(AIAgentPrompts::SYSTEM_PROMPT));
-	CHECK(String(AIPrompts::get_planning_prompt()) == String(AINextPrompts::get_planning_prompt()));
-	CHECK(String(AIPrompts::get_script_prompt()) == String(AINextPrompts::get_script_prompt()));
-	CHECK(String(AIPrompts::get_scene_prompt()) == String(AINextPrompts::get_scene_prompt()));
-	CHECK(String(AIPrompts::get_shader_prompt()) == String(AINextPrompts::get_shader_prompt()));
-	CHECK(String(AIPrompts::get_review_prompt()) == String(AINextPrompts::get_review_prompt()));
 	CHECK(String(AIPrompts::get_system_prompt()).contains("Godot Editor"));
 	CHECK(String(AIPrompts::get_system_prompt()).contains("scene.inspect_node"));
 	CHECK(String(AIPrompts::get_system_prompt()).contains("scene.delete_node"));
 	CHECK(String(AIPrompts::get_system_prompt()).contains("Resource-backed properties"));
-	CHECK(String(AIPrompts::get_planning_prompt()).contains("Godot planning agent"));
-	CHECK(String(AIPrompts::get_scene_prompt()).contains("scene.inspect_node"));
-	CHECK(String(AIPrompts::get_scene_prompt()).contains("scene.delete_node"));
-	CHECK(String(AIPrompts::get_scene_prompt()).contains("CollisionShape2D.shape"));
 }
 
 TEST_CASE("[Editor][AI] Tool factory registers shared tool groups") {
@@ -852,53 +841,6 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	registry.unref();
 	agent.unref();
 	AIMCPService::clear_singleton_for_test();
-}
-
-TEST_CASE("[Editor][AI] NEXT agents expose shared project context tools") {
-	Ref<AINextPlanningAgent> planning_agent;
-	planning_agent.instantiate();
-	CHECK(planning_agent->get_profile().id == "ask");
-	CHECK(planning_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(planning_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(planning_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
-
-	Ref<AINextScriptAgent> script_agent;
-	script_agent.instantiate();
-	CHECK(script_agent->get_profile().id == "auto");
-	CHECK(script_agent->get_profile().review_changes);
-	CHECK(script_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(script_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(script_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
-
-	Ref<AINextSceneAgent> scene_agent;
-	scene_agent.instantiate();
-	CHECK(scene_agent->get_profile().id == "auto");
-	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(scene_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(scene_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
-	CHECK(scene_agent->get_tool_registry()->get_tool_permission("docs.search") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.describe_tree") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.inspect_node") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.list_properties") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.apply_patch") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(scene_agent->get_tool_registry()->get_tool_permission("scene.delete_node") == AI_TOOL_PERMISSION_ASK);
-	CHECK_FALSE(scene_agent->get_tool_registry()->has_tool("scene.add_node"));
-
-	Ref<AINextShaderAgent> shader_agent;
-	shader_agent.instantiate();
-	CHECK(shader_agent->get_profile().id == "auto");
-	CHECK(shader_agent->get_profile().review_changes);
-	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(shader_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
-	CHECK(shader_agent->get_tool_registry()->get_tool_permission("shader.set_parameters") == AI_TOOL_PERMISSION_ALLOW);
-
-	Ref<AINextReviewAgent> review_agent;
-	review_agent.instantiate();
-	CHECK(review_agent->get_profile().id == "ask");
-	CHECK(review_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(review_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
-	CHECK(review_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
 }
 
 TEST_CASE("[Editor][AI] Requirement form tool exposes a structured human confirmation form") {
@@ -1686,7 +1628,7 @@ TEST_CASE("[Editor][AI] Markdown creation tool writes project Markdown files") {
 
 	Dictionary arguments;
 	arguments["path"] = file_path;
-	arguments["content"] = "# NEXT Brief\n\n- Build a status panel.\n";
+	arguments["content"] = "# Feature Brief\n\n- Build a status panel.\n";
 
 	AIToolResult create_result = create_markdown->execute(arguments);
 	CHECK_FALSE(create_result.is_error());
@@ -1698,7 +1640,7 @@ TEST_CASE("[Editor][AI] Markdown creation tool writes project Markdown files") {
 
 	Ref<FileAccess> created_file = FileAccess::open(file_path, FileAccess::READ);
 	REQUIRE(created_file.is_valid());
-	CHECK(created_file->get_as_text() == "# NEXT Brief\n\n- Build a status panel.\n");
+	CHECK(created_file->get_as_text() == "# Feature Brief\n\n- Build a status panel.\n");
 	created_file.unref();
 
 	AIToolResult duplicate_result = create_markdown->execute(arguments);
@@ -1839,7 +1781,7 @@ TEST_CASE("[Editor][AI] Fixed editor context reflects configured agent profile c
 	editor_context.unref();
 }
 
-TEST_CASE("[Editor][AI] Runtime control tools are available to Main and Review agents") {
+TEST_CASE("[Editor][AI] Runtime control tools are available to the main agent") {
 	Ref<AIMainAgent> main_agent;
 	main_agent.instantiate();
 
@@ -1849,16 +1791,6 @@ TEST_CASE("[Editor][AI] Runtime control tools are available to Main and Review a
 	CHECK(main_registry->has_tool("editor.stop_running_scene"));
 	CHECK(main_registry->has_tool("editor.get_terminal_errors"));
 
-	Ref<AINextReviewAgent> review_agent;
-	review_agent.instantiate();
-
-	Ref<AIToolRegistry> review_registry = review_agent->get_tool_registry();
-	REQUIRE(review_registry.is_valid());
-	CHECK(review_registry->has_tool("editor.run_scene"));
-	CHECK(review_registry->has_tool("editor.stop_running_scene"));
-	CHECK(review_registry->has_tool("editor.get_terminal_errors"));
-
-	review_agent.unref();
 	main_agent.unref();
 	AIMCPService::clear_singleton_for_test();
 }

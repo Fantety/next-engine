@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Maintain an AI-readable memory for each Godot project so Normal mode and NEXT mode can follow project-specific rules without relying only on recent chat history.
+Maintain an AI-readable memory for each Godot project so MainAgent can follow project-specific rules without relying only on recent chat history.
 
 ## User Experience
 
@@ -14,20 +14,20 @@ The user opens an "AI Project Memory" settings page and sees editable sections:
 - Resource naming rules
 - Code style
 - Protected files and folders
-- Notes for future agents
+- Notes for future AI sessions
 
-During later AI requests, the user does not need to repeat these constraints. Agents automatically receive the relevant project memory.
+During later AI requests, the user does not need to repeat these constraints. MainAgent automatically receives the relevant project memory as context.
 
 ## Existing Basis
 
 - Context providers already exist under `editor/ai_component/context`.
 - Rules and Skills already have settings pages and context providers.
-- NEXT workflow context builder already combines project state and event log into agent context.
 - `AIContextManager` already budgets and truncates context documents.
+- Conversations already use project-scoped persistence.
 
 ## Proposed Design
 
-Add a project-scoped memory document stored under the same project scope key used by conversations and NEXT workflows.
+Add a project-scoped memory document stored under the same project scope key used by conversations.
 
 The memory should be structured, not one giant text field:
 
@@ -42,7 +42,7 @@ The memory should be structured, not one giant text field:
 }
 ```
 
-Normal mode and NEXT mode should consume it through a shared context provider, such as `AIProjectMemoryContextProvider`.
+MainAgent should consume it through a context provider, such as `AIProjectMemoryContextProvider`.
 
 ## Behavior Rules
 
@@ -64,8 +64,7 @@ Recommended controls:
 ## Acceptance Criteria
 
 - User can create, edit, save, and reload project memory.
-- Normal mode includes project memory in context.
-- NEXT mode includes project memory in planning and task execution context.
+- MainAgent includes project memory in context.
 - Context metadata reports whether memory was included or truncated.
 
 ## Risks

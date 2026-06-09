@@ -7,7 +7,6 @@
 #include "editor/ai_component/ui/ai_settings_models_page.h"
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_next_marquee_page.h"
-#include "editor/ai_component/ui/next/ai_settings_next_page.h"
 #include "editor/ai_component/ui/ai_settings_rules_page.h"
 #include "editor/ai_component/ui/ai_settings_skills_page.h"
 
@@ -21,7 +20,6 @@
 void AIAgentSettingsDialog::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_save_settings"), &AIAgentSettingsDialog::_save_settings);
 	ADD_SIGNAL(MethodInfo("ai_settings_changed"));
-	ADD_SIGNAL(MethodInfo("ai_next_settings_changed"));
 	ADD_SIGNAL(MethodInfo("ai_next_marquee_settings_changed"));
 	ADD_SIGNAL(MethodInfo("ai_mcp_settings_changed"));
 	ADD_SIGNAL(MethodInfo("ai_skill_settings_changed"));
@@ -57,7 +55,7 @@ void AIAgentSettingsDialog::_build_ui() {
 		return;
 	}
 
-	set_title(TTR("NEXT AI Agent Settings"));
+	set_title(TTR("AI Agent Settings"));
 	set_min_size(Size2(1040, 640) * EDSCALE);
 
 	HBoxContainer *root = memnew(HBoxContainer);
@@ -94,8 +92,6 @@ void AIAgentSettingsDialog::_build_navigation(HBoxContainer *p_root) {
 	navigation->add_theme_constant_override("line_separation", int(4 * EDSCALE));
 	navigation->add_item(TTR("LLM"), get_editor_theme_icon(SNAME("AIModel")));
 	navigation->set_item_metadata(PAGE_MODELS, PAGE_MODELS);
-	navigation->add_item(TTR("NEXT"), get_editor_theme_icon(SNAME("EditorPlugin")));
-	navigation->set_item_metadata(PAGE_NEXT, PAGE_NEXT);
 	navigation->add_item(TTR("NEXT Marquee"), get_editor_theme_icon(SNAME("Animation")));
 	navigation->set_item_metadata(PAGE_NEXT_MARQUEE, PAGE_NEXT_MARQUEE);
 	navigation->add_item(TTR("MCP"), get_editor_theme_icon(SNAME("AIMCP")));
@@ -120,11 +116,6 @@ void AIAgentSettingsDialog::_build_pages(HBoxContainer *p_root) {
 	models_page->set_name(TTR("LLM"));
 	models_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_model_settings));
 	pages->add_child(models_page);
-
-	next_page = memnew(AISettingsNextPage);
-	next_page->set_name(TTR("NEXT"));
-	next_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_next_settings));
-	pages->add_child(next_page);
 
 	next_marquee_page = memnew(AISettingsNextMarqueePage);
 	next_marquee_page->set_name(TTR("NEXT Marquee"));
@@ -160,7 +151,6 @@ void AIAgentSettingsDialog::_save_settings() {
 
 	settings->save();
 	emit_signal(SNAME("ai_settings_changed"));
-	emit_signal(SNAME("ai_next_settings_changed"));
 	emit_signal(SNAME("ai_next_marquee_settings_changed"));
 	emit_signal(SNAME("ai_mcp_settings_changed"));
 	emit_signal(SNAME("ai_skill_settings_changed"));
@@ -172,19 +162,7 @@ void AIAgentSettingsDialog::_save_model_settings() {
 	ERR_FAIL_NULL(settings);
 
 	settings->save();
-	if (next_page) {
-		next_page->refresh_models();
-	}
 	emit_signal(SNAME("ai_settings_changed"));
-	emit_signal(SNAME("ai_next_settings_changed"));
-}
-
-void AIAgentSettingsDialog::_save_next_settings() {
-	EditorSettings *settings = EditorSettings::get_singleton();
-	ERR_FAIL_NULL(settings);
-
-	settings->save();
-	emit_signal(SNAME("ai_next_settings_changed"));
 }
 
 void AIAgentSettingsDialog::_save_next_marquee_settings() {
@@ -224,9 +202,6 @@ void AIAgentSettingsDialog::build_for_test() {
 	if (models_page) {
 		models_page->build_for_test();
 	}
-	if (next_page) {
-		next_page->build_for_test();
-	}
 	if (next_marquee_page) {
 		next_marquee_page->build_for_test();
 	}
@@ -249,10 +224,6 @@ int AIAgentSettingsDialog::get_custom_model_table_row_count_for_test() const {
 	return models_page ? models_page->get_custom_model_table_row_count_for_test() : 0;
 }
 
-int AIAgentSettingsDialog::get_next_agent_model_row_count_for_test() const {
-	return next_page ? next_page->get_agent_model_row_count_for_test() : 0;
-}
-
 int AIAgentSettingsDialog::get_next_marquee_preset_count_for_test() const {
 	return next_marquee_page ? next_marquee_page->get_preset_count_for_test() : 0;
 }
@@ -272,17 +243,11 @@ int AIAgentSettingsDialog::get_rule_table_row_count_for_test() const {
 void AIAgentSettingsDialog::add_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
 	ERR_FAIL_NULL(models_page);
 	models_page->add_provider_model_for_test(p_provider_id, p_model, p_api_key);
-	if (next_page) {
-		next_page->refresh_models();
-	}
 }
 
 void AIAgentSettingsDialog::add_custom_model_for_test(const String &p_model, const String &p_base_url, const String &p_api_key) {
 	ERR_FAIL_NULL(models_page);
 	models_page->add_custom_model_for_test(p_model, p_base_url, p_api_key);
-	if (next_page) {
-		next_page->refresh_models();
-	}
 }
 
 void AIAgentSettingsDialog::add_mcp_server_for_test(const String &p_display_name, const String &p_command, bool p_enabled) {
@@ -300,11 +265,6 @@ void AIAgentSettingsDialog::add_rule_for_test(const String &p_content, bool p_en
 	rules_page->add_rule_for_test(p_content, p_enabled);
 }
 
-void AIAgentSettingsDialog::set_next_agent_model_for_test(const String &p_agent_id, const String &p_model_profile_id) {
-	ERR_FAIL_NULL(next_page);
-	next_page->set_agent_model_for_test(p_agent_id, p_model_profile_id);
-}
-
 void AIAgentSettingsDialog::select_next_marquee_preset_for_test(const String &p_preset_id) {
 	ERR_FAIL_NULL(next_marquee_page);
 	next_marquee_page->select_preset_for_test(p_preset_id);
@@ -318,25 +278,16 @@ String AIAgentSettingsDialog::add_next_marquee_for_test(const String &p_display_
 void AIAgentSettingsDialog::edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
 	ERR_FAIL_NULL(models_page);
 	models_page->edit_provider_model_for_test(p_provider_id, p_model, p_api_key);
-	if (next_page) {
-		next_page->refresh_models();
-	}
 }
 
 void AIAgentSettingsDialog::edit_custom_model_for_test(const String &p_current_model, const String &p_new_model, const String &p_base_url, const String &p_api_key) {
 	ERR_FAIL_NULL(models_page);
 	models_page->edit_custom_model_for_test(p_current_model, p_new_model, p_base_url, p_api_key);
-	if (next_page) {
-		next_page->refresh_models();
-	}
 }
 
 void AIAgentSettingsDialog::remove_custom_model_for_test(const String &p_provider_id, const String &p_model) {
 	ERR_FAIL_NULL(models_page);
 	models_page->remove_custom_model_for_test(p_provider_id, p_model);
-	if (next_page) {
-		next_page->refresh_models();
-	}
 }
 
 void AIAgentSettingsDialog::save_settings_for_test() {

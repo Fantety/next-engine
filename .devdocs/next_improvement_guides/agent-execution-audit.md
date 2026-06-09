@@ -2,26 +2,26 @@
 
 ## Purpose
 
-Combine user identity and AI event logs into an audit trail that answers who triggered an AI action, what the agents did, what changed, and who approved it.
+Combine user identity and AI activity logs into an audit trail that answers who triggered an AI action, what MainAgent did, what changed, and who approved it.
 
 ## User Experience
 
 Project owners can open an audit view:
 
 ```text
-2026-06-07 10:21 Alice started NEXT milestone Core Movement
-2026-06-07 10:22 Script Agent modified res://scripts/player_controller.gd
-2026-06-07 10:24 Alice accepted and locked milestone Core Movement
+2026-06-07 10:21 Alice asked MainAgent to update player movement.
+2026-06-07 10:22 MainAgent proposed a write to res://scripts/player_controller.gd.
+2026-06-07 10:24 Alice approved and kept the change set.
 ```
 
 This is useful for teams, debugging, and accountability.
 
 ## Existing Basis
 
-- `AINextEventLog` records agent and user events.
 - `AIChangeSetStore` records file change sets.
+- `AIAgentSession` persists conversation messages and metadata.
+- Tool execution results are written back into the message chain.
 - `editor/user_system` tracks current user session.
-- NEXT workflow snapshots persist event logs.
 
 ## Proposed Design
 
@@ -33,33 +33,29 @@ Example metadata:
 {
   "user_id": "...",
   "user_name": "Alice",
-  "workflow_id": "...",
-  "milestone_id": "...",
-  "action": "accept_and_lock"
+  "session_id": "...",
+  "change_set_id": "...",
+  "action": "approve_change"
 }
 ```
 
-Agent-generated events should remain agent-attributed, but include the initiating user or workflow run when available.
+Agent-generated events should remain agent-attributed, but include the initiating user and session when available.
 
 ## Audit Scope
 
 First version should audit:
 
-- brief submission
-- plan approval
-- milestone run start
-- task run start
-- feedback submission
-- rollback
-- keep/revert change package
-- milestone lock
+- message submission
+- plan creation and completion
+- tool approval or denial
+- write-mode tool execution
+- keep/revert change set
 - settings changes later
 
 ## Acceptance Criteria
 
-- Human-triggered NEXT events include current user metadata when logged in.
-- Audit data persists with the workflow.
-- Audit view can be reconstructed from event log and change set metadata.
+- Human-triggered AI events include current user metadata when logged in.
+- Audit data can be reconstructed from session metadata, tool results, and change set metadata.
 - Offline or anonymous users still produce local audit entries with a fallback identity.
 
 ## Risks
@@ -69,4 +65,4 @@ First version should audit:
 
 ## First Implementation Step
 
-Add a helper that enriches `AINextEventLog::record_event()` metadata with current user session data when available.
+Add a helper that enriches AI session and change set metadata with current user session data when available.

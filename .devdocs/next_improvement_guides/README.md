@@ -2,19 +2,9 @@
 
 This directory collects follow-up improvement documents for NextEngine AI features and supporting architecture. Each document is intentionally scoped as one independent improvement topic, so future work can be planned, reviewed, and implemented without reopening the whole roadmap.
 
-## Feature Improvements
+## AI Feature Improvements
 
-- [NEXT Replayable Execution Timeline](next-replayable-execution-timeline.md)
 - [Project Memory and Design Constraints](project-memory-design-constraints.md)
-- [NEXT Milestone Acceptance System](next-milestone-acceptance-system.md)
-- [NEXT Change Sandbox and Rollback](next-change-sandbox-rollback.md)
-- [NEXT Asset Registry and Reference Panel](next-asset-registry-reference-panel.md)
-
-## Architecture Improvements
-
-- [Unify Normal and NEXT Session Base](unify-normal-next-session-base.md)
-- [Unified Tool Registration Groups](unified-tool-registration-groups.md)
-- [Unified AI Storage Base](unified-ai-storage-base.md)
 - [Context Budget Visualization](context-budget-visualization.md)
 
 ## User System Extensions
@@ -31,12 +21,11 @@ This directory collects follow-up improvement documents for NextEngine AI featur
 
 ## Recommended Order
 
-1. NEXT Replayable Execution Timeline
-2. NEXT Milestone Acceptance System
-3. NEXT Change Sandbox and Rollback
-4. Project Memory and Design Constraints
-5. NEXT Asset Registry and Reference Panel
-6. Context Budget Visualization
-7. MarkdownViewer AI report and resource-link improvements
+1. Project Memory and Design Constraints
+2. Context Budget Visualization
+3. MarkdownViewer AI report and resource-link improvements
+4. Cloud Sync for AI Configuration
+5. Team Collaboration Permissions
+6. Agent Execution Audit
 
-The architecture topics can be done opportunistically while touching nearby code. `AISessionBase` and `AIStorageBase` already exist, so those documents focus on finishing consolidation rather than starting from zero.
+The architecture topics can be done opportunistically while touching nearby code. Keep future improvements aligned with the single MainAgent workflow.

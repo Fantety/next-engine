@@ -8,11 +8,11 @@ Use `MarkdownViewer` as the standard renderer for AI-generated and AI-derived re
 
 Instead of scattered labels, the user sees readable reports for:
 
-- NEXT milestone acceptance summaries
 - review findings
 - rollback summaries
-- task result details
+- tool execution details
 - error analysis
+- context budget diagnostics
 - generated implementation notes
 
 These reports support headings, lists, code blocks, and links in a consistent visual style.
@@ -20,8 +20,8 @@ These reports support headings, lists, code blocks, and links in a consistent vi
 ## Existing Basis
 
 - `scene/gui/MarkdownViewer` exists as a reusable GUI node.
-- NEXT already uses `MarkdownViewer` for review findings and task inspector content.
 - AI UI has `AIMarkdownRenderer` and markdown labels for chat messages.
+- Change review and tool result messages already produce structured data that can be formatted.
 
 ## Proposed Design
 
@@ -30,28 +30,27 @@ Define MarkdownViewer as the preferred report surface for structured AI reports.
 Report builders should generate markdown from structured data:
 
 ```text
-## Milestone: Core Movement
+## Change Review Summary
 
-### Completed Tasks
-- Create player movement script
-- Bind script to Player node
-
-### Outputs
+### Files Changed
 - res://scripts/player_controller.gd
 
+### Tool Results
+- script.write completed
+
 ### Warnings
-- Scene save is recorded but not automatically revertible.
+- File changes require user approval before they are kept.
 ```
 
 The model does not need to generate all reports. Local code should generate reports when structured data is available.
 
 ## Candidate Reports
 
-- NEXT acceptance summary
-- NEXT change package summary
-- timeline event detail
+- change set summary
+- tool execution detail
 - context budget diagnostics
 - MCP server diagnostics
+- implementation notes generated from persisted message metadata
 
 ## Acceptance Criteria
 
@@ -67,4 +66,4 @@ The model does not need to generate all reports. Local code should generate repo
 
 ## First Implementation Step
 
-Create a local formatter for NEXT milestone acceptance markdown and render it in a new acceptance section.
+Create a local formatter for AI change review markdown and render it in a compact report section.

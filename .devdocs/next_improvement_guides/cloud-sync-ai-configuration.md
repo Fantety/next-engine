@@ -12,7 +12,7 @@ After logging in, the user can choose to sync:
 - MCP server definitions
 - rules
 - skills
-- NEXT preferences
+- UI preferences
 
 When they open NextEngine on another machine, these settings are available without manual reconfiguration.
 

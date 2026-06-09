@@ -46,14 +46,9 @@ Later:
 
 ## UI Placement
 
-Normal mode:
-
 - message metadata popover
-- or compact usage row near token usage
-
-NEXT mode:
-
-- task inspector or activity details for the selected agent run
+- compact usage row near token usage
+- optional diagnostics section for the latest assistant response
 
 ## Acceptance Criteria
 
@@ -68,4 +63,4 @@ NEXT mode:
 
 ## First Implementation Step
 
-Add a reusable formatter for `estimated_context_usage`, then show it in a foldable diagnostics area for the latest assistant message or NEXT agent run.
+Add a reusable formatter for `estimated_context_usage`, then show it in a foldable diagnostics area for the latest assistant message.

@@ -56,15 +56,15 @@ def main() -> int:
     )
     require(
         "p_config.success_color = Color(0.34, 0.86, 0.45);" in theme_cpp,
-        "Next Mono must keep success_color green so completed/running NEXT plan rows stay semantic.",
+        "Next Mono must keep success_color green so completed/running AI plan rows stay semantic.",
     )
     require(
         'p_theme->set_color("font_pressed_color", "CheckButton", p_config.font_focus_color);' in theme_cpp,
-        "Next Mono must keep pressed CheckButton text visible for the NEXT mode switch.",
+        "Next Mono must keep pressed CheckButton text visible for compact toolbar toggles.",
     )
     require(
         'p_theme->set_color("font_hover_pressed_color", "CheckButton", p_config.font_focus_color);' in theme_cpp,
-        "Next Mono must keep hover-pressed CheckButton text visible for the NEXT mode switch.",
+        "Next Mono must keep hover-pressed CheckButton text visible for compact toolbar toggles.",
     )
     require(
         'p_theme->set_color("font_pressed_color", "CheckBox", p_config.font_focus_color);' in theme_cpp,

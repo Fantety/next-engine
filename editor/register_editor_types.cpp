@@ -150,11 +150,6 @@
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_file_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
-#include "editor/ai_component/next/ai_agent_next_session.h"
-#include "editor/ai_component/next/ai_next_event_log.h"
-#include "editor/ai_component/next/ai_next_manage_project_tool.h"
-#include "editor/ai_component/next/ai_next_project_state.h"
-#include "editor/ai_component/next/ai_next_project_store.h"
 #include "editor/ai_component/planning/ai_plan_manager.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
@@ -170,7 +165,6 @@
 #include "editor/ai_component/tools/editor/ai_shader_editing_service.h"
 #include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 #include "editor/ai_component/ui/ai_agent_dock.h"
-#include "editor/ai_component/ui/next/ai_agent_next_dock.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
 #include "editor/ai_component/ui/ai_change_review_panel.h"
 #include "editor/ai_component/ui/ai_composer.h"
@@ -178,20 +172,13 @@
 #include "editor/ai_component/ui/ai_mcp_server_dialog.h"
 #include "editor/ai_component/ui/ai_model_profile_dialog.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
-#include "editor/ai_component/ui/ai_mode_panel.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/ai_component/ui/ai_message_list.h"
 #include "editor/ai_component/ui/ai_requirement_form_dialog.h"
-#include "editor/ai_component/ui/next/ai_next_feedback_panel.h"
-#include "editor/ai_component/ui/next/ai_next_milestone_list.h"
-#include "editor/ai_component/ui/next/ai_next_panel.h"
-#include "editor/ai_component/ui/next/ai_next_task_inspector.h"
-#include "editor/ai_component/ui/next/ai_next_task_tree.h"
 #include "editor/ai_component/ui/ai_plan_panel.h"
 #include "editor/ai_component/ui/ai_skill_dialog.h"
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_models_page.h"
-#include "editor/ai_component/ui/next/ai_settings_next_page.h"
 #include "editor/ai_component/ui/ai_settings_placeholder_page.h"
 #include "editor/ai_component/ui/ai_settings_rules_page.h"
 #include "editor/ai_component/ui/ai_settings_skills_page.h"
@@ -295,11 +282,6 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIProjectTreeContextProvider);
 	GDREGISTER_CLASS(AIRulesContextProvider);
 	GDREGISTER_CLASS(AIPlanManager);
-	GDREGISTER_CLASS(AINextProjectState);
-	GDREGISTER_CLASS(AINextProjectStore);
-	GDREGISTER_CLASS(AINextEventLog);
-	GDREGISTER_CLASS(AINextManageProjectTool);
-	GDREGISTER_CLASS(AIAgentNextSession);
 	GDREGISTER_CLASS(AISkillIndexContextProvider);
 	GDREGISTER_CLASS(AIChangeSetStore);
 	GDREGISTER_CLASS(AIConversationStore);
@@ -314,28 +296,20 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AISceneEditingService);
 	GDREGISTER_CLASS(AIScriptEditingService);
 	GDREGISTER_CLASS(AIShaderEditingService);
-	GDREGISTER_CLASS(AIAgentNextDock);
 	GDREGISTER_CLASS(AIAgentSettingsDialog);
 	GDREGISTER_CLASS(AIChangeReviewPanel);
 	GDREGISTER_CLASS(AIComposer);
 	GDREGISTER_CLASS(AIMCPServerDialog);
 	GDREGISTER_CLASS(AIModelProfileDialog);
 	GDREGISTER_CLASS(AIMarkdownLabel);
-	GDREGISTER_CLASS(AIModePanel);
 	GDREGISTER_CLASS(AIMessageBubble);
 	GDREGISTER_CLASS(AIMessageList);
 	GDREGISTER_CLASS(AIRequirementFormDialog);
-	GDREGISTER_CLASS(AINextFeedbackPanel);
-	GDREGISTER_CLASS(AINextMilestoneList);
-	GDREGISTER_CLASS(AINextPanel);
-	GDREGISTER_CLASS(AINextTaskInspector);
-	GDREGISTER_CLASS(AINextTaskTree);
 	GDREGISTER_CLASS(AIPlanPanel);
 	GDREGISTER_CLASS(AISkillDialog);
 	GDREGISTER_CLASS(AISettingsMCPPage);
 	GDREGISTER_CLASS(AISettingsModelsPage);
 	GDREGISTER_CLASS(AISettingsNextMarqueePage);
-	GDREGISTER_CLASS(AISettingsNextPage);
 	GDREGISTER_CLASS(AISettingsPlaceholderPage);
 	GDREGISTER_CLASS(AISettingsRulesPage);
 	GDREGISTER_CLASS(AISettingsSkillsPage);

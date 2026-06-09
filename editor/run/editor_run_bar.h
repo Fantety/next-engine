@@ -36,7 +36,6 @@
 
 class AcceptDialog;
 class Button;
-class CheckButton;
 class EditorExportPreset;
 class EditorRunNative;
 class HBoxContainer;
@@ -73,7 +72,6 @@ class EditorRunBar : public MarginContainer {
 	AcceptDialog *recovery_mode_popup = nullptr;
 
 	Button *play_button = nullptr;
-	CheckButton *next_mode_button = nullptr;
 	Button *pause_button = nullptr;
 	Button *stop_button = nullptr;
 	Button *play_scene_button = nullptr;
@@ -89,7 +87,6 @@ class EditorRunBar : public MarginContainer {
 	PanelContainer *write_movie_panel = nullptr;
 	MenuButton *write_movie_button = nullptr;
 	bool movie_maker_enabled = false;
-	bool next_mode_enabled = false;
 
 	RunMode current_mode = RunMode::STOPPED;
 	String run_custom_filename;
@@ -109,7 +106,6 @@ class EditorRunBar : public MarginContainer {
 	void _run_native(const Ref<EditorExportPreset> &p_preset);
 
 	void _profiler_autostart_indicator_pressed();
-	void _next_mode_pressed();
 
 private:
 	static Vector<String> _get_xr_mode_play_args(RunXRModeMenuItem p_menu_item);
@@ -140,8 +136,6 @@ public:
 
 	void set_movie_maker_enabled(bool p_enabled);
 	bool is_movie_maker_enabled() const;
-	void set_next_mode_enabled(bool p_enabled);
-	bool is_next_mode_enabled() const;
 
 	void update_profiler_autostart_indicator();
 
