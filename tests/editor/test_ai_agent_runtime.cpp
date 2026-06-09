@@ -679,6 +679,7 @@ TEST_CASE("[Editor][AI] Main agent owns the current editor tool set") {
 	CHECK(registry->has_tool("shader.edit"));
 	CHECK(registry->has_tool("shader.delete"));
 	CHECK(registry->has_tool("shader.apply_to_node"));
+	CHECK(registry->has_tool("shader.set_parameters"));
 	CHECK(registry->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_available_tool_schemas().size() < registry->get_tool_schemas().size());
@@ -1437,6 +1438,7 @@ TEST_CASE("[Editor][AI] Agent session owns runtime dependencies with tool runtim
 	CHECK(session->get_tool_registry()->has_tool("shader.edit"));
 	CHECK(session->get_tool_registry()->has_tool("shader.delete"));
 	CHECK(session->get_tool_registry()->has_tool("shader.apply_to_node"));
+	CHECK(session->get_tool_registry()->has_tool("shader.set_parameters"));
 	CHECK(session->get_tool_registry()->get_tool_permission("project.read_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(session->get_tool_registry()->get_tool_permission("script.write") == AI_TOOL_PERMISSION_DENY);
 

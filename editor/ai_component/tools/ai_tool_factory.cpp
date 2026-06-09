@@ -23,6 +23,7 @@
 #include "editor/ai_component/tools/editor/ai_shader_create_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_delete_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_set_parameters_tool.h"
 #include "editor/ai_component/tools/project/ai_attach_multimodal_file_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_create_markdown_tool.h"
@@ -95,6 +96,7 @@ void register_shader_tools(AIAgentBase *p_agent, AIToolPermission p_write_permis
 	register_tool<AIShaderCreateTool>(p_agent, p_write_permission, p_log_prefix);
 	register_tool<AIShaderEditTool>(p_agent, p_write_permission, p_log_prefix);
 	register_tool<AIShaderApplyToNodeTool>(p_agent, p_write_permission, p_log_prefix);
+	register_tool<AIShaderSetParametersTool>(p_agent, p_write_permission, p_log_prefix);
 	register_tool<AIShaderDeleteTool>(p_agent, p_delete_permission, p_log_prefix);
 }
 

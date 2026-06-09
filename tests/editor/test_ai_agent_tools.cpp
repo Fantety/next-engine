@@ -60,6 +60,7 @@
 #include "editor/ai_component/tools/editor/ai_shader_create_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_delete_tool.h"
 #include "editor/ai_component/tools/editor/ai_shader_edit_tool.h"
+#include "editor/ai_component/tools/editor/ai_shader_set_parameters_tool.h"
 #include "editor/ai_component/tools/project/ai_create_folder_tool.h"
 #include "editor/ai_component/tools/project/ai_create_markdown_tool.h"
 #include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
@@ -695,6 +696,7 @@ TEST_CASE("[Editor][AI] Agent profiles describe tool denylist and review behavio
 	CHECK(ask.denies_tool("scene.apply_patch"));
 	CHECK(ask.denies_tool("scene.delete_node"));
 	CHECK(ask.denies_tool("script.write"));
+	CHECK(ask.denies_tool("shader.set_parameters"));
 	CHECK(ask.denies_tool("shader.delete"));
 
 	CHECK(auto_profile.id == "auto");
@@ -703,6 +705,7 @@ TEST_CASE("[Editor][AI] Agent profiles describe tool denylist and review behavio
 	CHECK_FALSE(auto_profile.denies_tool("project.create_folder"));
 	CHECK_FALSE(auto_profile.denies_tool("scene.delete_node"));
 	CHECK_FALSE(auto_profile.denies_tool("script.write"));
+	CHECK_FALSE(auto_profile.denies_tool("shader.set_parameters"));
 	CHECK_FALSE(auto_profile.denies_tool("shader.delete"));
 }
 
@@ -758,6 +761,7 @@ TEST_CASE("[Editor][AI] Tool factory registers shared tool groups") {
 	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_ASK);
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("shader.set_parameters") == AI_TOOL_PERMISSION_ALLOW);
 }
 
 TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
@@ -791,6 +795,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("shader.edit") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("shader.set_parameters") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("unknown.tool") == AI_TOOL_PERMISSION_DENY);
 
 	agent->set_agent_profile_id("auto");
@@ -819,6 +824,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("shader.edit") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_ASK);
 	CHECK(registry->get_tool_permission("shader.apply_to_node") == AI_TOOL_PERMISSION_ALLOW);
+	CHECK(registry->get_tool_permission("shader.set_parameters") == AI_TOOL_PERMISSION_ALLOW);
 
 	agent->set_agent_profile_id("unknown");
 	CHECK(agent->get_profile().id == "ask");
@@ -829,6 +835,7 @@ TEST_CASE("[Editor][AI] Main agent registers tool permissions on the agent") {
 	CHECK(registry->get_tool_permission("shader.create") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("shader.edit") == AI_TOOL_PERMISSION_DENY);
 	CHECK(registry->get_tool_permission("shader.delete") == AI_TOOL_PERMISSION_DENY);
+	CHECK(registry->get_tool_permission("shader.set_parameters") == AI_TOOL_PERMISSION_DENY);
 
 	CHECK_FALSE(registry->has_tool("project.write_file"));
 	CHECK(registry->get_tool_permission("project.write_file") == AI_TOOL_PERMISSION_DENY);
@@ -884,6 +891,7 @@ TEST_CASE("[Editor][AI] NEXT agents expose shared project context tools") {
 	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.create_markdown") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(shader_agent->get_tool_registry()->get_tool_permission("project.attach_multimodal_file") == AI_TOOL_PERMISSION_ALLOW);
 	CHECK(shader_agent->get_tool_registry()->get_tool_permission("agent.collect_requirements") == AI_TOOL_PERMISSION_ASK);
+	CHECK(shader_agent->get_tool_registry()->get_tool_permission("shader.set_parameters") == AI_TOOL_PERMISSION_ALLOW);
 
 	Ref<AINextReviewAgent> review_agent;
 	review_agent.instantiate();
@@ -1421,6 +1429,19 @@ TEST_CASE("[Editor][AI] Scene editing tools expose explicit schemas") {
 	CHECK(shader_required.has("node_path"));
 	CHECK(shader_required.has("shader_path"));
 	CHECK(shader_required.has("target_property"));
+
+	Ref<AIShaderSetParametersTool> shader_set_parameters;
+	shader_set_parameters.instantiate();
+	CHECK(shader_set_parameters->get_name() == "shader.set_parameters");
+	Dictionary shader_set_schema = shader_set_parameters->get_parameters_schema();
+	Dictionary shader_set_properties = shader_set_schema["properties"];
+	CHECK(shader_set_properties.has("node_path"));
+	CHECK(shader_set_properties.has("target_property"));
+	CHECK(shader_set_properties.has("shader_parameters"));
+	Array shader_set_required = shader_set_schema["required"];
+	CHECK(shader_set_required.has("node_path"));
+	CHECK(shader_set_required.has("target_property"));
+	CHECK(shader_set_required.has("shader_parameters"));
 }
 
 TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before touching editor state") {
@@ -1557,6 +1578,20 @@ TEST_CASE("[Editor][AI] Scene editing tools validate required arguments before t
 	shader_arguments["target_property"] = "material";
 	shader_arguments["shader_parameters"] = "not an object";
 	CHECK(shader_apply->execute(shader_arguments).is_error());
+
+	Ref<AIShaderSetParametersTool> shader_set_parameters;
+	shader_set_parameters.instantiate();
+	Dictionary shader_parameter_arguments;
+	CHECK(shader_set_parameters->execute(shader_parameter_arguments).is_error());
+	shader_parameter_arguments["node_path"] = "Player";
+	CHECK(shader_set_parameters->execute(shader_parameter_arguments).is_error());
+	shader_parameter_arguments["target_property"] = "material";
+	CHECK(shader_set_parameters->execute(shader_parameter_arguments).is_error());
+	shader_parameter_arguments["shader_parameters"] = "not an object";
+	CHECK(shader_set_parameters->execute(shader_parameter_arguments).is_error());
+	Dictionary empty_shader_parameters;
+	shader_parameter_arguments["shader_parameters"] = empty_shader_parameters;
+	CHECK(shader_set_parameters->execute(shader_parameter_arguments).is_error());
 }
 
 TEST_CASE("[Editor][AI] Documentation service suggests writable properties for typo-like paths") {

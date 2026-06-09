@@ -5,10 +5,12 @@
 #include "ai_shader_editing_service.h"
 
 #include "core/config/project_settings.h"
+#include "core/io/resource.h"
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/object/message_queue.h"
+#include "core/object/property_info.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
 #include "core/variant/variant.h"
@@ -110,6 +112,9 @@ void AIShaderEditingService::_execute_request_ptr(MainThreadRequest *p_request) 
 			break;
 		case MainThreadRequest::OP_APPLY_TO_NODE:
 			p_request->result = _apply_to_node_main_thread(p_request->node_path, p_request->shader_path, p_request->target_property, p_request->shader_parameters);
+			break;
+		case MainThreadRequest::OP_SET_PARAMETERS:
+			p_request->result = _set_parameters_main_thread(p_request->node_path, p_request->target_property, p_request->shader_parameters);
 			break;
 	}
 
@@ -256,6 +261,49 @@ bool AIShaderEditingService::_resource_hint_accepts_type(const String &p_hint_st
 	return false;
 }
 
+bool AIShaderEditingService::_is_resource_type_allowed(const String &p_type, const String &p_hint_string) const {
+	const String type = p_type.strip_edges();
+	if (type.is_empty()) {
+		return false;
+	}
+	if (p_hint_string.strip_edges().is_empty()) {
+		return true;
+	}
+
+	bool explicitly_allowed = false;
+	bool saw_known_positive_hint = false;
+	Vector<String> parts = p_hint_string.split(",", false);
+	for (int i = 0; i < parts.size(); i++) {
+		String hint_type = parts[i].strip_edges();
+		if (hint_type.is_empty()) {
+			continue;
+		}
+
+		const bool excluded = hint_type.begins_with("-");
+		if (excluded) {
+			hint_type = hint_type.substr(1).strip_edges();
+		}
+		if (hint_type.is_empty() || !ClassDB::class_exists(hint_type)) {
+			continue;
+		}
+		if (!excluded) {
+			saw_known_positive_hint = true;
+		}
+
+		const bool matches = type == hint_type || ClassDB::is_parent_class(type, hint_type);
+		if (excluded && matches) {
+			return false;
+		}
+		if (!excluded && matches) {
+			explicitly_allowed = true;
+		}
+	}
+	if (!saw_known_positive_hint && (type == "Resource" || ClassDB::is_parent_class(type, SNAME("Resource")))) {
+		return true;
+	}
+	return explicitly_allowed;
+}
+
 bool AIShaderEditingService::_get_exact_property_info(Object *p_object, const String &p_property_path, PropertyInfo &r_property_info) const {
 	ERR_FAIL_NULL_V(p_object, false);
 
@@ -268,6 +316,455 @@ bool AIShaderEditingService::_get_exact_property_info(Object *p_object, const St
 		}
 	}
 	return false;
+}
+
+bool AIShaderEditingService::_normalize_property_path(const String &p_property_path, Vector<StringName> &r_names, String &r_error) const {
+	const String stripped_path = p_property_path.strip_edges();
+	if (stripped_path.is_empty()) {
+		r_error = "Property path is required.";
+		return false;
+	}
+	if (stripped_path.begins_with("/") || stripped_path.contains("..")) {
+		r_error = "Only property paths relative to the target object are allowed.";
+		return false;
+	}
+
+	r_names = NodePath(stripped_path).get_as_property_path().get_subnames();
+	if (r_names.is_empty()) {
+		r_error = "Property path is invalid.";
+		return false;
+	}
+	return true;
+}
+
+Ref<Resource> AIShaderEditingService::_instantiate_resource(const String &p_type, String &r_error) const {
+	const String type = p_type.strip_edges();
+	if (type.is_empty()) {
+		r_error = "Resource type is required.";
+		return Ref<Resource>();
+	}
+	if (!ClassDB::class_exists(type)) {
+		r_error = vformat("Resource type `%s` does not exist.", type);
+		return Ref<Resource>();
+	}
+	if (!ClassDB::is_parent_class(type, SNAME("Resource")) && type != "Resource") {
+		r_error = vformat("Requested type `%s` is not a Resource class.", type);
+		return Ref<Resource>();
+	}
+	if (!ClassDB::can_instantiate(type)) {
+		r_error = vformat("Resource type `%s` cannot be instantiated.", type);
+		return Ref<Resource>();
+	}
+
+	Object *object = ClassDB::instantiate(type);
+	Resource *resource = Object::cast_to<Resource>(object);
+	if (!resource) {
+		if (object) {
+			memdelete(object);
+		}
+		r_error = vformat("Failed to instantiate resource type `%s`.", type);
+		return Ref<Resource>();
+	}
+	return Ref<Resource>(resource);
+}
+
+bool AIShaderEditingService::_apply_object_properties(Object *p_object, const Dictionary &p_properties, String &r_error) const {
+	ERR_FAIL_NULL_V(p_object, false);
+
+	List<PropertyInfo> property_list;
+	p_object->get_property_list(&property_list);
+
+	for (const KeyValue<Variant, Variant> &E : p_properties) {
+		const String property_path = String(E.key).strip_edges();
+		if (property_path.is_empty()) {
+			r_error = "Nested resource property path cannot be empty.";
+			return false;
+		}
+		if (property_path.begins_with("/") || property_path.contains("..")) {
+			r_error = vformat("Nested resource property path `%s` is invalid.", property_path);
+			return false;
+		}
+
+		bool listed_property = false;
+		PropertyInfo listed_property_info;
+		for (const PropertyInfo &P : property_list) {
+			if (String(P.name) == property_path) {
+				listed_property = true;
+				listed_property_info = P;
+				break;
+			}
+		}
+
+		Vector<StringName> property_names;
+		if (listed_property) {
+			property_names.push_back(StringName(property_path));
+		} else if (!_normalize_property_path(property_path, property_names, r_error)) {
+			return false;
+		}
+
+		if (listed_property && (listed_property_info.usage & PROPERTY_USAGE_READ_ONLY)) {
+			r_error = vformat("Nested resource property `%s` is read-only.", property_path);
+			return false;
+		}
+
+		bool valid = false;
+		Variant current_value = p_object->get_indexed(property_names, &valid);
+		if (!valid) {
+			r_error = vformat("Nested resource property `%s` was not found.", property_path);
+			return false;
+		}
+
+		Variant converted_value;
+		Variant::Type target_type = listed_property ? listed_property_info.type : current_value.get_type();
+		if (target_type == Variant::NIL) {
+			target_type = current_value.get_type();
+		}
+		PropertyInfo fallback_info(target_type, property_path);
+		const PropertyInfo &property_info = listed_property ? listed_property_info : fallback_info;
+		if (!_convert_value_for_shader_uniform(E.value, property_info, converted_value, r_error)) {
+			r_error = vformat("Failed to convert nested resource property `%s`: %s", property_path, r_error);
+			return false;
+		}
+
+		p_object->set_indexed(property_names, converted_value, &valid);
+		if (!valid) {
+			r_error = vformat("Godot rejected nested resource property `%s`.", property_path);
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool AIShaderEditingService::_convert_array_typed_value(const Array &p_value, Variant::Type p_target_type, Variant &r_value, String &r_error) const {
+	Array args = p_value;
+	Vector<const Variant *> argptrs;
+	argptrs.resize(args.size());
+	for (int i = 0; i < args.size(); i++) {
+		argptrs.write[i] = &args[i];
+	}
+
+	Callable::CallError call_error;
+	Variant converted;
+	Variant::construct(p_target_type, converted, argptrs.is_empty() ? nullptr : const_cast<const Variant **>(argptrs.ptr()), argptrs.size(), call_error);
+	if (call_error.error != Callable::CallError::CALL_OK) {
+		r_error = vformat("Cannot construct %s from the provided array value.", Variant::get_type_name(p_target_type));
+		return false;
+	}
+
+	r_value = converted;
+	return true;
+}
+
+bool AIShaderEditingService::_convert_dictionary_typed_value(const Dictionary &p_value, Variant::Type p_target_type, Variant &r_value, String &r_error) const {
+	const String type_name = String(p_value.get("type", "")).strip_edges();
+	if (!type_name.is_empty()) {
+		const Variant::Type requested_type = Variant::get_type_by_name(type_name);
+		if (requested_type == Variant::VARIANT_MAX) {
+			r_error = "Unknown typed value type.";
+			return false;
+		}
+		if (requested_type != p_target_type) {
+			r_error = vformat("Typed value declares %s but shader uniform expects %s.", type_name, Variant::get_type_name(p_target_type));
+			return false;
+		}
+	}
+
+	if (p_value.has("value")) {
+		return _convert_value_for_target_type(p_value["value"], p_target_type, r_value, r_error);
+	}
+
+	Array args;
+	if (p_value.has("args")) {
+		if (Variant(p_value["args"]).get_type() != Variant::ARRAY) {
+			r_error = "Typed value args must be an array.";
+			return false;
+		}
+		args = p_value["args"];
+	} else {
+		switch (p_target_type) {
+			case Variant::VECTOR2:
+			case Variant::VECTOR2I:
+				if (p_value.has("x") && p_value.has("y")) {
+					args.push_back(p_value["x"]);
+					args.push_back(p_value["y"]);
+				}
+				break;
+			case Variant::VECTOR3:
+			case Variant::VECTOR3I:
+				if (p_value.has("x") && p_value.has("y") && p_value.has("z")) {
+					args.push_back(p_value["x"]);
+					args.push_back(p_value["y"]);
+					args.push_back(p_value["z"]);
+				}
+				break;
+			case Variant::VECTOR4:
+			case Variant::VECTOR4I:
+			case Variant::COLOR:
+				if (p_value.has("r") && p_value.has("g") && p_value.has("b")) {
+					args.push_back(p_value["r"]);
+					args.push_back(p_value["g"]);
+					args.push_back(p_value["b"]);
+					if (p_value.has("a")) {
+						args.push_back(p_value["a"]);
+					}
+				} else if (p_value.has("x") && p_value.has("y") && p_value.has("z") && p_value.has("w")) {
+					args.push_back(p_value["x"]);
+					args.push_back(p_value["y"]);
+					args.push_back(p_value["z"]);
+					args.push_back(p_value["w"]);
+				}
+				break;
+			case Variant::RECT2:
+			case Variant::RECT2I:
+				if (p_value.has("x") && p_value.has("y") && p_value.has("width") && p_value.has("height")) {
+					args.push_back(p_value["x"]);
+					args.push_back(p_value["y"]);
+					args.push_back(p_value["width"]);
+					args.push_back(p_value["height"]);
+				}
+				break;
+			default:
+				break;
+		}
+	}
+
+	if (args.is_empty()) {
+		r_error = vformat("Typed value for %s must provide `value`, `args`, or recognized component fields.", Variant::get_type_name(p_target_type));
+		return false;
+	}
+
+	return _convert_array_typed_value(args, p_target_type, r_value, r_error);
+}
+
+bool AIShaderEditingService::_convert_value_for_target_type(const Variant &p_value, Variant::Type p_target_type, Variant &r_value, String &r_error) const {
+	if (p_target_type == Variant::NIL) {
+		r_value = p_value;
+		return true;
+	}
+
+	if (p_value.get_type() == p_target_type) {
+		r_value = p_value;
+		return true;
+	}
+
+	if (p_value.get_type() == Variant::DICTIONARY) {
+		Dictionary value_dict = p_value;
+		if (value_dict.has("type") || value_dict.has("value") || value_dict.has("args")) {
+			return _convert_dictionary_typed_value(value_dict, p_target_type, r_value, r_error);
+		}
+	}
+
+	if (p_value.get_type() == Variant::ARRAY) {
+		switch (p_target_type) {
+			case Variant::VECTOR2:
+			case Variant::VECTOR2I:
+			case Variant::RECT2:
+			case Variant::RECT2I:
+			case Variant::VECTOR3:
+			case Variant::VECTOR3I:
+			case Variant::VECTOR4:
+			case Variant::VECTOR4I:
+			case Variant::COLOR:
+			case Variant::PLANE:
+			case Variant::QUATERNION:
+			case Variant::AABB:
+			case Variant::BASIS:
+			case Variant::TRANSFORM2D:
+			case Variant::TRANSFORM3D:
+			case Variant::PROJECTION:
+			case Variant::PACKED_BYTE_ARRAY:
+			case Variant::PACKED_INT32_ARRAY:
+			case Variant::PACKED_INT64_ARRAY:
+			case Variant::PACKED_FLOAT32_ARRAY:
+			case Variant::PACKED_FLOAT64_ARRAY:
+			case Variant::PACKED_STRING_ARRAY:
+			case Variant::PACKED_VECTOR2_ARRAY:
+			case Variant::PACKED_VECTOR3_ARRAY:
+			case Variant::PACKED_COLOR_ARRAY:
+			case Variant::PACKED_VECTOR4_ARRAY:
+				return _convert_array_typed_value(p_value, p_target_type, r_value, r_error);
+			default:
+				break;
+		}
+	}
+
+	if (!Variant::can_convert_strict(p_value.get_type(), p_target_type)) {
+		r_error = vformat("Cannot convert value from %s to %s.", Variant::get_type_name(p_value.get_type()), Variant::get_type_name(p_target_type));
+		return false;
+	}
+
+	const Variant *argptrs[1] = { &p_value };
+	Callable::CallError call_error;
+	Variant converted;
+	Variant::construct(p_target_type, converted, argptrs, 1, call_error);
+	if (call_error.error != Callable::CallError::CALL_OK) {
+		r_error = vformat("Cannot construct %s from %s.", Variant::get_type_name(p_target_type), Variant::get_type_name(p_value.get_type()));
+		return false;
+	}
+
+	r_value = converted;
+	return true;
+}
+
+bool AIShaderEditingService::_convert_value_for_shader_uniform(const Variant &p_value, const PropertyInfo &p_uniform_info, Variant &r_value, String &r_error) const {
+	if (p_uniform_info.type == Variant::OBJECT && p_uniform_info.hint == PROPERTY_HINT_RESOURCE_TYPE) {
+		if (p_value.get_type() == Variant::NIL) {
+			r_value = Variant();
+			return true;
+		}
+
+		Ref<Resource> resource_value = p_value;
+		if (resource_value.is_valid()) {
+			const String resource_type = resource_value->get_class();
+			if (!_is_resource_type_allowed(resource_type, p_uniform_info.hint_string)) {
+				r_error = vformat("Resource type `%s` is not allowed for this shader uniform. Expected: %s.", resource_type, p_uniform_info.hint_string);
+				return false;
+			}
+			r_value = resource_value;
+			return true;
+		}
+
+		if (p_value.get_type() != Variant::DICTIONARY) {
+			r_error = "Resource shader uniforms expect null, an existing Resource, or a dictionary with resource_type/resource_path.";
+			return false;
+		}
+
+		Dictionary dict = p_value;
+		if (dict.has("value")) {
+			return _convert_value_for_shader_uniform(dict["value"], p_uniform_info, r_value, r_error);
+		}
+
+		Ref<Resource> resource;
+		if (dict.has("resource_path")) {
+			String path = String(dict["resource_path"]).strip_edges().replace_char('\\', '/').simplify_path();
+			if (path.is_empty()) {
+				r_error = "resource_path cannot be empty.";
+				return false;
+			}
+			if (!path.begins_with("res://")) {
+				r_error = "resource_path must begin with res://.";
+				return false;
+			}
+			if (path.contains("..")) {
+				r_error = "resource_path cannot contain parent directory traversal.";
+				return false;
+			}
+
+			Error load_error = OK;
+			resource = ResourceLoader::load(path, String(), ResourceLoader::CACHE_MODE_REUSE, &load_error);
+			if (resource.is_null()) {
+				r_error = vformat("Failed to load resource `%s` (error %d).", path, load_error);
+				return false;
+			}
+			if (!_is_resource_type_allowed(resource->get_class(), p_uniform_info.hint_string)) {
+				r_error = vformat("Loaded resource type `%s` is not allowed for this shader uniform. Expected: %s.", resource->get_class(), p_uniform_info.hint_string);
+				return false;
+			}
+			if (dict.has("duplicate") ? bool(dict["duplicate"]) : true) {
+				Ref<Resource> duplicate = resource->duplicate(true);
+				if (duplicate.is_valid()) {
+					resource = duplicate;
+				}
+			}
+		} else {
+			const String resource_type = String(dict.get("resource_type", "")).strip_edges();
+			if (resource_type.is_empty()) {
+				r_error = "Resource dictionary must provide resource_type or resource_path.";
+				return false;
+			}
+			if (!_is_resource_type_allowed(resource_type, p_uniform_info.hint_string)) {
+				r_error = vformat("Resource type `%s` is not allowed for this shader uniform. Expected: %s.", resource_type, p_uniform_info.hint_string);
+				return false;
+			}
+			resource = _instantiate_resource(resource_type, r_error);
+			if (resource.is_null()) {
+				return false;
+			}
+		}
+
+		if (dict.has("properties")) {
+			if (Variant(dict["properties"]).get_type() != Variant::DICTIONARY) {
+				r_error = "Resource dictionary `properties` must be an object.";
+				return false;
+			}
+			Dictionary properties = dict["properties"];
+			if (!_apply_object_properties(resource.ptr(), properties, r_error)) {
+				return false;
+			}
+		}
+
+		r_value = resource;
+		return true;
+	}
+
+	return _convert_value_for_target_type(p_value, p_uniform_info.type, r_value, r_error);
+}
+
+bool AIShaderEditingService::_find_shader_uniform_info(const Ref<Shader> &p_shader, const StringName &p_parameter_name, PropertyInfo &r_uniform_info) const {
+	if (p_shader.is_null()) {
+		return false;
+	}
+
+	List<PropertyInfo> uniforms;
+	p_shader->get_shader_uniform_list(&uniforms);
+	for (const PropertyInfo &E : uniforms) {
+		if (E.usage == PROPERTY_USAGE_GROUP || E.usage == PROPERTY_USAGE_SUBGROUP) {
+			continue;
+		}
+		if (StringName(E.name) == p_parameter_name) {
+			r_uniform_info = E;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool AIShaderEditingService::_apply_shader_parameters_to_material(const Ref<ShaderMaterial> &p_material, const Dictionary &p_shader_parameters, Array &r_applied_parameters, String &r_error) const {
+	if (p_material.is_null()) {
+		r_error = "ShaderMaterial is invalid.";
+		return false;
+	}
+
+	Ref<Shader> shader = p_material->get_shader();
+	if (shader.is_null()) {
+		r_error = "ShaderMaterial has no shader. Use shader.apply_to_node first or assign a ShaderMaterial with a shader.";
+		return false;
+	}
+
+	for (const KeyValue<Variant, Variant> &E : p_shader_parameters) {
+		const String parameter_name = String(E.key).strip_edges();
+		if (parameter_name.is_empty()) {
+			r_error = "Shader uniform name cannot be empty.";
+			return false;
+		}
+
+		PropertyInfo uniform_info;
+		if (!_find_shader_uniform_info(shader, StringName(parameter_name), uniform_info)) {
+			r_error = vformat("Shader uniform `%s` was not found on the material shader.", parameter_name);
+			return false;
+		}
+
+		Variant converted_value;
+		if (!_convert_value_for_shader_uniform(E.value, uniform_info, converted_value, r_error)) {
+			r_error = vformat("Failed to convert shader uniform `%s`: %s", parameter_name, r_error);
+			return false;
+		}
+
+		p_material->set_shader_parameter(StringName(parameter_name), converted_value);
+
+		Dictionary parameter_metadata;
+		parameter_metadata["name"] = parameter_name;
+		parameter_metadata["uniform_type"] = Variant::get_type_name(uniform_info.type);
+		parameter_metadata["value_type"] = Variant::get_type_name(converted_value.get_type());
+		Ref<Resource> resource = converted_value;
+		if (resource.is_valid()) {
+			parameter_metadata["resource_type"] = resource->get_class();
+		}
+		r_applied_parameters.push_back(parameter_metadata);
+	}
+
+	return true;
 }
 
 bool AIShaderEditingService::_resolve_shader_target(Node *p_node, const String &p_target_property, Vector<StringName> &r_property_names,
@@ -513,6 +1010,7 @@ AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const S
 
 	NodePath property_path(Vector<StringName>(), property_names, false);
 	Variant new_value = shader;
+	Array applied_parameters;
 	if (target_kind == SHADER_TARGET_SHADER_MATERIAL) {
 		Ref<ShaderMaterial> material = old_value;
 		if (material.is_null()) {
@@ -525,12 +1023,9 @@ AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const S
 			}
 		}
 		material->set_shader(shader);
-		for (const KeyValue<Variant, Variant> &E : p_shader_parameters) {
-			const String parameter_name = String(E.key).strip_edges();
-			if (parameter_name.is_empty()) {
-				continue;
-			}
-			material->set_shader_parameter(StringName(parameter_name), E.value);
+		if (!_apply_shader_parameters_to_material(material, p_shader_parameters, applied_parameters, error)) {
+			result.error = error;
+			return result;
 		}
 		new_value = material;
 	}
@@ -562,6 +1057,100 @@ AIShaderEditingResult AIShaderEditingService::_apply_to_node_main_thread(const S
 	result.metadata["target_property"] = p_target_property;
 	result.metadata["target_kind"] = target_kind == SHADER_TARGET_DIRECT_SHADER ? "shader" : "shader_material";
 	result.metadata["shader_parameter_count"] = p_shader_parameters.size();
+	result.metadata["shader_parameters"] = applied_parameters;
+	result.metadata["scene_path"] = saved_path;
+	result.metadata["saved"] = true;
+	return result;
+}
+
+AIShaderEditingResult AIShaderEditingService::_set_parameters_main_thread(const String &p_node_path, const String &p_target_property, const Dictionary &p_shader_parameters) {
+	AIShaderEditingResult result;
+	String error;
+
+	if (p_shader_parameters.is_empty()) {
+		result.error = "shader_parameters must include at least one uniform value.";
+		return result;
+	}
+
+	Node *scene = _get_edited_scene(error);
+	if (!scene) {
+		result.error = error;
+		return result;
+	}
+	Node *node = _resolve_node_path(scene, p_node_path, true, error);
+	if (!node) {
+		result.error = error;
+		return result;
+	}
+
+	Vector<StringName> property_names;
+	ShaderTargetKind target_kind = SHADER_TARGET_SHADER_MATERIAL;
+	Variant old_value;
+	if (!_resolve_shader_target(node, p_target_property, property_names, target_kind, old_value, error)) {
+		result.error = error;
+		return result;
+	}
+	if (target_kind != SHADER_TARGET_SHADER_MATERIAL) {
+		result.error = "shader.set_parameters requires a target_property that contains a ShaderMaterial or Material.";
+		return result;
+	}
+
+	Ref<ShaderMaterial> material = old_value;
+	if (material.is_null()) {
+		result.error = "target_property must currently contain a ShaderMaterial. Use shader.apply_to_node first.";
+		return result;
+	}
+
+	Ref<Resource> duplicated = material->duplicate(true);
+	Ref<ShaderMaterial> new_material = duplicated;
+	if (new_material.is_null()) {
+		result.error = "Failed to duplicate the target ShaderMaterial.";
+		return result;
+	}
+
+	Array applied_parameters;
+	if (!_apply_shader_parameters_to_material(new_material, p_shader_parameters, applied_parameters, error)) {
+		result.error = error;
+		return result;
+	}
+
+	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+	if (!undo_redo) {
+		result.error = "Editor undo/redo manager is not available.";
+		return result;
+	}
+	if (scene->get_scene_file_path().is_empty()) {
+		result.error = "The current scene must be saved before shader parameter changes can be persisted.";
+		return result;
+	}
+
+	NodePath property_path(Vector<StringName>(), property_names, false);
+	Variant new_value = new_material;
+	undo_redo->create_action_for_history(TTR("AI Set Shader Parameters"), EditorNode::get_editor_data().get_current_edited_scene_history_id(), UndoRedo::MERGE_DISABLE, false, true);
+	undo_redo->add_do_method(node, "set_indexed", property_path, new_value);
+	undo_redo->add_undo_method(node, "set_indexed", property_path, old_value);
+	undo_redo->add_do_method(this, "_update_scene_tree");
+	undo_redo->add_undo_method(this, "_update_scene_tree");
+	undo_redo->commit_action();
+	_update_scene_tree();
+
+	String saved_path;
+	if (!_save_current_scene_main_thread(scene, saved_path, error)) {
+		undo_redo->undo();
+		_update_scene_tree();
+		result.error = error;
+		result.metadata["saved"] = false;
+		result.metadata["node_path"] = p_node_path;
+		result.metadata["target_property"] = p_target_property;
+		return result;
+	}
+
+	result.success = true;
+	result.message = vformat("Set %d shader parameter(s) on `%s:%s` and saved `%s`.", p_shader_parameters.size(), p_node_path, p_target_property, saved_path);
+	result.metadata["node_path"] = p_node_path;
+	result.metadata["target_property"] = p_target_property;
+	result.metadata["shader_parameter_count"] = p_shader_parameters.size();
+	result.metadata["shader_parameters"] = applied_parameters;
 	result.metadata["scene_path"] = saved_path;
 	result.metadata["saved"] = true;
 	return result;
@@ -598,6 +1187,15 @@ AIShaderEditingResult AIShaderEditingService::apply_to_node(const String &p_node
 	request.operation = MainThreadRequest::OP_APPLY_TO_NODE;
 	request.node_path = p_node_path;
 	request.shader_path = p_shader_path;
+	request.target_property = p_target_property;
+	request.shader_parameters = p_shader_parameters;
+	return _dispatch_to_main_thread(request);
+}
+
+AIShaderEditingResult AIShaderEditingService::set_parameters(const String &p_node_path, const String &p_target_property, const Dictionary &p_shader_parameters) {
+	MainThreadRequest request;
+	request.operation = MainThreadRequest::OP_SET_PARAMETERS;
+	request.node_path = p_node_path;
 	request.target_property = p_target_property;
 	request.shader_parameters = p_shader_parameters;
 	return _dispatch_to_main_thread(request);

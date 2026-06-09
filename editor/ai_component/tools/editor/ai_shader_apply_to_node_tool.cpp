@@ -28,7 +28,7 @@ Dictionary AIShaderApplyToNodeTool::get_parameters_schema() const {
 
 	Dictionary parameters_property;
 	parameters_property["type"] = "object";
-	parameters_property["description"] = "Optional shader uniform values keyed by uniform name. Values use Godot Variant-compatible JSON values.";
+	parameters_property["description"] = "Optional shader uniform values keyed by uniform name. Basic values can use JSON scalars/arrays or typed values such as {\"type\":\"Color\",\"args\":[1,0,0,1]}. Resource uniforms such as textures/noise accept {\"resource_path\":\"res://...\"} or {\"resource_type\":\"NoiseTexture2D\",\"properties\":{\"noise\":{\"resource_type\":\"FastNoiseLite\",\"properties\":{\"seed\":1}}}}.";
 	properties["shader_parameters"] = parameters_property;
 
 	Array required;

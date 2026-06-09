@@ -18,6 +18,7 @@ static void _deny_write_tools(AIAgentProfile &r_profile) {
 	r_profile.denied_tools.insert("shader.create");
 	r_profile.denied_tools.insert("shader.edit");
 	r_profile.denied_tools.insert("shader.apply_to_node");
+	r_profile.denied_tools.insert("shader.set_parameters");
 	r_profile.denied_tools.insert("shader.delete");
 }
 
