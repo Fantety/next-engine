@@ -1977,6 +1977,7 @@ TEST_CASE("[Editor][AI] Agent session ignores approved tool results after switch
 	}
 
 	CHECK(blocking_tool->execute_count == 1);
+	CHECK(blocking_tool->context_cancel_requested);
 	CHECK(client->request_count == 0);
 	CHECK(session->get_state() == AI_AGENT_STATE_IDLE);
 	CHECK(session->get_messages_as_array().is_empty());

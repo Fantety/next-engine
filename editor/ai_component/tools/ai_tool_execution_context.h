@@ -26,6 +26,7 @@ public:
 	static void set_current(const Ref<AIToolExecutionContext> &p_context);
 	static Ref<AIToolExecutionContext> get_current();
 	static void clear_current();
+	static bool is_current_cancel_requested();
 
 	void set_session_id(const String &p_session_id);
 	String get_session_id() const;

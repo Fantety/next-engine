@@ -19,6 +19,7 @@ protected:
 	int timeout_msec = 10000;
 
 	static void _bind_methods();
+	bool _is_cancel_requested() const;
 
 public:
 	void set_server_config(const AIMCPServerConfig &p_server);

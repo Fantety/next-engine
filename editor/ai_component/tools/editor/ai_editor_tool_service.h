@@ -8,10 +8,12 @@
 #include "core/object/message_queue.h"
 #include "core/object/ref_counted.h"
 #include "core/os/mutex.h"
+#include "core/os/os.h"
 #include "core/os/thread.h"
 #include "core/string/ustring.h"
 #include "core/templates/vector.h"
 #include "core/variant/variant.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 
 class Node;
 
@@ -19,6 +21,8 @@ class AIEditorToolService : public RefCounted {
 	GDCLASS(AIEditorToolService, RefCounted);
 
 protected:
+	static constexpr uint32_t MAIN_THREAD_DISPATCH_WAIT_USEC = 1000;
+
 	struct MainThreadDispatchItem {
 		uint64_t id = 0;
 		Callable callable;
@@ -30,7 +34,8 @@ protected:
 	static uint64_t main_thread_dispatch_next_id;
 
 	static void _bind_methods();
-	static Error _queue_main_thread_dispatch(const Callable &p_callable, const Variant &p_argument);
+	static Error _queue_main_thread_dispatch(const Callable &p_callable, const Variant &p_argument, uint64_t &r_item_id);
+	static bool _remove_queued_main_thread_dispatch(uint64_t p_item_id);
 
 	template <typename TResult, typename TRequest, typename TService>
 	static TResult _dispatch_main_thread_request(TRequest &r_request, TService *p_dispatcher, void (TService::*p_execute_request)(uint64_t), Mutex &r_request_mutex, const String &p_schedule_error) {
@@ -46,15 +51,35 @@ protected:
 			return result;
 		}
 
+		Ref<AIToolExecutionContext> execution_context = AIToolExecutionContext::get_current();
+		if (execution_context.is_valid() && execution_context->is_cancel_requested()) {
+			TResult result;
+			result.error = "Tool execution cancelled.";
+			return result;
+		}
+
 		Variant request_ptr = reinterpret_cast<uint64_t>(&r_request);
-		Error err = _queue_main_thread_dispatch(callable_mp(p_dispatcher, p_execute_request), request_ptr);
+		uint64_t dispatch_item_id = 0;
+		Error err = _queue_main_thread_dispatch(callable_mp(p_dispatcher, p_execute_request), request_ptr, dispatch_item_id);
 		if (err != OK) {
 			TResult result;
 			result.error = p_schedule_error;
 			return result;
 		}
 
-		r_request.done.wait();
+		while (!r_request.done.try_wait()) {
+			if (execution_context.is_valid() && execution_context->is_cancel_requested() && dispatch_item_id != 0 && _remove_queued_main_thread_dispatch(dispatch_item_id)) {
+				TResult result;
+				result.error = "Tool execution cancelled.";
+				return result;
+			}
+
+			if (OS::get_singleton()) {
+				OS::get_singleton()->delay_usec(MAIN_THREAD_DISPATCH_WAIT_USEC);
+			} else {
+				Thread::yield();
+			}
+		}
 		return r_request.result;
 	}
 

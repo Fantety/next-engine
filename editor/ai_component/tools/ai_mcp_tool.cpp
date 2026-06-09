@@ -5,6 +5,7 @@
 #include "ai_mcp_tool.h"
 
 #include "editor/ai_component/providers/ai_mcp_client.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 
 void AIMCPTool::_bind_methods() {
 }
@@ -50,5 +51,10 @@ AIToolResult AIMCPTool::execute(const Dictionary &p_arguments) {
 	result.metadata.merge(call_result.metadata, true);
 	result.metadata["tool_origin"] = "mcp";
 	result.metadata["mcp_agent_tool_name"] = get_name();
+	if (AIToolExecutionContext::is_current_cancel_requested()) {
+		result.content.clear();
+		result.error = "Tool execution cancelled.";
+		result.metadata["cancelled"] = true;
+	}
 	return result;
 }

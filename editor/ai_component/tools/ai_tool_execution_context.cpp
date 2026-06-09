@@ -21,6 +21,10 @@ void AIToolExecutionContext::clear_current() {
 	current.unref();
 }
 
+bool AIToolExecutionContext::is_current_cancel_requested() {
+	return current.is_valid() && current->is_cancel_requested();
+}
+
 void AIToolExecutionContext::set_session_id(const String &p_session_id) {
 	session_id = p_session_id;
 }

@@ -49,6 +49,7 @@ AISceneEditingService *AISceneEditingService::get_dispatcher_singleton() {
 }
 
 AISceneEditingResult AISceneEditingService::_dispatch_to_main_thread(MainThreadRequest &r_request) {
+	r_request.execution_context = AIToolExecutionContext::get_current();
 	return _dispatch_main_thread_request<AISceneEditingResult>(r_request, get_dispatcher_singleton(), &AISceneEditingService::_execute_request, request_mutex, "Failed to schedule scene editing on the main thread.");
 }
 
@@ -58,6 +59,22 @@ void AISceneEditingService::_execute_request(uint64_t p_request_ptr) {
 
 void AISceneEditingService::_execute_request_ptr(MainThreadRequest *p_request) {
 	ERR_FAIL_NULL(p_request);
+
+	Ref<AIToolExecutionContext> previous_context = AIToolExecutionContext::get_current();
+	if (p_request->execution_context.is_valid()) {
+		AIToolExecutionContext::set_current(p_request->execution_context);
+	}
+	if (AIToolExecutionContext::is_current_cancel_requested()) {
+		p_request->result.error = "Tool execution cancelled.";
+		p_request->result.metadata["cancelled"] = true;
+		if (previous_context.is_valid()) {
+			AIToolExecutionContext::set_current(previous_context);
+		} else {
+			AIToolExecutionContext::clear_current();
+		}
+		p_request->done.post();
+		return;
+	}
 
 	switch (p_request->operation) {
 		case MainThreadRequest::OP_DELETE_NODE:
@@ -75,6 +92,12 @@ void AISceneEditingService::_execute_request_ptr(MainThreadRequest *p_request) {
 		case MainThreadRequest::OP_APPLY_PATCH:
 			p_request->result = _apply_patch_main_thread(p_request->patch);
 			break;
+	}
+
+	if (previous_context.is_valid()) {
+		AIToolExecutionContext::set_current(previous_context);
+	} else {
+		AIToolExecutionContext::clear_current();
 	}
 
 	p_request->done.post();

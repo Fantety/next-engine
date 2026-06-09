@@ -80,6 +80,7 @@ void AIAgentSession::_bind_methods() {
 
 AIAgentSession::AIAgentSession() {
 	approved_tool_running.clear();
+	approved_tool_cancel_requested.clear();
 	store.instantiate();
 	main_agent.instantiate();
 	runtime = main_agent->get_runtime();
@@ -113,6 +114,7 @@ AIAgentSession::AIAgentSession() {
 
 AIAgentSession::~AIAgentSession() {
 	shutting_down = true;
+	_request_approved_tool_cancel();
 	_wait_for_approved_tool_thread();
 }
 
@@ -213,6 +215,7 @@ void AIAgentSession::cancel_request() {
 		if (runtime_runner.is_valid()) {
 			runtime_runner->cancel();
 		}
+		_request_approved_tool_cancel();
 		turn_generation++;
 		if (runtime_runner.is_valid() && runtime_runner->is_running() && active_assistant_index >= 0 && active_assistant_index < messages.size() && messages[active_assistant_index].content.is_empty()) {
 			_remove_message_at(active_assistant_index);
@@ -337,6 +340,7 @@ bool AIAgentSession::approve_pending_tool() {
 	_update_tool_call_status(call);
 	pending_tool_approval.clear();
 	_set_state(AI_AGENT_STATE_STREAMING);
+	approved_tool_cancel_requested.clear();
 
 	ApprovedToolThreadParams *params = memnew(ApprovedToolThreadParams);
 	params->session = this;
@@ -655,6 +659,29 @@ void AIAgentSession::_wait_for_approved_tool_thread() {
 	}
 }
 
+void AIAgentSession::_set_active_approved_tool_context(const Ref<AIToolExecutionContext> &p_context) {
+	MutexLock lock(active_approved_tool_context_mutex);
+	active_approved_tool_context = p_context;
+	if (approved_tool_cancel_requested.is_set() && active_approved_tool_context.is_valid()) {
+		active_approved_tool_context->request_cancel();
+	}
+}
+
+void AIAgentSession::_clear_active_approved_tool_context(const Ref<AIToolExecutionContext> &p_context) {
+	MutexLock lock(active_approved_tool_context_mutex);
+	if (active_approved_tool_context == p_context) {
+		active_approved_tool_context.unref();
+	}
+}
+
+void AIAgentSession::_request_approved_tool_cancel() {
+	approved_tool_cancel_requested.set();
+	MutexLock lock(active_approved_tool_context_mutex);
+	if (active_approved_tool_context.is_valid()) {
+		active_approved_tool_context->request_cancel();
+	}
+}
+
 void AIAgentSession::_approved_tool_thread_func(void *p_userdata) {
 	ApprovedToolThreadParams *params = static_cast<ApprovedToolThreadParams *>(p_userdata);
 	AIAgentSession *session = params->session;
@@ -674,9 +701,26 @@ void AIAgentSession::_approved_tool_thread_func(void *p_userdata) {
 		tool_context->set_review_changes(review_changes);
 		tool_context->set_session_id(active_session_id);
 		tool_context->set_tool_call_id(call.id);
+		if (session) {
+			session->_set_active_approved_tool_context(tool_context);
+		}
 		AIToolExecutionContext::set_current(tool_context);
-		result = tool->execute(call.arguments);
+		if (tool_context->is_cancel_requested()) {
+			result.content.clear();
+			result.error = "Tool execution cancelled.";
+			result.metadata["cancelled"] = true;
+		} else {
+			result = tool->execute(call.arguments);
+			if (tool_context->is_cancel_requested()) {
+				result.content.clear();
+				result.error = "Tool execution cancelled.";
+				result.metadata["cancelled"] = true;
+			}
+		}
 		AIToolExecutionContext::clear_current();
+		if (session) {
+			session->_clear_active_approved_tool_context(tool_context);
+		}
 	} else {
 		result.error = "Tool is not registered.";
 	}

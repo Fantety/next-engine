@@ -6,6 +6,7 @@
 
 #include "core/math/math_funcs.h"
 
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
 #include "editor/ai_component/providers/ai_mcp_stdio_client.h"
 
@@ -26,6 +27,10 @@ void AIMCPClient::set_timeout_msec(int p_timeout_msec) {
 
 int AIMCPClient::get_timeout_msec() const {
 	return timeout_msec;
+}
+
+bool AIMCPClient::_is_cancel_requested() const {
+	return AIToolExecutionContext::is_current_cancel_requested();
 }
 
 bool AIMCPClient::initialize(String &r_error) {

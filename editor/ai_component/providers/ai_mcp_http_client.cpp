@@ -243,6 +243,11 @@ bool AIMCPHTTPClient::_connect(const Endpoint &p_endpoint, Ref<HTTPClient> &r_cl
 
 	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
 	while (r_client->get_status() == HTTPClient::STATUS_CONNECTING || r_client->get_status() == HTTPClient::STATUS_RESOLVING) {
+		if (_is_cancel_requested()) {
+			r_error = "Tool execution cancelled.";
+			return false;
+		}
+
 		r_client->poll();
 		if (OS::get_singleton()->get_ticks_msec() - start_time > (uint64_t)timeout_msec) {
 			r_error = connection_host == p_endpoint.host ? vformat("MCP HTTP connection timed out: %s:%d", connection_host, p_endpoint.port) : vformat("MCP HTTP connection timed out: %s:%d (configured host %s)", connection_host, p_endpoint.port, p_endpoint.host);
@@ -261,6 +266,11 @@ bool AIMCPHTTPClient::_connect(const Endpoint &p_endpoint, Ref<HTTPClient> &r_cl
 bool AIMCPHTTPClient::_wait_for_response_headers(const Ref<HTTPClient> &p_client, ResponseMetadata &r_metadata, String &r_error) const {
 	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
 	while (true) {
+		if (_is_cancel_requested()) {
+			r_error = "Tool execution cancelled.";
+			return false;
+		}
+
 		p_client->poll();
 		HTTPClient::Status status = p_client->get_status();
 		if (_capture_response_metadata(p_client, status, r_metadata)) {
@@ -293,6 +303,11 @@ bool AIMCPHTTPClient::_read_response_body(const Ref<HTTPClient> &p_client, Packe
 	bool received_response = r_metadata && r_metadata->headers_received;
 	bool received_body = false;
 	while (true) {
+		if (_is_cancel_requested()) {
+			r_error = "Tool execution cancelled.";
+			return false;
+		}
+
 		p_client->poll();
 		HTTPClient::Status status = p_client->get_status();
 		if (r_metadata) {
@@ -341,6 +356,11 @@ bool AIMCPHTTPClient::_read_streamable_http_response(const Ref<HTTPClient> &p_cl
 	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
 	bool received_response = r_metadata.headers_received;
 	while (true) {
+		if (_is_cancel_requested()) {
+			r_error = "Tool execution cancelled.";
+			return false;
+		}
+
 		p_client->poll();
 		HTTPClient::Status status = p_client->get_status();
 		_capture_response_metadata(p_client, status, r_metadata);
@@ -458,6 +478,11 @@ bool AIMCPHTTPClient::_read_sse_endpoint_event(const Ref<HTTPClient> &p_stream_c
 	PackedByteArray event_buffer;
 	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
 	while (true) {
+		if (_is_cancel_requested()) {
+			r_error = "Tool execution cancelled.";
+			return false;
+		}
+
 		p_stream_client->poll();
 		HTTPClient::Status status = p_stream_client->get_status();
 		_capture_response_metadata(p_stream_client, status, r_metadata);
@@ -566,6 +591,11 @@ bool AIMCPHTTPClient::_read_legacy_sse_response(const Ref<HTTPClient> &p_stream_
 	PackedByteArray event_buffer;
 	const uint64_t start_time = OS::get_singleton()->get_ticks_msec();
 	while (true) {
+		if (_is_cancel_requested()) {
+			r_error = "Tool execution cancelled.";
+			return false;
+		}
+
 		p_stream_client->poll();
 		HTTPClient::Status status = p_stream_client->get_status();
 		if (status == HTTPClient::STATUS_BODY) {

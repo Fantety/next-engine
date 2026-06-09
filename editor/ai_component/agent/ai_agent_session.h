@@ -62,13 +62,16 @@ class AIAgentSession : public AISessionBase {
 	Ref<AISkillIndexContextProvider> skill_context;
 	Thread approved_tool_thread;
 	SafeFlag approved_tool_running;
+	SafeFlag approved_tool_cancel_requested;
 	Semaphore approved_tool_finished;
 	Mutex approved_tool_result_mutex;
+	Mutex active_approved_tool_context_mutex;
 	AIToolCall approved_tool_call;
 	AIToolResult approved_tool_result;
 	String approved_tool_result_session_id;
 	uint64_t approved_tool_result_turn_generation = 0;
 	bool approved_tool_result_available = false;
+	Ref<AIToolExecutionContext> active_approved_tool_context;
 	bool shutting_down = false;
 
 	int active_assistant_index = -1;
@@ -90,6 +93,9 @@ class AIAgentSession : public AISessionBase {
 	bool _start_runtime_turn();
 	bool _is_busy() const;
 	void _wait_for_approved_tool_thread();
+	void _set_active_approved_tool_context(const Ref<AIToolExecutionContext> &p_context);
+	void _clear_active_approved_tool_context(const Ref<AIToolExecutionContext> &p_context);
+	void _request_approved_tool_cancel();
 	static void _approved_tool_thread_func(void *p_userdata);
 	void _set_approved_tool_result(const AIToolCall &p_call, const AIToolResult &p_result, const String &p_session_id, uint64_t p_turn_generation);
 	void _on_approved_tool_finished(const String &p_session_id, uint64_t p_turn_generation);

@@ -88,6 +88,17 @@ void AIScriptEditingService::_execute_request_ptr(MainThreadRequest *p_request) 
 	if (p_request->execution_context.is_valid()) {
 		AIToolExecutionContext::set_current(p_request->execution_context);
 	}
+	if (AIToolExecutionContext::is_current_cancel_requested()) {
+		p_request->result.error = "Tool execution cancelled.";
+		p_request->result.metadata["cancelled"] = true;
+		if (previous_context.is_valid()) {
+			AIToolExecutionContext::set_current(previous_context);
+		} else {
+			AIToolExecutionContext::clear_current();
+		}
+		p_request->done.post();
+		return;
+	}
 
 	switch (p_request->operation) {
 		case MainThreadRequest::OP_CREATE_SCRIPT:

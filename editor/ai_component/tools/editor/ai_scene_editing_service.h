@@ -11,6 +11,7 @@
 #include "core/string/ustring.h"
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
+#include "editor/ai_component/tools/ai_tool_execution_context.h"
 #include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 
 class Node;
@@ -47,6 +48,7 @@ class AISceneEditingService : public AIEditorToolService {
 		bool include_read_only = false;
 		bool include_current_values = true;
 		bool include_internal = false;
+		Ref<AIToolExecutionContext> execution_context;
 		AISceneEditingResult result;
 		Semaphore done;
 	};

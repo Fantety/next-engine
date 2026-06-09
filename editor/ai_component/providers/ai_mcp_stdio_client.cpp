@@ -239,6 +239,11 @@ bool AIMCPStdioClient::_read_response(const Ref<FileAccess> &p_pipe, int p_expec
 	const uint64_t start = OS::get_singleton()->get_ticks_msec();
 	bool process_exited = false;
 	while (OS::get_singleton()->get_ticks_msec() - start < (uint64_t)timeout_msec) {
+		if (_is_cancel_requested()) {
+			r_error = "Tool execution cancelled.";
+			return false;
+		}
+
 		const uint64_t available = p_pipe->get_length();
 		if (available == 0) {
 			if (p_pipe->get_error() == ERR_FILE_CANT_READ) {

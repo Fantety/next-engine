@@ -564,7 +564,10 @@ AIAgentRuntimeResult AIAgentRuntime::run(const Vector<AIAgentMessage> &p_message
 			tool_context->set_tool_call_id(call.id);
 			_set_active_tool_context(tool_context);
 			AIToolExecutionContext::set_current(tool_context);
-			AIToolResult tool_result = tool->execute(call.arguments);
+			AIToolResult tool_result;
+			if (!tool_context->is_cancel_requested()) {
+				tool_result = tool->execute(call.arguments);
+			}
 			AIToolExecutionContext::clear_current();
 			_clear_active_tool_context(tool_context);
 

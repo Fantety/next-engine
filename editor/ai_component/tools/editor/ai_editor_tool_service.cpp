@@ -27,20 +27,20 @@ void AIEditorToolService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_refresh_file_system", "path"), &AIEditorToolService::_refresh_file_system);
 }
 
-Error AIEditorToolService::_queue_main_thread_dispatch(const Callable &p_callable, const Variant &p_argument) {
+Error AIEditorToolService::_queue_main_thread_dispatch(const Callable &p_callable, const Variant &p_argument, uint64_t &r_item_id) {
+	r_item_id = 0;
 	CallQueue *message_queue = MessageQueue::get_main_singleton();
 	if (!message_queue) {
 		return ERR_UNAVAILABLE;
 	}
 
-	uint64_t item_id = 0;
 	{
 		MutexLock lock(main_thread_dispatch_mutex);
 		MainThreadDispatchItem item;
 		item.id = ++main_thread_dispatch_next_id;
 		item.callable = p_callable;
 		item.argument = p_argument;
-		item_id = item.id;
+		r_item_id = item.id;
 		main_thread_dispatch_items.push_back(item);
 	}
 
@@ -49,16 +49,34 @@ Error AIEditorToolService::_queue_main_thread_dispatch(const Callable &p_callabl
 		bool removed_item = false;
 		MutexLock lock(main_thread_dispatch_mutex);
 		for (int i = main_thread_dispatch_items.size() - 1; i >= 0; i--) {
-			if (main_thread_dispatch_items[i].id == item_id) {
+			if (main_thread_dispatch_items[i].id == r_item_id) {
 				main_thread_dispatch_items.remove_at(i);
 				removed_item = true;
 				break;
 			}
 		}
+		if (removed_item) {
+			r_item_id = 0;
+		}
 		return removed_item ? err : OK;
 	}
 
 	return OK;
+}
+
+bool AIEditorToolService::_remove_queued_main_thread_dispatch(uint64_t p_item_id) {
+	if (p_item_id == 0) {
+		return false;
+	}
+
+	MutexLock lock(main_thread_dispatch_mutex);
+	for (int i = main_thread_dispatch_items.size() - 1; i >= 0; i--) {
+		if (main_thread_dispatch_items[i].id == p_item_id) {
+			main_thread_dispatch_items.remove_at(i);
+			return true;
+		}
+	}
+	return false;
 }
 
 void AIEditorToolService::flush_pending_main_thread_dispatches_for_wait() {
