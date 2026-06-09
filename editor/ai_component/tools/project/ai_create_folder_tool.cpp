@@ -9,7 +9,6 @@
 #include "core/variant/variant.h"
 
 #include "editor/ai_component/tools/project/ai_project_tool_utils.h"
-#include "editor/file_system/editor_file_system.h"
 
 String AICreateFolderTool::get_name() const {
 	return "project.create_folder";
@@ -68,9 +67,7 @@ AIToolResult AICreateFolderTool::execute(const Dictionary &p_arguments) {
 		return result;
 	}
 
-	if (EditorFileSystem::get_singleton()) {
-		EditorFileSystem::get_singleton()->call_deferred("scan_changes");
-	}
+	AIProjectToolUtils::refresh_editor_file_system(path, false);
 
 	result.content = vformat("Created folder `%s`.", path);
 	result.metadata["path"] = path;

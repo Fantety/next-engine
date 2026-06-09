@@ -858,7 +858,7 @@ AIShaderEditingResult AIShaderEditingService::_create_shader_main_thread(const S
 	String old_shader_code;
 	Ref<Shader> shader;
 	if (existed_before) {
-		if (!_load_shader_resource(shader_path, shader, error, true)) {
+		if (!_load_shader_resource(shader_path, shader, error)) {
 			result.error = error;
 			return result;
 		}
@@ -903,7 +903,7 @@ AIShaderEditingResult AIShaderEditingService::_edit_shader_main_thread(const Str
 	}
 
 	Ref<Shader> shader;
-	if (!_load_shader_resource(shader_path, shader, error, true)) {
+	if (!_load_shader_resource(shader_path, shader, error)) {
 		result.error = error;
 		return result;
 	}

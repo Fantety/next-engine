@@ -10,7 +10,6 @@
 #include "core/variant/variant.h"
 
 #include "editor/ai_component/tools/project/ai_project_tool_utils.h"
-#include "editor/file_system/editor_file_system.h"
 
 String AICreateMarkdownTool::get_name() const {
 	return "project.create_markdown";
@@ -109,10 +108,7 @@ AIToolResult AICreateMarkdownTool::execute(const Dictionary &p_arguments) {
 	file->store_string(content);
 	file->close();
 
-	if (EditorFileSystem::get_singleton()) {
-		EditorFileSystem::get_singleton()->update_file(path);
-		EditorFileSystem::get_singleton()->call_deferred("scan_changes");
-	}
+	AIProjectToolUtils::refresh_editor_file_system(path, true);
 
 	const int byte_count = content.to_utf8_buffer().size();
 	result.content = vformat("Created Markdown document `%s`.", path);
