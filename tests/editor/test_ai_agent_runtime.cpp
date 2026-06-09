@@ -31,6 +31,7 @@
 #include "editor/ai_component/tools/ai_tool_registry.h"
 #include "editor/ai_component/tools/editor/ai_editor_tool_service.h"
 #include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
+#include "editor/ai_component/ui/ai_reference_resolver.h"
 
 TEST_FORCE_LINK(test_ai_agent_runtime);
 
@@ -1621,6 +1622,82 @@ TEST_CASE("[Editor][AI] Agent session stores user message attachments") {
 	CHECK(String(stored_attachment["path"]) == "res://screens/reference.png");
 }
 
+TEST_CASE("[Editor][AI] Agent session stores attachment-only user messages") {
+	Dictionary attachment;
+	attachment["type"] = "text";
+	attachment["source"] = "clipboard";
+	attachment["label"] = "Clipboard";
+	attachment["text"] = "Copied context";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary user_message = AIAgentSession::make_user_message_for_test(String(), attachments);
+	CHECK(String(user_message["role"]) == "user");
+	CHECK(String(user_message["content"]).is_empty());
+	REQUIRE(user_message.has("metadata"));
+	Dictionary metadata = user_message["metadata"];
+	REQUIRE(metadata.has("attachments"));
+	Array stored_attachments = metadata["attachments"];
+	REQUIRE(stored_attachments.size() == 1);
+	Dictionary stored_attachment = stored_attachments[0];
+	CHECK(String(stored_attachment["text"]) == "Copied context");
+}
+
+TEST_CASE("[Editor][AI] Reference resolver parses inline reference tokens") {
+	const String text = "Use @clipboard and @canvas with @res://scripts/player.gd, and @\"res://data/file name.json\".";
+	const Vector<AIReferenceResolver::ReferenceToken> tokens = AIReferenceResolver::find_reference_tokens(text);
+
+	REQUIRE(tokens.size() == 4);
+	CHECK(tokens[0].clipboard);
+	CHECK(tokens[0].start_column == text.find("@clipboard"));
+	CHECK(tokens[0].end_column == tokens[0].start_column + String("@clipboard").length());
+	CHECK(tokens[1].canvas);
+	CHECK(tokens[1].start_column == text.find("@canvas"));
+	CHECK(tokens[1].end_column == tokens[1].start_column + String("@canvas").length());
+	CHECK_FALSE(tokens[2].clipboard);
+	CHECK_FALSE(tokens[2].canvas);
+	CHECK(tokens[2].path == "res://scripts/player.gd");
+	CHECK_FALSE(tokens[3].clipboard);
+	CHECK_FALSE(tokens[3].canvas);
+	CHECK(tokens[3].path == "res://data/file name.json");
+}
+
+TEST_CASE("[Editor][AI] Reference resolver ignores non-boundary clipboard tokens") {
+	const Vector<AIReferenceResolver::ReferenceToken> tokens = AIReferenceResolver::find_reference_tokens("email@clipboard and @clipboardSuffix and big@canvas and @canvasSuffix");
+	CHECK(tokens.is_empty());
+}
+
+TEST_CASE("[Editor][AI] Reference resolver converts file references to send attachments") {
+	const Array attachments = AIReferenceResolver::resolve_attachments("Use @res://art/player.png @res://scripts/player.gd @res://data/archive.bin @res://art/player.png");
+
+	REQUIRE(attachments.size() == 3);
+
+	Dictionary image_attachment = attachments[0];
+	CHECK(String(image_attachment["type"]) == "image");
+	CHECK(String(image_attachment["path"]) == "res://art/player.png");
+	CHECK(String(image_attachment["mime_type"]) == "image/png");
+	CHECK(String(image_attachment["detail"]) == "auto");
+	CHECK(bool(image_attachment["inline_reference"]));
+
+	Dictionary text_attachment = attachments[1];
+	CHECK(String(text_attachment["type"]) == "text");
+	CHECK(String(text_attachment["path"]) == "res://scripts/player.gd");
+	CHECK(String(text_attachment["mime_type"]) == "text/plain");
+	CHECK(bool(text_attachment["inline_reference"]));
+
+	Dictionary file_attachment = attachments[2];
+	CHECK(String(file_attachment["type"]) == "file");
+	CHECK(String(file_attachment["path"]) == "res://data/archive.bin");
+	CHECK(String(file_attachment["mime_type"]) == "application/octet-stream");
+	CHECK(bool(file_attachment["inline_reference"]));
+}
+
+TEST_CASE("[Editor][AI] Reference resolver formats file tokens for composer insertion") {
+	CHECK(AIReferenceResolver::make_reference_token_for_path("res://scripts/player.gd") == "@res://scripts/player.gd");
+	CHECK(AIReferenceResolver::make_reference_token_for_path("res://scenes/main scene.tscn") == "@\"res://scenes/main scene.tscn\"");
+	CHECK(AIReferenceResolver::make_reference_token_for_path(" res://scripts/player.gd ") == "@res://scripts/player.gd");
+}
+
 TEST_CASE("[Editor][AI] Agent session deletes current conversation and starts clean session") {
 	AIAgentSession *session = memnew(AIAgentSession);
 	session->set_conversation_project_scope_for_test("test_project_scope_delete_current");
@@ -2562,6 +2639,71 @@ TEST_CASE("[Editor][AI] Multimodal adapter downgrades image attachments for text
 	CHECK(String(converted_user["content"]).contains("Describe this image."));
 	CHECK(String(converted_user["content"]).contains("Attached image not sent"));
 	CHECK(String(converted_user["content"]).contains("res://art/player.png"));
+}
+
+TEST_CASE("[Editor][AI] Multimodal adapter includes referenced text attachments") {
+	Array messages;
+
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Use this reference.";
+
+	Dictionary attachment;
+	attachment["type"] = "text";
+	attachment["source"] = "clipboard";
+	attachment["label"] = "Clipboard";
+	attachment["text"] = "const answer = 42;";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary metadata;
+	metadata["attachments"] = attachments;
+	user_message["metadata"] = metadata;
+	messages.push_back(user_message);
+
+	AIProviderConfig config;
+	config.supports_multimodal = false;
+
+	Array chat_messages = AIMultimodalMessageAdapter::build_chat_messages(messages, config);
+
+	REQUIRE(chat_messages.size() == 1);
+	Dictionary converted_user = chat_messages[0];
+	CHECK(String(converted_user["role"]) == "user");
+	CHECK(Variant(converted_user["content"]).get_type() == Variant::STRING);
+	CHECK(String(converted_user["content"]).contains("Use this reference."));
+	CHECK(String(converted_user["content"]).contains("Referenced text from Clipboard"));
+	CHECK(String(converted_user["content"]).contains("const answer = 42;"));
+}
+
+TEST_CASE("[Editor][AI] Multimodal adapter notes unsupported referenced files") {
+	Array messages;
+
+	Dictionary user_message;
+	user_message["role"] = "user";
+	user_message["content"] = "Look at this file path.";
+
+	Dictionary attachment;
+	attachment["type"] = "file";
+	attachment["source"] = "file";
+	attachment["path"] = "res://data/archive.bin";
+	attachment["mime_type"] = "application/octet-stream";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary metadata;
+	metadata["attachments"] = attachments;
+	user_message["metadata"] = metadata;
+	messages.push_back(user_message);
+
+	AIProviderConfig config;
+	config.supports_multimodal = false;
+
+	Array chat_messages = AIMultimodalMessageAdapter::build_chat_messages(messages, config);
+
+	REQUIRE(chat_messages.size() == 1);
+	Dictionary converted_user = chat_messages[0];
+	CHECK(String(converted_user["content"]).contains("Referenced file path only"));
+	CHECK(String(converted_user["content"]).contains("res://data/archive.bin"));
 }
 
 TEST_CASE("[Editor][AI] Multimodal adapter converts image attachments for Chat Completions models") {

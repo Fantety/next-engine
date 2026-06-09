@@ -176,6 +176,7 @@
 #include "editor/ai_component/ui/ai_message_list.h"
 #include "editor/ai_component/ui/ai_requirement_form_dialog.h"
 #include "editor/ai_component/ui/ai_plan_panel.h"
+#include "editor/ai_component/ui/ai_reference_text_edit.h"
 #include "editor/ai_component/ui/ai_skill_dialog.h"
 #include "editor/ai_component/ui/ai_settings_mcp_page.h"
 #include "editor/ai_component/ui/ai_settings_models_page.h"
@@ -306,6 +307,8 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIMessageList);
 	GDREGISTER_CLASS(AIRequirementFormDialog);
 	GDREGISTER_CLASS(AIPlanPanel);
+	GDREGISTER_CLASS(AIReferenceSyntaxHighlighter);
+	GDREGISTER_CLASS(AIReferenceTextEdit);
 	GDREGISTER_CLASS(AISkillDialog);
 	GDREGISTER_CLASS(AISettingsMCPPage);
 	GDREGISTER_CLASS(AISettingsModelsPage);

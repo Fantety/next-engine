@@ -30,6 +30,27 @@ AIAgentMessage _make_user_message(const String &p_message, const Array &p_attach
 	return user_message;
 }
 
+String _make_attachment_title(const Array &p_attachments) {
+	for (int i = 0; i < p_attachments.size(); i++) {
+		if (Variant(p_attachments[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		Dictionary attachment = p_attachments[i];
+		const String label = String(attachment.get("label", String())).strip_edges();
+		if (!label.is_empty()) {
+			return "Reference: " + label;
+		}
+
+		const String path = String(attachment.get("path", String())).strip_edges();
+		if (!path.is_empty()) {
+			return "Reference: " + path.get_file();
+		}
+	}
+
+	return "Referenced context";
+}
+
 } // namespace
 
 void AIAgentSession::_bind_methods() {
@@ -158,14 +179,14 @@ void AIAgentSession::send_user_message(const String &p_message) {
 
 void AIAgentSession::send_user_message(const String &p_message, const Array &p_attachments) {
 	String stripped = p_message.strip_edges();
-	if (stripped.is_empty() || _is_busy()) {
+	if ((stripped.is_empty() && p_attachments.is_empty()) || _is_busy()) {
 		print_line(vformat("[AI Agent][Session] Ignored send request. empty=%s state=%d", stripped.is_empty() ? "yes" : "no", (int)state));
 		return;
 	}
 
 	print_line(vformat("[AI Agent][Session] User message accepted. chars=%d existing_messages=%d", stripped.length(), messages.size()));
 	if (messages.is_empty()) {
-		title = stripped.substr(0, 80);
+		title = stripped.is_empty() ? _make_attachment_title(p_attachments).substr(0, 80) : stripped.substr(0, 80);
 		print_line(vformat("[AI Agent][Session] Session title initialized: %s", title));
 	}
 

@@ -14,6 +14,22 @@ bool _is_supported_image_extension(const String &p_path) {
 	return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "gif";
 }
 
+bool _is_supported_text_extension(const String &p_path) {
+	const String ext = p_path.get_extension().to_lower();
+	static const char *text_extensions[] = {
+		"gd", "cs", "tscn", "tres", "md", "txt", "json", "cfg", "shader", "gdshader",
+		"xml", "yaml", "yml", "csv", "ini", "toml", "h", "hpp", "hh", "c",
+		"cpp", "cc", "cxx", "py", "js", "ts", "tsx", "jsx", "html", "css",
+		"scss", "rs", "go"
+	};
+	for (const char *text_extension : text_extensions) {
+		if (ext == text_extension) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool _is_allowed_project_path(const String &p_path) {
 	return p_path.begins_with("res://") && !p_path.contains("..");
 }
@@ -41,6 +57,40 @@ String _normalize_detail(const String &p_detail) {
 		return detail;
 	}
 	return "auto";
+}
+
+String _attachment_label(const Dictionary &p_attachment) {
+	const String label = String(p_attachment.get("label", String())).strip_edges();
+	if (!label.is_empty()) {
+		return label;
+	}
+
+	const String source = String(p_attachment.get("source", String())).strip_edges();
+	if (source == "clipboard") {
+		return "clipboard";
+	}
+
+	const String path = String(p_attachment.get("path", String())).strip_edges();
+	if (!path.is_empty()) {
+		return path;
+	}
+
+	return "inline attachment";
+}
+
+String _format_text_attachment(const Dictionary &p_attachment, const String &p_text, bool p_truncated) {
+	String section;
+	section += "Referenced text from " + _attachment_label(p_attachment) + ":\n";
+	section += "```text\n";
+	section += p_text;
+	if (!p_text.ends_with("\n")) {
+		section += "\n";
+	}
+	section += "```";
+	if (p_truncated) {
+		section += "\n[reference truncated]";
+	}
+	return section;
 }
 
 } // namespace
@@ -129,6 +179,57 @@ String AIMultimodalMessageAdapter::_get_image_data_url(const Dictionary &p_attac
 	return "data:" + mime_type + ";base64," + marshalls->raw_to_base64(raw);
 }
 
+String AIMultimodalMessageAdapter::_build_text_attachment_context(const Array &p_attachments, const AIProviderConfig &p_config) {
+	PackedStringArray sections;
+	const int max_text_chars = MAX(1024, MIN(262144, p_config.max_context_chars));
+
+	for (int i = 0; i < p_attachments.size(); i++) {
+		if (Variant(p_attachments[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		Dictionary attachment = p_attachments[i];
+		const String type = String(attachment.get("type", String()));
+		if (type == "text") {
+			String text = String(attachment.get("text", String()));
+			String error;
+			bool truncated = false;
+			if (text.is_empty()) {
+				const String path = String(attachment.get("path", String())).strip_edges();
+				if (!_is_allowed_project_path(path)) {
+					error = "Only res:// text file paths without traversal are allowed.";
+				} else if (!_is_supported_text_extension(path)) {
+					error = "Referenced file extension is not in the text allowlist.";
+				} else if (!FileAccess::exists(path)) {
+					error = "Referenced text file does not exist.";
+				} else {
+					Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ);
+					if (file.is_null()) {
+						error = "Failed to open referenced text file.";
+					} else {
+						text = file->get_as_text();
+					}
+				}
+			}
+
+			if (!error.is_empty()) {
+				sections.push_back("[Referenced text not sent from " + _attachment_label(attachment) + ": " + error + "]");
+				continue;
+			}
+
+			if (text.length() > max_text_chars) {
+				text = text.substr(0, max_text_chars);
+				truncated = true;
+			}
+			sections.push_back(_format_text_attachment(attachment, text, truncated));
+		} else if (type == "file") {
+			sections.push_back("[Referenced file path only; content was not sent because it is not a supported text or image type: " + _attachment_label(attachment) + "]");
+		}
+	}
+
+	return String("\n\n").join(sections);
+}
+
 String AIMultimodalMessageAdapter::_build_text_only_attachment_note(const Array &p_attachments) {
 	String note;
 	for (int i = 0; i < p_attachments.size(); i++) {
@@ -157,19 +258,25 @@ Variant AIMultimodalMessageAdapter::_build_chat_completions_user_content(const D
 		return text;
 	}
 
+	const String reference_text = _build_text_attachment_context(attachments, p_config);
+	String combined_text = text;
+	if (!reference_text.is_empty()) {
+		combined_text = combined_text.is_empty() ? reference_text : combined_text + "\n\n" + reference_text;
+	}
+
 	if (!p_config.supports_multimodal) {
 		const String note = _build_text_only_attachment_note(attachments);
 		if (note.is_empty()) {
-			return text;
+			return combined_text;
 		}
-		return text.is_empty() ? note : text + "\n\n" + note;
+		return combined_text.is_empty() ? note : combined_text + "\n\n" + note;
 	}
 
 	Array content;
-	if (!text.is_empty()) {
+	if (!combined_text.is_empty()) {
 		Dictionary text_part;
 		text_part["type"] = "text";
-		text_part["text"] = text;
+		text_part["text"] = combined_text;
 		content.push_back(text_part);
 	}
 

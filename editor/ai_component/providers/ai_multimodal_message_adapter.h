@@ -15,6 +15,7 @@ class AIMultimodalMessageAdapter {
 	static Array _get_message_attachments(const Dictionary &p_message);
 	static String _get_image_mime_type(const Dictionary &p_attachment);
 	static String _get_image_data_url(const Dictionary &p_attachment, const AIProviderConfig &p_config, String &r_error);
+	static String _build_text_attachment_context(const Array &p_attachments, const AIProviderConfig &p_config);
 	static String _build_text_only_attachment_note(const Array &p_attachments);
 	static Variant _build_chat_completions_user_content(const Dictionary &p_message, const AIProviderConfig &p_config);
 

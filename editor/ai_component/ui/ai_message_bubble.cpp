@@ -251,9 +251,30 @@ String _build_tool_group_details(const Array &p_messages) {
 }
 
 String _attachment_label(const Dictionary &p_attachment) {
+	const String label = String(p_attachment.get("label", String()));
+	if (!label.is_empty()) {
+		return label;
+	}
+
+	const String source = String(p_attachment.get("source", String()));
+	if (source == "clipboard") {
+		const String type = String(p_attachment.get("type", String()));
+		if (type == "image") {
+			return TTR("Clipboard Image");
+		}
+		return TTR("Clipboard");
+	}
+
 	const String path = String(p_attachment.get("path", String()));
 	if (path.is_empty()) {
-		return TTR("Image");
+		const String type = String(p_attachment.get("type", String()));
+		if (type == "image") {
+			return TTR("Image");
+		}
+		if (type == "text") {
+			return TTR("Text");
+		}
+		return TTR("File");
 	}
 	return path.get_file();
 }
@@ -468,6 +489,9 @@ void AIMessageBubble::_render_attachments(const Dictionary &p_metadata) {
 			continue;
 		}
 		Dictionary attachment = attachments[i];
+		if (bool(attachment.get("inline_reference", false))) {
+			continue;
+		}
 		const String label_text = _attachment_label(attachment);
 
 		HBoxContainer *chip = memnew(HBoxContainer);

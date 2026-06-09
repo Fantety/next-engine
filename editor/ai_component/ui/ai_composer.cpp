@@ -7,12 +7,25 @@
 #include "core/input/input_event.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "editor/ai_component/ui/ai_reference_resolver.h"
+#include "editor/ai_component/ui/ai_reference_text_edit.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
-#include "editor/ai_component/ui/ai_attachment_bar.h"
 #include "editor/ai_component/ui/ai_plan_panel.h"
+#include "editor/gui/editor_file_dialog.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/label.h"
+#include "servers/display/display_server.h"
 #include "servers/text/text_server.h"
+
+namespace {
+
+enum ReferenceMenuId {
+	REFERENCE_MENU_CLIPBOARD = 1,
+	REFERENCE_MENU_FILE = 2,
+	REFERENCE_MENU_CANVAS = 3,
+};
+
+} // namespace
 
 void AIComposer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reload_models"), &AIComposer::reload_models);
@@ -34,7 +47,7 @@ AIComposer::AIComposer() {
 	plan_panel = memnew(AIPlanPanel);
 	add_child(plan_panel);
 
-	input = memnew(TextEdit);
+	input = memnew(AIReferenceTextEdit);
 	input->set_custom_minimum_size(Size2(0, 80) * EDSCALE);
 	input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	input->set_line_wrapping_mode(TextEdit::LINE_WRAPPING_BOUNDARY);
@@ -47,9 +60,6 @@ AIComposer::AIComposer() {
 	HBoxContainer *bar = memnew(HBoxContainer);
 	bar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	add_child(bar);
-
-	attachment_bar = memnew(AIAttachmentBar);
-	bar->add_child(attachment_bar);
 
 	Label *mode_label = memnew(Label);
 	mode_label->set_text(TTR("Mode:"));
@@ -82,6 +92,21 @@ AIComposer::AIComposer() {
 	send_button->connect("pressed", callable_mp(this, &AIComposer::_action_pressed));
 	bar->add_child(send_button);
 
+	reference_menu = memnew(PopupMenu);
+	reference_menu->add_item(TTR("@clipboard"), REFERENCE_MENU_CLIPBOARD);
+	reference_menu->add_item(TTR("@canvas"), REFERENCE_MENU_CANVAS);
+	reference_menu->add_item(TTR("Reference File..."), REFERENCE_MENU_FILE);
+	reference_menu->connect("id_pressed", callable_mp(this, &AIComposer::_reference_menu_id_pressed));
+	add_child(reference_menu);
+
+	reference_file_dialog = memnew(EditorFileDialog);
+	reference_file_dialog->set_access(EditorFileDialog::ACCESS_RESOURCES);
+	reference_file_dialog->set_file_mode(EditorFileDialog::FILE_MODE_OPEN_FILE);
+	reference_file_dialog->add_filter("*", TTR("All Files"));
+	reference_file_dialog->connect("file_selected", callable_mp(this, &AIComposer::_reference_file_selected));
+	reference_file_dialog->connect("canceled", callable_mp(this, &AIComposer::_reference_file_dialog_canceled));
+	add_child(reference_file_dialog);
+
 	reload_models();
 	set_running(false);
 }
@@ -104,8 +129,8 @@ String AIComposer::get_selected_agent_profile_id() const {
 	return String(mode_selector->get_item_metadata(mode_selector->get_selected()));
 }
 
-Array AIComposer::get_attachments() const {
-	return attachment_bar ? attachment_bar->get_attachments() : Array();
+Array AIComposer::get_attachments_for_send() const {
+	return AIReferenceResolver::resolve_attachments(get_input_text());
 }
 
 void AIComposer::_mode_selected(int p_index) {
@@ -115,9 +140,6 @@ void AIComposer::_mode_selected(int p_index) {
 
 void AIComposer::clear_input() {
 	input->clear();
-	if (attachment_bar) {
-		attachment_bar->clear_attachments();
-	}
 	_update_action_button();
 }
 
@@ -167,6 +189,21 @@ void AIComposer::_input_gui_input(const Ref<InputEvent> &p_event) {
 	if (key_event.is_null() || !key_event->is_pressed()) {
 		return;
 	}
+	if (!running && key_event->get_unicode() == '@' && !key_event->is_ctrl_pressed() && !key_event->is_alt_pressed() && !key_event->is_meta_pressed()) {
+		reference_trigger_line = input->get_caret_line();
+		reference_trigger_column = input->get_caret_column();
+		callable_mp(this, &AIComposer::_show_reference_menu).call_deferred();
+		return;
+	}
+	if (!running && key_event->is_action("ui_paste", true)) {
+		DisplayServer *display_server = DisplayServer::get_singleton();
+		if (display_server && display_server->clipboard_has_image()) {
+			input->accept_event();
+			_insert_reference_token("@clipboard");
+			_update_action_button();
+			return;
+		}
+	}
 	if (key_event->get_keycode() != Key::ENTER && key_event->get_keycode() != Key::KP_ENTER) {
 		return;
 	}
@@ -185,13 +222,81 @@ void AIComposer::_action_pressed() {
 	}
 
 	String message = get_input_text().strip_edges();
+	const Array attachments = get_attachments_for_send();
 	if (!has_model || message.is_empty()) {
 		return;
 	}
-	emit_signal(SNAME("send_requested"), get_input_text(), get_selected_model(), get_selected_agent_profile_id(), get_attachments());
+	emit_signal(SNAME("send_requested"), get_input_text(), get_selected_model(), get_selected_agent_profile_id(), attachments);
 }
 
 void AIComposer::_input_text_changed() {
+	_update_action_button();
+}
+
+void AIComposer::_reference_menu_id_pressed(int p_id) {
+	switch (p_id) {
+		case REFERENCE_MENU_CLIPBOARD: {
+			_insert_reference_token("@clipboard");
+		} break;
+		case REFERENCE_MENU_CANVAS: {
+			_insert_reference_token("@canvas");
+		} break;
+		case REFERENCE_MENU_FILE: {
+			if (reference_file_dialog) {
+				reference_file_dialog->popup_file_dialog();
+			} else {
+				_clear_reference_trigger();
+			}
+		} break;
+		default:
+			_clear_reference_trigger();
+			break;
+	}
+
+	_update_action_button();
+}
+
+void AIComposer::_reference_file_selected(const String &p_path) {
+	_insert_reference_token(AIReferenceResolver::make_reference_token_for_path(p_path));
+}
+
+void AIComposer::_reference_file_dialog_canceled() {
+	_clear_reference_trigger();
+}
+
+void AIComposer::_show_reference_menu() {
+	if (running || !reference_menu || !input) {
+		return;
+	}
+
+	reference_menu->set_position(input->get_screen_position() + input->get_caret_draw_pos());
+	reference_menu->reset_size();
+	reference_menu->popup();
+}
+
+void AIComposer::_clear_reference_trigger() {
+	reference_trigger_line = -1;
+	reference_trigger_column = -1;
+}
+
+void AIComposer::_insert_reference_token(const String &p_token) {
+	if (!input || p_token.is_empty()) {
+		_clear_reference_trigger();
+		return;
+	}
+
+	if (reference_trigger_line >= 0 && reference_trigger_column >= 0 && reference_trigger_line < input->get_line_count()) {
+		const String line = input->get_line(reference_trigger_line);
+		if (reference_trigger_column < line.length() && line[reference_trigger_column] == '@') {
+			input->remove_text(reference_trigger_line, reference_trigger_column, reference_trigger_line, reference_trigger_column + 1);
+			input->set_caret_line(reference_trigger_line, false, true);
+			input->set_caret_column(reference_trigger_column, false);
+		}
+	}
+
+	input->insert_text_at_caret(p_token);
+	input->grab_focus();
+	_clear_reference_trigger();
 	_update_action_button();
 }
 
