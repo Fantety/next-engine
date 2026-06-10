@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "editor/ai_component/core/ai_cancel_token.h"
+#include "editor/ai_component/core/base/ai_cancel_token.h"
 
 #include "core/object/message_queue.h"
 #include "core/os/mutex.h"

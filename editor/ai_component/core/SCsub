@@ -4,3 +4,8 @@ from misc.utility.scons_hints import *
 Import("env")
 
 env.add_source_files(env.editor_sources, "*.cpp")
+SConscript("base/SCsub")
+SConscript("registry/SCsub")
+SConscript("runtime/SCsub")
+SConscript("threading/SCsub")
+SConscript("transport/SCsub")

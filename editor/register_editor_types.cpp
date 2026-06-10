@@ -150,9 +150,11 @@
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_file_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
-#include "editor/ai_component/core/ai_cancel_token.h"
-#include "editor/ai_component/core/ai_http_client.h"
-#include "editor/ai_component/core/ai_task_runner.h"
+#include "editor/ai_component/core/base/ai_cancel_token.h"
+#include "editor/ai_component/core/registry/ai_scoped_registration.h"
+#include "editor/ai_component/core/runtime/ai_stream_sink.h"
+#include "editor/ai_component/core/threading/ai_task_runner.h"
+#include "editor/ai_component/core/transport/ai_http_client.h"
 #include "editor/ai_component/planning/ai_plan_manager.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
@@ -276,6 +278,9 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterWAV);
 	GDREGISTER_CLASS(AICancelToken);
 	GDREGISTER_CLASS(AIHTTPClient);
+	GDREGISTER_CLASS(AIScopedRegistration);
+	GDREGISTER_CLASS(AIStreamSink);
+	GDREGISTER_CLASS(AICallableStreamSink);
 	GDREGISTER_CLASS(AITaskRunner);
 	GDREGISTER_CLASS(AIAgentBase);
 	GDREGISTER_CLASS(AIAgentSession);
