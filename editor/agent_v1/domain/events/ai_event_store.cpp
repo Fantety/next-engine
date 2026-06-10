@@ -17,6 +17,7 @@ void AIEventStore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_base_dir", "base_dir"), &AIEventStore::set_base_dir);
 	ClassDB::bind_method(D_METHOD("get_base_dir"), &AIEventStore::get_base_dir);
 	ClassDB::bind_method(D_METHOD("append_event", "aggregate_id", "type", "data", "live_only"), &AIEventStore::append_event, DEFVAL(false));
+	ClassDB::bind_method(D_METHOD("append_event_idempotent", "aggregate_id", "type", "data", "idempotency_key", "live_only"), &AIEventStore::append_event_idempotent, DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("append_durable_event", "aggregate_id", "type", "data"), &AIEventStore::append_durable_event);
 	ClassDB::bind_method(D_METHOD("append_live_event", "aggregate_id", "type", "data"), &AIEventStore::append_live_event);
 	ClassDB::bind_method(D_METHOD("list_events", "aggregate_id", "after_seq", "include_live"), &AIEventStore::list_events, DEFVAL(0), DEFVAL(false));
@@ -146,6 +147,36 @@ bool AIEventStore::_write_durable_event_locked(const AIEventRow &p_row, String &
 	return true;
 }
 
+bool AIEventStore::_find_idempotent_event_locked(const String &p_aggregate_id, const String &p_idempotency_key, AIEventRow &r_row) const {
+	if (p_idempotency_key.is_empty()) {
+		return false;
+	}
+
+	HashMap<String, Vector<AIEventRow>>::ConstIterator durable = durable_events_by_aggregate.find(p_aggregate_id);
+	if (durable) {
+		for (int i = 0; i < durable->value.size(); i++) {
+			const AIEventRow &row = durable->value[i];
+			if (row.idempotency_key == p_idempotency_key) {
+				r_row = row;
+				return true;
+			}
+		}
+	}
+
+	HashMap<String, Vector<AIEventRow>>::ConstIterator live = live_events_by_aggregate.find(p_aggregate_id);
+	if (live) {
+		for (int i = 0; i < live->value.size(); i++) {
+			const AIEventRow &row = live->value[i];
+			if (row.idempotency_key == p_idempotency_key) {
+				r_row = row;
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 void AIEventStore::_queue_event_signal(const AIEventRow &p_row) {
 	const Dictionary row_dict = p_row.to_dictionary();
 	call_deferred("emit_signal", SNAME("event_appended"), row_dict);
@@ -167,8 +198,13 @@ String AIEventStore::get_base_dir() const {
 }
 
 bool AIEventStore::append(const String &p_aggregate_id, const String &p_type, const Dictionary &p_data, bool p_live_only, AIEventRow &r_row, String &r_error) {
+	return append_idempotent(p_aggregate_id, p_type, p_data, p_live_only, String(), r_row, r_error);
+}
+
+bool AIEventStore::append_idempotent(const String &p_aggregate_id, const String &p_type, const Dictionary &p_data, bool p_live_only, const String &p_idempotency_key, AIEventRow &r_row, String &r_error) {
 	const String aggregate_id = p_aggregate_id.strip_edges();
 	const String type = p_type.strip_edges();
+	const String idempotency_key = p_idempotency_key.strip_edges();
 	if (aggregate_id.is_empty()) {
 		r_error = "AI event aggregate_id cannot be empty.";
 		return false;
@@ -179,6 +215,7 @@ bool AIEventStore::append(const String &p_aggregate_id, const String &p_type, co
 	}
 
 	AIEventRow row;
+	bool reused = false;
 	{
 		MutexLock lock(mutex);
 		if (!_ensure_loaded_locked(aggregate_id, r_error)) {
@@ -186,12 +223,27 @@ bool AIEventStore::append(const String &p_aggregate_id, const String &p_type, co
 		}
 
 		const bool live_only = p_live_only || AIDomainEventTypes::is_live_only_event(type);
+		if (!idempotency_key.is_empty() && _find_idempotent_event_locked(aggregate_id, idempotency_key, row)) {
+			if (row.type != type || row.live_only != live_only || !row.data.recursive_equal(p_data, 0)) {
+				r_error = "AI event idempotency conflict for key: " + idempotency_key;
+				return false;
+			}
+			reused = true;
+		}
+
+		if (reused) {
+			r_row = row;
+			return true;
+		}
+
 		const int64_t latest_seq = latest_seq_by_aggregate.has(aggregate_id) ? latest_seq_by_aggregate[aggregate_id] : 0;
 		row.id = AIId::make(live_only ? "live_evt" : "evt");
 		row.aggregate_id = aggregate_id;
+		row.schema_version = AIEventRow::CURRENT_SCHEMA_VERSION;
 		row.seq = live_only ? latest_seq : latest_seq + 1;
 		row.type = type;
 		row.data = p_data.duplicate(true);
+		row.idempotency_key = idempotency_key;
 		row.timestamp = _now_unix_time();
 		row.live_only = live_only;
 
@@ -215,6 +267,21 @@ Dictionary AIEventStore::append_event(const String &p_aggregate_id, const String
 	AIEventRow row;
 	String error;
 	if (!append(p_aggregate_id, p_type, p_data, p_live_only, row, error)) {
+		Dictionary result;
+		result["success"] = false;
+		result["error"] = error;
+		return result;
+	}
+
+	Dictionary result = row.to_dictionary();
+	result["success"] = true;
+	return result;
+}
+
+Dictionary AIEventStore::append_event_idempotent(const String &p_aggregate_id, const String &p_type, const Dictionary &p_data, const String &p_idempotency_key, bool p_live_only) {
+	AIEventRow row;
+	String error;
+	if (!append_idempotent(p_aggregate_id, p_type, p_data, p_live_only, p_idempotency_key, row, error)) {
 		Dictionary result;
 		result["success"] = false;
 		result["error"] = error;

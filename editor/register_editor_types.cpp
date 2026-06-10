@@ -150,19 +150,29 @@
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_file_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
+#include "editor/agent_v1/config/ai_config_service.h"
+#include "editor/agent_v1/config/ai_local_settings_store.h"
 #include "editor/agent_v1/core/base/ai_cancel_token.h"
 #include "editor/agent_v1/core/registry/ai_scoped_registration.h"
 #include "editor/agent_v1/core/runtime/ai_stream_sink.h"
+#include "editor/agent_v1/core/testing/ai_fake_mcp_server.h"
 #include "editor/agent_v1/core/threading/ai_task_runner.h"
 #include "editor/agent_v1/core/transport/ai_http_client.h"
+#include "editor/agent_v1/domain/attachments/ai_attachment_blob_store.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
 #include "editor/agent_v1/domain/events/ai_event_store.h"
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
 #include "editor/agent_v1/domain/projection/ai_session_projector.h"
+#include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
+#include "editor/agent_v1/runtime/ai_llm_runtime.h"
+#include "editor/agent_v1/runtime/ai_llm_runtime_registry.h"
+#include "editor/agent_v1/runtime/ai_openai_compatible_runtime.h"
 #include "editor/agent_v1/session/admission/ai_prompt_promoter.h"
 #include "editor/agent_v1/session/admission/ai_session_input_store.h"
 #include "editor/agent_v1/session/execution/ai_session_execution.h"
 #include "editor/agent_v1/session/runner/ai_empty_session_runner.h"
+#include "editor/agent_v1/session/runner/ai_session_drain_runner.h"
+#include "editor/agent_v1/session/runner/ai_session_runner.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
 #include "editor/agent_v1/session/service/ai_session_store.h"
 #include "editor/ai_component/planning/ai_plan_manager.h"
@@ -286,17 +296,27 @@ void register_editor_types() {
 	GDREGISTER_CLASS(ResourceImporterTexture);
 	GDREGISTER_CLASS(ResourceImporterTextureAtlas);
 	GDREGISTER_CLASS(ResourceImporterWAV);
+	GDREGISTER_CLASS(AIConfigService);
+	GDREGISTER_CLASS(AILocalSettingsStore);
 	GDREGISTER_CLASS(AICancelToken);
 	GDREGISTER_CLASS(AIHTTPClient);
 	GDREGISTER_CLASS(AIScopedRegistration);
 	GDREGISTER_CLASS(AIStreamSink);
 	GDREGISTER_CLASS(AICallableStreamSink);
+	GDREGISTER_CLASS(AIFakeMCPServer);
 	GDREGISTER_CLASS(AITaskRunner);
+	GDREGISTER_CLASS(AILLMRuntime);
+	GDREGISTER_CLASS(AIFakeLLMRuntime);
+	GDREGISTER_CLASS(AIOpenAICompatibleRuntime);
+	GDREGISTER_CLASS(AILLMRuntimeRegistry);
+	GDREGISTER_CLASS(AIAttachmentBlobStore);
 	GDREGISTER_CLASS(AIContextEpochStore);
 	GDREGISTER_CLASS(AIEventStore);
 	GDREGISTER_CLASS(AISessionHistory);
 	GDREGISTER_CLASS(AISessionProjector);
+	GDREGISTER_CLASS(AISessionDrainRunner);
 	GDREGISTER_CLASS(AIEmptySessionRunner);
+	GDREGISTER_CLASS(AISessionRunner);
 	GDREGISTER_CLASS(AIPromptPromoter);
 	GDREGISTER_CLASS(AISessionExecution);
 	GDREGISTER_CLASS(AISessionInputStore);

@@ -418,10 +418,10 @@ bool AISessionInputStore::mark_promoted(const String &p_session_id, const Vector
 			data["parts"] = promoted_input.parts;
 			data["delivery"] = ai_session_input_delivery_to_string(promoted_input.delivery);
 			data["time_created"] = promoted_input.created_at;
-			data["promoted_at"] = _now_unix_time();
 
 			String event_error;
-			if (!event_store->append(promoted_input.session_id, AIDomainEventTypes::prompt_promoted(), data, false, event_row, event_error)) {
+			const String idempotency_key = "prompt.promoted:" + promoted_input.session_id + ":" + promoted_input.id;
+			if (!event_store->append_idempotent(promoted_input.session_id, AIDomainEventTypes::prompt_promoted(), data, false, idempotency_key, event_row, event_error)) {
 				r_error = AIError::make(AI_ERROR_INTERNAL, event_error);
 				return false;
 			}

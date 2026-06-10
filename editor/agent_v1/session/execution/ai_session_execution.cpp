@@ -72,7 +72,7 @@ Dictionary AISessionExecution::_drain_task(const Ref<AICancelToken> &p_cancel_to
 			return result;
 		}
 
-		Ref<AIEmptySessionRunner> active_runner;
+		Ref<AISessionDrainRunner> active_runner;
 		AISessionExecutionState drain_state;
 		bool should_return = false;
 		bool return_success = true;
@@ -190,12 +190,12 @@ AISessionExecution::~AISessionExecution() {
 	clear();
 }
 
-void AISessionExecution::set_runner(const Ref<AIEmptySessionRunner> &p_runner) {
+void AISessionExecution::set_runner(const Ref<AISessionDrainRunner> &p_runner) {
 	MutexLock lock(mutex);
 	runner = p_runner;
 }
 
-Ref<AIEmptySessionRunner> AISessionExecution::get_runner() const {
+Ref<AISessionDrainRunner> AISessionExecution::get_runner() const {
 	MutexLock lock(mutex);
 	return runner;
 }

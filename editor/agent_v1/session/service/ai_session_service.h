@@ -4,9 +4,13 @@
 
 #pragma once
 
+#include "editor/agent_v1/config/ai_config_service.h"
+#include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
+#include "editor/agent_v1/runtime/ai_llm_runtime_registry.h"
 #include "editor/agent_v1/session/admission/ai_prompt_promoter.h"
 #include "editor/agent_v1/session/execution/ai_session_execution.h"
 #include "editor/agent_v1/session/runner/ai_empty_session_runner.h"
+#include "editor/agent_v1/session/runner/ai_session_runner.h"
 #include "editor/agent_v1/session/service/ai_session_store.h"
 
 #include "core/object/ref_counted.h"
@@ -21,6 +25,10 @@ class AISessionService : public RefCounted {
 	Ref<AISessionExecution> execution;
 	Ref<AIPromptPromoter> prompt_promoter;
 	Ref<AIEmptySessionRunner> empty_runner;
+	Ref<AISessionRunner> session_runner;
+	Ref<AIContextEpochStore> context_epoch_store;
+	Ref<AIConfigService> config_service;
+	Ref<AILLMRuntimeRegistry> runtime_registry;
 
 	static Array _parts_from_input(const Dictionary &p_input);
 	static AIPrompt _prompt_from_input(const Dictionary &p_input, const Array &p_parts);
@@ -52,6 +60,14 @@ public:
 	Ref<AIPromptPromoter> get_prompt_promoter() const;
 	void set_empty_runner(const Ref<AIEmptySessionRunner> &p_empty_runner);
 	Ref<AIEmptySessionRunner> get_empty_runner() const;
+	void set_session_runner(const Ref<AISessionRunner> &p_session_runner);
+	Ref<AISessionRunner> get_session_runner() const;
+	void set_context_epoch_store(const Ref<AIContextEpochStore> &p_store);
+	Ref<AIContextEpochStore> get_context_epoch_store() const;
+	void set_config_service(const Ref<AIConfigService> &p_config_service);
+	Ref<AIConfigService> get_config_service() const;
+	void set_runtime_registry(const Ref<AILLMRuntimeRegistry> &p_registry);
+	Ref<AILLMRuntimeRegistry> get_runtime_registry() const;
 
 	Dictionary create(const Dictionary &p_input);
 	Dictionary prompt(const Dictionary &p_input);

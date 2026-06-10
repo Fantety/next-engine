@@ -4,6 +4,7 @@ from misc.utility.scons_hints import *
 Import("env")
 
 SConscript("model/SCsub")
+SConscript("attachments/SCsub")
 SConscript("events/SCsub")
 SConscript("context/SCsub")
 SConscript("projection/SCsub")

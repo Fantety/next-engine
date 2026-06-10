@@ -28,6 +28,7 @@ class AIEventStore : public RefCounted {
 	bool _ensure_base_dir_locked(String &r_error) const;
 	bool _ensure_loaded_locked(const String &p_aggregate_id, String &r_error);
 	bool _write_durable_event_locked(const AIEventRow &p_row, String &r_error) const;
+	bool _find_idempotent_event_locked(const String &p_aggregate_id, const String &p_idempotency_key, AIEventRow &r_row) const;
 	void _queue_event_signal(const AIEventRow &p_row);
 
 protected:
@@ -40,7 +41,9 @@ public:
 	String get_base_dir() const;
 
 	bool append(const String &p_aggregate_id, const String &p_type, const Dictionary &p_data, bool p_live_only, AIEventRow &r_row, String &r_error);
+	bool append_idempotent(const String &p_aggregate_id, const String &p_type, const Dictionary &p_data, bool p_live_only, const String &p_idempotency_key, AIEventRow &r_row, String &r_error);
 	Dictionary append_event(const String &p_aggregate_id, const String &p_type, const Dictionary &p_data, bool p_live_only = false);
+	Dictionary append_event_idempotent(const String &p_aggregate_id, const String &p_type, const Dictionary &p_data, const String &p_idempotency_key, bool p_live_only = false);
 	Dictionary append_durable_event(const String &p_aggregate_id, const String &p_type, const Dictionary &p_data);
 	Dictionary append_live_event(const String &p_aggregate_id, const String &p_type, const Dictionary &p_data);
 

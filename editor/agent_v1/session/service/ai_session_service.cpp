@@ -22,6 +22,14 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_prompt_promoter"), &AISessionService::get_prompt_promoter);
 	ClassDB::bind_method(D_METHOD("set_empty_runner", "empty_runner"), &AISessionService::set_empty_runner);
 	ClassDB::bind_method(D_METHOD("get_empty_runner"), &AISessionService::get_empty_runner);
+	ClassDB::bind_method(D_METHOD("set_session_runner", "session_runner"), &AISessionService::set_session_runner);
+	ClassDB::bind_method(D_METHOD("get_session_runner"), &AISessionService::get_session_runner);
+	ClassDB::bind_method(D_METHOD("set_context_epoch_store", "store"), &AISessionService::set_context_epoch_store);
+	ClassDB::bind_method(D_METHOD("get_context_epoch_store"), &AISessionService::get_context_epoch_store);
+	ClassDB::bind_method(D_METHOD("set_config_service", "config_service"), &AISessionService::set_config_service);
+	ClassDB::bind_method(D_METHOD("get_config_service"), &AISessionService::get_config_service);
+	ClassDB::bind_method(D_METHOD("set_runtime_registry", "registry"), &AISessionService::set_runtime_registry);
+	ClassDB::bind_method(D_METHOD("get_runtime_registry"), &AISessionService::get_runtime_registry);
 	ClassDB::bind_method(D_METHOD("create", "input"), &AISessionService::create);
 	ClassDB::bind_method(D_METHOD("prompt", "input"), &AISessionService::prompt);
 	ClassDB::bind_method(D_METHOD("interrupt", "input"), &AISessionService::interrupt);
@@ -122,6 +130,18 @@ void AISessionService::_ensure_defaults() {
 	if (empty_runner.is_null()) {
 		empty_runner.instantiate();
 	}
+	if (session_runner.is_null()) {
+		session_runner.instantiate();
+	}
+	if (context_epoch_store.is_null()) {
+		context_epoch_store.instantiate();
+	}
+	if (config_service.is_null()) {
+		config_service.instantiate();
+	}
+	if (runtime_registry.is_null()) {
+		runtime_registry.instantiate();
+	}
 }
 
 void AISessionService::_wire_dependencies() {
@@ -135,8 +155,20 @@ void AISessionService::_wire_dependencies() {
 	if (empty_runner.is_valid()) {
 		empty_runner->set_prompt_promoter(prompt_promoter);
 	}
+	if (session_runner.is_valid()) {
+		session_runner->set_prompt_promoter(prompt_promoter);
+		session_runner->set_event_store(event_store);
+		session_runner->set_projector(projector);
+		session_runner->set_context_epoch_store(context_epoch_store);
+		session_runner->set_config_service(config_service);
+		session_runner->set_runtime_registry(runtime_registry);
+	}
 	if (execution.is_valid()) {
-		execution->set_runner(empty_runner);
+		if (session_runner.is_valid()) {
+			execution->set_runner(session_runner);
+		} else {
+			execution->set_runner(empty_runner);
+		}
 	}
 }
 
@@ -154,17 +186,8 @@ bool AISessionService::_resolve_session_for_prompt(const Dictionary &p_input, AI
 		return true;
 	}
 
-	if (!_has_location_input(p_input)) {
-		r_error = AIError::make(AI_ERROR_VALIDATION, "Location is required when prompting without an existing session.");
-		return false;
-	}
-
-	String error;
-	if (!session_store->create_or_reuse(p_input, r_session, r_created, error)) {
-		r_error = AIError::make(AI_ERROR_INTERNAL, error);
-		return false;
-	}
-	return true;
+	r_error = AIError::make(AI_ERROR_VALIDATION, "SessionService.prompt requires an existing session_id. Call SessionService.create first.");
+	return false;
 }
 
 bool AISessionService::_append_admitted_event(AISessionInputRecord &r_input, AIError &r_error) {
@@ -189,7 +212,8 @@ bool AISessionService::_append_admitted_event(AISessionInputRecord &r_input, AIE
 
 	AIEventRow row;
 	String event_error;
-	if (!event_store->append(r_input.session_id, AIDomainEventTypes::prompt_admitted(), data, false, row, event_error)) {
+	const String idempotency_key = "prompt.admitted:" + r_input.session_id + ":" + (r_input.message_id.is_empty() ? r_input.id : r_input.message_id);
+	if (!event_store->append_idempotent(r_input.session_id, AIDomainEventTypes::prompt_admitted(), data, false, idempotency_key, row, event_error)) {
 		r_error = AIError::make(AI_ERROR_INTERNAL, event_error);
 		return false;
 	}
@@ -274,6 +298,46 @@ void AISessionService::set_empty_runner(const Ref<AIEmptySessionRunner> &p_empty
 
 Ref<AIEmptySessionRunner> AISessionService::get_empty_runner() const {
 	return empty_runner;
+}
+
+void AISessionService::set_session_runner(const Ref<AISessionRunner> &p_session_runner) {
+	session_runner = p_session_runner;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AISessionRunner> AISessionService::get_session_runner() const {
+	return session_runner;
+}
+
+void AISessionService::set_context_epoch_store(const Ref<AIContextEpochStore> &p_store) {
+	context_epoch_store = p_store;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIContextEpochStore> AISessionService::get_context_epoch_store() const {
+	return context_epoch_store;
+}
+
+void AISessionService::set_config_service(const Ref<AIConfigService> &p_config_service) {
+	config_service = p_config_service;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIConfigService> AISessionService::get_config_service() const {
+	return config_service;
+}
+
+void AISessionService::set_runtime_registry(const Ref<AILLMRuntimeRegistry> &p_registry) {
+	runtime_registry = p_registry;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AILLMRuntimeRegistry> AISessionService::get_runtime_registry() const {
+	return runtime_registry;
 }
 
 Dictionary AISessionService::create(const Dictionary &p_input) {

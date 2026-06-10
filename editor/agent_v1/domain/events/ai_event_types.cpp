@@ -130,9 +130,13 @@ Dictionary AIEventRow::to_dictionary() const {
 	Dictionary result;
 	result["id"] = id;
 	result["aggregate_id"] = aggregate_id;
+	result["schema_version"] = schema_version <= 0 ? CURRENT_SCHEMA_VERSION : schema_version;
 	result["seq"] = seq;
 	result["type"] = type;
 	result["data"] = data;
+	if (!idempotency_key.is_empty()) {
+		result["idempotency_key"] = idempotency_key;
+	}
 	result["timestamp"] = timestamp;
 	result["live_only"] = live_only;
 	return result;
@@ -142,11 +146,16 @@ AIEventRow AIEventRow::from_dictionary(const Dictionary &p_dict) {
 	AIEventRow result;
 	result.id = p_dict.get("id", String());
 	result.aggregate_id = p_dict.get("aggregate_id", p_dict.get("aggregateID", String()));
+	result.schema_version = int(p_dict.get("schema_version", p_dict.get("version", CURRENT_SCHEMA_VERSION)));
+	if (result.schema_version <= 0) {
+		result.schema_version = CURRENT_SCHEMA_VERSION;
+	}
 	result.seq = int64_t(p_dict.get("seq", 0));
 	result.type = p_dict.get("type", String());
 	if (p_dict.get("data", Variant()).get_type() == Variant::DICTIONARY) {
 		result.data = Dictionary(p_dict.get("data", Dictionary())).duplicate(true);
 	}
+	result.idempotency_key = p_dict.get("idempotency_key", p_dict.get("idempotencyKey", String()));
 	result.timestamp = uint64_t(p_dict.get("timestamp", 0));
 	result.live_only = bool(p_dict.get("live_only", p_dict.get("liveOnly", AIDomainEventTypes::is_live_only_event(result.type))));
 	return result;

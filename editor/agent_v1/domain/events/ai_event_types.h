@@ -50,11 +50,15 @@ public:
 };
 
 struct AIEventRow {
+	static constexpr int CURRENT_SCHEMA_VERSION = 1;
+
 	String id;
 	String aggregate_id;
+	int schema_version = CURRENT_SCHEMA_VERSION;
 	int64_t seq = 0;
 	String type;
 	Dictionary data;
+	String idempotency_key;
 	uint64_t timestamp = 0;
 	bool live_only = false;
 

@@ -5,8 +5,8 @@
 #pragma once
 
 #include "editor/agent_v1/core/threading/ai_task_runner.h"
-#include "editor/agent_v1/session/runner/ai_empty_session_runner.h"
 #include "editor/agent_v1/session/model/ai_session_types.h"
+#include "editor/agent_v1/session/runner/ai_session_drain_runner.h"
 
 #include "core/object/ref_counted.h"
 #include "core/os/mutex.h"
@@ -21,7 +21,7 @@ class AISessionExecution : public RefCounted {
 	};
 
 	HashMap<String, RunSlot> slots;
-	Ref<AIEmptySessionRunner> runner;
+	Ref<AISessionDrainRunner> runner;
 	mutable Mutex mutex;
 
 	static void _merge_wake_seq(AISessionExecutionState &r_state, int64_t p_seq);
@@ -36,8 +36,8 @@ protected:
 public:
 	~AISessionExecution();
 
-	void set_runner(const Ref<AIEmptySessionRunner> &p_runner);
-	Ref<AIEmptySessionRunner> get_runner() const;
+	void set_runner(const Ref<AISessionDrainRunner> &p_runner);
+	Ref<AISessionDrainRunner> get_runner() const;
 
 	bool wake_struct(const String &p_session_id, int64_t p_seq, AISessionExecutionState &r_state);
 	bool settle_struct(const String &p_session_id, AISessionExecutionState &r_state);

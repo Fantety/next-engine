@@ -10,7 +10,6 @@
 void AIEmptySessionRunner::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_prompt_promoter", "prompt_promoter"), &AIEmptySessionRunner::set_prompt_promoter);
 	ClassDB::bind_method(D_METHOD("get_prompt_promoter"), &AIEmptySessionRunner::get_prompt_promoter);
-	ClassDB::bind_method(D_METHOD("drain", "session_id", "wake_seq"), &AIEmptySessionRunner::drain, DEFVAL(0));
 
 	ADD_SIGNAL(MethodInfo("drain_started", PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::INT, "wake_seq")));
 	ADD_SIGNAL(MethodInfo("prompts_promoted", PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::INT, "promoted_count")));
