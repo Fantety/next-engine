@@ -41,11 +41,11 @@ bool AISessionInputStore::_same_prompt_content(const AIPrompt &p_left, const AIP
 	return left.recursive_equal(right, 0);
 }
 
-bool AISessionInputStore::_same_retry_shape(const AISessionInputRecord &p_existing, const AISessionInputRecord &p_request) {
+bool AISessionInputStore::_same_retry_shape(const AISessionInputRecord &p_existing, const AISessionInputRecord &p_request, bool p_compare_message_id) {
 	if (p_existing.session_id != p_request.session_id) {
 		return false;
 	}
-	if (p_existing.message_id != p_request.message_id) {
+	if (p_compare_message_id && p_existing.message_id != p_request.message_id) {
 		return false;
 	}
 	if (p_existing.delivery != p_request.delivery || p_existing.resume != p_request.resume) {
@@ -282,6 +282,7 @@ bool AISessionInputStore::admit(const AISessionInputRecord &p_request, AISession
 		r_error = AIError::make(AI_ERROR_VALIDATION, "Session id is required to admit a prompt.");
 		return false;
 	}
+	const bool request_had_message_id = !request.message_id.strip_edges().is_empty();
 	if (request.message_id.strip_edges().is_empty()) {
 		request.message_id = AIId::make("msg");
 	}
@@ -302,7 +303,7 @@ bool AISessionInputStore::admit(const AISessionInputRecord &p_request, AISession
 	const int message_index = _find_by_message_id_locked(request.message_id);
 	if (message_index >= 0) {
 		const AISessionInputRecord &existing = inputs[message_index];
-		if (!_same_retry_shape(existing, request)) {
+		if (!_same_retry_shape(existing, request, true)) {
 			Dictionary details;
 			details["message_id"] = request.message_id;
 			details["existing_session_id"] = existing.session_id;
@@ -321,7 +322,7 @@ bool AISessionInputStore::admit(const AISessionInputRecord &p_request, AISession
 	const int idempotency_index = _find_by_idempotency_key_locked(request.idempotency_key);
 	if (idempotency_index >= 0) {
 		const AISessionInputRecord &existing = inputs[idempotency_index];
-		if (!_same_retry_shape(existing, request)) {
+		if (!_same_retry_shape(existing, request, request_had_message_id)) {
 			Dictionary details;
 			details["idempotency_key"] = request.idempotency_key;
 			details["existing_session_id"] = existing.session_id;
@@ -416,7 +417,8 @@ bool AISessionInputStore::mark_promoted(const String &p_session_id, const Vector
 			data["prompt"] = promoted_input.prompt.to_dictionary();
 			data["parts"] = promoted_input.parts;
 			data["delivery"] = ai_session_input_delivery_to_string(promoted_input.delivery);
-			data["time_created"] = _now_unix_time();
+			data["time_created"] = promoted_input.created_at;
+			data["promoted_at"] = _now_unix_time();
 
 			String event_error;
 			if (!event_store->append(promoted_input.session_id, AIDomainEventTypes::prompt_promoted(), data, false, event_row, event_error)) {

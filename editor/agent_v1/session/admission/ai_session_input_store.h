@@ -24,7 +24,7 @@ class AISessionInputStore : public RefCounted {
 	mutable Mutex mutex;
 
 	static uint64_t _now_unix_time();
-	static bool _same_retry_shape(const AISessionInputRecord &p_existing, const AISessionInputRecord &p_request);
+	static bool _same_retry_shape(const AISessionInputRecord &p_existing, const AISessionInputRecord &p_request, bool p_compare_message_id);
 	static bool _same_prompt_content(const AIPrompt &p_left, const AIPrompt &p_right);
 	static AIPrompt _prompt_from_message(const AISessionMessage &p_message);
 
