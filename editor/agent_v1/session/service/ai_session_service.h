@@ -6,6 +6,7 @@
 
 #include "editor/agent_v1/session/admission/ai_prompt_promoter.h"
 #include "editor/agent_v1/session/execution/ai_session_execution.h"
+#include "editor/agent_v1/session/runner/ai_empty_session_runner.h"
 #include "editor/agent_v1/session/service/ai_session_store.h"
 
 #include "core/object/ref_counted.h"
@@ -19,6 +20,7 @@ class AISessionService : public RefCounted {
 	Ref<AISessionProjector> projector;
 	Ref<AISessionExecution> execution;
 	Ref<AIPromptPromoter> prompt_promoter;
+	Ref<AIEmptySessionRunner> empty_runner;
 
 	static Array _parts_from_input(const Dictionary &p_input);
 	static AIPrompt _prompt_from_input(const Dictionary &p_input, const Array &p_parts);
@@ -48,6 +50,8 @@ public:
 	Ref<AISessionExecution> get_execution() const;
 	void set_prompt_promoter(const Ref<AIPromptPromoter> &p_prompt_promoter);
 	Ref<AIPromptPromoter> get_prompt_promoter() const;
+	void set_empty_runner(const Ref<AIEmptySessionRunner> &p_empty_runner);
+	Ref<AIEmptySessionRunner> get_empty_runner() const;
 
 	Dictionary create(const Dictionary &p_input);
 	Dictionary prompt(const Dictionary &p_input);

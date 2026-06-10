@@ -20,6 +20,8 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_execution"), &AISessionService::get_execution);
 	ClassDB::bind_method(D_METHOD("set_prompt_promoter", "prompt_promoter"), &AISessionService::set_prompt_promoter);
 	ClassDB::bind_method(D_METHOD("get_prompt_promoter"), &AISessionService::get_prompt_promoter);
+	ClassDB::bind_method(D_METHOD("set_empty_runner", "empty_runner"), &AISessionService::set_empty_runner);
+	ClassDB::bind_method(D_METHOD("get_empty_runner"), &AISessionService::get_empty_runner);
 	ClassDB::bind_method(D_METHOD("create", "input"), &AISessionService::create);
 	ClassDB::bind_method(D_METHOD("prompt", "input"), &AISessionService::prompt);
 	ClassDB::bind_method(D_METHOD("interrupt", "input"), &AISessionService::interrupt);
@@ -117,6 +119,9 @@ void AISessionService::_ensure_defaults() {
 	if (prompt_promoter.is_null()) {
 		prompt_promoter.instantiate();
 	}
+	if (empty_runner.is_null()) {
+		empty_runner.instantiate();
+	}
 }
 
 void AISessionService::_wire_dependencies() {
@@ -126,6 +131,12 @@ void AISessionService::_wire_dependencies() {
 	}
 	if (prompt_promoter.is_valid()) {
 		prompt_promoter->set_input_store(input_store);
+	}
+	if (empty_runner.is_valid()) {
+		empty_runner->set_prompt_promoter(prompt_promoter);
+	}
+	if (execution.is_valid()) {
+		execution->set_runner(empty_runner);
 	}
 }
 
@@ -238,6 +249,7 @@ Ref<AISessionProjector> AISessionService::get_projector() const {
 void AISessionService::set_execution(const Ref<AISessionExecution> &p_execution) {
 	execution = p_execution;
 	_ensure_defaults();
+	_wire_dependencies();
 }
 
 Ref<AISessionExecution> AISessionService::get_execution() const {
@@ -252,6 +264,16 @@ void AISessionService::set_prompt_promoter(const Ref<AIPromptPromoter> &p_prompt
 
 Ref<AIPromptPromoter> AISessionService::get_prompt_promoter() const {
 	return prompt_promoter;
+}
+
+void AISessionService::set_empty_runner(const Ref<AIEmptySessionRunner> &p_empty_runner) {
+	empty_runner = p_empty_runner;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIEmptySessionRunner> AISessionService::get_empty_runner() const {
+	return empty_runner;
 }
 
 Dictionary AISessionService::create(const Dictionary &p_input) {
