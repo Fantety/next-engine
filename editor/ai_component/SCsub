@@ -11,6 +11,7 @@ from misc.utility.scons_hints import *
 
 Import("env")
 
+SConscript("core/SCsub")
 SConscript("agent/SCsub")
 SConscript("providers/SCsub")
 SConscript("context/SCsub")
