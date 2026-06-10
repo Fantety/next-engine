@@ -21,7 +21,7 @@ void AILocalSettingsStore::_bind_methods() {
 }
 
 AILocalSettingsStore::AILocalSettingsStore() {
-	settings_path = "user://agent_v1/settings.v3.json";
+	settings_path = "user://net.nextengine/settings.v3.json";
 }
 
 Dictionary AILocalSettingsStore::_merge_dicts(const Dictionary &p_base, const Dictionary &p_patch) {

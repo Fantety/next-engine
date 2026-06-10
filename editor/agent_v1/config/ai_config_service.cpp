@@ -62,11 +62,11 @@ void AIConfigService::_bind_methods() {
 }
 
 AIConfigService::AIConfigService() {
-	global_config_path = "user://agent_v1/config/settings.jsonc";
-	project_config_path = "res://agent.v1.jsonc";
+	global_config_path = "user://net.nextengine/config/settings.jsonc";
+	project_config_path = "res://net.nextengine.v1.jsonc";
 	opencode_config_path = "res://.opencode/config.jsonc";
-	account_config_path = "user://agent_v1/config/account.jsonc";
-	managed_config_path = "user://agent_v1/config/managed.jsonc";
+	account_config_path = "user://net.nextengine/config/account.jsonc";
+	managed_config_path = "user://net.nextengine/config/managed.jsonc";
 }
 
 Dictionary AIConfigService::_default_config() {
