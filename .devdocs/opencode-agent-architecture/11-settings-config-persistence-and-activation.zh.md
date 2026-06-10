@@ -1,4 +1,4 @@
-# 13 Settings, Configuration Persistence, and Import Activation
+# 11 Settings, Configuration Persistence, and Import Activation
 
 This chapter completes the configuration and settings system for opencode. Two layers must be distinguished:
 

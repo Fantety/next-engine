@@ -1,4 +1,4 @@
-# 12 Source Code Consistency Audit Report
+# Source Code Consistency Audit Report
 
 This report examines whether the current modular documentation aligns with the current source code architecture of opencode. The conclusion is that the general direction is largely aligned, but some documents have written the "recommended complete architecture for forking" as the "currently implemented architecture." The scope needs to be narrowed in subsequent revisions. In particular, details regarding tool registration, the permission system, Context Epoch, compaction, and the Session API should be corrected according to the current V2 implementation.
 

@@ -159,6 +159,11 @@
 #include "editor/agent_v1/domain/events/ai_event_store.h"
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
 #include "editor/agent_v1/domain/projection/ai_session_projector.h"
+#include "editor/agent_v1/session/admission/ai_prompt_promoter.h"
+#include "editor/agent_v1/session/admission/ai_session_input_store.h"
+#include "editor/agent_v1/session/execution/ai_session_execution.h"
+#include "editor/agent_v1/session/service/ai_session_service.h"
+#include "editor/agent_v1/session/service/ai_session_store.h"
 #include "editor/ai_component/planning/ai_plan_manager.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
@@ -290,6 +295,11 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIEventStore);
 	GDREGISTER_CLASS(AISessionHistory);
 	GDREGISTER_CLASS(AISessionProjector);
+	GDREGISTER_CLASS(AIPromptPromoter);
+	GDREGISTER_CLASS(AISessionExecution);
+	GDREGISTER_CLASS(AISessionInputStore);
+	GDREGISTER_CLASS(AISessionService);
+	GDREGISTER_CLASS(AISessionStore);
 	GDREGISTER_CLASS(AIAgentBase);
 	GDREGISTER_CLASS(AIAgentSession);
 	GDREGISTER_CLASS(AIContextManager);

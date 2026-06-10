@@ -1,4 +1,4 @@
-# 11 From-Scratch Replication Roadmap and Acceptance Checklist
+# From-Scratch Replication Roadmap and Acceptance Checklist
 
 This roadmap connects the previous 10 modules into an executable development plan. It is recommended to submit each phase incrementally, with each phase having a self-contained minimal closed loop. Avoid implementing real models, MCP, multimodality, and sub-agents all at once from the start.
 
