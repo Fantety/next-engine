@@ -103,6 +103,7 @@ if env.editor_build:
     SConscript("script/SCsub")
     SConscript("shader/SCsub")
     SConscript("themes/SCsub")
+    SConscript("agent_v1/core/SCsub")
     SConscript("ai_component/SCsub")
     SConscript("user_system/SCsub")
     SConscript("translations/SCsub")

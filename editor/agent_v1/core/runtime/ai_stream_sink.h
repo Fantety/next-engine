@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "editor/ai_component/core/runtime/ai_stream_event.h"
+#include "editor/agent_v1/core/runtime/ai_stream_event.h"
 
 #include "core/object/ref_counted.h"
 #include "core/variant/callable.h"

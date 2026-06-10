@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include "editor/ai_component/core/base/ai_cancel_token.h"
-#include "editor/ai_component/core/transport/ai_sse_parser.h"
+#include "editor/agent_v1/core/base/ai_cancel_token.h"
+#include "editor/agent_v1/core/transport/ai_sse_parser.h"
 
 #include "core/io/http_client.h"
 #include "core/templates/list.h"

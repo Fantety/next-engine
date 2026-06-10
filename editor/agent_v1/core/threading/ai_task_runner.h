@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "editor/ai_component/core/base/ai_cancel_token.h"
+#include "editor/agent_v1/core/base/ai_cancel_token.h"
 
 #include "core/object/ref_counted.h"
 #include "core/os/mutex.h"

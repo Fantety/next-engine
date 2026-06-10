@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "editor/ai_component/core/base/ai_error.h"
+#include "editor/agent_v1/core/base/ai_error.h"
 
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"

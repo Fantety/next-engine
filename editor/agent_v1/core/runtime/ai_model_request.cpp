@@ -4,7 +4,7 @@
 
 #include "ai_model_request.h"
 
-#include "editor/ai_component/core/base/ai_id.h"
+#include "editor/agent_v1/core/base/ai_id.h"
 
 #include "core/variant/variant.h"
 
