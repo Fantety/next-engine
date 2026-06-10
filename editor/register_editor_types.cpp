@@ -155,6 +155,10 @@
 #include "editor/agent_v1/core/runtime/ai_stream_sink.h"
 #include "editor/agent_v1/core/threading/ai_task_runner.h"
 #include "editor/agent_v1/core/transport/ai_http_client.h"
+#include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
+#include "editor/agent_v1/domain/events/ai_event_store.h"
+#include "editor/agent_v1/domain/projection/ai_session_history.h"
+#include "editor/agent_v1/domain/projection/ai_session_projector.h"
 #include "editor/ai_component/planning/ai_plan_manager.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
@@ -282,6 +286,10 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIStreamSink);
 	GDREGISTER_CLASS(AICallableStreamSink);
 	GDREGISTER_CLASS(AITaskRunner);
+	GDREGISTER_CLASS(AIContextEpochStore);
+	GDREGISTER_CLASS(AIEventStore);
+	GDREGISTER_CLASS(AISessionHistory);
+	GDREGISTER_CLASS(AISessionProjector);
 	GDREGISTER_CLASS(AIAgentBase);
 	GDREGISTER_CLASS(AIAgentSession);
 	GDREGISTER_CLASS(AIContextManager);

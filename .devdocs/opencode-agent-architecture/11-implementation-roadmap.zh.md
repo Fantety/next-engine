@@ -1,29 +1,31 @@
-# 11: From-Scratch Replication Roadmap and Acceptance Checklist
+# 11 From-Scratch Replication Roadmap and Acceptance Checklist
 
-This roadmap connects the previous 10 modules into an executable development plan. It is recommended to submit work by phase, with each phase delivering a minimal, independently runnable闭环. Avoid trying to implement real models, MCP, multimodality, and sub-agents simultaneously from the start.
+This roadmap connects the previous 10 modules into an executable development plan. It is recommended to submit each phase incrementally, with each phase having a self-contained minimal closed loop. Avoid implementing real models, MCP, multimodality, and sub-agents all at once from the start.
 
 ## Overall Milestones
 
 ```mermaid
 flowchart TD
-  A["Phase 1: Event Log"] --> B["Phase 2: Session Admission"]
-  B --> C["Phase 3: Runner Empty Loop"]
-  C --> D["Phase 4: LLM Runtime"]
-  D --> E["Phase 5: Tool Registration & Permission"]
-  E --> F["Phase 6: Context & History"]
-  F --> G["Phase 7: Multimodal Attachments"]
-  E --> H["Phase 8: MCP"]
-  F --> I["Phase 9: Skill"]
-  E --> J["Phase 10: Multi-Agent"]
-  F --> K["Phase 11: Compaction & Recovery"]
-  G --> L["Phase 12: End-to-End Acceptance"]
+  A["Phase 1 Event Log"] --> B["Phase 2 Session Admission"]
+  B --> C["Phase 3 Runner Empty Loop"]
+  C --> D["Phase 4 LLM Runtime"]
+  D --> E["Phase 5 Tool Registration & Permission"]
+  E --> F["Phase 6 Context & History"]
+  F --> G["Phase 7 Multimodal Attachments"]
+  E --> H["Phase 8 MCP"]
+  F --> I["Phase 9 Skill"]
+  E --> J["Phase 10 Multi-Agent"]
+  F --> K["Phase 11 Compaction & Recovery"]
+  K --> M["Phase 12 Settings & Config"]
+  G --> L["Phase 13 End-to-End Acceptance"]
   H --> L
   I --> L
   J --> L
   K --> L
+  M --> L
 ```
 
-## Phase 1: Event Log and Domain Model
+## Phase 1: Event Log and Domain Models
 
 Deliverables:
 
@@ -42,11 +44,11 @@ interface EventStore {
 }
 ```
 
-Acceptance criteria:
+Acceptance:
 
 - Manually writing user/assistant/tool events can be projected into messages.
-- Events remain readable after a restart.
-- Sequence numbers increase monotonically within a session.
+- Events remain readable after restart.
+- Sequence numbers monotonically increase within the same Session.
 
 ## Phase 2: Session Admission
 
@@ -55,27 +57,27 @@ Deliverables:
 - `SessionService.prompt`
 - `SessionInputStore`
 - `prompt.admitted/promoted` events
-- Exact retry with conflict detection
+- Precise retry conflict detection
 
-Acceptance criteria:
+Acceptance:
 
-- Prompt is first stored in the database, then triggers a wake.
-- `resume = false` only stores the prompt without running it.
-- Retry behavior with the same messageID is correct.
+- Prompt is first stored, then woken.
+- `resume = false` only stores, no execution.
+- Correct retry behavior for the same messageID.
 
 ## Phase 3: Run Coordinator and Empty Runner
 
 Deliverables:
 
 - `SessionExecution.wake/interrupt/getState`
-- Serial draining within the same session
-- Empty runner performs only promotion, no model invocation
+- Serial drain within the same Session
+- Empty Runner only performs promotion, no model invocation
 
-Acceptance criteria:
+Acceptance:
 
-- Multiple wake calls within the same session are merged.
-- Different sessions can run concurrently.
-- `interrupt` allows an active drain to receive an abort signal.
+- Multiple wakes for the same Session are merged.
+- Different Sessions can run concurrently.
+- Interrupt can abort the active drain.
 
 ## Phase 4: LLM Runtime
 
@@ -84,30 +86,30 @@ Deliverables:
 - `LLMRuntimeRegistry`
 - One fake provider
 - One real provider adapter
-- Provider-neutral stream events
+- Provider-neutral stream event
 
-Acceptance criteria:
+Acceptance:
 
-- A simple prompt can generate assistant text.
-- Provider errors are standardized and logged as events.
-- One provider turn invokes `llm.stream(request)` only once.
+- A plain prompt can generate assistant text.
+- Provider errors are standardized and recorded as events.
+- Only one `llm.stream(request)` call per provider turn.
 
-## Phase 5: Tool Registration, Execution, and Permissions
+## Phase 5: Tool Registration, Execution, and Permission
 
 Deliverables:
 
-- `Tool.make(...)` for opaque tool definitions
+- `Tool.make(...)` opaque tool definition
 - `ToolRegistry`
 - `ToolSettlement`
 - `PermissionService`
-- Built-in read-only tools, file-writing tools, and shell tools
+- Built-in read-only tool, file-write tool, shell tool
 
-Acceptance criteria:
+Acceptance:
 
-- The model can call read-only tools and see results in the next turn.
-- File writing and shell commands trigger permission pending by default.
-- After the user denies permission, the model receives a rejection result.
-- Tools are not executed if their parameters are invalid.
+- Model can call read-only tools and see results in the next round.
+- File-write and shell tools trigger permission pending by default.
+- User denies permission → model receives a rejection result.
+- Tool execution is skipped if parameters are invalid.
 
 ## Phase 6: Context Management and History Projection
 
@@ -118,28 +120,28 @@ Deliverables:
 - `ContextEpochService`
 - Token estimator
 
-Acceptance criteria:
+Acceptance:
 
 - Each provider turn has a Context Epoch.
-- The Epoch records system, history IDs, tool names, and source hashes.
-- When history is too long, it can be trimmed without breaking tool pairs.
+- Epoch records system, history ids, tool names, source hashes.
+- Long histories can be truncated without breaking tool pairs.
 
 ## Phase 7: Multimodal Attachments
 
 Deliverables:
 
-- Draft attachment state in the chat box
+- Chatbox draft attachment state
 - `AttachmentResolver`
 - `ImageNormalizer`
 - `ModelPartBuilder`
 - Provider multimodal mapping
 
-Acceptance criteria:
+Acceptance:
 
 - After pasting a screenshot, a multimodal model can read it.
-- Models that do not support images explicitly reject them.
-- Local paths are not sent directly as text paths to cloud models.
-- Large files are rejected or handled via blob/preprocessing.
+- Models that don't support images explicitly reject them.
+- Local paths are not directly sent as text paths to cloud models.
+- Large files are rejected or go through blob/preprocessing.
 
 ## Phase 8: MCP Integration
 
@@ -147,14 +149,14 @@ Deliverables:
 
 - `MCPClientManager`
 - Discovery snapshot
-- Conversion of MCP tools to `Tool.make(...)` tool values
-- MCP resource/prompt services
+- Conversion from MCP tool to `Tool.make(...)` tool value
+- MCP resource/prompt service
 
-Acceptance criteria:
+Acceptance:
 
 - MCP tools have stable namespaces.
 - MCP tool execution follows unified permission rules.
-- A server failure does not crash the entire agent.
+- Server failure does not bring down the entire Agent.
 - Resources can be selected by the user to enter the context.
 
 ## Phase 9: Skill System
@@ -166,10 +168,10 @@ Deliverables:
 - `SkillSelector`
 - Skill Context Source
 
-Acceptance criteria:
+Acceptance:
 
-- Explicit skills can inject a Context Epoch.
-- Unmatched skills do not enter the prompt.
+- Explicit Skills can inject into Context Epoch.
+- Unmatched Skills do not enter the prompt.
 - Skill resources are read on demand.
 - Skill script execution follows permission rules.
 
@@ -179,14 +181,14 @@ Deliverables:
 
 - `AgentService`
 - `task` tool
-- Child sessions
-- Sub-agent permission inheritance and depth limits
+- Child Session
+- Sub-agent permission inheritance and depth limit
 
-Acceptance criteria:
+Acceptance:
 
-- The main agent can create a child session via `task`.
-- Sub-agent results return to the parent session as tool results.
-- Permissions are not unconditionally inherited.
+- Main Agent can create child Sessions via `task`.
+- Sub-agent results return to the parent Session as tool results.
+- Permissions are not inherited unconditionally.
 - `maxDepth` is enforced.
 
 ## Phase 11: Compaction, Interruption, and Recovery
@@ -196,62 +198,81 @@ Deliverables:
 - `CompactionService`
 - Compaction summary Context Source
 - `StartupRecovery`
-- Interruption state logged as events
+- Interruption state recorded as events
 
-Acceptance criteria:
+Acceptance:
 
-- State after interrupting a provider/tool can be interpreted.
-- Running states are cleaned up after a restart.
+- State after provider/tool interruption is explainable.
+- Running state is cleaned up after restart.
 - Compaction does not delete original events.
-- A summary can replace early history in the context.
+- Summary can replace early history in the context.
 
-## Phase 12: End-to-End Acceptance
+## Phase 12: Settings, Config Persistence, and Import Activation
 
-End-to-end scenario 1: Plain text
+Deliverables:
+
+- `Config.entries()` priority-ordered documents/directories
+- App config `get/update/updateGlobal/invalidate`
+- JSON/JSONC parsing, V1 migration, variable substitution
+- Provider/skill config plugins
+- HTTP config API
+- Frontend `settings.v3` persisted store
+
+Acceptance:
+
+- Global, project, `.opencode`, environment, remote, and managed configs are merged by priority.
+- Provider config can change the catalog.
+- Skills config can register directory/url sources.
+- PATCH `/config` writes and triggers instance disposal.
+- UI settings take effect locally immediately without polluting server-side config.
+
+## Phase 13: End-to-End Acceptance
+
+End-to-End Scenario 1: Plain Text
 
 ```text
 User submits text
   -> prompt admitted/promoted
   -> Runner invokes model
-  -> Assistant text logged as event
+  -> assistant text recorded as event
   -> UI projection displays reply
 ```
 
-End-to-end scenario 2: Tool call
+End-to-End Scenario 2: Tool Call
 
 ```text
-User requests to read a file
+User asks to read a file
   -> Model calls read_file
-  -> ToolRegistry resolves
-  -> Permission allows
-  -> Tool result logged as event
-  -> Runner gives tool result to model in next turn
+  -> ToolRegistry resolve
+  -> Permission allow
+  -> Tool result recorded as event
+  -> Runner passes tool result to model in next round
   -> Model summarizes
 ```
 
-End-to-end scenario 3: Permission
+End-to-End Scenario 3: Permission
 
 ```text
-User requests to execute a command
+User asks to execute a command
   -> Model calls shell
-  -> Permission asks
+  -> Permission ask
   -> UI displays request
   -> User denies
-  -> Tool fails with denied
+  -> tool failed denied
   -> Model receives rejection and adjusts response
 ```
 
-End-to-end scenario 4: Multimodal
+End-to-End Scenario 4: Multimodal
 
 ```text
 User pastes an image and asks a question
   -> Attachment resolver saves blob
-  -> Capability check performed
+  -> Capability check
   -> Image part enters ModelRequest
   -> Model answers question about the image
 ```
 
-End-to-end scenario 5: MCP
+End-to-End Scenario 5: MCP
 
 ```text
 Start MCP server
@@ -259,20 +280,20 @@ Start MCP server
   -> Register mcp__server__tool
   -> Model calls MCP tool
   -> Permission ask/allow
-  -> Result returned as a normal tool result
+  -> Result returned as normal tool result
 ```
 
-End-to-end scenario 6: Sub-agent
+End-to-End Scenario 6: Sub-agent
 
 ```text
-Main agent calls task
-  -> Child session created
+Main Agent calls task
+  -> Child Session created
   -> Child Runner completes task
-  -> Result returned to parent session
-  -> Parent agent continues reasoning
+  -> Result returned to parent Session
+  -> Parent Agent continues reasoning
 ```
 
-## Overview of Minimal Core Interfaces
+## Minimal Core Interface Overview
 
 ```ts
 interface CoreServices {
@@ -299,26 +320,26 @@ interface CoreServices {
 
 ## Key Invariants
 
-- User input must go through admission before wake.
-- `prompt admitted` does not mean visible to the model; `promoted` does.
-- Only one active drain can exist for a given session at a time.
+- User input must first be admitted, then woken.
+- Prompt admitted ≠ visible to model; only promoted is visible.
+- Only one active drain at a time per Session.
 - Only one `llm.stream(request)` call per provider turn.
-- Tool calls must go through registry resolve, schema validation, permission assertion, execution, and event appending.
-- Permission decisions are made on the server side, not solely by the UI.
+- Tool calls must go through registry resolve, schema validate, permission assert, execute, event append.
+- Permission decisions are made server-side, not UI-only.
 - Context Epoch must be persisted before the provider turn.
-- Multimodal attachments must undergo capability checks; local paths cannot be sent directly to cloud models.
-- Both MCP and Skills go through unified registration/context/permission pipelines.
-- Sub-agents must have child sessions, not run covertly in memory.
+- Multimodal attachments must undergo capability checks; local paths must not be sent directly to cloud models.
+- MCP and Skills both go through unified registration/context/permission pipelines.
+- Sub-agents must have child Sessions, not silently run in memory.
 - Compaction does not delete original events.
-- Do not automatically retry provider work after a crash unless a clear recovery design exists.
+- Do not automatically retry provider work after a crash unless there is a clear recovery design.
 
-## Recommended Testing Matrix
+## Recommended Test Matrix
 
 | Module | Unit Tests | Integration Tests |
 | --- | --- | --- |
 | EventStore | sequence/idempotency | Projection after restart |
 | Session | exact retry/promotion | Merging multiple wakes |
-| Runner | stream event consumption | Tool loop |
+| Runner | stream event consume | Tool loop |
 | Runtime | provider mapping | Fake provider E2E |
 | Tool | schema validation | Permission allow/deny |
 | Permission | rule matching | UI response |
@@ -329,11 +350,11 @@ interface CoreServices {
 | Subagent | depth limit | Task result |
 | Recovery | cleanup rules | Crash simulation |
 
-## Development Task Breakdown Suggestions
+## Development Breakdown Suggestions
 
-- First, get the fake provider working, then connect the real model.
+- First get the fake provider working, then integrate the real model.
 - Implement read-only tools first, then write tools and shell.
 - Implement ask/deny/allow once first, then persistent session/workspace authorization.
-- Support images first, then PDFs, audio, and tool-mediated media.
+- Support images first, then PDFs, audio, and tool media.
 - Start with local MCP stdio, then remote HTTP.
-- Start with one sub-agent executing serially, then add concurrency and depth strategies.
+- Start with one sub-agent executing sequentially, then concurrency and depth strategies.
