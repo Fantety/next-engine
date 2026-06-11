@@ -14,6 +14,7 @@ class AIFakeLLMRuntime : public AILLMRuntime {
 	Variant tool_input;
 	bool fail_next = false;
 	int64_t stream_call_count = 0;
+	Dictionary last_request;
 
 	static String _last_user_text(const AIModelRequest &p_request);
 
@@ -33,5 +34,6 @@ public:
 	void set_fail_next(bool p_fail);
 	bool get_fail_next() const;
 	int64_t get_stream_call_count() const;
+	Dictionary get_last_request() const;
 	void reset();
 };

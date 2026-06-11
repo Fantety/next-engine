@@ -93,8 +93,8 @@ bool AIPermissionService::_is_resource_match(const String &p_pattern, const Stri
 }
 
 bool AIPermissionService::_rule_matches(const Dictionary &p_rule, const String &p_action, const String &p_resource) {
-	const String action = String(p_rule.get("action", "*")).strip_edges();
-	if (!action.is_empty() && action != "*" && action != p_action) {
+	const String action = String(p_rule.get("action", "*")).strip_edges().to_lower();
+	if (!_is_resource_match(action, p_action)) {
 		return false;
 	}
 	return _is_resource_match(String(p_rule.get("resource", "*")), p_resource);
@@ -112,6 +112,9 @@ String AIPermissionService::_default_effect_for_action(const String &p_action) c
 }
 
 String AIPermissionService::_evaluate_effect_locked(const String &p_action, const String &p_resource, String &r_reason) const {
+	bool matched = false;
+	String effect;
+	String reason;
 	for (int i = 0; i < rules.size(); i++) {
 		if (rules[i].get_type() != Variant::DICTIONARY) {
 			continue;
@@ -120,8 +123,14 @@ String AIPermissionService::_evaluate_effect_locked(const String &p_action, cons
 		if (!_rule_matches(rule, p_action, p_resource)) {
 			continue;
 		}
-		r_reason = rule.get("reason", String());
-		return _normalize_effect(rule.get("effect", "ask"));
+		matched = true;
+		reason = rule.get("reason", String());
+		effect = _normalize_effect(rule.get("effect", "ask"));
+	}
+
+	if (matched) {
+		r_reason = reason;
+		return effect;
 	}
 
 	r_reason = String();

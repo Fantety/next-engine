@@ -8,9 +8,135 @@
 #include "editor/agent_v1/domain/events/ai_event_types.h"
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 
+#include "core/crypto/crypto_core.h"
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
+#include "core/io/json.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/variant/variant.h"
+
+static constexpr int64_t aiv1_tool_output_preview_bytes = 32768;
+static const char *aiv1_tool_output_base_dir = "user://net.nextengine/agent_v1/tool_outputs";
+static const char *aiv1_tool_output_truncated_notice = "\n\n[tool output truncated; full output stored separately]";
+
+static String _aiv1_tool_output_string(const Variant &p_value) {
+	if (p_value.get_type() == Variant::NIL) {
+		return String();
+	}
+	if (p_value.get_type() == Variant::STRING) {
+		return String(p_value);
+	}
+	return JSON::stringify(p_value);
+}
+
+static String _aiv1_tool_output_preview(const String &p_text) {
+	if (p_text.to_utf8_buffer().size() <= aiv1_tool_output_preview_bytes) {
+		return p_text;
+	}
+
+	const String notice = aiv1_tool_output_truncated_notice;
+	const int64_t notice_bytes = notice.to_utf8_buffer().size();
+	const int64_t text_budget = MAX(int64_t(0), aiv1_tool_output_preview_bytes - notice_bytes);
+	String preview = p_text.substr(0, MIN(p_text.length(), int(text_budget)));
+	while (!preview.is_empty() && preview.to_utf8_buffer().size() > text_budget) {
+		preview = preview.substr(0, preview.length() - 1);
+	}
+	return preview + notice;
+}
+
+static String _aiv1_tool_output_hash(const String &p_text, AIError &r_error) {
+	const PackedByteArray bytes = p_text.to_utf8_buffer();
+	unsigned char hash[32];
+	const uint8_t empty = 0;
+	const uint8_t *bytes_ptr = bytes.size() > 0 ? bytes.ptr() : &empty;
+	if (CryptoCore::sha256(bytes_ptr, bytes.size(), hash) != OK) {
+		r_error = AIError::make(AI_ERROR_INTERNAL, "Failed to hash tool output.");
+		return String();
+	}
+	r_error = AIError::none();
+	return String::hex_encode_buffer(hash, 32);
+}
+
+static bool _aiv1_store_full_tool_output(const String &p_text, String &r_path, String &r_hash, AIError &r_error) {
+	r_hash = _aiv1_tool_output_hash(p_text, r_error);
+	if (r_hash.is_empty()) {
+		return false;
+	}
+
+	const String prefix = r_hash.length() >= 2 ? r_hash.substr(0, 2) : String("xx");
+	r_path = String(aiv1_tool_output_base_dir).path_join(prefix).path_join(r_hash + ".json");
+	const Error dir_err = DirAccess::make_dir_recursive_absolute(r_path.get_base_dir());
+	if (dir_err != OK) {
+		r_error = AIError::make(AI_ERROR_INTERNAL, "Failed to create tool output directory.");
+		return false;
+	}
+
+	if (FileAccess::exists(r_path)) {
+		r_error = AIError::none();
+		return true;
+	}
+
+	Error err = OK;
+	Ref<FileAccess> file = FileAccess::open(r_path, FileAccess::WRITE, &err);
+	if (file.is_null() || err != OK) {
+		r_error = AIError::make(AI_ERROR_INTERNAL, "Failed to write full tool output: " + r_path);
+		return false;
+	}
+	file->store_string(p_text);
+	file->flush();
+	r_error = AIError::none();
+	return true;
+}
+
+static Dictionary _aiv1_bounded_tool_output_payload(const String &p_preview, const String &p_full_output_path, const String &p_full_output_hash, int64_t p_original_bytes, int64_t p_preview_bytes) {
+	Dictionary payload;
+	payload["preview"] = p_preview;
+	payload["truncated"] = true;
+	payload["full_output_path"] = p_full_output_path;
+	payload["full_output_hash"] = p_full_output_hash;
+	payload["original_bytes"] = p_original_bytes;
+	payload["preview_bytes"] = p_preview_bytes;
+	return payload;
+}
+
+static bool _aiv1_bound_tool_settlement_output(AIV1ToolSettlement &r_settlement, AIError &r_error) {
+	Dictionary full_output;
+	full_output["result"] = r_settlement.result;
+	full_output["content"] = r_settlement.content;
+	full_output["structured"] = r_settlement.structured;
+	full_output["metadata"] = r_settlement.metadata;
+	full_output["output_paths"] = r_settlement.output_paths;
+
+	const String full_output_json = JSON::stringify(full_output, "\t") + "\n";
+	const int64_t original_bytes = full_output_json.to_utf8_buffer().size();
+	if (original_bytes <= aiv1_tool_output_preview_bytes) {
+		r_error = AIError::none();
+		return true;
+	}
+
+	String full_output_path;
+	String full_output_hash;
+	if (!_aiv1_store_full_tool_output(full_output_json, full_output_path, full_output_hash, r_error)) {
+		return false;
+	}
+
+	const String preview = _aiv1_tool_output_preview(_aiv1_tool_output_string(r_settlement.content));
+	const int64_t preview_bytes = preview.to_utf8_buffer().size();
+	const Dictionary bounded_payload = _aiv1_bounded_tool_output_payload(preview, full_output_path, full_output_hash, original_bytes, preview_bytes);
+
+	r_settlement.content = preview;
+	r_settlement.structured = bounded_payload.duplicate(true);
+	r_settlement.result = bounded_payload.duplicate(true);
+	r_settlement.metadata["output_bounded"] = true;
+	r_settlement.metadata["output_original_bytes"] = original_bytes;
+	r_settlement.metadata["output_preview_bytes"] = preview_bytes;
+	r_settlement.metadata["full_output_path"] = full_output_path;
+	r_settlement.metadata["full_output_hash"] = full_output_hash;
+	r_settlement.metadata["full_output_mime"] = "application/json";
+	r_error = AIError::none();
+	return true;
+}
 
 Dictionary AIV1ToolSettlement::to_dictionary() const {
 	Dictionary output;
@@ -564,6 +690,12 @@ bool AIV1ToolRegistry::settle_materialized_tool(const Ref<AIV1Tool> &p_tool, con
 	r_settlement.structured = execution_result.structured;
 	r_settlement.output_paths = execution_result.output_paths;
 	r_settlement.metadata = execution_result.metadata.duplicate(true);
+	if (!_aiv1_bound_tool_settlement_output(r_settlement, r_error)) {
+		r_settlement.success = false;
+		r_settlement.error = r_error;
+		r_settlement.needs_continuation = true;
+		return _append_settlement_event(r_settlement, false, r_error);
+	}
 	if (!executed || execution_result.error.is_error()) {
 		r_settlement.error = execution_error.is_error() ? execution_error : execution_result.error;
 		r_settlement.pending = r_settlement.error.message.contains("pending") || bool(r_settlement.error.details.get("status", String()) == "pending");

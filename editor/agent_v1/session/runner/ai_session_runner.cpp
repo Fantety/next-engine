@@ -182,6 +182,51 @@ static Dictionary _ai_session_runner_dictionary_from_variant(const Variant &p_va
 	return Dictionary();
 }
 
+static Variant _ai_session_runner_redact_sensitive_variant(const Variant &p_value, const String &p_key = String());
+
+static bool _ai_session_runner_key_is_sensitive(const String &p_key) {
+	const String key = p_key.strip_edges().to_lower();
+	return key.contains("api_key") || key.contains("apikey") || key.contains("authorization") || key.contains("access_token") || key.contains("refresh_token") || key.contains("secret") || key.contains("password") || key.contains("credential");
+}
+
+static Dictionary _ai_session_runner_redact_sensitive_dictionary(const Dictionary &p_dict) {
+	Dictionary redacted;
+	const Array keys = p_dict.keys();
+	for (int i = 0; i < keys.size(); i++) {
+		const Variant key = keys[i];
+		redacted[key] = _ai_session_runner_redact_sensitive_variant(p_dict[key], String(key));
+	}
+	return redacted;
+}
+
+static Array _ai_session_runner_redact_sensitive_array(const Array &p_array) {
+	Array redacted;
+	for (int i = 0; i < p_array.size(); i++) {
+		redacted.push_back(_ai_session_runner_redact_sensitive_variant(p_array[i]));
+	}
+	return redacted;
+}
+
+static Variant _ai_session_runner_redact_sensitive_variant(const Variant &p_value, const String &p_key) {
+	if (_ai_session_runner_key_is_sensitive(p_key)) {
+		return String("[redacted]");
+	}
+	if (p_value.get_type() == Variant::DICTIONARY) {
+		return _ai_session_runner_redact_sensitive_dictionary(p_value);
+	}
+	if (p_value.get_type() == Variant::ARRAY) {
+		return _ai_session_runner_redact_sensitive_array(p_value);
+	}
+	if (p_value.get_type() == Variant::STRING) {
+		const String value = String(p_value);
+		const String lower = value.strip_edges().to_lower();
+		if (lower.begins_with("authorization:") || lower.begins_with("x-api-key:")) {
+			return String("[redacted]");
+		}
+	}
+	return p_value;
+}
+
 static bool _ai_session_runner_same_location(const AILocationRef &p_left, const AILocationRef &p_right) {
 	return p_left.directory.strip_edges() == p_right.directory.strip_edges() && p_left.workspace_id.strip_edges() == p_right.workspace_id.strip_edges();
 }
@@ -207,6 +252,8 @@ void AISessionRunner::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_tool_registry"), &AISessionRunner::get_tool_registry);
 	ClassDB::bind_method(D_METHOD("set_session_store", "store"), &AISessionRunner::set_session_store);
 	ClassDB::bind_method(D_METHOD("get_session_store"), &AISessionRunner::get_session_store);
+	ClassDB::bind_method(D_METHOD("set_model_part_builder", "builder"), &AISessionRunner::set_model_part_builder);
+	ClassDB::bind_method(D_METHOD("get_model_part_builder"), &AISessionRunner::get_model_part_builder);
 	ClassDB::bind_method(D_METHOD("run", "session_id", "force"), &AISessionRunner::run, DEFVAL(false));
 }
 
@@ -217,6 +264,7 @@ AISessionRunner::AISessionRunner() {
 	config_service.instantiate();
 	runtime_registry.instantiate();
 	tool_registry.instantiate();
+	model_part_builder.instantiate();
 	tool_registry->register_builtin_tools();
 	context_source_registry->set_config_service(config_service);
 	context_epoch_service->set_epoch_store(context_epoch_store);
@@ -248,7 +296,7 @@ String AISessionRunner::_message_text(const AISessionMessage &p_message) {
 	return text;
 }
 
-AIModelMessage AISessionRunner::_message_to_model(const AISessionMessage &p_message) {
+bool AISessionRunner::_message_to_model(const AISessionMessage &p_message, const Dictionary &p_provider_config, AIModelMessage &r_message, AIError &r_error) {
 	String role = "user";
 	if (p_message.type == AI_SESSION_MESSAGE_ASSISTANT) {
 		role = "assistant";
@@ -260,7 +308,26 @@ AIModelMessage AISessionRunner::_message_to_model(const AISessionMessage &p_mess
 	if (p_message.type == AI_SESSION_MESSAGE_COMPACTION && !text.is_empty()) {
 		text = "Compaction summary:\n" + text;
 	}
-	return AIModelMessage::text_message(role, text, p_message.id);
+
+	AIModelMessage message;
+	message.id = p_message.id;
+	message.role = role;
+	if (!text.is_empty() || p_message.files.is_empty()) {
+		message.parts.push_back(AIModelPart::text_part(text));
+	}
+	if (!p_message.files.is_empty()) {
+		if (model_part_builder.is_null()) {
+			r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no ModelPartBuilder.");
+			return false;
+		}
+		if (!model_part_builder->append_attachment_parts_struct(p_message.files, p_provider_config, message.parts, r_error)) {
+			return false;
+		}
+	}
+
+	r_message = message;
+	r_error = AIError::none();
+	return true;
 }
 
 Vector<AIModelPart> AISessionRunner::_system_parts_from_baseline(const String &p_baseline) {
@@ -286,6 +353,68 @@ int64_t AISessionRunner::_history_token_budget_from_config(const Dictionary &p_c
 
 bool AISessionRunner::_is_rebuild_request_conflict(const AIError &p_error) {
 	return p_error.kind == AI_ERROR_CONFLICT && bool(p_error.details.get("rebuild_request", false));
+}
+
+Dictionary AISessionRunner::_model_part_for_event_log(const AIModelPart &p_part) {
+	Dictionary part = p_part.to_dictionary();
+	if (p_part.type == AI_MODEL_PART_TEXT && bool(p_part.metadata.get("derived_from_attachment", false)) && !p_part.text.is_empty()) {
+		part["text"] = "[redacted attachment text]";
+		Dictionary metadata = part.get("metadata", Dictionary());
+		metadata["text_redacted"] = true;
+		metadata["text_length"] = p_part.text.length();
+		part["metadata"] = metadata;
+	}
+	if (p_part.type != AI_MODEL_PART_TEXT && !p_part.data.is_empty()) {
+		part["data"] = "[redacted attachment data]";
+		Dictionary metadata = part.get("metadata", Dictionary());
+		metadata["data_redacted"] = true;
+		metadata["data_length"] = p_part.data.length();
+		part["metadata"] = metadata;
+	}
+	return part;
+}
+
+Dictionary AISessionRunner::_model_message_for_event_log(const AIModelMessage &p_message) {
+	Dictionary message;
+	message["id"] = p_message.id;
+	message["role"] = p_message.role;
+	Array parts;
+	for (int i = 0; i < p_message.parts.size(); i++) {
+		parts.push_back(_model_part_for_event_log(p_message.parts[i]));
+	}
+	message["parts"] = parts;
+	message["metadata"] = p_message.metadata;
+	return message;
+}
+
+Dictionary AISessionRunner::_request_for_event_log(const AIModelRequest &p_request) {
+	Dictionary request;
+	request["request_id"] = p_request.request_id;
+	request["provider"] = p_request.provider;
+	request["model"] = p_request.model;
+	request["provider_options"] = _ai_session_runner_redact_sensitive_dictionary(p_request.provider_options);
+	request["metadata"] = _ai_session_runner_redact_sensitive_dictionary(p_request.metadata);
+	request["max_output_tokens"] = p_request.max_output_tokens;
+	request["stream"] = p_request.stream;
+
+	Array system;
+	for (int i = 0; i < p_request.system.size(); i++) {
+		system.push_back(_model_part_for_event_log(p_request.system[i]));
+	}
+	request["system"] = system;
+
+	Array messages;
+	for (int i = 0; i < p_request.messages.size(); i++) {
+		messages.push_back(_model_message_for_event_log(p_request.messages[i]));
+	}
+	request["messages"] = messages;
+
+	Array tools;
+	for (int i = 0; i < p_request.tools.size(); i++) {
+		tools.push_back(p_request.tools[i].to_dictionary());
+	}
+	request["tools"] = tools;
+	return request;
 }
 
 Dictionary AISessionRunner::_make_error_result(const AIError &p_error) {
@@ -496,7 +625,11 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 	const int64_t history_token_budget = _history_token_budget_from_config(config);
 	const Vector<AISessionMessage> runner_messages = AISessionHistory::entries_for_runner(projector->get_messages_struct(p_session.id), epoch.baseline_seq, history_token_budget);
 	for (int i = 0; i < runner_messages.size(); i++) {
-		r_request.messages.push_back(_message_to_model(runner_messages[i]));
+		AIModelMessage message;
+		if (!_message_to_model(runner_messages[i], provider_config, message, r_error)) {
+			return false;
+		}
+		r_request.messages.push_back(message);
 	}
 
 	if (tool_registry.is_valid()) {
@@ -622,7 +755,7 @@ bool AISessionRunner::_run_provider_turn(const String &p_session_id, const Strin
 	started["request_id"] = p_request.request_id;
 	started["provider"] = p_request.provider;
 	started["model"] = p_request.model;
-	started["request"] = p_request.to_dictionary();
+	started["request"] = _request_for_event_log(p_request);
 
 	AIEventRow start_row;
 	if (!_append_event(p_session_id, AIDomainEventTypes::step_started(), started, false, start_row, r_error)) {
@@ -801,6 +934,17 @@ void AISessionRunner::set_session_store(const Ref<AISessionStore> &p_store) {
 
 Ref<AISessionStore> AISessionRunner::get_session_store() const {
 	return session_store;
+}
+
+void AISessionRunner::set_model_part_builder(const Ref<AIModelPartBuilder> &p_builder) {
+	model_part_builder = p_builder;
+	if (model_part_builder.is_null()) {
+		model_part_builder.instantiate();
+	}
+}
+
+Ref<AIModelPartBuilder> AISessionRunner::get_model_part_builder() const {
+	return model_part_builder;
 }
 
 bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, bool p_force, Vector<AISessionInputRecord> &r_promoted, AIError &r_error) {

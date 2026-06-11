@@ -45,6 +45,12 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_permission_service"), &AISessionService::get_permission_service);
 	ClassDB::bind_method(D_METHOD("set_tool_registry", "tool_registry"), &AISessionService::set_tool_registry);
 	ClassDB::bind_method(D_METHOD("get_tool_registry"), &AISessionService::get_tool_registry);
+	ClassDB::bind_method(D_METHOD("set_attachment_blob_store", "blob_store"), &AISessionService::set_attachment_blob_store);
+	ClassDB::bind_method(D_METHOD("get_attachment_blob_store"), &AISessionService::get_attachment_blob_store);
+	ClassDB::bind_method(D_METHOD("set_attachment_resolver", "resolver"), &AISessionService::set_attachment_resolver);
+	ClassDB::bind_method(D_METHOD("get_attachment_resolver"), &AISessionService::get_attachment_resolver);
+	ClassDB::bind_method(D_METHOD("set_model_part_builder", "builder"), &AISessionService::set_model_part_builder);
+	ClassDB::bind_method(D_METHOD("get_model_part_builder"), &AISessionService::get_model_part_builder);
 	ClassDB::bind_method(D_METHOD("create", "input"), &AISessionService::create);
 	ClassDB::bind_method(D_METHOD("prompt", "input"), &AISessionService::prompt);
 	ClassDB::bind_method(D_METHOD("reply_permission", "input"), &AISessionService::reply_permission);
@@ -78,7 +84,7 @@ AIPrompt AISessionService::_prompt_from_input(const Dictionary &p_input, const A
 	}
 
 	AIPrompt prompt;
-	if (p_input.has("text")) {
+	if (p_parts.is_empty() && p_input.has("text")) {
 		prompt.text = p_input.get("text", String());
 	}
 
@@ -99,7 +105,7 @@ AIPrompt AISessionService::_prompt_from_input(const Dictionary &p_input, const A
 			const String text = part.get("text", part.get("content", String()));
 			prompt.text += prompt.text.is_empty() ? text : "\n" + text;
 		} else if (type == "file" || type == "attachment") {
-			prompt.files.push_back(AIFileAttachment::from_dictionary(part));
+			continue;
 		} else if (type == "agent") {
 			prompt.agents.push_back(AIAgentReference::from_dictionary(part));
 		} else if (type == "reference") {
@@ -107,6 +113,38 @@ AIPrompt AISessionService::_prompt_from_input(const Dictionary &p_input, const A
 		}
 	}
 	return prompt;
+}
+
+Array AISessionService::_parts_from_prompt(const AIPrompt &p_prompt) {
+	Array parts;
+	if (!p_prompt.text.strip_edges().is_empty()) {
+		Dictionary text_part;
+		text_part["type"] = "text";
+		text_part["text"] = p_prompt.text;
+		parts.push_back(text_part);
+	}
+	for (int i = 0; i < p_prompt.files.size(); i++) {
+		Dictionary attachment_part;
+		attachment_part["type"] = "attachment";
+		attachment_part["attachment"] = p_prompt.files[i].to_dictionary();
+		parts.push_back(attachment_part);
+	}
+	for (int i = 0; i < p_prompt.agents.size(); i++) {
+		Dictionary agent_part = p_prompt.agents[i].to_dictionary();
+		agent_part["type"] = "agent";
+		parts.push_back(agent_part);
+	}
+	for (int i = 0; i < p_prompt.references.size(); i++) {
+		Dictionary reference_part = p_prompt.references[i].to_dictionary();
+		reference_part["type"] = "reference";
+		parts.push_back(reference_part);
+	}
+	return parts;
+}
+
+bool AISessionService::_part_is_attachment(const Dictionary &p_part) {
+	const String type = String(p_part.get("type", String())).strip_edges().to_lower();
+	return type == "file" || type == "attachment";
 }
 
 bool AISessionService::_has_location_input(const Dictionary &p_input) {
@@ -171,9 +209,24 @@ void AISessionService::_ensure_defaults() {
 		tool_registry.instantiate();
 		tool_registry->register_builtin_tools();
 	}
+	if (attachment_blob_store.is_null()) {
+		attachment_blob_store.instantiate();
+	}
+	if (attachment_resolver.is_null()) {
+		attachment_resolver.instantiate();
+	}
+	if (model_part_builder.is_null()) {
+		model_part_builder.instantiate();
+	}
 }
 
 void AISessionService::_wire_dependencies() {
+	if (attachment_resolver.is_valid()) {
+		attachment_resolver->set_blob_store(attachment_blob_store);
+	}
+	if (model_part_builder.is_valid()) {
+		model_part_builder->set_blob_store(attachment_blob_store);
+	}
 	if (input_store.is_valid()) {
 		input_store->set_event_store(event_store);
 		input_store->set_projector(projector);
@@ -195,6 +248,7 @@ void AISessionService::_wire_dependencies() {
 		session_runner->set_runtime_registry(runtime_registry);
 		session_runner->set_tool_registry(tool_registry);
 		session_runner->set_session_store(session_store);
+		session_runner->set_model_part_builder(model_part_builder);
 	}
 	if (context_source_registry.is_valid()) {
 		context_source_registry->set_config_service(config_service);
@@ -237,6 +291,59 @@ bool AISessionService::_resolve_session_for_prompt(const Dictionary &p_input, AI
 
 	r_error = AIError::make(AI_ERROR_VALIDATION, "SessionService.prompt requires an existing session_id. Call SessionService.create first.");
 	return false;
+}
+
+bool AISessionService::_resolve_prompt_attachments(const Dictionary &p_input, const AISessionRow &p_session, const Array &p_parts, AIPrompt &r_prompt, AIError &r_error) {
+	if (attachment_resolver.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionService has no AttachmentResolver.");
+		return false;
+	}
+
+	Vector<AIFileAttachment> resolved_files;
+	for (int i = 0; i < r_prompt.files.size(); i++) {
+		AIFileAttachment file = r_prompt.files[i];
+		const String blob_ref = String(file.metadata.get("blob_id", file.metadata.get("blobID", file.path))).strip_edges();
+		if (blob_ref.begins_with("blob_") && attachment_blob_store.is_valid() && attachment_blob_store->has_blob_struct(blob_ref)) {
+			resolved_files.push_back(file);
+			continue;
+		}
+
+		AIFileAttachment resolved;
+		if (!attachment_resolver->resolve_struct(p_session.id, p_session.location, file.to_dictionary(), resolved, r_error)) {
+			return false;
+		}
+		resolved_files.push_back(resolved);
+	}
+
+	if (p_input.get("attachments", Variant()).get_type() == Variant::ARRAY) {
+		if (!attachment_resolver->resolve_many_struct(p_session.id, p_session.location, p_input["attachments"], resolved_files, r_error)) {
+			return false;
+		}
+	}
+
+	for (int i = 0; i < p_parts.size(); i++) {
+		if (p_parts[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary part = p_parts[i];
+		if (!_part_is_attachment(part)) {
+			continue;
+		}
+		Dictionary attachment = part;
+		if (part.get("attachment", Variant()).get_type() == Variant::DICTIONARY) {
+			attachment = Dictionary(part["attachment"]).duplicate(true);
+		}
+
+		AIFileAttachment resolved;
+		if (!attachment_resolver->resolve_struct(p_session.id, p_session.location, attachment, resolved, r_error)) {
+			return false;
+		}
+		resolved_files.push_back(resolved);
+	}
+
+	r_prompt.files = resolved_files;
+	r_error = AIError::none();
+	return true;
 }
 
 bool AISessionService::_append_admitted_event(AISessionInputRecord &r_input, AIError &r_error) {
@@ -478,6 +585,36 @@ Ref<AIV1ToolRegistry> AISessionService::get_tool_registry() const {
 	return tool_registry;
 }
 
+void AISessionService::set_attachment_blob_store(const Ref<AIAttachmentBlobStore> &p_blob_store) {
+	attachment_blob_store = p_blob_store;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIAttachmentBlobStore> AISessionService::get_attachment_blob_store() const {
+	return attachment_blob_store;
+}
+
+void AISessionService::set_attachment_resolver(const Ref<AIAttachmentResolver> &p_resolver) {
+	attachment_resolver = p_resolver;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIAttachmentResolver> AISessionService::get_attachment_resolver() const {
+	return attachment_resolver;
+}
+
+void AISessionService::set_model_part_builder(const Ref<AIModelPartBuilder> &p_builder) {
+	model_part_builder = p_builder;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIModelPartBuilder> AISessionService::get_model_part_builder() const {
+	return model_part_builder;
+}
+
 Dictionary AISessionService::create(const Dictionary &p_input) {
 	_ensure_defaults();
 	AISessionRow session;
@@ -504,13 +641,16 @@ Dictionary AISessionService::prompt(const Dictionary &p_input) {
 		return _make_error_result(error);
 	}
 
-	const Array parts = _parts_from_input(p_input);
+	const Array input_parts = _parts_from_input(p_input);
 	AISessionInputRecord request;
 	request.id = p_input.get("prompt_id", p_input.get("promptID", String()));
 	request.session_id = session.id;
 	request.message_id = p_input.get("message_id", p_input.get("messageID", String()));
-	request.parts = parts;
-	request.prompt = _prompt_from_input(p_input, parts);
+	request.prompt = _prompt_from_input(p_input, input_parts);
+	if (!_resolve_prompt_attachments(p_input, session, input_parts, request.prompt, error)) {
+		return _make_error_result(error);
+	}
+	request.parts = _parts_from_prompt(request.prompt);
 	request.delivery = ai_session_input_delivery_from_string(p_input.get("delivery", "steer"));
 	request.resume = bool(p_input.get("resume", true));
 	request.idempotency_key = p_input.get("idempotency_key", p_input.get("idempotencyKey", String()));

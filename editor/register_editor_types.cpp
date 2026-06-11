@@ -158,7 +158,9 @@
 #include "editor/agent_v1/core/testing/ai_fake_mcp_server.h"
 #include "editor/agent_v1/core/threading/ai_task_runner.h"
 #include "editor/agent_v1/core/transport/ai_http_client.h"
+#include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_blob_store.h"
+#include "editor/agent_v1/domain/attachments/ai_attachment_resolver.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
 #include "editor/agent_v1/domain/context/ai_context_source_registry.h"
@@ -317,6 +319,10 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIOpenAICompatibleRuntime);
 	GDREGISTER_CLASS(AILLMRuntimeRegistry);
 	GDREGISTER_CLASS(AIAttachmentBlobStore);
+	GDREGISTER_CLASS(AIAttachmentResolver);
+	GDREGISTER_CLASS(AIFilePreprocessor);
+	GDREGISTER_CLASS(AIImageNormalizer);
+	GDREGISTER_CLASS(AIModelPartBuilder);
 	GDREGISTER_CLASS(AIContextEpochService);
 	GDREGISTER_CLASS(AIContextEpochStore);
 	GDREGISTER_CLASS(AIContextSourceRegistry);

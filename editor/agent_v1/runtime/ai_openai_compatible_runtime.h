@@ -18,6 +18,9 @@ class AIOpenAICompatibleRuntime : public AILLMRuntime {
 
 	static String _chat_completions_url(const String &p_base_url);
 	static String _message_text(const AIModelMessage &p_message);
+	static String _data_url_payload(const String &p_data_url);
+	static String _audio_format_from_mime(const String &p_mime);
+	static Dictionary _part_to_openai(const AIModelPart &p_part);
 	static Dictionary _message_to_openai(const AIModelMessage &p_message);
 	static Array _messages_to_openai(const AIModelRequest &p_request);
 	static Array _tools_to_openai(const AIModelRequest &p_request);

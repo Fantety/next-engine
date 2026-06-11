@@ -237,10 +237,83 @@ String AIOpenAICompatibleRuntime::_message_text(const AIModelMessage &p_message)
 	return text;
 }
 
+String AIOpenAICompatibleRuntime::_data_url_payload(const String &p_data_url) {
+	const int comma = p_data_url.find(",");
+	if (comma < 0) {
+		return p_data_url;
+	}
+	return p_data_url.substr(comma + 1);
+}
+
+String AIOpenAICompatibleRuntime::_audio_format_from_mime(const String &p_mime) {
+	const String mime = p_mime.strip_edges().to_lower();
+	if (mime == "audio/wav" || mime == "audio/x-wav") {
+		return "wav";
+	}
+	if (mime == "audio/ogg") {
+		return "ogg";
+	}
+	if (mime == "audio/flac") {
+		return "flac";
+	}
+	if (mime == "audio/mp4" || mime == "audio/m4a") {
+		return "mp4";
+	}
+	return "mp3";
+}
+
+Dictionary AIOpenAICompatibleRuntime::_part_to_openai(const AIModelPart &p_part) {
+	Dictionary result;
+	if (p_part.type == AI_MODEL_PART_IMAGE) {
+		Dictionary image_url;
+		image_url["url"] = p_part.data;
+		image_url["detail"] = String(p_part.metadata.get("detail", "auto")).strip_edges().is_empty() ? String("auto") : String(p_part.metadata.get("detail", "auto"));
+		result["type"] = "image_url";
+		result["image_url"] = image_url;
+		return result;
+	}
+	if (p_part.type == AI_MODEL_PART_AUDIO) {
+		Dictionary input_audio;
+		input_audio["data"] = _data_url_payload(p_part.data);
+		input_audio["format"] = _audio_format_from_mime(p_part.mime);
+		result["type"] = "input_audio";
+		result["input_audio"] = input_audio;
+		return result;
+	}
+	if (p_part.type == AI_MODEL_PART_FILE) {
+		Dictionary file;
+		file["filename"] = p_part.name.strip_edges().is_empty() ? String("attachment") : p_part.name;
+		file["file_data"] = p_part.data;
+		result["type"] = "file";
+		result["file"] = file;
+		return result;
+	}
+
+	result["type"] = "text";
+	result["text"] = p_part.text;
+	return result;
+}
+
 Dictionary AIOpenAICompatibleRuntime::_message_to_openai(const AIModelMessage &p_message) {
 	Dictionary result;
 	result["role"] = p_message.role.is_empty() ? String("user") : p_message.role;
-	result["content"] = _message_text(p_message);
+	bool has_non_text = false;
+	for (int i = 0; i < p_message.parts.size(); i++) {
+		if (p_message.parts[i].type != AI_MODEL_PART_TEXT) {
+			has_non_text = true;
+			break;
+		}
+	}
+	if (!has_non_text) {
+		result["content"] = _message_text(p_message);
+		return result;
+	}
+
+	Array content;
+	for (int i = 0; i < p_message.parts.size(); i++) {
+		content.push_back(_part_to_openai(p_message.parts[i]));
+	}
+	result["content"] = content;
 	return result;
 }
 

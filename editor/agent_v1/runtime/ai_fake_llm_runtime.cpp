@@ -17,6 +17,7 @@ void AIFakeLLMRuntime::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_fail_next", "fail"), &AIFakeLLMRuntime::set_fail_next);
 	ClassDB::bind_method(D_METHOD("get_fail_next"), &AIFakeLLMRuntime::get_fail_next);
 	ClassDB::bind_method(D_METHOD("get_stream_call_count"), &AIFakeLLMRuntime::get_stream_call_count);
+	ClassDB::bind_method(D_METHOD("get_last_request"), &AIFakeLLMRuntime::get_last_request);
 	ClassDB::bind_method(D_METHOD("reset"), &AIFakeLLMRuntime::reset);
 }
 
@@ -52,6 +53,7 @@ bool AIFakeLLMRuntime::configure(const Dictionary &p_config, AIError &r_error) {
 
 bool AIFakeLLMRuntime::stream_struct(const AIModelRequest &p_request, const Ref<AIStreamSink> &p_sink, const Ref<AICancelToken> &p_cancel_token, AIError &r_error) {
 	stream_call_count++;
+	last_request = p_request.to_dictionary();
 	if (p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested()) {
 		r_error = AIError::make(AI_ERROR_INTERRUPTED, p_cancel_token->get_cancel_message("Fake runtime interrupted."));
 		return false;
@@ -149,9 +151,14 @@ int64_t AIFakeLLMRuntime::get_stream_call_count() const {
 	return stream_call_count;
 }
 
+Dictionary AIFakeLLMRuntime::get_last_request() const {
+	return last_request.duplicate(true);
+}
+
 void AIFakeLLMRuntime::reset() {
 	response_text = String();
 	clear_tool_call();
 	fail_next = false;
 	stream_call_count = 0;
+	last_request.clear();
 }

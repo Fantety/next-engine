@@ -33,6 +33,10 @@ editor/agent_v1/domain
   SCsub
   model/
     ai_domain_types.*
+  attachments/
+    ai_attachment_blob_store.*
+    ai_attachment_resolver.*
+    ai_attachment_model_part_builder.*
   events/
     ai_event_types.*
     ai_event_store.*
@@ -57,6 +61,11 @@ SConscript("agent_v1/domain/SCsub")
 已注册到 ClassDB 的服务类：
 
 ```cpp
+GDREGISTER_CLASS(AIAttachmentBlobStore);
+GDREGISTER_CLASS(AIAttachmentResolver);
+GDREGISTER_CLASS(AIFilePreprocessor);
+GDREGISTER_CLASS(AIImageNormalizer);
+GDREGISTER_CLASS(AIModelPartBuilder);
 GDREGISTER_CLASS(AIContextEpochService);
 GDREGISTER_CLASS(AIContextEpochStore);
 GDREGISTER_CLASS(AIContextSourceRegistry);
@@ -79,6 +88,8 @@ GDREGISTER_CLASS(AITokenEstimator);
 - Context Epoch 是 Session 级 baseline，不是 provider turn 级请求快照。
 - Compaction 不删除旧事件；Runner history 从最新 compaction checkpoint 之后继续。
 - Provider adapter 不应直接写 `session_message`，应发出 normalized stream events，由 Runner 决定 durable/live event 边界。
+- Prompt attachment 必须先解析成 blob-backed `AIFileAttachment`，再写入 admitted event；durable log 不保存 data URL、base64 内容或 provider 请求体。
+- 本地路径附件只作为 resolver 输入。进入 `AIFileAttachment.path` 的值必须是 blob ref，Runner 和 provider adapter 不应接收原始本地路径。
 
 ## model
 
@@ -186,7 +197,9 @@ struct AIFileAttachment {
 
 - 这里表示 durable typed attachment。
 - UI 草稿附件不属于 Domain，只有被 admitted prompt 接收后才进入该结构。
-- `path` 是工作区/文件引用语义，后续 resolver 应负责转换为模型可消费的安全内容。
+- Prompt admission 后的 `path` 是 blob ref，通常形如 `blob_<sha256>`，不再表示本地文件路径。
+- `metadata.blob_id` / `metadata.blob_hash` 是 Runner 读取内容和日志审计的稳定入口；`metadata.source_type` 记录 `data`、`path`、`blob`、`bytes` 等来源类型。
+- 原始 data URL、base64 内容和本地路径不进入 `AIFileAttachment` 的 durable metadata；如需本地审计，可读取 `AIAttachmentBlobStore` 的独立 metadata 文件。
 
 ### AIAgentReference
 
@@ -230,6 +243,7 @@ struct AIPrompt {
 - Prompt 是结构化输入，不是单纯字符串。
 - Prompt admitted 后仍不进入模型历史。
 - Prompt promoted 后才投影为 `AISessionMessage` user message。
+- `files` 必须已经由 `AIAttachmentResolver` 解析完成；不要把 UI 草稿附件、data URL 或本地 path 直接塞进 `AIPrompt.files`。
 
 ### AISessionInfo
 
@@ -406,6 +420,153 @@ static AIContextEpoch from_dictionary(const Dictionary &p_dict);
 - `baseline_seq` 用于 Runner history 过滤旧 system updates。
 - `replacement_seq` 标记 agent/model/compaction/location move 等 replacement boundary。
 - `revision` 用于上层 fencing 和变更检测。
+
+## attachments
+
+文件：
+
+```cpp
+#include "editor/agent_v1/domain/attachments/ai_attachment_blob_store.h"
+#include "editor/agent_v1/domain/attachments/ai_attachment_resolver.h"
+#include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
+```
+
+### AIAttachmentBlobStore
+
+```cpp
+class AIAttachmentBlobStore : public RefCounted;
+```
+
+默认路径：
+
+```text
+user://net.nextengine/agent_v1/attachments
+```
+
+主要 API：
+
+```cpp
+void set_base_dir(const String &p_base_dir);
+String get_base_dir() const;
+
+bool put_bytes_struct(const PackedByteArray &p_bytes, const String &p_mime_type, const Dictionary &p_source_metadata, AIAttachmentBlobRecord &r_record, AIError &r_error);
+bool put_file_struct(const String &p_path, const String &p_mime_type, const Dictionary &p_source_metadata, AIAttachmentBlobRecord &r_record, AIError &r_error);
+bool has_blob_struct(const String &p_blob_ref) const;
+bool get_metadata_struct(const String &p_blob_ref, AIAttachmentBlobRecord &r_record, AIError &r_error) const;
+bool read_bytes_struct(const String &p_blob_ref, PackedByteArray &r_bytes, AIError &r_error) const;
+```
+
+语义：
+
+- Blob store 是附件二进制内容的本地持久化边界，metadata 与 bytes 分开读取。
+- Blob id/hash 是 content-addressed 引用；Session event 只保存 blob ref 和安全 metadata。
+- `base_dir` 默认必须保持在 `user://net.nextengine/` 下，测试会覆盖该约束。
+
+### AIAttachmentResolver
+
+```cpp
+class AIAttachmentResolver : public RefCounted;
+```
+
+主要 API：
+
+```cpp
+void set_blob_store(const Ref<AIAttachmentBlobStore> &p_blob_store);
+void set_max_attachment_bytes(int64_t p_max_attachment_bytes);
+
+static String detect_mime_static(const String &p_name, const PackedByteArray &p_bytes = PackedByteArray(), const String &p_declared_mime = String());
+static String mime_to_modality_static(const String &p_mime);
+
+bool resolve_struct(const String &p_session_id, const AILocationRef &p_location, const Dictionary &p_attachment, AIFileAttachment &r_file, AIError &r_error);
+bool resolve_many_struct(const String &p_session_id, const AILocationRef &p_location, const Array &p_attachments, Vector<AIFileAttachment> &r_files, AIError &r_error);
+Dictionary resolve(const Dictionary &p_input);
+```
+
+输入类型：
+
+```text
+data / data_url / dataURL
+path
+blob / blob_id / blobID
+bytes
+```
+
+语义：
+
+- Resolver 是 `SubmittedAttachment -> AIFileAttachment` 的唯一入口。
+- `data:` 输入必须 base64 编码，payload 不能为空；image/audio/pdf 等二进制 MIME 会先按内容签名校验，再通过大小检查后写入 blob store。
+- `path` 输入按 `AILocationRef.directory` 约束在 workspace/root 内，读取内容后写入 blob store；输出不携带原始 path。
+- `blob` 输入只水合已有 blob metadata，不重新读本地路径；默认要求 blob metadata 的 `session_id` 等于当前 Session，并且 blob size 不超过 resolver 限制。
+
+### AIFilePreprocessor
+
+```cpp
+class AIFilePreprocessor : public RefCounted;
+```
+
+主要 API：
+
+```cpp
+void set_max_text_bytes(int64_t p_max_text_bytes);
+bool bytes_to_text_context_struct(const AIFileAttachment &p_attachment, const PackedByteArray &p_bytes, String &r_text, bool &r_truncated, AIError &r_error) const;
+```
+
+语义：
+
+- 文本类附件先转为派生 text part，metadata 标记 `derived_from_attachment`。
+- 超过 `max_text_bytes` 的文本会截断并标记 `truncated`，不会把大文件直接塞进 prompt。
+
+### AIImageNormalizer
+
+```cpp
+class AIImageNormalizer : public RefCounted;
+```
+
+主要 API：
+
+```cpp
+void set_blob_store(const Ref<AIAttachmentBlobStore> &p_blob_store);
+void set_max_width(int p_max_width);
+void set_max_height(int p_max_height);
+void set_max_output_bytes(int64_t p_max_output_bytes);
+
+bool normalize_struct(const AIFileAttachment &p_attachment, AIFileAttachment &r_attachment, AIError &r_error);
+Dictionary normalize(const Dictionary &p_attachment);
+```
+
+语义：
+
+- PNG/JPEG/WebP 会尝试解码；解码失败返回 validation error。
+- 超过尺寸或输出大小限制的图片会生成新的 PNG blob，原始 blob 不被覆盖。
+- GIF/SVG 等暂不解码规范化；仍可作为 image modality 进入后续能力检查和 provider 映射。
+
+### AIModelPartBuilder
+
+```cpp
+class AIModelPartBuilder : public RefCounted;
+```
+
+主要 API：
+
+```cpp
+void set_blob_store(const Ref<AIAttachmentBlobStore> &p_blob_store);
+void set_file_preprocessor(const Ref<AIFilePreprocessor> &p_file_preprocessor);
+void set_image_normalizer(const Ref<AIImageNormalizer> &p_image_normalizer);
+void set_max_inline_bytes(int64_t p_max_inline_bytes);
+
+static bool provider_supports_modality_static(const Dictionary &p_provider_config, const String &p_modality);
+
+bool build_attachment_part_struct(const AIFileAttachment &p_attachment, const Dictionary &p_provider_config, AIModelPart &r_part, AIError &r_error);
+bool append_attachment_parts_struct(const Vector<AIFileAttachment> &p_attachments, const Dictionary &p_provider_config, Vector<AIModelPart> &r_parts, AIError &r_error);
+Dictionary build_attachment_part(const Dictionary &p_attachment, const Dictionary &p_provider_config);
+```
+
+语义：
+
+- `text` modality 不要求 provider multimodal 能力，会转成派生 text part。
+- `image`、`audio`、`file` modality 必须由 provider config 显式声明支持；不支持时返回 `AI_ERROR_UNAVAILABLE`。
+- 非文本 part 使用 provider-neutral `AIModelPart::data_part(...)`，data 当前是 data URL；Runner 写 `step_started.request` 时会 redaction。
+- Builder 的安全 metadata 只包含 attachment id、blob id/hash、name、mime、size、modality 和 normalize 信息，不传播 `source_path`。
 
 ## events
 
@@ -880,6 +1041,25 @@ SessionExecution
 - 首次或 replacement context 不可用时，不执行 prompt promotion。
 - `session.next.context.updated` 必须早于首个 model-visible prompt。
 
+### Multimodal Attachment
+
+```text
+UI/API submits attachments
+  -> SessionService.prompt
+  -> AttachmentResolver resolves data/path/blob/bytes into blob-backed AIFileAttachment
+  -> append session.next.prompt.admitted without data URL/base64/local path
+  -> Runner promotes prompt and reads projected AISessionMessage.files
+  -> ModelPartBuilder checks provider modalities
+  -> ImageNormalizer/FilePreprocessor prepares safe model parts
+  -> Provider adapter maps AIModelPart to provider-specific request content
+```
+
+关键点：
+
+- Session durable log 保存的是 typed attachment metadata 和 blob ref，不保存附件内容。
+- Runner 构建 `step_started.request` 事件时必须 redaction 非文本 data、派生附件文本和 provider secret。
+- Provider adapter 只做协议映射，不读取本地路径、不解析 UI 草稿附件。
+
 ### Provider Streaming
 
 ```text
@@ -947,6 +1127,8 @@ SessionHistory.entries_for_runner(...)
 - `AIEventStore` 已提供 durable JSONL 存储，但不是完整数据库层。
 - `AISessionProjector` 的 read model 当前在内存中，进程重启后应通过 `rebuild_from_store()` 重建。
 - `AIContextEpochStore` 当前在内存中；恢复时由 `AIContextEpochService` 从 durable `context.updated` 投影水合，不单独作为 source of truth。
+- Phase 7 的 server/core 附件链路已经建立：resolver/blob store/model part builder/provider mapper。UI chat draft attachment state 尚未在本层实现。
+- Tool result media 复用为下一轮 multimodal input 尚未在本层实现；后续应复用同一 blob/part/capability pipeline。
 - Session 创建、复用、删除、移动、title/model/cost 更新尚未在本层实现。
 - Prompt exact retry conflict 尚未在本层强制执行，应由 Session service append 前检查。
 - Permission events 在 domain 层只定义事件名和 durable 分类；具体权限状态机由 `editor/agent_v1/permission` 实现。

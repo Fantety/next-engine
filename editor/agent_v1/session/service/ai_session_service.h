@@ -5,6 +5,8 @@
 #pragma once
 
 #include "editor/agent_v1/config/ai_config_service.h"
+#include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
+#include "editor/agent_v1/domain/attachments/ai_attachment_resolver.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
 #include "editor/agent_v1/domain/context/ai_context_source_registry.h"
@@ -37,15 +39,21 @@ class AISessionService : public RefCounted {
 	Ref<AILLMRuntimeRegistry> runtime_registry;
 	Ref<AIPermissionService> permission_service;
 	Ref<AIV1ToolRegistry> tool_registry;
+	Ref<AIAttachmentBlobStore> attachment_blob_store;
+	Ref<AIAttachmentResolver> attachment_resolver;
+	Ref<AIModelPartBuilder> model_part_builder;
 
 	static Array _parts_from_input(const Dictionary &p_input);
 	static AIPrompt _prompt_from_input(const Dictionary &p_input, const Array &p_parts);
+	static Array _parts_from_prompt(const AIPrompt &p_prompt);
+	static bool _part_is_attachment(const Dictionary &p_part);
 	static bool _has_location_input(const Dictionary &p_input);
 	static Dictionary _make_error_result(const AIError &p_error);
 
 	void _ensure_defaults();
 	void _wire_dependencies();
 	bool _resolve_session_for_prompt(const Dictionary &p_input, AISessionRow &r_session, bool &r_created, AIError &r_error);
+	bool _resolve_prompt_attachments(const Dictionary &p_input, const AISessionRow &p_session, const Array &p_parts, AIPrompt &r_prompt, AIError &r_error);
 	bool _append_admitted_event(AISessionInputRecord &r_input, AIError &r_error);
 	bool _append_interrupted_tool_events(const String &p_session_id, const String &p_reason, AIError &r_error);
 
@@ -85,6 +93,12 @@ public:
 	Ref<AIPermissionService> get_permission_service() const;
 	void set_tool_registry(const Ref<AIV1ToolRegistry> &p_tool_registry);
 	Ref<AIV1ToolRegistry> get_tool_registry() const;
+	void set_attachment_blob_store(const Ref<AIAttachmentBlobStore> &p_blob_store);
+	Ref<AIAttachmentBlobStore> get_attachment_blob_store() const;
+	void set_attachment_resolver(const Ref<AIAttachmentResolver> &p_resolver);
+	Ref<AIAttachmentResolver> get_attachment_resolver() const;
+	void set_model_part_builder(const Ref<AIModelPartBuilder> &p_builder);
+	Ref<AIModelPartBuilder> get_model_part_builder() const;
 
 	Dictionary create(const Dictionary &p_input);
 	Dictionary prompt(const Dictionary &p_input);
