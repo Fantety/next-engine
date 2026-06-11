@@ -34,6 +34,7 @@
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_adapter.h"
+#include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
 #include "tests/test_utils.h"
 
@@ -3795,6 +3796,38 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Config adapter exposes settings snapshot
 	const Dictionary patched = adapter->patch_settings(patch, "runtime");
 	REQUIRE(bool(patched.get("success", false)));
 	CHECK(String(adapter->get_settings_snapshot().get("default_model", String())) == "fake-model-2");
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Bridge owns shared backend services for UI adapters") {
+	AIAgentV1UIBridge::clear_singleton_for_test();
+
+	Ref<AIAgentV1UIBridge> bridge = AIAgentV1UIBridge::get_singleton();
+	REQUIRE(bridge.is_valid());
+
+	Ref<AIAgentV1UIAdapter> conversation = bridge->get_conversation_adapter();
+	Ref<AIAgentV1UIConfigAdapter> config_adapter = bridge->get_config_adapter();
+	REQUIRE(conversation.is_valid());
+	REQUIRE(config_adapter.is_valid());
+
+	Ref<AISessionService> session_service = bridge->get_session_service();
+	Ref<AIConfigService> config_service = bridge->get_config_service();
+	Ref<AIAgentService> agent_service = bridge->get_agent_service();
+	Ref<AIV1SkillService> skill_service = bridge->get_skill_service();
+	REQUIRE(session_service.is_valid());
+	REQUIRE(config_service.is_valid());
+	REQUIRE(agent_service.is_valid());
+	REQUIRE(skill_service.is_valid());
+
+	CHECK(conversation->get_session_service() == session_service);
+	CHECK(config_adapter->get_config_service() == config_service);
+	CHECK(config_adapter->get_agent_service() == agent_service);
+	CHECK(config_adapter->get_skill_service() == skill_service);
+	CHECK(session_service->get_config_service() == config_service);
+	CHECK(session_service->get_agent_service() == agent_service);
+	CHECK(session_service->get_skill_service() == skill_service);
+	CHECK(bridge == AIAgentV1UIBridge::get_singleton());
+
+	AIAgentV1UIBridge::clear_singleton_for_test();
 }
 
 } // namespace TestAgentV1
