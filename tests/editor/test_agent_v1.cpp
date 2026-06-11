@@ -13,8 +13,11 @@
 #include "editor/agent_v1/core/testing/ai_fake_mcp_server.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_blob_store.h"
 #include "editor/agent_v1/domain/events/ai_event_store.h"
+#include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
+#include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
+#include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 #include "tests/test_utils.h"
 
 TEST_FORCE_LINK(test_agent_v1);
@@ -270,6 +273,230 @@ TEST_CASE("[Editor][AgentV1] Fake runtime streams text and provider-neutral tool
 	}
 	CHECK(saw_text);
 	CHECK(saw_tool);
+}
+
+TEST_CASE("[Editor][AgentV1] Permission service records pending and rejected replies") {
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(TestUtils::get_temp_path("agent_v1/permission_events"));
+
+	Ref<AIPermissionService> permission_service;
+	permission_service.instantiate();
+	permission_service->set_event_store(event_store);
+
+	Dictionary source;
+	source["assistant_message_id"] = "assistant-a";
+	source["call_id"] = "call-a";
+	source["tool"] = "file_write";
+
+	Dictionary input;
+	input["session_id"] = "session-permission";
+	input["action"] = "file.write";
+	input["resource"] = "res://generated.txt";
+	input["source"] = source;
+
+	AIPermissionDecision decision;
+	AIError error;
+	CHECK_FALSE(permission_service->assert_permission_struct(input, decision, error));
+	CHECK(decision.pending);
+	CHECK(decision.request_id.begins_with("perm_"));
+	CHECK(event_store->list("session-permission").size() == 1);
+	CHECK(event_store->list("session-permission")[0].type == AIDomainEventTypes::permission_asked());
+
+	Dictionary reply;
+	reply["request_id"] = decision.request_id;
+	reply["reply"] = "reject";
+	reply["reason"] = "not now";
+	AIPermissionDecision reply_decision;
+	CHECK_FALSE(permission_service->reply_struct(reply, reply_decision, error));
+	CHECK(reply_decision.denied);
+	CHECK(event_store->list("session-permission").size() == 2);
+	CHECK(event_store->list("session-permission")[1].type == AIDomainEventTypes::permission_replied());
+
+	AIPermissionDecision rejected_decision;
+	CHECK_FALSE(permission_service->assert_permission_struct(input, rejected_decision, error));
+	CHECK(rejected_decision.denied);
+	CHECK(error.kind == AI_ERROR_PERMISSION);
+}
+
+TEST_CASE("[Editor][AgentV1] Tool registry settles read tools, pending writes, and stale calls") {
+	const String root = TestUtils::get_temp_path("agent_v1/tools_root");
+	const String read_path = root.path_join("readme.txt");
+	const String write_path = root.path_join("generated.txt");
+	write_text_file(read_path, "tool registry read");
+
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(TestUtils::get_temp_path("agent_v1/tool_events"));
+
+	Ref<AISessionProjector> projector;
+	projector.instantiate();
+
+	Ref<AIPermissionService> permission_service;
+	permission_service.instantiate();
+	permission_service->set_event_store(event_store);
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	registry->set_event_store(event_store);
+	registry->set_projector(projector);
+	registry->set_permission_service(permission_service);
+	registry->set_root_dir(root);
+	registry->register_builtin_tools();
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	CHECK(materialization->has_tool("file_read"));
+	CHECK(materialization->has_tool("file_write"));
+	CHECK(materialization->has_tool("shell_run"));
+
+	Dictionary read_args;
+	read_args["path"] = "readme.txt";
+	Dictionary read_call;
+	read_call["id"] = "call-read";
+	read_call["name"] = "file_read";
+	read_call["input"] = read_args;
+	Dictionary read_settle_input;
+	read_settle_input["session_id"] = "session-tools";
+	read_settle_input["assistant_message_id"] = "assistant-tools";
+	read_settle_input["call"] = read_call;
+
+	AIV1ToolSettlement read_settlement;
+	AIError error;
+	REQUIRE(materialization->settle_struct(read_settle_input, read_settlement, error));
+	CHECK(read_settlement.success);
+	CHECK(String(Dictionary(read_settlement.structured).get("text", String())) == "tool registry read");
+
+	Dictionary write_args;
+	write_args["path"] = "generated.txt";
+	write_args["content"] = "not written without approval";
+	Dictionary write_call;
+	write_call["id"] = "call-write";
+	write_call["name"] = "file_write";
+	write_call["input"] = write_args;
+	Dictionary write_settle_input;
+	write_settle_input["session_id"] = "session-tools";
+	write_settle_input["assistant_message_id"] = "assistant-tools";
+	write_settle_input["call"] = write_call;
+
+	AIV1ToolSettlement write_settlement;
+	REQUIRE(materialization->settle_struct(write_settle_input, write_settlement, error));
+	CHECK_FALSE(write_settlement.success);
+	CHECK(write_settlement.pending);
+	CHECK_FALSE(FileAccess::exists(write_path));
+	const Vector<AIEventRow> pending_events = event_store->list("session-tools");
+	for (int i = 0; i < pending_events.size(); i++) {
+		CHECK(pending_events[i].type != AIDomainEventTypes::tool_failed());
+	}
+
+	Array pending = permission_service->get_pending_requests();
+	REQUIRE(pending.size() == 1);
+	Dictionary reply;
+	reply["request_id"] = Dictionary(pending[0]).get("request_id", String());
+	reply["reply"] = "reject";
+	(void)permission_service->reply(reply);
+
+	AIV1ToolSettlement rejected_write_settlement;
+	REQUIRE(materialization->settle_struct(write_settle_input, rejected_write_settlement, error));
+	CHECK_FALSE(rejected_write_settlement.success);
+	CHECK(rejected_write_settlement.error.kind == AI_ERROR_PERMISSION);
+
+	Ref<AIV1ReadFileTool> replacement;
+	replacement.instantiate();
+	CHECK(registry->register_tool_struct("file_read", replacement, "test"));
+
+	AIV1ToolSettlement stale_settlement;
+	REQUIRE(materialization->settle_struct(read_settle_input, stale_settlement, error));
+	CHECK_FALSE(stale_settlement.success);
+	CHECK(stale_settlement.stale);
+
+	const Vector<AIEventRow> events = event_store->list("session-tools");
+	bool saw_success = false;
+	bool saw_failed = false;
+	for (int i = 0; i < events.size(); i++) {
+		saw_success = saw_success || events[i].type == AIDomainEventTypes::tool_success();
+		saw_failed = saw_failed || events[i].type == AIDomainEventTypes::tool_failed();
+	}
+	CHECK(saw_success);
+	CHECK(saw_failed);
+}
+
+TEST_CASE("[Editor][AgentV1] Tool materialization captures root, filters denied tools, and restores scoped registrations") {
+	const String root_a = TestUtils::get_temp_path("agent_v1/tools_root_a");
+	const String root_b = TestUtils::get_temp_path("agent_v1/tools_root_b");
+	write_text_file(root_a.path_join("readme.txt"), "root a");
+	write_text_file(root_b.path_join("readme.txt"), "root b");
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	registry->register_builtin_tools();
+
+	Array rules;
+	Dictionary deny_write;
+	deny_write["action"] = "file.write";
+	deny_write["resource"] = "*";
+	deny_write["effect"] = "deny";
+	rules.push_back(deny_write);
+
+	Ref<AIV1ToolMaterialization> filtered = registry->materialize_struct(root_a, rules);
+	CHECK(filtered->has_tool("file_read"));
+	CHECK_FALSE(filtered->has_tool("file_write"));
+	CHECK(filtered->has_tool("shell_run"));
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct(root_a, Array());
+	registry->set_root_dir(root_b);
+
+	Dictionary read_args;
+	read_args["path"] = "readme.txt";
+	Dictionary read_call;
+	read_call["id"] = "call-read-root";
+	read_call["name"] = "file_read";
+	read_call["input"] = read_args;
+	Dictionary read_settle_input;
+	read_settle_input["session_id"] = "session-root";
+	read_settle_input["assistant_message_id"] = "assistant-root";
+	read_settle_input["call"] = read_call;
+
+	AIV1ToolSettlement read_settlement;
+	AIError error;
+	REQUIRE(materialization->settle_struct(read_settle_input, read_settlement, error));
+	CHECK(read_settlement.success);
+	CHECK(String(Dictionary(read_settlement.structured).get("text", String())) == "root a");
+
+	Dictionary escaped_args;
+	escaped_args["path"] = "res://project.godot";
+	Dictionary escaped_call;
+	escaped_call["id"] = "call-read-escaped";
+	escaped_call["name"] = "file_read";
+	escaped_call["input"] = escaped_args;
+	Dictionary escaped_settle_input;
+	escaped_settle_input["session_id"] = "session-root";
+	escaped_settle_input["assistant_message_id"] = "assistant-root";
+	escaped_settle_input["call"] = escaped_call;
+
+	AIV1ToolSettlement escaped_settlement;
+	REQUIRE(materialization->settle_struct(escaped_settle_input, escaped_settlement, error));
+	CHECK_FALSE(escaped_settlement.success);
+	CHECK(escaped_settlement.error.kind == AI_ERROR_PERMISSION);
+
+	Ref<AIV1Tool> base_tool;
+	base_tool.instantiate();
+	Dictionary schema;
+	schema["type"] = "object";
+	base_tool->configure("Base scoped tool.", schema);
+	CHECK(registry->register_tool_struct("scoped_tool", base_tool, "base"));
+	const Dictionary base_identity = registry->get_tool_identity("scoped_tool");
+
+	Ref<AIV1Tool> override_tool;
+	override_tool.instantiate();
+	override_tool->configure("Override scoped tool.", schema);
+	Ref<AIScopedRegistration> scope = registry->register_tool_scope_struct("scoped_tool", override_tool, "override");
+	REQUIRE(scope.is_valid());
+	const Dictionary override_identity = registry->get_tool_identity("scoped_tool");
+	CHECK(String(override_identity.get("id", String())) != String(base_identity.get("id", String())));
+
+	scope->close();
+	const Dictionary restored_identity = registry->get_tool_identity("scoped_tool");
+	CHECK(String(restored_identity.get("id", String())) == String(base_identity.get("id", String())));
 }
 
 } // namespace TestAgentV1

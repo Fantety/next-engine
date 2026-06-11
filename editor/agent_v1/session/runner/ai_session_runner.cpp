@@ -13,13 +13,17 @@
 class AISessionRunnerEventRecorder : public RefCounted {
 	Ref<AIEventStore> event_store;
 	Ref<AISessionProjector> projector;
+	Ref<AIV1ToolMaterialization> tool_materialization;
 	String session_id;
+	String agent_id;
 	String assistant_message_id;
 	String text_content_id;
 	String reasoning_content_id;
 	String text;
 	String reasoning;
 	AIError error;
+	bool needs_continuation = false;
+	bool waiting_permission = false;
 
 	bool _append_event(const String &p_type, const Dictionary &p_data, bool p_live_only) {
 		if (event_store.is_null()) {
@@ -40,10 +44,12 @@ class AISessionRunnerEventRecorder : public RefCounted {
 	}
 
 public:
-	void setup(const Ref<AIEventStore> &p_event_store, const Ref<AISessionProjector> &p_projector, const String &p_session_id, const String &p_assistant_message_id) {
+	void setup(const Ref<AIEventStore> &p_event_store, const Ref<AISessionProjector> &p_projector, const Ref<AIV1ToolMaterialization> &p_tool_materialization, const String &p_session_id, const String &p_agent_id, const String &p_assistant_message_id) {
 		event_store = p_event_store;
 		projector = p_projector;
+		tool_materialization = p_tool_materialization;
 		session_id = p_session_id;
+		agent_id = p_agent_id;
 		assistant_message_id = p_assistant_message_id;
 		text_content_id = AIId::make("content");
 		reasoning_content_id = AIId::make("reasoning");
@@ -67,6 +73,14 @@ public:
 
 	AIError get_error() const {
 		return error;
+	}
+
+	bool has_local_tool_settlement() const {
+		return needs_continuation;
+	}
+
+	bool is_waiting_permission() const {
+		return waiting_permission;
 	}
 
 	bool handle_event(const Dictionary &p_event) {
@@ -95,14 +109,57 @@ public:
 			return !_append_event(AIDomainEventTypes::reasoning_delta(), data, true);
 		}
 		if (type == "tool-call") {
+			const String call_id = p_event.get("id", AIId::make("call"));
+			const String tool_name = p_event.get("name", String());
 			Dictionary data;
 			data["assistant_message_id"] = assistant_message_id;
-			data["call_id"] = p_event.get("id", AIId::make("call"));
-			data["tool"] = p_event.get("name", String());
-			data["name"] = p_event.get("name", String());
+			data["call_id"] = call_id;
+			data["tool"] = tool_name;
+			data["name"] = tool_name;
 			data["input"] = p_event.get("input", Variant());
 			data["provider"] = p_event.get("provider_metadata", Dictionary());
-			return !_append_event(AIDomainEventTypes::tool_called(), data, false);
+			data["provider_executed"] = bool(p_event.get("provider_executed", false));
+			if (tool_materialization.is_valid()) {
+				const Dictionary identity = tool_materialization->get_tool_identity(tool_name);
+				if (!identity.is_empty()) {
+					data["registration_identity"] = identity;
+				}
+			}
+			if (!_append_event(AIDomainEventTypes::tool_called(), data, false)) {
+				return true;
+			}
+
+			if (tool_materialization.is_null() || bool(p_event.get("provider_executed", false))) {
+				return false;
+			}
+
+			Dictionary call;
+			call["id"] = call_id;
+			call["name"] = tool_name;
+			call["input"] = p_event.get("input", Variant());
+			call["provider_executed"] = false;
+
+			Dictionary settle_input;
+			settle_input["session_id"] = session_id;
+			settle_input["agent"] = agent_id;
+			settle_input["assistant_message_id"] = assistant_message_id;
+			if (data.has("registration_identity")) {
+				settle_input["registration_identity"] = data["registration_identity"];
+			}
+			settle_input["call"] = call;
+
+			AIV1ToolSettlement settlement;
+			AIError settlement_error;
+			if (!tool_materialization->settle_struct(settle_input, settlement, settlement_error)) {
+				error = settlement_error.is_error() ? settlement_error : AIError::make(AI_ERROR_INTERNAL, "Tool settlement failed.");
+				return true;
+			}
+			if (settlement.pending) {
+				waiting_permission = true;
+				return false;
+			}
+			needs_continuation = needs_continuation || settlement.needs_continuation;
+			return false;
 		}
 		if (type == "provider-error") {
 			error = AIError::make(AI_ERROR_PROVIDER, "Provider stream error.", p_event.get("error", Dictionary()));
@@ -111,6 +168,12 @@ public:
 		return false;
 	}
 };
+
+static String _ai_session_runner_tool_key(const Dictionary &p_data) {
+	const String assistant_message_id = String(p_data.get("assistant_message_id", p_data.get("assistantMessageID", String()))).strip_edges();
+	const String call_id = String(p_data.get("call_id", p_data.get("callID", p_data.get("id", String())))).strip_edges();
+	return assistant_message_id + "|" + call_id;
+}
 
 void AISessionRunner::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_prompt_promoter", "prompt_promoter"), &AISessionRunner::set_prompt_promoter);
@@ -125,6 +188,10 @@ void AISessionRunner::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_config_service"), &AISessionRunner::get_config_service);
 	ClassDB::bind_method(D_METHOD("set_runtime_registry", "registry"), &AISessionRunner::set_runtime_registry);
 	ClassDB::bind_method(D_METHOD("get_runtime_registry"), &AISessionRunner::get_runtime_registry);
+	ClassDB::bind_method(D_METHOD("set_tool_registry", "registry"), &AISessionRunner::set_tool_registry);
+	ClassDB::bind_method(D_METHOD("get_tool_registry"), &AISessionRunner::get_tool_registry);
+	ClassDB::bind_method(D_METHOD("set_session_store", "store"), &AISessionRunner::set_session_store);
+	ClassDB::bind_method(D_METHOD("get_session_store"), &AISessionRunner::get_session_store);
 	ClassDB::bind_method(D_METHOD("run", "session_id", "force"), &AISessionRunner::run, DEFVAL(false));
 }
 
@@ -132,6 +199,8 @@ AISessionRunner::AISessionRunner() {
 	context_epoch_store.instantiate();
 	config_service.instantiate();
 	runtime_registry.instantiate();
+	tool_registry.instantiate();
+	tool_registry->register_builtin_tools();
 }
 
 String AISessionRunner::_message_text(const AISessionMessage &p_message) {
@@ -143,6 +212,18 @@ String AISessionRunner::_message_text(const AISessionMessage &p_message) {
 		const AIAssistantContent &content = p_message.content[i];
 		if (content.type == "text" || content.type == "reasoning") {
 			text += text.is_empty() ? content.text : "\n" + content.text;
+		} else if (content.type == "tool") {
+			String tool_text;
+			const String tool_name = content.name.is_empty() ? String("tool") : content.name;
+			if (content.tool_state.status == AI_TOOL_STATUS_SUCCESS) {
+				const Variant output = content.tool_state.output.get_type() == Variant::NIL ? content.tool_state.result : content.tool_state.output;
+				tool_text = "Tool " + tool_name + " result:\n" + Variant(output).stringify();
+			} else if (content.tool_state.status == AI_TOOL_STATUS_FAILED) {
+				tool_text = "Tool " + tool_name + " failed:\n" + content.tool_state.error.message;
+			}
+			if (!tool_text.is_empty()) {
+				text += text.is_empty() ? tool_text : "\n" + tool_text;
+			}
 		}
 	}
 	return text;
@@ -208,6 +289,28 @@ bool AISessionRunner::_append_event(const String &p_session_id, const String &p_
 	return true;
 }
 
+bool AISessionRunner::_resolve_session(const String &p_session_id, AISessionRow &r_session, AIError &r_error) const {
+	const String session_id = p_session_id.strip_edges();
+	if (session_id.is_empty()) {
+		r_error = AIError::make(AI_ERROR_VALIDATION, "Session id is required to run.");
+		return false;
+	}
+	if (session_store.is_valid()) {
+		if (!session_store->get_session_struct(session_id, r_session)) {
+			Dictionary details;
+			details["session_id"] = session_id;
+			r_error = AIError::make(AI_ERROR_UNAVAILABLE, "Session not found.", details);
+			return false;
+		}
+		return true;
+	}
+
+	r_session.id = session_id;
+	r_session.agent_id = "main";
+	r_error = AIError::none();
+	return true;
+}
+
 bool AISessionRunner::_ensure_context_epoch(const String &p_session_id, const String &p_agent_id, const Array &p_system, const String &p_provider, const String &p_model, AIContextEpoch &r_epoch, AIError &r_error) {
 	Dictionary snapshot;
 	snapshot["provider"] = p_provider;
@@ -246,7 +349,7 @@ bool AISessionRunner::_ensure_context_epoch(const String &p_session_id, const St
 	return true;
 }
 
-bool AISessionRunner::_build_request(const String &p_session_id, const String &p_agent_id, int64_t p_wake_seq, AIModelRequest &r_request, AIError &r_error) {
+bool AISessionRunner::_build_request(const AISessionRow &p_session, const String &p_agent_id, const String &p_root_dir, int64_t p_wake_seq, AIModelRequest &r_request, Ref<AIV1ToolMaterialization> &r_tool_materialization, AIError &r_error) {
 	if (config_service.is_null() || runtime_registry.is_null() || projector.is_null()) {
 		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner dependencies are not wired.");
 		return false;
@@ -262,13 +365,39 @@ bool AISessionRunner::_build_request(const String &p_session_id, const String &p
 		return false;
 	}
 
+	if (tool_registry.is_valid()) {
+		const Dictionary permissions = config.get("permissions", Dictionary());
+		const Array rules = permissions.get("rules", Array());
+		if (tool_registry->get_permission_service().is_valid()) {
+			tool_registry->get_permission_service()->set_rules(rules);
+		}
+		r_tool_materialization = tool_registry->materialize_struct(p_root_dir, rules);
+		if (r_tool_materialization.is_valid()) {
+			const Array definitions = r_tool_materialization->get_definitions();
+			for (int i = 0; i < definitions.size(); i++) {
+				if (definitions[i].get_type() != Variant::DICTIONARY) {
+					continue;
+				}
+				const Dictionary definition_dict = definitions[i];
+				AIModelToolDefinition definition;
+				definition.name = definition_dict.get("name", String());
+				definition.description = definition_dict.get("description", String());
+				definition.input_schema = definition_dict.get("input_schema", Dictionary());
+				definition.metadata = definition_dict.get("metadata", Dictionary());
+				if (definition.is_valid()) {
+					r_request.tools.push_back(definition);
+				}
+			}
+		}
+	}
+
 	const String provider = config_service->get_default_provider();
 	const Dictionary provider_config = config_service->get_provider_config(provider);
 	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
 	const Array system = config_service->get_system_prompt(p_agent_id);
 
 	AIContextEpoch epoch;
-	if (!_ensure_context_epoch(p_session_id, p_agent_id, system, provider, model, epoch, r_error)) {
+	if (!_ensure_context_epoch(p_session.id, p_agent_id, system, provider, model, epoch, r_error)) {
 		return false;
 	}
 
@@ -277,18 +406,96 @@ bool AISessionRunner::_build_request(const String &p_session_id, const String &p
 	r_request.model = model.is_empty() ? String("fake-model") : model;
 	r_request.system = _system_parts_from_array(system);
 	r_request.provider_options = provider_config.duplicate(true);
-	r_request.metadata["session_id"] = p_session_id;
+	r_request.metadata["session_id"] = p_session.id;
 	r_request.metadata["wake_seq"] = p_wake_seq;
 	r_request.metadata["context_epoch"] = epoch.to_dictionary();
 
-	const Vector<AISessionMessage> runner_messages = AISessionHistory::entries_for_runner(projector->get_messages_struct(p_session_id), epoch.baseline_seq);
+	const Vector<AISessionMessage> runner_messages = AISessionHistory::entries_for_runner(projector->get_messages_struct(p_session.id), epoch.baseline_seq);
 	for (int i = 0; i < runner_messages.size(); i++) {
 		r_request.messages.push_back(_message_to_model(runner_messages[i]));
 	}
 	return true;
 }
 
-bool AISessionRunner::_run_provider_turn(const String &p_session_id, const AIModelRequest &p_request, const Ref<AICancelToken> &p_cancel_token, AIError &r_error) {
+bool AISessionRunner::_settle_open_tool_calls(const AISessionRow &p_session, const String &p_agent_id, const String &p_root_dir, const Array &p_permission_rules, const Ref<AICancelToken> &p_cancel_token, bool &r_needs_continuation, bool &r_waiting_permission, AIError &r_error) {
+	r_needs_continuation = false;
+	r_waiting_permission = false;
+	if (event_store.is_null() || tool_registry.is_null()) {
+		r_error = AIError::none();
+		return true;
+	}
+
+	HashMap<String, Dictionary> open_calls;
+	const Vector<AIEventRow> rows = event_store->list(p_session.id, 0, false);
+	for (int i = 0; i < rows.size(); i++) {
+		const AIEventRow &row = rows[i];
+		if (row.type == AIDomainEventTypes::tool_called()) {
+			const String key = _ai_session_runner_tool_key(row.data);
+			if (!key.ends_with("|")) {
+				open_calls[key] = row.data.duplicate(true);
+			}
+		} else if (row.type == AIDomainEventTypes::tool_success() || row.type == AIDomainEventTypes::tool_failed()) {
+			const String key = _ai_session_runner_tool_key(row.data);
+			if (!key.ends_with("|")) {
+				open_calls.erase(key);
+			}
+		}
+	}
+	if (open_calls.is_empty()) {
+		r_error = AIError::none();
+		return true;
+	}
+
+	if (tool_registry->get_permission_service().is_valid()) {
+		tool_registry->get_permission_service()->set_rules(p_permission_rules);
+	}
+	Ref<AIV1ToolMaterialization> materialization = tool_registry->materialize_struct(p_root_dir, p_permission_rules);
+	for (const KeyValue<String, Dictionary> &kv : open_calls) {
+		if (p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested()) {
+			r_error = AIError::make(AI_ERROR_INTERRUPTED, p_cancel_token->get_cancel_message("Session run interrupted."));
+			return false;
+		}
+
+		const Dictionary data = kv.value;
+		Dictionary call;
+		call["id"] = data.get("call_id", data.get("callID", String()));
+		call["name"] = data.get("tool", data.get("name", String()));
+		call["input"] = data.get("input", Variant());
+		call["provider_executed"] = bool(data.get("provider_executed", data.get("providerExecuted", false)));
+		if (data.get("registration_identity", Variant()).get_type() == Variant::DICTIONARY) {
+			call["registration_identity"] = data["registration_identity"];
+		}
+
+		Dictionary settle_input;
+		settle_input["session_id"] = p_session.id;
+		settle_input["agent"] = p_agent_id;
+		settle_input["assistant_message_id"] = data.get("assistant_message_id", data.get("assistantMessageID", String()));
+		settle_input["root_dir"] = p_root_dir;
+		if (call.has("registration_identity")) {
+			settle_input["registration_identity"] = call["registration_identity"];
+		}
+		settle_input["call"] = call;
+
+		AIV1ToolSettlement settlement;
+		AIError settlement_error;
+		if (materialization.is_null() || !materialization->settle_struct(settle_input, settlement, settlement_error)) {
+			r_error = settlement_error.is_error() ? settlement_error : AIError::make(AI_ERROR_INTERNAL, "Open tool settlement failed.");
+			return false;
+		}
+		if (settlement.pending) {
+			r_waiting_permission = true;
+			continue;
+		}
+		r_needs_continuation = r_needs_continuation || settlement.needs_continuation;
+	}
+
+	r_error = AIError::none();
+	return true;
+}
+
+bool AISessionRunner::_run_provider_turn(const String &p_session_id, const String &p_agent_id, const AIModelRequest &p_request, const Ref<AIV1ToolMaterialization> &p_tool_materialization, const Ref<AICancelToken> &p_cancel_token, bool &r_needs_continuation, bool &r_waiting_permission, AIError &r_error) {
+	r_needs_continuation = false;
+	r_waiting_permission = false;
 	Ref<AILLMRuntime> runtime;
 	if (!runtime_registry->get_runtime_struct(p_request.provider, runtime)) {
 		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "No LLM runtime registered for provider: " + p_request.provider);
@@ -310,7 +517,7 @@ bool AISessionRunner::_run_provider_turn(const String &p_session_id, const AIMod
 
 	Ref<AISessionRunnerEventRecorder> recorder;
 	recorder.instantiate();
-	recorder->setup(event_store, projector, p_session_id, assistant_message_id);
+	recorder->setup(event_store, projector, p_tool_materialization, p_session_id, p_agent_id, assistant_message_id);
 
 	Ref<AICallableStreamSink> sink;
 	sink.instantiate();
@@ -335,6 +542,8 @@ bool AISessionRunner::_run_provider_turn(const String &p_session_id, const AIMod
 		}
 		return false;
 	}
+	r_needs_continuation = recorder->has_local_tool_settlement();
+	r_waiting_permission = recorder->is_waiting_permission();
 
 	if (!recorder->get_reasoning().is_empty()) {
 		Dictionary reasoning;
@@ -380,6 +589,9 @@ Ref<AIPromptPromoter> AISessionRunner::get_prompt_promoter() const {
 
 void AISessionRunner::set_event_store(const Ref<AIEventStore> &p_event_store) {
 	event_store = p_event_store;
+	if (tool_registry.is_valid()) {
+		tool_registry->set_event_store(event_store);
+	}
 }
 
 Ref<AIEventStore> AISessionRunner::get_event_store() const {
@@ -388,6 +600,9 @@ Ref<AIEventStore> AISessionRunner::get_event_store() const {
 
 void AISessionRunner::set_projector(const Ref<AISessionProjector> &p_projector) {
 	projector = p_projector;
+	if (tool_registry.is_valid()) {
+		tool_registry->set_projector(projector);
+	}
 }
 
 Ref<AISessionProjector> AISessionRunner::get_projector() const {
@@ -418,7 +633,27 @@ Ref<AILLMRuntimeRegistry> AISessionRunner::get_runtime_registry() const {
 	return runtime_registry;
 }
 
-bool AISessionRunner::drain_struct(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, Vector<AISessionInputRecord> &r_promoted, AIError &r_error) {
+void AISessionRunner::set_tool_registry(const Ref<AIV1ToolRegistry> &p_registry) {
+	tool_registry = p_registry;
+	if (tool_registry.is_valid()) {
+		tool_registry->set_event_store(event_store);
+		tool_registry->set_projector(projector);
+	}
+}
+
+Ref<AIV1ToolRegistry> AISessionRunner::get_tool_registry() const {
+	return tool_registry;
+}
+
+void AISessionRunner::set_session_store(const Ref<AISessionStore> &p_store) {
+	session_store = p_store;
+}
+
+Ref<AISessionStore> AISessionRunner::get_session_store() const {
+	return session_store;
+}
+
+bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, bool p_force, Vector<AISessionInputRecord> &r_promoted, AIError &r_error) {
 	const String session_id = p_session_id.strip_edges();
 	if (session_id.is_empty()) {
 		r_error = AIError::make(AI_ERROR_VALIDATION, "Session id is required to run.");
@@ -433,33 +668,80 @@ bool AISessionRunner::drain_struct(const String &p_session_id, const Ref<AICance
 		return false;
 	}
 
-	if (projector.is_valid()) {
-		projector->mark_pending_tools_interrupted(session_id);
+	AISessionRow session;
+	if (!_resolve_session(session_id, session, r_error)) {
+		return false;
 	}
+	const String agent_id = session.agent_id.strip_edges().is_empty() ? String("main") : session.agent_id.strip_edges();
+	const String root_dir = session.location.directory.strip_edges();
 
 	if (!prompt_promoter->promote_eligible_struct(session_id, "new-activity", r_promoted, r_error)) {
 		return false;
 	}
-	if (r_promoted.is_empty()) {
+
+	Dictionary config = config_service.is_valid() ? config_service->get_config() : Dictionary();
+	if (!bool(config.get("success", true))) {
+		r_error = AIError::make(AI_ERROR_INTERNAL, "ConfigService failed to provide config.", config.get("error", Dictionary()));
+		return false;
+	}
+	const Dictionary permissions = config.get("permissions", Dictionary());
+	const Array rules = permissions.get("rules", Array());
+
+	bool settled_open_tools = false;
+	bool waiting_permission = false;
+	if (!_settle_open_tool_calls(session, agent_id, root_dir, rules, p_cancel_token, settled_open_tools, waiting_permission, r_error)) {
+		return false;
+	}
+	if (waiting_permission) {
+		r_error = AIError::none();
+		return true;
+	}
+	if (r_promoted.is_empty() && !settled_open_tools && !p_force) {
 		r_error = AIError::none();
 		return true;
 	}
 
-	AIModelRequest request;
-	if (!_build_request(session_id, "main", p_wake_seq, request, r_error)) {
-		return false;
+	static const int MAX_PROVIDER_TURNS = 25;
+	for (int turn = 0; turn < MAX_PROVIDER_TURNS; turn++) {
+		if (p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested()) {
+			r_error = AIError::make(AI_ERROR_INTERRUPTED, p_cancel_token->get_cancel_message("Session run interrupted."));
+			return false;
+		}
+
+		AIModelRequest request;
+		Ref<AIV1ToolMaterialization> materialization;
+		if (!_build_request(session, agent_id, root_dir, p_wake_seq, request, materialization, r_error)) {
+			return false;
+		}
+
+		bool needs_continuation = false;
+		bool provider_waiting_permission = false;
+		if (!_run_provider_turn(session_id, agent_id, request, materialization, p_cancel_token, needs_continuation, provider_waiting_permission, r_error)) {
+			return false;
+		}
+		if (provider_waiting_permission) {
+			return true;
+		}
+		if (!needs_continuation) {
+			return true;
+		}
 	}
-	return _run_provider_turn(session_id, request, p_cancel_token, r_error);
+
+	r_error = AIError::make(AI_ERROR_CONFLICT, "Session runner reached the provider turn limit.");
+	return false;
+}
+
+bool AISessionRunner::drain_struct(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, Vector<AISessionInputRecord> &r_promoted, AIError &r_error) {
+	return _drain_struct_internal(p_session_id, p_cancel_token, p_wake_seq, false, r_promoted, r_error);
 }
 
 Dictionary AISessionRunner::run(const String &p_session_id, bool p_force) {
-	(void)p_force;
 	Ref<AICancelToken> cancel_token;
 	cancel_token.instantiate();
 
 	Vector<AISessionInputRecord> promoted;
 	AIError error;
-	if (!drain_struct(p_session_id, cancel_token, 0, promoted, error)) {
+	if (!_drain_struct_internal(p_session_id, cancel_token, 0, p_force, promoted, error)) {
 		return _make_error_result(error);
 	}
 

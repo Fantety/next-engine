@@ -10,6 +10,8 @@
 #include "editor/agent_v1/runtime/ai_llm_runtime_registry.h"
 #include "editor/agent_v1/session/admission/ai_prompt_promoter.h"
 #include "editor/agent_v1/session/runner/ai_session_drain_runner.h"
+#include "editor/agent_v1/session/service/ai_session_store.h"
+#include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 
 class AISessionRunner : public AISessionDrainRunner {
 	GDCLASS(AISessionRunner, AISessionDrainRunner);
@@ -20,6 +22,8 @@ class AISessionRunner : public AISessionDrainRunner {
 	Ref<AIContextEpochStore> context_epoch_store;
 	Ref<AIConfigService> config_service;
 	Ref<AILLMRuntimeRegistry> runtime_registry;
+	Ref<AIV1ToolRegistry> tool_registry;
+	Ref<AISessionStore> session_store;
 
 	static String _message_text(const AISessionMessage &p_message);
 	static AIModelMessage _message_to_model(const AISessionMessage &p_message);
@@ -28,9 +32,12 @@ class AISessionRunner : public AISessionDrainRunner {
 	static Dictionary _make_error_result(const AIError &p_error);
 
 	bool _append_event(const String &p_session_id, const String &p_type, const Dictionary &p_data, bool p_live_only, AIEventRow &r_row, AIError &r_error);
+	bool _resolve_session(const String &p_session_id, AISessionRow &r_session, AIError &r_error) const;
 	bool _ensure_context_epoch(const String &p_session_id, const String &p_agent_id, const Array &p_system, const String &p_provider, const String &p_model, AIContextEpoch &r_epoch, AIError &r_error);
-	bool _build_request(const String &p_session_id, const String &p_agent_id, int64_t p_wake_seq, AIModelRequest &r_request, AIError &r_error);
-	bool _run_provider_turn(const String &p_session_id, const AIModelRequest &p_request, const Ref<AICancelToken> &p_cancel_token, AIError &r_error);
+	bool _build_request(const AISessionRow &p_session, const String &p_agent_id, const String &p_root_dir, int64_t p_wake_seq, AIModelRequest &r_request, Ref<AIV1ToolMaterialization> &r_tool_materialization, AIError &r_error);
+	bool _settle_open_tool_calls(const AISessionRow &p_session, const String &p_agent_id, const String &p_root_dir, const Array &p_permission_rules, const Ref<AICancelToken> &p_cancel_token, bool &r_needs_continuation, bool &r_waiting_permission, AIError &r_error);
+	bool _run_provider_turn(const String &p_session_id, const String &p_agent_id, const AIModelRequest &p_request, const Ref<AIV1ToolMaterialization> &p_tool_materialization, const Ref<AICancelToken> &p_cancel_token, bool &r_needs_continuation, bool &r_waiting_permission, AIError &r_error);
+	bool _drain_struct_internal(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, bool p_force, Vector<AISessionInputRecord> &r_promoted, AIError &r_error);
 
 protected:
 	static void _bind_methods();
@@ -50,6 +57,10 @@ public:
 	Ref<AIConfigService> get_config_service() const;
 	void set_runtime_registry(const Ref<AILLMRuntimeRegistry> &p_registry);
 	Ref<AILLMRuntimeRegistry> get_runtime_registry() const;
+	void set_tool_registry(const Ref<AIV1ToolRegistry> &p_registry);
+	Ref<AIV1ToolRegistry> get_tool_registry() const;
+	void set_session_store(const Ref<AISessionStore> &p_store);
+	Ref<AISessionStore> get_session_store() const;
 
 	virtual bool drain_struct(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, Vector<AISessionInputRecord> &r_promoted, AIError &r_error) override;
 	Dictionary run(const String &p_session_id, bool p_force = false);

@@ -19,6 +19,7 @@ struct AIRegistrationIdentity {
 	bool is_valid() const;
 	bool matches(const AIRegistrationIdentity &p_other) const;
 	Dictionary to_dictionary() const;
+	static AIRegistrationIdentity from_dictionary(const Dictionary &p_dict);
 };
 
 class AIScopedRegistration : public RefCounted {

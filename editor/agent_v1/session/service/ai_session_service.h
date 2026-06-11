@@ -6,12 +6,14 @@
 
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
+#include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_llm_runtime_registry.h"
 #include "editor/agent_v1/session/admission/ai_prompt_promoter.h"
 #include "editor/agent_v1/session/execution/ai_session_execution.h"
 #include "editor/agent_v1/session/runner/ai_empty_session_runner.h"
 #include "editor/agent_v1/session/runner/ai_session_runner.h"
 #include "editor/agent_v1/session/service/ai_session_store.h"
+#include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 
 #include "core/object/ref_counted.h"
 
@@ -29,6 +31,8 @@ class AISessionService : public RefCounted {
 	Ref<AIContextEpochStore> context_epoch_store;
 	Ref<AIConfigService> config_service;
 	Ref<AILLMRuntimeRegistry> runtime_registry;
+	Ref<AIPermissionService> permission_service;
+	Ref<AIV1ToolRegistry> tool_registry;
 
 	static Array _parts_from_input(const Dictionary &p_input);
 	static AIPrompt _prompt_from_input(const Dictionary &p_input, const Array &p_parts);
@@ -39,6 +43,7 @@ class AISessionService : public RefCounted {
 	void _wire_dependencies();
 	bool _resolve_session_for_prompt(const Dictionary &p_input, AISessionRow &r_session, bool &r_created, AIError &r_error);
 	bool _append_admitted_event(AISessionInputRecord &r_input, AIError &r_error);
+	bool _append_interrupted_tool_events(const String &p_session_id, const String &p_reason, AIError &r_error);
 
 protected:
 	static void _bind_methods();
@@ -68,9 +73,14 @@ public:
 	Ref<AIConfigService> get_config_service() const;
 	void set_runtime_registry(const Ref<AILLMRuntimeRegistry> &p_registry);
 	Ref<AILLMRuntimeRegistry> get_runtime_registry() const;
+	void set_permission_service(const Ref<AIPermissionService> &p_permission_service);
+	Ref<AIPermissionService> get_permission_service() const;
+	void set_tool_registry(const Ref<AIV1ToolRegistry> &p_tool_registry);
+	Ref<AIV1ToolRegistry> get_tool_registry() const;
 
 	Dictionary create(const Dictionary &p_input);
 	Dictionary prompt(const Dictionary &p_input);
+	Dictionary reply_permission(const Dictionary &p_input);
 	Dictionary interrupt(const Dictionary &p_input);
 	Dictionary promote_eligible(const String &p_session_id, const String &p_mode = "new-activity");
 };

@@ -163,6 +163,7 @@
 #include "editor/agent_v1/domain/events/ai_event_store.h"
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
 #include "editor/agent_v1/domain/projection/ai_session_projector.h"
+#include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
 #include "editor/agent_v1/runtime/ai_llm_runtime.h"
 #include "editor/agent_v1/runtime/ai_llm_runtime_registry.h"
@@ -175,6 +176,9 @@
 #include "editor/agent_v1/session/runner/ai_session_runner.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
 #include "editor/agent_v1/session/service/ai_session_store.h"
+#include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
+#include "editor/agent_v1/tools/ai_tool_registry_v1.h"
+#include "editor/agent_v1/tools/ai_tool_v1.h"
 #include "editor/ai_component/planning/ai_plan_manager.h"
 #include "editor/ai_component/providers/ai_mcp_client.h"
 #include "editor/ai_component/providers/ai_mcp_http_client.h"
@@ -314,6 +318,14 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIEventStore);
 	GDREGISTER_CLASS(AISessionHistory);
 	GDREGISTER_CLASS(AISessionProjector);
+	GDREGISTER_CLASS(AIPermissionService);
+	GDREGISTER_CLASS(AIV1Tool);
+	GDREGISTER_CLASS(AIV1ReadFileTool);
+	GDREGISTER_CLASS(AIV1WriteFileTool);
+	GDREGISTER_CLASS(AIV1ShellTool);
+	GDREGISTER_CLASS(AIV1BuiltinTools);
+	GDREGISTER_CLASS(AIV1ToolRegistry);
+	GDREGISTER_CLASS(AIV1ToolMaterialization);
 	GDREGISTER_CLASS(AISessionDrainRunner);
 	GDREGISTER_CLASS(AIEmptySessionRunner);
 	GDREGISTER_CLASS(AISessionRunner);

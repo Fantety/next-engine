@@ -300,7 +300,8 @@ static AIToolState failed(const AIError &p_error, const Variant &p_input = Varia
 语义：
 
 - `pending/running` 表示仍未稳定完成的工具状态。
-- 新 run 开始前，后续执行层应调用 projector 标记遗留 pending/running local tools 为 interrupted。
+- 权限等待中的 local tool 仍属于 open tool call；新 run 不应无条件把它标记为 interrupted。
+- 显式 interrupt 或恢复策略判定为不可继续时，应写入 durable `session.next.tool.failed`，再由 projector 投影失败状态。
 - Provider-executed tools 应保留 `provider.executed = true` 及 provider metadata。
 
 ### AIAssistantContent
@@ -641,7 +642,7 @@ session.next.compaction.ended
 - Projector 忽略 live-only events。
 - `get_projected_seq()` 只反映 durable projection cursor。
 - Tool settlement 必须先定位 assistant message，再定位 tool call id。
-- `mark_pending_tools_interrupted()` 只修改当前投影读模型，不写 durable event；后续 SessionExecution 可以在新 run 开始时调用它恢复 UI 状态。
+- `mark_pending_tools_interrupted()` 只修改当前投影读模型，不写 durable event；它只能用于临时读模型修正，不能作为恢复/中断的 source of truth。
 
 示例：
 
@@ -805,7 +806,7 @@ SessionHistory.entries_for_runner(...)
 - `AIContextEpochStore` 当前在内存中，后续应接入 Session persistence。
 - Session 创建、复用、删除、移动、title/model/cost 更新尚未在本层实现。
 - Prompt exact retry conflict 尚未在本层强制执行，应由 Session service append 前检查。
-- Permission events 目前只定义事件名和 durable 分类，具体权限状态机由后续 Permission 模块实现。
+- Permission events 在 domain 层只定义事件名和 durable 分类；具体权限状态机由 `editor/agent_v1/permission` 实现。
 
 ## 变更规则
 

@@ -696,6 +696,7 @@ struct AIRegistrationIdentity {
 bool is_valid() const;
 bool matches(const AIRegistrationIdentity &p_other) const;
 Dictionary to_dictionary() const;
+static AIRegistrationIdentity from_dictionary(const Dictionary &p_dict);
 ```
 
 用途：
@@ -760,8 +761,9 @@ Runner
 ```text
 ToolRegistry
   -> active registrations
+  -> filter wholly denied tools by permission rules
   -> materialize AIModelToolDefinition[]
-  -> capture AIRegistrationIdentity snapshot
+  -> capture AIRegistrationIdentity + Location root snapshot
   -> Runner sends AIModelRequest
   -> AI_STREAM_EVENT_TOOL_CALL
   -> ToolRegistry compares captured identity
@@ -772,6 +774,8 @@ ToolRegistry
 
 - 工具定义和工具执行分离。
 - 模型可见 name 来自注册名，不来自工具对象自身。
+- Location root 必须在 materialize 时固定，不能在 settlement 时读取可变全局状态。
+- `resource="*"` 且 `effect="deny"` 的工具不应暴露给模型。
 - stale call 必须返回模型可见错误，不能执行新 handler。
 
 ### Main Thread Tool Work
@@ -831,7 +835,7 @@ Tool execute background thread
 - `AIError`
 - `AIOperationContext`
 
-ToolRegistry 后续应实现：
+ToolRegistry 当前基础能力：
 
 - name validation
 - scoped overlay
@@ -839,6 +843,9 @@ ToolRegistry 后续应实现：
 - stale rejection
 - input/output codec boundary
 - permission assert
+
+ToolRegistry 后续仍需完善：
+
 - output bounding
 
 ### MCP

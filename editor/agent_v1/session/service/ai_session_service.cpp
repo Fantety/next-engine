@@ -5,7 +5,14 @@
 #include "ai_session_service.h"
 
 #include "core/object/class_db.h"
+#include "core/templates/hash_map.h"
 #include "core/variant/variant.h"
+
+static String _ai_session_service_tool_key(const Dictionary &p_data) {
+	const String assistant_message_id = String(p_data.get("assistant_message_id", p_data.get("assistantMessageID", String()))).strip_edges();
+	const String call_id = String(p_data.get("call_id", p_data.get("callID", p_data.get("id", String())))).strip_edges();
+	return assistant_message_id + "|" + call_id;
+}
 
 void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_session_store", "session_store"), &AISessionService::set_session_store);
@@ -30,8 +37,13 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_config_service"), &AISessionService::get_config_service);
 	ClassDB::bind_method(D_METHOD("set_runtime_registry", "registry"), &AISessionService::set_runtime_registry);
 	ClassDB::bind_method(D_METHOD("get_runtime_registry"), &AISessionService::get_runtime_registry);
+	ClassDB::bind_method(D_METHOD("set_permission_service", "permission_service"), &AISessionService::set_permission_service);
+	ClassDB::bind_method(D_METHOD("get_permission_service"), &AISessionService::get_permission_service);
+	ClassDB::bind_method(D_METHOD("set_tool_registry", "tool_registry"), &AISessionService::set_tool_registry);
+	ClassDB::bind_method(D_METHOD("get_tool_registry"), &AISessionService::get_tool_registry);
 	ClassDB::bind_method(D_METHOD("create", "input"), &AISessionService::create);
 	ClassDB::bind_method(D_METHOD("prompt", "input"), &AISessionService::prompt);
+	ClassDB::bind_method(D_METHOD("reply_permission", "input"), &AISessionService::reply_permission);
 	ClassDB::bind_method(D_METHOD("interrupt", "input"), &AISessionService::interrupt);
 	ClassDB::bind_method(D_METHOD("promote_eligible", "session_id", "mode"), &AISessionService::promote_eligible, DEFVAL("new-activity"));
 }
@@ -142,6 +154,13 @@ void AISessionService::_ensure_defaults() {
 	if (runtime_registry.is_null()) {
 		runtime_registry.instantiate();
 	}
+	if (permission_service.is_null()) {
+		permission_service.instantiate();
+	}
+	if (tool_registry.is_null()) {
+		tool_registry.instantiate();
+		tool_registry->register_builtin_tools();
+	}
 }
 
 void AISessionService::_wire_dependencies() {
@@ -162,6 +181,16 @@ void AISessionService::_wire_dependencies() {
 		session_runner->set_context_epoch_store(context_epoch_store);
 		session_runner->set_config_service(config_service);
 		session_runner->set_runtime_registry(runtime_registry);
+		session_runner->set_tool_registry(tool_registry);
+		session_runner->set_session_store(session_store);
+	}
+	if (permission_service.is_valid()) {
+		permission_service->set_event_store(event_store);
+	}
+	if (tool_registry.is_valid()) {
+		tool_registry->set_event_store(event_store);
+		tool_registry->set_projector(projector);
+		tool_registry->set_permission_service(permission_service);
 	}
 	if (execution.is_valid()) {
 		if (session_runner.is_valid()) {
@@ -227,6 +256,55 @@ bool AISessionService::_append_admitted_event(AISessionInputRecord &r_input, AIE
 	if (projector.is_valid()) {
 		projector->project(row);
 	}
+	return true;
+}
+
+bool AISessionService::_append_interrupted_tool_events(const String &p_session_id, const String &p_reason, AIError &r_error) {
+	if (event_store.is_null()) {
+		r_error = AIError::none();
+		return true;
+	}
+
+	HashMap<String, Dictionary> open_calls;
+	const Vector<AIEventRow> rows = event_store->list(p_session_id, 0, false);
+	for (int i = 0; i < rows.size(); i++) {
+		const AIEventRow &row = rows[i];
+		if (row.type == AIDomainEventTypes::tool_called()) {
+			const String key = _ai_session_service_tool_key(row.data);
+			if (!key.ends_with("|")) {
+				open_calls[key] = row.data.duplicate(true);
+			}
+		} else if (row.type == AIDomainEventTypes::tool_success() || row.type == AIDomainEventTypes::tool_failed()) {
+			const String key = _ai_session_service_tool_key(row.data);
+			if (!key.ends_with("|")) {
+				open_calls.erase(key);
+			}
+		}
+	}
+
+	for (const KeyValue<String, Dictionary> &kv : open_calls) {
+		const Dictionary call = kv.value;
+		Dictionary data;
+		data["assistant_message_id"] = call.get("assistant_message_id", call.get("assistantMessageID", String()));
+		data["call_id"] = call.get("call_id", call.get("callID", String()));
+		data["tool"] = call.get("tool", call.get("name", String()));
+		data["name"] = data["tool"];
+		data["input"] = call.get("input", Variant());
+		data["error"] = AIError::make(AI_ERROR_INTERRUPTED, p_reason.strip_edges().is_empty() ? String("Tool execution interrupted.") : p_reason).to_dictionary();
+
+		AIEventRow row;
+		String event_error;
+		const String idempotency_key = "tool.interrupted:" + p_session_id + ":" + String(data["assistant_message_id"]) + ":" + String(data["call_id"]);
+		if (!event_store->append_idempotent(p_session_id, AIDomainEventTypes::tool_failed(), data, false, idempotency_key, row, event_error)) {
+			r_error = AIError::make(AI_ERROR_INTERNAL, event_error);
+			return false;
+		}
+		if (projector.is_valid()) {
+			projector->project(row);
+		}
+	}
+
+	r_error = AIError::none();
 	return true;
 }
 
@@ -340,6 +418,26 @@ Ref<AILLMRuntimeRegistry> AISessionService::get_runtime_registry() const {
 	return runtime_registry;
 }
 
+void AISessionService::set_permission_service(const Ref<AIPermissionService> &p_permission_service) {
+	permission_service = p_permission_service;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIPermissionService> AISessionService::get_permission_service() const {
+	return permission_service;
+}
+
+void AISessionService::set_tool_registry(const Ref<AIV1ToolRegistry> &p_tool_registry) {
+	tool_registry = p_tool_registry;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIV1ToolRegistry> AISessionService::get_tool_registry() const {
+	return tool_registry;
+}
+
 Dictionary AISessionService::create(const Dictionary &p_input) {
 	_ensure_defaults();
 	AISessionRow session;
@@ -411,6 +509,33 @@ Dictionary AISessionService::prompt(const Dictionary &p_input) {
 	return result;
 }
 
+Dictionary AISessionService::reply_permission(const Dictionary &p_input) {
+	_ensure_defaults();
+	_wire_dependencies();
+	if (permission_service.is_null()) {
+		return _make_error_result(AIError::make(AI_ERROR_UNAVAILABLE, "SessionService has no PermissionService."));
+	}
+
+	AIPermissionDecision decision;
+	AIError error;
+	const bool allowed = permission_service->reply_struct(p_input, decision, error);
+	if (!allowed && error.kind != AI_ERROR_PERMISSION) {
+		return _make_error_result(error);
+	}
+
+	bool wake_scheduled = false;
+	if (allowed && execution.is_valid() && !decision.session_id.strip_edges().is_empty()) {
+		AISessionExecutionState state;
+		execution->wake_struct(decision.session_id, 0, state);
+		wake_scheduled = true;
+	}
+
+	Dictionary result = decision.to_dictionary();
+	result["success"] = allowed;
+	result["wake_scheduled"] = wake_scheduled;
+	return result;
+}
+
 Dictionary AISessionService::interrupt(const Dictionary &p_input) {
 	_ensure_defaults();
 
@@ -429,6 +554,11 @@ Dictionary AISessionService::interrupt(const Dictionary &p_input) {
 		if (!event_store->append(session_id, AIDomainEventTypes::interrupt_requested(), data, false, row, event_error)) {
 			return _make_error_result(AIError::make(AI_ERROR_INTERNAL, event_error));
 		}
+	}
+
+	AIError tool_error;
+	if (!_append_interrupted_tool_events(session_id, reason, tool_error)) {
+		return _make_error_result(tool_error);
 	}
 
 	Dictionary result;

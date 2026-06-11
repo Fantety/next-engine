@@ -24,6 +24,18 @@ Dictionary AIRegistrationIdentity::to_dictionary() const {
 	return result;
 }
 
+AIRegistrationIdentity AIRegistrationIdentity::from_dictionary(const Dictionary &p_dict) {
+	AIRegistrationIdentity identity;
+	identity.id = p_dict.get("id", String());
+	identity.name = p_dict.get("name", String());
+	identity.owner = p_dict.get("owner", String());
+	identity.generation = uint64_t(int64_t(p_dict.get("generation", 0)));
+	if (p_dict.get("metadata", Variant()).get_type() == Variant::DICTIONARY) {
+		identity.metadata = Dictionary(p_dict["metadata"]).duplicate(true);
+	}
+	return identity;
+}
+
 void AIScopedRegistration::_bind_methods() {
 }
 
