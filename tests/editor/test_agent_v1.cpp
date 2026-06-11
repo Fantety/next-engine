@@ -21,6 +21,7 @@
 #include "editor/agent_v1/domain/context/ai_context_source_registry.h"
 #include "editor/agent_v1/domain/events/ai_event_store.h"
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
+#include "editor/agent_v1/mcp/ai_mcp_service_v1.h"
 #include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
@@ -87,6 +88,18 @@ static AISystemContext make_context_fixture(const String &p_text, const String &
 	Vector<AISystemContextSource> sources;
 	sources.push_back(source);
 	return AISystemContext::combine(sources);
+}
+
+static Dictionary make_mcp_server_config(const String &p_id, const String &p_name, const String &p_permission_default = "ask") {
+	Dictionary config;
+	config["id"] = p_id;
+	config["name"] = p_name;
+	config["enabled"] = true;
+	config["transport"] = "fake";
+	config["trust"] = "workspace";
+	config["tool_visibility"] = "model";
+	config["permission_default"] = p_permission_default;
+	return config;
 }
 
 class StreamCollector : public RefCounted {
@@ -468,6 +481,541 @@ TEST_CASE("[Editor][AgentV1] Fake MCP server records deterministic tool calls") 
 	CHECK(String(Dictionary(result.get("result", Dictionary())).get("content", String())) == "ok");
 	CHECK(server->get_calls().size() == 1);
 	CHECK(server->list_tools().size() == 1);
+}
+
+TEST_CASE("[Editor][AgentV1] MCP service discovers namespaced tools without overriding builtins") {
+	Ref<AIFakeMCPServer> server;
+	server.instantiate();
+
+	Dictionary schema;
+	schema["type"] = "object";
+	Dictionary properties;
+	Dictionary path_property;
+	path_property["type"] = "string";
+	properties["path"] = path_property;
+	schema["properties"] = properties;
+	Array required;
+	required.push_back("path");
+	schema["required"] = required;
+
+	Dictionary descriptor;
+	descriptor["description"] = "Read a file through MCP.";
+	descriptor["inputSchema"] = schema;
+	Dictionary result;
+	result["content"] = "mcp read";
+	server->register_tool_struct("read.file", descriptor, result);
+	server->start();
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	registry->register_builtin_tools();
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+	REQUIRE(service->register_fake_server_for_test(make_mcp_server_config("filesystem server", "Filesystem", "allow"), server));
+
+	AIError error;
+	REQUIRE(service->refresh_struct(error));
+
+	const String tool_name = AIV1MCPService::make_tool_name("filesystem server", "read.file");
+	CHECK(tool_name == "mcp__filesystem_server__read_file");
+	CHECK(registry->has_tool("file_read"));
+	CHECK(registry->has_tool(tool_name));
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	CHECK(materialization->has_tool("file_read"));
+	CHECK(materialization->has_tool(tool_name));
+
+	const Dictionary identity = registry->get_tool_identity(tool_name);
+	const Dictionary metadata = identity.get("metadata", Dictionary());
+	CHECK(String(metadata.get("source", String())) == "mcp");
+	CHECK(String(metadata.get("mcp_server_id", String())) == "filesystem server");
+	CHECK(String(metadata.get("mcp_tool_name", String())) == "read.file");
+
+	Array statuses = service->get_statuses();
+	REQUIRE(statuses.size() == 1);
+	CHECK(String(Dictionary(statuses[0]).get("state", String())) == "ready");
+
+	Array snapshots = service->get_discovery_snapshots();
+	REQUIRE(snapshots.size() == 1);
+	CHECK(String(Dictionary(snapshots[0]).get("server_id", String())) == "filesystem server");
+	CHECK(Array(Dictionary(snapshots[0]).get("tools", Array())).size() == 1);
+}
+
+TEST_CASE("[Editor][AgentV1] MCP service imports server definitions from app config") {
+	Dictionary server_config = make_mcp_server_config("configured", "Configured", "ask");
+	server_config["enabled"] = false;
+
+	Dictionary servers;
+	servers["configured"] = server_config;
+	Dictionary mcp;
+	mcp["servers"] = servers;
+	Dictionary app_config;
+	app_config["mcp"] = mcp;
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+
+	AIError error;
+	REQUIRE(service->import_config_struct(app_config, error));
+	Array statuses = service->get_statuses();
+	REQUIRE(statuses.size() == 1);
+	CHECK(String(Dictionary(statuses[0]).get("server_id", String())) == "configured");
+	CHECK(String(Dictionary(statuses[0]).get("state", String())) == "disabled");
+}
+
+TEST_CASE("[Editor][AgentV1] MCP tool calls use unified permission and preserve original tool metadata") {
+	Ref<AIFakeMCPServer> server;
+	server.instantiate();
+
+	Dictionary schema;
+	schema["type"] = "object";
+	Dictionary properties;
+	Dictionary value_property;
+	value_property["type"] = "string";
+	properties["value"] = value_property;
+	schema["properties"] = properties;
+	Array required;
+	required.push_back("value");
+	schema["required"] = required;
+
+	Dictionary descriptor;
+	descriptor["description"] = "Echo a value.";
+	descriptor["inputSchema"] = schema;
+
+	Dictionary text_content;
+	text_content["type"] = "text";
+	text_content["text"] = "approved result";
+	Array content;
+	content.push_back(text_content);
+	Dictionary result;
+	result["content"] = content;
+	server->register_tool_struct("ask.echo", descriptor, result);
+	server->start();
+
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(TestUtils::get_temp_path("agent_v1/mcp_permission_events"));
+
+	Ref<AIPermissionService> permission_service;
+	permission_service.instantiate();
+	permission_service->set_event_store(event_store);
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	registry->set_event_store(event_store);
+	registry->set_permission_service(permission_service);
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+	REQUIRE(service->register_fake_server_for_test(make_mcp_server_config("filesystem", "Filesystem", "ask"), server));
+
+	AIError error;
+	REQUIRE(service->refresh_struct(error));
+
+	const String tool_name = AIV1MCPService::make_tool_name("filesystem", "ask.echo");
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization->has_tool(tool_name));
+
+	Dictionary args;
+	args["value"] = "hello";
+	Dictionary call;
+	call["id"] = "call-mcp-echo";
+	call["name"] = tool_name;
+	call["input"] = args;
+	Dictionary settle_input;
+	settle_input["session_id"] = "session-mcp-permission";
+	settle_input["assistant_message_id"] = "assistant-mcp-permission";
+	settle_input["call"] = call;
+
+	AIV1ToolSettlement pending_settlement;
+	REQUIRE(materialization->settle_struct(settle_input, pending_settlement, error));
+	CHECK_FALSE(pending_settlement.success);
+	CHECK(pending_settlement.pending);
+	CHECK(server->get_calls().is_empty());
+
+	Array pending = permission_service->get_pending_requests();
+	REQUIRE(pending.size() == 1);
+	Dictionary pending_request = pending[0];
+	CHECK(String(pending_request.get("action", String())) == "mcp.filesystem.ask.echo");
+	const String pending_resource = String(pending_request.get("resource", String()));
+	CHECK(pending_resource.begins_with("filesystem/ask.echo?args_hash="));
+	CHECK(pending_resource.contains("value"));
+	CHECK(pending_resource.contains("hello"));
+
+	Dictionary reply;
+	reply["request_id"] = pending_request.get("request_id", String());
+	reply["reply"] = "once";
+	(void)permission_service->reply(reply);
+
+	AIV1ToolSettlement settlement;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	REQUIRE(settlement.success);
+	CHECK(String(settlement.content) == "approved result");
+	CHECK(server->get_calls().size() == 1);
+
+	Dictionary recorded_call = server->get_calls()[0];
+	CHECK(String(recorded_call.get("name", String())) == "ask.echo");
+	CHECK(String(Dictionary(recorded_call.get("input", Dictionary())).get("value", String())) == "hello");
+
+	CHECK(String(settlement.metadata.get("tool_origin", String())) == "mcp");
+	CHECK(String(settlement.metadata.get("mcp_server_id", String())) == "filesystem");
+	CHECK(String(settlement.metadata.get("mcp_tool_name", String())) == "ask.echo");
+	CHECK(String(settlement.metadata.get("mcp_agent_tool_name", String())) == tool_name);
+}
+
+TEST_CASE("[Editor][AgentV1] MCP server disconnect returns readable failure and builtins still settle") {
+	const String root = TestUtils::get_temp_path("agent_v1/mcp_disconnect_root");
+	write_text_file(root.path_join("readme.txt"), "builtin still works");
+
+	Ref<AIFakeMCPServer> server;
+	server.instantiate();
+
+	Dictionary schema;
+	schema["type"] = "object";
+	Dictionary descriptor;
+	descriptor["description"] = "Disconnect test.";
+	descriptor["inputSchema"] = schema;
+	Dictionary result;
+	result["content"] = "should not appear";
+	server->register_tool_struct("unstable.echo", descriptor, result);
+	server->start();
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	registry->set_root_dir(root);
+	registry->register_builtin_tools();
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+	REQUIRE(service->register_fake_server_for_test(make_mcp_server_config("unstable", "Unstable", "allow"), server));
+
+	AIError error;
+	REQUIRE(service->refresh_struct(error));
+	const String tool_name = AIV1MCPService::make_tool_name("unstable", "unstable.echo");
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization->has_tool(tool_name));
+	REQUIRE(materialization->has_tool("file_read"));
+
+	server->stop();
+
+	Dictionary mcp_call;
+	mcp_call["id"] = "call-mcp-disconnect";
+	mcp_call["name"] = tool_name;
+	mcp_call["input"] = Dictionary();
+	Dictionary mcp_settle_input;
+	mcp_settle_input["session_id"] = "session-mcp-disconnect";
+	mcp_settle_input["assistant_message_id"] = "assistant-mcp-disconnect";
+	mcp_settle_input["call"] = mcp_call;
+
+	AIV1ToolSettlement failed_settlement;
+	REQUIRE(materialization->settle_struct(mcp_settle_input, failed_settlement, error));
+	CHECK_FALSE(failed_settlement.success);
+	CHECK(failed_settlement.error.kind == AI_ERROR_UNAVAILABLE);
+	CHECK(failed_settlement.error.message.contains("not running"));
+
+	Dictionary read_args;
+	read_args["path"] = "readme.txt";
+	Dictionary read_call;
+	read_call["id"] = "call-read-after-mcp";
+	read_call["name"] = "file_read";
+	read_call["input"] = read_args;
+	Dictionary read_settle_input;
+	read_settle_input["session_id"] = "session-mcp-disconnect";
+	read_settle_input["assistant_message_id"] = "assistant-mcp-disconnect";
+	read_settle_input["call"] = read_call;
+
+	AIV1ToolSettlement read_settlement;
+	REQUIRE(materialization->settle_struct(read_settle_input, read_settlement, error));
+	CHECK(read_settlement.success);
+	CHECK(String(Dictionary(read_settlement.structured).get("text", String())) == "builtin still works");
+}
+
+TEST_CASE("[Editor][AgentV1] MCP resources enter context only after explicit selection") {
+	Ref<AIFakeMCPServer> server;
+	server.instantiate();
+
+	Dictionary descriptor;
+	descriptor["name"] = "Phase 8 Doc";
+	descriptor["description"] = "A selectable MCP resource.";
+	descriptor["mimeType"] = "text/plain";
+	server->register_resource_struct("memory://phase8/doc", descriptor, "selected mcp resource text");
+	server->start();
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+	REQUIRE(service->register_fake_server_for_test(make_mcp_server_config("knowledge", "Knowledge", "ask"), server));
+
+	AIError error;
+	REQUIRE(service->refresh_struct(error));
+
+	Array resources = service->list_resources("knowledge");
+	REQUIRE(resources.size() == 1);
+	CHECK(String(Dictionary(resources[0]).get("uri", String())) == "memory://phase8/doc");
+
+	Dictionary read = service->read_resource("knowledge", "memory://phase8/doc");
+	REQUIRE(bool(read.get("success", false)));
+	CHECK(String(read.get("text", String())) == "selected mcp resource text");
+
+	Dictionary source_dict = service->make_resource_context_source("knowledge", "memory://phase8/doc", false, 300);
+	REQUIRE(bool(source_dict.get("success", false)));
+	Dictionary source = source_dict.get("source", Dictionary());
+	CHECK(String(source.get("domain", String())) == "mcp.resource/knowledge");
+	CHECK(String(source.get("text", String())) == "selected mcp resource text");
+	CHECK(String(Dictionary(source.get("metadata", Dictionary())).get("mcp_uri", String())) == "memory://phase8/doc");
+
+	Ref<AIContextSourceRegistry> context_registry;
+	context_registry.instantiate();
+	context_registry->add_source(source);
+
+	AILocationRef location;
+	location.directory = TestUtils::get_temp_path("agent_v1/mcp_context");
+	AISystemContext context;
+	REQUIRE(context_registry->load_struct("main", location, "fake", "fake-model", context, error));
+	CHECK(context.baseline.contains("selected mcp resource text"));
+}
+
+TEST_CASE("[Editor][AgentV1] MCP prompts list and render through the service adapter") {
+	Ref<AIFakeMCPServer> server;
+	server.instantiate();
+
+	Dictionary prompt_descriptor;
+	prompt_descriptor["description"] = "Summarize a selectable resource.";
+	Array arguments;
+	Dictionary uri_argument;
+	uri_argument["name"] = "uri";
+	uri_argument["required"] = true;
+	arguments.push_back(uri_argument);
+	prompt_descriptor["arguments"] = arguments;
+
+	Array messages;
+	Dictionary message;
+	message["role"] = "user";
+	message["content"] = "Summarize memory://phase8/doc";
+	messages.push_back(message);
+	server->register_prompt_struct("summarize_resource", prompt_descriptor, messages);
+	server->start();
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+	REQUIRE(service->register_fake_server_for_test(make_mcp_server_config("knowledge_prompts", "Knowledge Prompts", "allow"), server));
+
+	AIError error;
+	REQUIRE(service->refresh_struct(error));
+
+	Array prompts = service->list_prompts("knowledge_prompts");
+	REQUIRE(prompts.size() == 1);
+	Dictionary listed = prompts[0];
+	CHECK(String(listed.get("server_id", String())) == "knowledge_prompts");
+	CHECK(String(listed.get("name", String())) == "summarize_resource");
+	CHECK(Array(listed.get("arguments", Array())).size() == 1);
+
+	Dictionary rendered = service->render_prompt("knowledge_prompts", "summarize_resource", Dictionary());
+	REQUIRE(bool(rendered.get("success", false)));
+	CHECK(String(rendered.get("server_id", String())) == "knowledge_prompts");
+	Array rendered_messages = rendered.get("messages", Array());
+	REQUIRE(rendered_messages.size() == 1);
+	CHECK(String(Dictionary(rendered_messages[0]).get("content", String())) == "Summarize memory://phase8/doc");
+}
+
+TEST_CASE("[Editor][AgentV1] MCP configured server startup goes through permission before transport") {
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(TestUtils::get_temp_path("agent_v1/mcp_start_permission_events"));
+
+	Ref<AIPermissionService> permission_service;
+	permission_service.instantiate();
+	permission_service->set_event_store(event_store);
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	registry->set_permission_service(permission_service);
+
+	Dictionary server_config;
+	server_config["id"] = "configured";
+	server_config["name"] = "Configured";
+	server_config["enabled"] = true;
+	server_config["transport"] = "stdio";
+	server_config["command"] = "definitely_missing_mcp_command";
+	server_config["startup_permission_default"] = "ask";
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+
+	AIError error;
+	REQUIRE(service->register_server_struct(server_config, error));
+	CHECK_FALSE(service->refresh_struct(error));
+	CHECK(error.kind == AI_ERROR_PERMISSION);
+	CHECK(error.message.contains("pending"));
+
+	Array pending = permission_service->get_pending_requests();
+	REQUIRE(pending.size() == 1);
+	Dictionary pending_request = pending[0];
+	CHECK(String(pending_request.get("action", String())) == "mcp.server.start");
+	CHECK(String(pending_request.get("resource", String())).contains("configured/stdio"));
+	CHECK(String(pending_request.get("resource", String())).contains("definitely_missing_mcp_command"));
+
+	Array statuses = service->get_statuses();
+	REQUIRE(statuses.size() == 1);
+	CHECK(String(Dictionary(statuses[0]).get("state", String())) == "permission_pending");
+	CHECK(String(Dictionary(statuses[0]).get("last_error", String())).contains("pending"));
+}
+
+TEST_CASE("[Editor][AgentV1] MCP configured resource and prompt reads go through startup permission before transport") {
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(TestUtils::get_temp_path("agent_v1/mcp_read_permission_events"));
+
+	Ref<AIPermissionService> permission_service;
+	permission_service.instantiate();
+	permission_service->set_event_store(event_store);
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	registry->set_permission_service(permission_service);
+
+	Dictionary server_config;
+	server_config["id"] = "configured_read";
+	server_config["name"] = "Configured Read";
+	server_config["enabled"] = true;
+	server_config["transport"] = "stdio";
+	server_config["command"] = "definitely_missing_mcp_command";
+	server_config["startup_permission_default"] = "ask";
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+
+	AIError error;
+	REQUIRE(service->register_server_struct(server_config, error));
+
+	Dictionary resource_read = service->read_resource("configured_read", "file:///workspace/README.md");
+	CHECK_FALSE(bool(resource_read.get("success", false)));
+	CHECK(String(Dictionary(resource_read.get("error", Dictionary())).get("kind", String())) == "permission");
+	CHECK(String(Dictionary(resource_read.get("error", Dictionary())).get("message", String())).contains("pending"));
+
+	Array pending = permission_service->get_pending_requests();
+	REQUIRE(pending.size() == 1);
+	if (pending.size() == 1) {
+		Dictionary pending_request = pending[0];
+		CHECK(String(pending_request.get("action", String())) == "mcp.server.start");
+		CHECK(String(pending_request.get("resource", String())).contains("configured_read/stdio"));
+		CHECK(String(pending_request.get("resource", String())).contains("definitely_missing_mcp_command"));
+	}
+
+	Dictionary rendered = service->render_prompt("configured_read", "summarize", Dictionary());
+	CHECK_FALSE(bool(rendered.get("success", false)));
+	CHECK(String(Dictionary(rendered.get("error", Dictionary())).get("kind", String())) == "permission");
+	CHECK(String(Dictionary(rendered.get("error", Dictionary())).get("message", String())).contains("pending"));
+	CHECK(permission_service->get_pending_requests().size() == 1);
+}
+
+TEST_CASE("[Editor][AgentV1] MCP service does not retain itself through registered tool adapters") {
+	Ref<AIFakeMCPServer> server;
+	server.instantiate();
+	Dictionary descriptor;
+	descriptor["description"] = "Lifecycle test.";
+	server->register_tool_struct("lifecycle.echo", descriptor, "ok");
+	server->start();
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+	REQUIRE(service->register_fake_server_for_test(make_mcp_server_config("lifecycle", "Lifecycle", "allow"), server));
+
+	AIError error;
+	REQUIRE(service->refresh_struct(error));
+	CHECK(registry->has_tool(AIV1MCPService::make_tool_name("lifecycle", "lifecycle.echo")));
+	CHECK(service->get_reference_count() == 1);
+}
+
+TEST_CASE("[Editor][AgentV1] MCP config import is atomic on invalid server definitions") {
+	Ref<AIFakeMCPServer> server;
+	server.instantiate();
+	Dictionary descriptor;
+	descriptor["description"] = "Atomic import test.";
+	server->register_tool_struct("stable.echo", descriptor, "ok");
+	server->start();
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+	REQUIRE(service->register_fake_server_for_test(make_mcp_server_config("stable", "Stable", "allow"), server));
+
+	AIError error;
+	REQUIRE(service->refresh_struct(error));
+	CHECK(registry->has_tool(AIV1MCPService::make_tool_name("stable", "stable.echo")));
+
+	Dictionary invalid_server;
+	invalid_server["id"] = "9-invalid";
+	invalid_server["name"] = "Invalid";
+	invalid_server["enabled"] = true;
+	invalid_server["transport"] = "stdio";
+	invalid_server["command"] = "missing";
+	Array servers;
+	servers.push_back(invalid_server);
+	Dictionary mcp;
+	mcp["servers"] = servers;
+	Dictionary app_config;
+	app_config["mcp"] = mcp;
+
+	CHECK_FALSE(service->import_config_struct(app_config, error));
+	CHECK(error.kind == AI_ERROR_VALIDATION);
+
+	Array statuses = service->get_statuses();
+	REQUIRE(statuses.size() == 1);
+	CHECK(String(Dictionary(statuses[0]).get("server_id", String())) == "stable");
+	CHECK(String(Dictionary(statuses[0]).get("state", String())) == "ready");
+	CHECK(registry->has_tool(AIV1MCPService::make_tool_name("stable", "stable.echo")));
+}
+
+TEST_CASE("[Editor][AgentV1] MCP failed discovery rolls back partially registered tools") {
+	Ref<AIFakeMCPServer> server;
+	server.instantiate();
+	Dictionary descriptor;
+	descriptor["description"] = "First tool.";
+	server->register_tool_struct("first.echo", descriptor, "ok");
+
+	String long_tool_name;
+	for (int i = 0; i < 160; i++) {
+		long_tool_name += "x";
+	}
+	Dictionary long_descriptor;
+	long_descriptor["description"] = "Too long for provider tool name.";
+	server->register_tool_struct(long_tool_name, long_descriptor, "too long");
+	server->start();
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<AIV1MCPService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+	REQUIRE(service->register_fake_server_for_test(make_mcp_server_config("rollback", "Rollback", "allow"), server));
+
+	AIError error;
+	CHECK_FALSE(service->refresh_struct(error));
+	CHECK(error.kind == AI_ERROR_VALIDATION);
+	CHECK_FALSE(registry->has_tool(AIV1MCPService::make_tool_name("rollback", "first.echo")));
 }
 
 TEST_CASE("[Editor][AgentV1] Session prompt requires an existing session and resume false only admits") {

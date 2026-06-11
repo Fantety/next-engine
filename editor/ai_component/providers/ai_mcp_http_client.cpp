@@ -430,22 +430,22 @@ bool AIMCPHTTPClient::_send_streamable_http_message(const String &p_request_json
 		return false;
 	}
 
-	ResponseMetadata metadata;
-	if (!_wait_for_response_headers(client, metadata, r_error)) {
+	ResponseMetadata response_metadata;
+	if (!_wait_for_response_headers(client, response_metadata, r_error)) {
 		return false;
 	}
-	if (!metadata.session_id.is_empty()) {
-		session_id = metadata.session_id;
+	if (!response_metadata.session_id.is_empty()) {
+		session_id = response_metadata.session_id;
 	}
 
-	const int response_code = metadata.response_code;
+	const int response_code = response_metadata.response_code;
 	if (p_request_id <= 0 && (response_code == HTTPClient::RESPONSE_ACCEPTED || response_code == HTTPClient::RESPONSE_NO_CONTENT)) {
 		r_result.clear();
 		return true;
 	}
 	if (response_code < 200 || response_code >= 300) {
 		PackedByteArray response_body;
-		(void)_read_response_body(client, response_body, r_error, false, &metadata);
+		(void)_read_response_body(client, response_body, r_error, false, &response_metadata);
 		const String response_text = response_body.is_empty() ? String() : String::utf8(reinterpret_cast<const char *>(response_body.ptr()), response_body.size());
 		r_error = vformat("MCP HTTP server returned HTTP %d: %s", response_code, response_text.substr(0, 512));
 		return false;
@@ -454,7 +454,7 @@ bool AIMCPHTTPClient::_send_streamable_http_message(const String &p_request_json
 		r_result.clear();
 		return true;
 	}
-	return _read_streamable_http_response(client, p_request_id, metadata, r_result, r_error);
+	return _read_streamable_http_response(client, p_request_id, response_metadata, r_result, r_error);
 }
 
 bool AIMCPHTTPClient::_extract_sse_endpoint_path(const String &p_event_data, String &r_endpoint_path) const {
@@ -538,9 +538,9 @@ bool AIMCPHTTPClient::_open_sse_channel(Ref<HTTPClient> &r_stream_client, Endpoi
 		return false;
 	}
 
-	ResponseMetadata metadata;
+	ResponseMetadata stream_metadata;
 	String endpoint_path;
-	if (!_read_sse_endpoint_event(r_stream_client, metadata, endpoint_path, r_error)) {
+	if (!_read_sse_endpoint_event(r_stream_client, stream_metadata, endpoint_path, r_error)) {
 		return false;
 	}
 
@@ -659,6 +659,25 @@ bool AIMCPHTTPClient::_initialize_legacy_sse_channel(const Ref<HTTPClient> &p_st
 	}
 	Dictionary notification_result;
 	return _send_legacy_sse_post(p_post_endpoint, AIMCPProtocol::make_initialized_notification(), r_error);
+}
+
+bool AIMCPHTTPClient::_send_legacy_sse_request(const String &p_request_json, int p_request_id, Dictionary &r_result, String &r_error) {
+	Ref<HTTPClient> stream_client;
+	Endpoint post_endpoint;
+	if (!_open_sse_channel(stream_client, post_endpoint, r_error)) {
+		return false;
+	}
+	if (!_initialize_legacy_sse_channel(stream_client, post_endpoint, r_error)) {
+		return false;
+	}
+	if (!_send_legacy_sse_post(post_endpoint, p_request_json, r_error)) {
+		return false;
+	}
+	if (p_request_id <= 0) {
+		r_result.clear();
+		return true;
+	}
+	return _read_legacy_sse_response(stream_client, p_request_id, r_result, r_error);
 }
 
 bool AIMCPHTTPClient::_send_message(const String &p_request_json, int p_request_id, Dictionary &r_result, String &r_error) {
@@ -798,6 +817,104 @@ AIMCPToolCallResult AIMCPHTTPClient::call_tool(const String &p_tool_name, const 
 	result.metadata["mcp_server_id"] = server.id;
 	result.metadata["mcp_server_name"] = server.display_name;
 	result.metadata["mcp_tool_name"] = p_tool_name;
+	result.metadata["mcp_transport"] = server.transport;
+	return result;
+}
+
+bool AIMCPHTTPClient::list_resources(Vector<AIMCPResourceDescriptor> &r_resources, String &r_error) {
+	Dictionary result;
+	const int request_id = next_request_id++;
+	if (server.transport == "sse") {
+		if (!_send_legacy_sse_request(AIMCPProtocol::make_resources_list_request(request_id), request_id, result, r_error)) {
+			return false;
+		}
+		return AIMCPProtocol::parse_resources_list_result(result, server.id, server.display_name, r_resources, r_error);
+	}
+
+	session_id.clear();
+	if (!_initialize_session(r_error)) {
+		return false;
+	}
+	if (!_send_message(AIMCPProtocol::make_resources_list_request(request_id), request_id, result, r_error)) {
+		return false;
+	}
+	return AIMCPProtocol::parse_resources_list_result(result, server.id, server.display_name, r_resources, r_error);
+}
+
+AIMCPResourceReadResult AIMCPHTTPClient::read_resource(const String &p_uri) {
+	AIMCPResourceReadResult result;
+	String error;
+	Dictionary response;
+	const int request_id = next_request_id++;
+	if (server.transport == "sse") {
+		if (!_send_legacy_sse_request(AIMCPProtocol::make_resources_read_request(request_id, p_uri), request_id, response, error)) {
+			result.error = error;
+			return result;
+		}
+	} else {
+		session_id.clear();
+		if (!_initialize_session(error)) {
+			result.error = error;
+			return result;
+		}
+		if (!_send_message(AIMCPProtocol::make_resources_read_request(request_id, p_uri), request_id, response, error)) {
+			result.error = error;
+			return result;
+		}
+	}
+	result = AIMCPProtocol::parse_resource_read_result(response);
+	result.metadata["mcp_server_id"] = server.id;
+	result.metadata["mcp_server_name"] = server.display_name;
+	result.metadata["mcp_uri"] = p_uri;
+	result.metadata["mcp_transport"] = server.transport;
+	return result;
+}
+
+bool AIMCPHTTPClient::list_prompts(Vector<AIMCPPromptDescriptor> &r_prompts, String &r_error) {
+	Dictionary result;
+	const int request_id = next_request_id++;
+	if (server.transport == "sse") {
+		if (!_send_legacy_sse_request(AIMCPProtocol::make_prompts_list_request(request_id), request_id, result, r_error)) {
+			return false;
+		}
+		return AIMCPProtocol::parse_prompts_list_result(result, server.id, server.display_name, r_prompts, r_error);
+	}
+
+	session_id.clear();
+	if (!_initialize_session(r_error)) {
+		return false;
+	}
+	if (!_send_message(AIMCPProtocol::make_prompts_list_request(request_id), request_id, result, r_error)) {
+		return false;
+	}
+	return AIMCPProtocol::parse_prompts_list_result(result, server.id, server.display_name, r_prompts, r_error);
+}
+
+AIMCPPromptRenderResult AIMCPHTTPClient::render_prompt(const String &p_prompt_name, const Dictionary &p_arguments) {
+	AIMCPPromptRenderResult result;
+	String error;
+	Dictionary response;
+	const int request_id = next_request_id++;
+	if (server.transport == "sse") {
+		if (!_send_legacy_sse_request(AIMCPProtocol::make_prompts_get_request(request_id, p_prompt_name, p_arguments), request_id, response, error)) {
+			result.error = error;
+			return result;
+		}
+	} else {
+		session_id.clear();
+		if (!_initialize_session(error)) {
+			result.error = error;
+			return result;
+		}
+		if (!_send_message(AIMCPProtocol::make_prompts_get_request(request_id, p_prompt_name, p_arguments), request_id, response, error)) {
+			result.error = error;
+			return result;
+		}
+	}
+	result = AIMCPProtocol::parse_prompt_get_result(response);
+	result.metadata["mcp_server_id"] = server.id;
+	result.metadata["mcp_server_name"] = server.display_name;
+	result.metadata["mcp_prompt_name"] = p_prompt_name;
 	result.metadata["mcp_transport"] = server.transport;
 	return result;
 }

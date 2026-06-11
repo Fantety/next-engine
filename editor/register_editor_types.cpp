@@ -168,6 +168,7 @@
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
 #include "editor/agent_v1/domain/projection/ai_session_projector.h"
 #include "editor/agent_v1/domain/projection/ai_token_estimator.h"
+#include "editor/agent_v1/mcp/ai_mcp_service_v1.h"
 #include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
 #include "editor/agent_v1/runtime/ai_llm_runtime.h"
@@ -331,6 +332,8 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AISessionProjector);
 	GDREGISTER_CLASS(AITokenEstimator);
 	GDREGISTER_CLASS(AIPermissionService);
+	GDREGISTER_CLASS(AIV1MCPService);
+	GDREGISTER_CLASS(AIV1MCPToolAdapter);
 	GDREGISTER_CLASS(AIV1Tool);
 	GDREGISTER_CLASS(AIV1ReadFileTool);
 	GDREGISTER_CLASS(AIV1WriteFileTool);

@@ -77,6 +77,17 @@ editor/agent_ui
     -> editor/agent_v1/tools/AIV1ToolRegistry
 ```
 
+`agent_ui` 有两个同级主入口：
+
+- `AIAgentUIDock`
+  - 负责聊天、会话、消息、运行状态、权限弹窗、附件草稿、Plan/Review 状态展示。
+  - 主要依赖 `AIAgentUIAdapter`。
+- `AIAgentUISettingsDialog`
+  - 负责 AI 设置入口、设置页导航、模型/MCP/Skill/Rule/Marquee 等配置页面。
+  - 主要依赖 `AIAgentUIConfigAdapter`，并通过共享 adapter/config adapter 通知 Dock 刷新模型列表、MCP/Skill 状态等。
+
+这两个入口都属于 `agent_ui`，都不应直接访问旧 `ai_component` 后端。Dock 不是 Settings 的 owner，Settings 也不是 Dock 的子功能；它们应该由 `EditorNode` 或明确的 editor-level owner 统一创建和注入依赖。
+
 UI 层职责：
 
 - 构建 Godot 编辑器控件。
@@ -231,7 +242,7 @@ SConscript("agent_ui/SCsub")
 - `AIAgentUISettingsDialog`
 - `AIAgentUIDock`
 
-初期可以通过编译开关或 EditorSettings 控制启用哪个 Dock：
+初期可以通过编译开关或 EditorSettings 控制启用哪一组入口：
 
 ```text
 editor/agent_ui/enabled
@@ -239,10 +250,11 @@ editor/agent_ui/enabled
 
 迁移初期推荐并存策略：
 
-- 旧 Dock 保持默认。
-- 新 Dock 可以先使用独立菜单项或实验开关打开。
+- 旧 Dock 和旧 AI Settings 保持默认。
+- 新 Dock 和新 AI Settings 作为一组实验入口启用。
+- 新 Dock 可以先使用独立菜单项或实验开关打开，但打开新 Dock 时应同时使用新 Settings。
 - 新 UI 功能完整后，再切换默认入口。
-- 旧 Dock 不再新增功能，只保留维护。
+- 旧 Dock 和旧 AI Settings 不再新增功能，只保留维护。
 
 入口改动核对：
 
@@ -254,8 +266,9 @@ editor/agent_ui/enabled
   - 前向声明 `AIAgentUIDock`、`AIAgentUISettingsDialog`。
   - 增加新 Dock 和新 Settings 指针，或用实验开关二选一持有。
 - `editor/editor_node.cpp`
-  - 根据 `editor/agent_ui/enabled` 创建旧 `AIAgentDock` 或新 `AIAgentUIDock`。
-  - AI 设置按钮应打开与当前 Dock 匹配的 settings dialog。
+  - 根据 `editor/agent_ui/enabled` 创建旧 `AIAgentDock/AIAgentSettingsDialog` 或新 `AIAgentUIDock/AIAgentUISettingsDialog`。
+  - AI 设置按钮应打开与当前入口组匹配的 settings dialog。
+  - 如果实验期需要两个 Settings 并存，应给新 Settings 单独菜单项或按钮文案，避免用户误改旧配置。
   - 默认 Dock layout key 不应与旧 Dock 冲突，除非进入 Phase 6 切换默认入口。
 - EditorSettings
   - 实验期开关默认关闭。
@@ -562,6 +575,14 @@ UI：
 
 旧 UI 中模型、MCP、Skill、Rule 分别有静态 settings 类。新 UI 不复用这些旧类。
 
+`AIAgentUISettingsDialog` 是新 AI Settings 的顶层窗口：
+
+- 只负责窗口、左侧导航、页面切换、确认/关闭和统一保存提示。
+- 不直接调用 `AIConfigService`，只调用 `AIAgentUIConfigAdapter`。
+- 不直接通知旧 `AIAgentDock` 或旧 settings singleton。
+- 保存成功后通过 adapter/config adapter 发出 `config_changed`、`models_changed`、`mcp_settings_changed`、`skills_changed`、`rules_changed`、`marquee_changed` 等 UI 信号。
+- `AIAgentUIDock` 订阅这些信号后刷新 Composer 模型列表、状态按钮、loading marquee、context/status 提示。
+
 新设置页通过 `AIAgentUIConfigAdapter` 访问 `AIConfigService`：
 
 ```cpp
@@ -580,6 +601,12 @@ bool remove_skill(const String &p_skill_id);
 Array list_rules() const;
 Dictionary save_rule(const Dictionary &p_rule);
 bool remove_rule(const String &p_rule_id);
+
+Array list_marquees() const;
+Dictionary save_marquee(const Dictionary &p_marquee);
+bool remove_marquee(const String &p_marquee_id);
+String get_current_marquee_id() const;
+bool set_current_marquee_id(const String &p_marquee_id);
 ```
 
 这些方法内部以 `AIConfigService::patch_config()` 更新配置。配置 schema 应尽量接近 `agent_v1` 已有 config 契约，而不是复制旧 `AIModelSettings` 的存储路径。
@@ -882,7 +909,8 @@ UI 控件测试：
 
 目标：
 
-- 新设置窗口接入 `AIConfigService`。
+- 新 AI Settings 作为独立主入口接入 `AIConfigService`。
+- 新 Settings 与新 Dock 成组启用，旧 Settings 与旧 Dock 成组保留。
 - Composer 模型列表来自 config adapter。
 
 产出：
@@ -890,11 +918,15 @@ UI 控件测试：
 - `AIAgentUISettingsDialog`
 - `AIAgentUISettingsModelsPage`
 - `AIAgentUIModelProfileDialog`
+- 新 AI Settings 入口挂载和顶部设置按钮路由
 
 验收：
 
+- AI 设置按钮在新 UI 开启时打开 `AIAgentUISettingsDialog`，不开启时仍打开旧 `AIAgentSettingsDialog`。
+- Settings dialog 可以独立打开，不依赖 Dock 已经创建。
 - 可以添加、编辑、删除模型配置。
 - Composer 模型下拉能刷新。
+- Settings 保存后 Dock 收到配置变更并刷新。
 - 保存配置不依赖旧 `AIModelSettings`。
 
 ### Phase 3：权限和工具状态

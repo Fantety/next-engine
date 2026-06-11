@@ -59,7 +59,7 @@ class AIPermissionService : public RefCounted {
 	static bool _rule_matches(const Dictionary &p_rule, const String &p_action, const String &p_resource);
 	static bool _is_resource_match(const String &p_pattern, const String &p_resource);
 	String _default_effect_for_action(const String &p_action) const;
-	String _evaluate_effect_locked(const String &p_action, const String &p_resource, String &r_reason) const;
+	String _evaluate_effect_locked(const String &p_action, const String &p_resource, String &r_reason, const String &p_default_effect = String()) const;
 	bool _append_permission_event(const String &p_session_id, const String &p_type, const Dictionary &p_data, AIError &r_error);
 
 protected:

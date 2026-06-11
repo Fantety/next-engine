@@ -361,3 +361,121 @@ AIMCPToolCallResult AIMCPStdioClient::call_tool(const String &p_tool_name, const
 	result.metadata["mcp_transport"] = server.transport;
 	return result;
 }
+
+bool AIMCPStdioClient::list_resources(Vector<AIMCPResourceDescriptor> &r_resources, String &r_error) {
+	Ref<FileAccess> stdio;
+	ProcessID pid = 0;
+	if (!_start_process(stdio, pid, r_error)) {
+		return false;
+	}
+	if (!_initialize_session(stdio, r_error)) {
+		_close_pipe(stdio);
+		_stop_process(pid);
+		return false;
+	}
+
+	Dictionary result;
+	const int request_id = next_request_id++;
+	if (!_send_request(stdio, AIMCPProtocol::make_resources_list_request(request_id), request_id, result, r_error)) {
+		_close_pipe(stdio);
+		_stop_process(pid);
+		return false;
+	}
+	const bool ok = AIMCPProtocol::parse_resources_list_result(result, server.id, server.display_name, r_resources, r_error);
+	_close_pipe(stdio);
+	_stop_process(pid);
+	return ok;
+}
+
+AIMCPResourceReadResult AIMCPStdioClient::read_resource(const String &p_uri) {
+	AIMCPResourceReadResult result;
+	Ref<FileAccess> stdio;
+	ProcessID pid = 0;
+	String error;
+	if (!_start_process(stdio, pid, error)) {
+		result.error = error;
+		return result;
+	}
+	if (!_initialize_session(stdio, error)) {
+		_close_pipe(stdio);
+		_stop_process(pid);
+		result.error = error;
+		return result;
+	}
+
+	Dictionary response;
+	const int request_id = next_request_id++;
+	if (!_send_request(stdio, AIMCPProtocol::make_resources_read_request(request_id, p_uri), request_id, response, error)) {
+		_close_pipe(stdio);
+		_stop_process(pid);
+		result.error = error;
+		return result;
+	}
+	result = AIMCPProtocol::parse_resource_read_result(response);
+	_close_pipe(stdio);
+	_stop_process(pid);
+	result.metadata["mcp_server_id"] = server.id;
+	result.metadata["mcp_server_name"] = server.display_name;
+	result.metadata["mcp_uri"] = p_uri;
+	result.metadata["mcp_transport"] = server.transport;
+	return result;
+}
+
+bool AIMCPStdioClient::list_prompts(Vector<AIMCPPromptDescriptor> &r_prompts, String &r_error) {
+	Ref<FileAccess> stdio;
+	ProcessID pid = 0;
+	if (!_start_process(stdio, pid, r_error)) {
+		return false;
+	}
+	if (!_initialize_session(stdio, r_error)) {
+		_close_pipe(stdio);
+		_stop_process(pid);
+		return false;
+	}
+
+	Dictionary result;
+	const int request_id = next_request_id++;
+	if (!_send_request(stdio, AIMCPProtocol::make_prompts_list_request(request_id), request_id, result, r_error)) {
+		_close_pipe(stdio);
+		_stop_process(pid);
+		return false;
+	}
+	const bool ok = AIMCPProtocol::parse_prompts_list_result(result, server.id, server.display_name, r_prompts, r_error);
+	_close_pipe(stdio);
+	_stop_process(pid);
+	return ok;
+}
+
+AIMCPPromptRenderResult AIMCPStdioClient::render_prompt(const String &p_prompt_name, const Dictionary &p_arguments) {
+	AIMCPPromptRenderResult result;
+	Ref<FileAccess> stdio;
+	ProcessID pid = 0;
+	String error;
+	if (!_start_process(stdio, pid, error)) {
+		result.error = error;
+		return result;
+	}
+	if (!_initialize_session(stdio, error)) {
+		_close_pipe(stdio);
+		_stop_process(pid);
+		result.error = error;
+		return result;
+	}
+
+	Dictionary response;
+	const int request_id = next_request_id++;
+	if (!_send_request(stdio, AIMCPProtocol::make_prompts_get_request(request_id, p_prompt_name, p_arguments), request_id, response, error)) {
+		_close_pipe(stdio);
+		_stop_process(pid);
+		result.error = error;
+		return result;
+	}
+	result = AIMCPProtocol::parse_prompt_get_result(response);
+	_close_pipe(stdio);
+	_stop_process(pid);
+	result.metadata["mcp_server_id"] = server.id;
+	result.metadata["mcp_server_name"] = server.display_name;
+	result.metadata["mcp_prompt_name"] = p_prompt_name;
+	result.metadata["mcp_transport"] = server.transport;
+	return result;
+}

@@ -49,6 +49,7 @@ class AIMCPHTTPClient : public AIMCPClient {
 	bool _send_legacy_sse_post(const Endpoint &p_post_endpoint, const String &p_request_json, String &r_error) const;
 	bool _read_legacy_sse_response(const Ref<HTTPClient> &p_stream_client, int p_expected_id, Dictionary &r_result, String &r_error) const;
 	bool _initialize_legacy_sse_channel(const Ref<HTTPClient> &p_stream_client, const Endpoint &p_post_endpoint, String &r_error);
+	bool _send_legacy_sse_request(const String &p_request_json, int p_request_id, Dictionary &r_result, String &r_error);
 	bool _send_legacy_sse_message(const String &p_request_json, int p_request_id, Dictionary &r_result, String &r_error);
 	bool _send_message(const String &p_request_json, int p_request_id, Dictionary &r_result, String &r_error);
 	bool _initialize_session(String &r_error);
@@ -66,4 +67,8 @@ public:
 	virtual bool initialize(String &r_error) override;
 	virtual bool list_tools(Vector<AIMCPToolDescriptor> &r_tools, String &r_error) override;
 	virtual AIMCPToolCallResult call_tool(const String &p_tool_name, const Dictionary &p_arguments) override;
+	virtual bool list_resources(Vector<AIMCPResourceDescriptor> &r_resources, String &r_error) override;
+	virtual AIMCPResourceReadResult read_resource(const String &p_uri) override;
+	virtual bool list_prompts(Vector<AIMCPPromptDescriptor> &r_prompts, String &r_error) override;
+	virtual AIMCPPromptRenderResult render_prompt(const String &p_prompt_name, const Dictionary &p_arguments) override;
 };

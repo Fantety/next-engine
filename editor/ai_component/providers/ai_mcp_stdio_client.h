@@ -30,4 +30,8 @@ public:
 	virtual bool initialize(String &r_error) override;
 	virtual bool list_tools(Vector<AIMCPToolDescriptor> &r_tools, String &r_error) override;
 	virtual AIMCPToolCallResult call_tool(const String &p_tool_name, const Dictionary &p_arguments) override;
+	virtual bool list_resources(Vector<AIMCPResourceDescriptor> &r_resources, String &r_error) override;
+	virtual AIMCPResourceReadResult read_resource(const String &p_uri) override;
+	virtual bool list_prompts(Vector<AIMCPPromptDescriptor> &r_prompts, String &r_error) override;
+	virtual AIMCPPromptRenderResult render_prompt(const String &p_prompt_name, const Dictionary &p_arguments) override;
 };

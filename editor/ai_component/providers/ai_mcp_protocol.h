@@ -9,6 +9,7 @@
 #include "core/templates/vector.h"
 #include "core/variant/array.h"
 #include "core/variant/dictionary.h"
+#include "core/variant/variant.h"
 
 struct AIMCPToolDescriptor {
 	String server_id;
@@ -22,6 +23,43 @@ struct AIMCPToolDescriptor {
 struct AIMCPToolCallResult {
 	bool success = false;
 	String content;
+	String error;
+	Dictionary metadata;
+};
+
+struct AIMCPResourceDescriptor {
+	String server_id;
+	String server_name;
+	String uri;
+	String name;
+	String description;
+	String mime_type;
+	Dictionary metadata;
+};
+
+struct AIMCPResourceReadResult {
+	bool success = false;
+	String uri;
+	String mime;
+	String text;
+	Variant content;
+	String error;
+	Dictionary metadata;
+};
+
+struct AIMCPPromptDescriptor {
+	String server_id;
+	String server_name;
+	String name;
+	String description;
+	Array arguments;
+	Dictionary metadata;
+};
+
+struct AIMCPPromptRenderResult {
+	bool success = false;
+	String name;
+	Array messages;
 	String error;
 	Dictionary metadata;
 };
@@ -42,9 +80,17 @@ public:
 	static String make_initialized_notification();
 	static String make_tools_list_request(int p_id);
 	static String make_tools_call_request(int p_id, const String &p_tool_name, const Dictionary &p_arguments);
+	static String make_resources_list_request(int p_id);
+	static String make_resources_read_request(int p_id, const String &p_uri);
+	static String make_prompts_list_request(int p_id);
+	static String make_prompts_get_request(int p_id, const String &p_prompt_name, const Dictionary &p_arguments);
 	static AIMCPResponseParseStatus parse_response_line(const String &p_line, int p_expected_id, Dictionary &r_result, String &r_error);
 	static bool parse_response(const String &p_line, int p_expected_id, Dictionary &r_result, String &r_error);
 	static bool parse_tools_list_result(const Dictionary &p_result, const String &p_server_id, const String &p_server_name, Vector<AIMCPToolDescriptor> &r_tools, String &r_error);
 	static AIMCPToolCallResult parse_tool_call_result(const Dictionary &p_result);
+	static bool parse_resources_list_result(const Dictionary &p_result, const String &p_server_id, const String &p_server_name, Vector<AIMCPResourceDescriptor> &r_resources, String &r_error);
+	static AIMCPResourceReadResult parse_resource_read_result(const Dictionary &p_result);
+	static bool parse_prompts_list_result(const Dictionary &p_result, const String &p_server_id, const String &p_server_name, Vector<AIMCPPromptDescriptor> &r_prompts, String &r_error);
+	static AIMCPPromptRenderResult parse_prompt_get_result(const Dictionary &p_result);
 	static String make_agent_tool_name(const String &p_server_id, const String &p_tool_name);
 };

@@ -488,6 +488,52 @@ TEST_CASE("[Editor][AI] MCP protocol maps tools to provider-safe names") {
 	CHECK(String(tools[0].input_schema["type"]) == "object");
 }
 
+TEST_CASE("[Editor][AI] MCP protocol maps resources and prompts") {
+	const String resources_response = "{\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{\"resources\":[{\"uri\":\"file:///workspace/README.md\",\"name\":\"README\",\"description\":\"Project readme.\",\"mimeType\":\"text/markdown\"}]}}";
+	Dictionary resources_result;
+	String error;
+	CHECK(AIMCPProtocol::parse_response(resources_response, 8, resources_result, error));
+	CHECK(error.is_empty());
+
+	Vector<AIMCPResourceDescriptor> resources;
+	CHECK(AIMCPProtocol::parse_resources_list_result(resources_result, "filesystem", "Filesystem", resources, error));
+	REQUIRE(resources.size() == 1);
+	CHECK(resources[0].server_id == "filesystem");
+	CHECK(resources[0].uri == "file:///workspace/README.md");
+	CHECK(resources[0].name == "README");
+	CHECK(resources[0].mime_type == "text/markdown");
+
+	const String read_response = "{\"jsonrpc\":\"2.0\",\"id\":9,\"result\":{\"contents\":[{\"uri\":\"file:///workspace/README.md\",\"mimeType\":\"text/markdown\",\"text\":\"# Project\"}]}}";
+	Dictionary read_result;
+	CHECK(AIMCPProtocol::parse_response(read_response, 9, read_result, error));
+	AIMCPResourceReadResult read = AIMCPProtocol::parse_resource_read_result(read_result);
+	CHECK(read.success);
+	CHECK(read.uri == "file:///workspace/README.md");
+	CHECK(read.mime == "text/markdown");
+	CHECK(read.text == "# Project");
+
+	const String prompts_response = "{\"jsonrpc\":\"2.0\",\"id\":10,\"result\":{\"prompts\":[{\"name\":\"summarize\",\"description\":\"Summarize a resource.\",\"arguments\":[{\"name\":\"uri\",\"required\":true}]}]}}";
+	Dictionary prompts_result;
+	CHECK(AIMCPProtocol::parse_response(prompts_response, 10, prompts_result, error));
+
+	Vector<AIMCPPromptDescriptor> prompts;
+	CHECK(AIMCPProtocol::parse_prompts_list_result(prompts_result, "filesystem", "Filesystem", prompts, error));
+	REQUIRE(prompts.size() == 1);
+	CHECK(prompts[0].server_id == "filesystem");
+	CHECK(prompts[0].name == "summarize");
+	CHECK(prompts[0].arguments.size() == 1);
+
+	const String prompt_response = "{\"jsonrpc\":\"2.0\",\"id\":11,\"result\":{\"messages\":[{\"role\":\"user\",\"content\":{\"type\":\"text\",\"text\":\"Summarize file:///workspace/README.md\"}}]}}";
+	Dictionary prompt_result;
+	CHECK(AIMCPProtocol::parse_response(prompt_response, 11, prompt_result, error));
+	AIMCPPromptRenderResult rendered = AIMCPProtocol::parse_prompt_get_result(prompt_result);
+	CHECK(rendered.success);
+	CHECK(rendered.messages.size() == 1);
+
+	CHECK(AIMCPProtocol::make_resources_read_request(12, "file:///workspace/README.md").contains("\"resources/read\""));
+	CHECK(AIMCPProtocol::make_prompts_get_request(13, "summarize", Dictionary()).contains("\"prompts/get\""));
+}
+
 TEST_CASE("[Editor][AI] MCP tool wraps descriptors without executing the server") {
 	AIMCPServerConfig server;
 	server.id = "filesystem";

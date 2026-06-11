@@ -111,7 +111,7 @@ String AIPermissionService::_default_effect_for_action(const String &p_action) c
 	return "ask";
 }
 
-String AIPermissionService::_evaluate_effect_locked(const String &p_action, const String &p_resource, String &r_reason) const {
+String AIPermissionService::_evaluate_effect_locked(const String &p_action, const String &p_resource, String &r_reason, const String &p_default_effect) const {
 	bool matched = false;
 	String effect;
 	String reason;
@@ -134,6 +134,9 @@ String AIPermissionService::_evaluate_effect_locked(const String &p_action, cons
 	}
 
 	r_reason = String();
+	if (!p_default_effect.strip_edges().is_empty()) {
+		return _normalize_effect(p_default_effect);
+	}
 	return _default_effect_for_action(p_action);
 }
 
@@ -208,7 +211,8 @@ bool AIPermissionService::assert_permission_struct(const Dictionary &p_input, AI
 		}
 
 		String reason;
-		const String effect = _normalize_effect(p_input.get("effect", _evaluate_effect_locked(action, resource, reason)));
+		const String default_effect = String(p_input.get("default_effect", p_input.get("defaultEffect", String()))).strip_edges();
+		const String effect = _normalize_effect(p_input.get("effect", _evaluate_effect_locked(action, resource, reason, default_effect)));
 		if (reason.is_empty()) {
 			reason = p_input.get("reason", String());
 		}

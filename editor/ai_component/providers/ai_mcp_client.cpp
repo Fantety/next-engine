@@ -52,6 +52,33 @@ AIMCPToolCallResult AIMCPClient::call_tool(const String &p_tool_name, const Dict
 	return result;
 }
 
+bool AIMCPClient::list_resources(Vector<AIMCPResourceDescriptor> &r_resources, String &r_error) {
+	r_resources.clear();
+	r_error = "MCP client transport is not implemented.";
+	return false;
+}
+
+AIMCPResourceReadResult AIMCPClient::read_resource(const String &p_uri) {
+	(void)p_uri;
+	AIMCPResourceReadResult result;
+	result.error = "MCP client transport is not implemented.";
+	return result;
+}
+
+bool AIMCPClient::list_prompts(Vector<AIMCPPromptDescriptor> &r_prompts, String &r_error) {
+	r_prompts.clear();
+	r_error = "MCP client transport is not implemented.";
+	return false;
+}
+
+AIMCPPromptRenderResult AIMCPClient::render_prompt(const String &p_prompt_name, const Dictionary &p_arguments) {
+	(void)p_prompt_name;
+	(void)p_arguments;
+	AIMCPPromptRenderResult result;
+	result.error = "MCP client transport is not implemented.";
+	return result;
+}
+
 Ref<AIMCPClient> AIMCPClientFactory::create_client(const AIMCPServerConfig &p_server) {
 	Ref<AIMCPClient> client;
 	if (p_server.transport == "streamable_http" || p_server.transport == "sse") {
