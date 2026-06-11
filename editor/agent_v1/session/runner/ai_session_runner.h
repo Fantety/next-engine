@@ -7,6 +7,7 @@
 #include "editor/agent_v1/agents/ai_agent_service_v1.h"
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
+#include "editor/agent_v1/domain/compaction/ai_compaction_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
 #include "editor/agent_v1/domain/context/ai_context_source_registry.h"
@@ -31,6 +32,7 @@ class AISessionRunner : public AISessionDrainRunner {
 	Ref<AILLMRuntimeRegistry> runtime_registry;
 	Ref<AIV1ToolRegistry> tool_registry;
 	Ref<AISessionStore> session_store;
+	Ref<AICompactionService> compaction_service;
 	Ref<AIModelPartBuilder> model_part_builder;
 	Ref<AIV1SkillService> skill_service;
 	Ref<AIAgentService> agent_service;
@@ -90,6 +92,8 @@ public:
 	Ref<AIV1ToolRegistry> get_tool_registry() const;
 	void set_session_store(const Ref<AISessionStore> &p_store);
 	Ref<AISessionStore> get_session_store() const;
+	void set_compaction_service(const Ref<AICompactionService> &p_service);
+	Ref<AICompactionService> get_compaction_service() const;
 	void set_model_part_builder(const Ref<AIModelPartBuilder> &p_builder);
 	Ref<AIModelPartBuilder> get_model_part_builder() const;
 	void set_skill_service(const Ref<AIV1SkillService> &p_service);

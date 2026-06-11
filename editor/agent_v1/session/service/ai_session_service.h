@@ -8,6 +8,7 @@
 #include "editor/agent_v1/agents/ai_agent_service_v1.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_resolver.h"
+#include "editor/agent_v1/domain/compaction/ai_compaction_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
 #include "editor/agent_v1/domain/context/ai_context_source_registry.h"
@@ -34,6 +35,7 @@ class AISessionService : public RefCounted {
 	Ref<AIPromptPromoter> prompt_promoter;
 	Ref<AIEmptySessionRunner> empty_runner;
 	Ref<AISessionRunner> session_runner;
+	Ref<AICompactionService> compaction_service;
 	Ref<AIContextEpochStore> context_epoch_store;
 	Ref<AIContextSourceRegistry> context_source_registry;
 	Ref<AIContextEpochService> context_epoch_service;
@@ -60,7 +62,7 @@ class AISessionService : public RefCounted {
 	bool _resolve_session_for_prompt(const Dictionary &p_input, AISessionRow &r_session, bool &r_created, AIError &r_error);
 	bool _resolve_prompt_attachments(const Dictionary &p_input, const AISessionRow &p_session, const Array &p_parts, AIPrompt &r_prompt, AIError &r_error);
 	bool _append_admitted_event(AISessionInputRecord &r_input, AIError &r_error);
-	bool _append_interrupted_tool_events(const String &p_session_id, const String &p_reason, AIError &r_error);
+	bool _append_interrupted_activity_events(const String &p_session_id, const String &p_reason, AIError &r_error);
 
 protected:
 	static void _bind_methods();
@@ -84,6 +86,8 @@ public:
 	Ref<AIEmptySessionRunner> get_empty_runner() const;
 	void set_session_runner(const Ref<AISessionRunner> &p_session_runner);
 	Ref<AISessionRunner> get_session_runner() const;
+	void set_compaction_service(const Ref<AICompactionService> &p_service);
+	Ref<AICompactionService> get_compaction_service() const;
 	void set_context_epoch_store(const Ref<AIContextEpochStore> &p_store);
 	Ref<AIContextEpochStore> get_context_epoch_store() const;
 	void set_context_source_registry(const Ref<AIContextSourceRegistry> &p_registry);

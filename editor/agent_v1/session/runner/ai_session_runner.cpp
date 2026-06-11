@@ -255,6 +255,8 @@ void AISessionRunner::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_tool_registry"), &AISessionRunner::get_tool_registry);
 	ClassDB::bind_method(D_METHOD("set_session_store", "store"), &AISessionRunner::set_session_store);
 	ClassDB::bind_method(D_METHOD("get_session_store"), &AISessionRunner::get_session_store);
+	ClassDB::bind_method(D_METHOD("set_compaction_service", "service"), &AISessionRunner::set_compaction_service);
+	ClassDB::bind_method(D_METHOD("get_compaction_service"), &AISessionRunner::get_compaction_service);
 	ClassDB::bind_method(D_METHOD("set_model_part_builder", "builder"), &AISessionRunner::set_model_part_builder);
 	ClassDB::bind_method(D_METHOD("get_model_part_builder"), &AISessionRunner::get_model_part_builder);
 	ClassDB::bind_method(D_METHOD("set_skill_service", "service"), &AISessionRunner::set_skill_service);
@@ -271,12 +273,16 @@ AISessionRunner::AISessionRunner() {
 	config_service.instantiate();
 	runtime_registry.instantiate();
 	tool_registry.instantiate();
+	compaction_service.instantiate();
 	model_part_builder.instantiate();
 	skill_service.instantiate();
 	agent_service.instantiate();
 	tool_registry->register_builtin_tools();
 	context_source_registry->set_config_service(config_service);
 	context_epoch_service->set_epoch_store(context_epoch_store);
+	compaction_service->set_projector(projector);
+	compaction_service->set_context_source_registry(context_source_registry);
+	compaction_service->set_context_epoch_service(context_epoch_service);
 	skill_service->set_tool_registry(tool_registry);
 	agent_service->set_config_service(config_service);
 }
@@ -629,7 +635,7 @@ bool AISessionRunner::_load_system_context(const AISessionRow &p_session, const 
 		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no ContextSourceRegistry.");
 		return false;
 	}
-	if (!context_source_registry->load_struct(p_agent_id, p_session.location, p_provider, p_model, r_context, r_error)) {
+	if (!context_source_registry->load_session_struct(p_session.id, p_agent_id, p_session.location, p_provider, p_model, r_context, r_error)) {
 		return false;
 	}
 	if (!p_selected_skills.is_empty()) {
@@ -781,10 +787,22 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 		provider_config["model"] = model;
 	}
 
-	const Vector<AISessionMessage> projected_messages = projector->get_messages_struct(p_session.id);
+	Vector<AISessionMessage> projected_messages = projector->get_messages_struct(p_session.id);
 	Array selected_skills;
 	if (!_select_skills_for_prompt(config, _latest_user_prompt_text(projected_messages), selected_skills, r_error)) {
 		return false;
+	}
+
+	const int64_t history_token_budget = _history_token_budget_from_config(config);
+	if (compaction_service.is_valid() && history_token_budget > 0) {
+		bool compacted = false;
+		Dictionary compaction_result;
+		if (!compaction_service->maybe_compact_struct(p_session.id, "auto", history_token_budget, compacted, compaction_result, r_error)) {
+			return false;
+		}
+		if (compacted) {
+			projected_messages = projector->get_messages_struct(p_session.id);
+		}
 	}
 
 	AIContextEpoch epoch;
@@ -805,7 +823,6 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 	r_request.metadata["context_epoch"] = epoch.to_dictionary();
 	r_request.metadata["selected_skills"] = selected_skills.duplicate(true);
 
-	const int64_t history_token_budget = _history_token_budget_from_config(config);
 	const Vector<AISessionMessage> runner_messages = AISessionHistory::entries_for_runner(projected_messages, epoch.baseline_seq, history_token_budget);
 	for (int i = 0; i < runner_messages.size(); i++) {
 		AIModelMessage message;
@@ -1025,6 +1042,9 @@ void AISessionRunner::set_event_store(const Ref<AIEventStore> &p_event_store) {
 	if (context_epoch_service.is_valid()) {
 		context_epoch_service->set_event_store(event_store);
 	}
+	if (compaction_service.is_valid()) {
+		compaction_service->set_event_store(event_store);
+	}
 }
 
 Ref<AIEventStore> AISessionRunner::get_event_store() const {
@@ -1038,6 +1058,9 @@ void AISessionRunner::set_projector(const Ref<AISessionProjector> &p_projector) 
 	}
 	if (context_epoch_service.is_valid()) {
 		context_epoch_service->set_projector(projector);
+	}
+	if (compaction_service.is_valid()) {
+		compaction_service->set_projector(projector);
 	}
 }
 
@@ -1061,6 +1084,9 @@ void AISessionRunner::set_context_source_registry(const Ref<AIContextSourceRegis
 	if (context_source_registry.is_valid()) {
 		context_source_registry->set_config_service(config_service);
 	}
+	if (compaction_service.is_valid()) {
+		compaction_service->set_context_source_registry(context_source_registry);
+	}
 }
 
 Ref<AIContextSourceRegistry> AISessionRunner::get_context_source_registry() const {
@@ -1073,6 +1099,9 @@ void AISessionRunner::set_context_epoch_service(const Ref<AIContextEpochService>
 		context_epoch_service->set_epoch_store(context_epoch_store);
 		context_epoch_service->set_event_store(event_store);
 		context_epoch_service->set_projector(projector);
+	}
+	if (compaction_service.is_valid()) {
+		compaction_service->set_context_epoch_service(context_epoch_service);
 	}
 }
 
@@ -1126,6 +1155,20 @@ void AISessionRunner::set_session_store(const Ref<AISessionStore> &p_store) {
 
 Ref<AISessionStore> AISessionRunner::get_session_store() const {
 	return session_store;
+}
+
+void AISessionRunner::set_compaction_service(const Ref<AICompactionService> &p_service) {
+	compaction_service = p_service;
+	if (compaction_service.is_valid()) {
+		compaction_service->set_event_store(event_store);
+		compaction_service->set_projector(projector);
+		compaction_service->set_context_source_registry(context_source_registry);
+		compaction_service->set_context_epoch_service(context_epoch_service);
+	}
+}
+
+Ref<AICompactionService> AISessionRunner::get_compaction_service() const {
+	return compaction_service;
 }
 
 void AISessionRunner::set_model_part_builder(const Ref<AIModelPartBuilder> &p_builder) {

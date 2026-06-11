@@ -162,6 +162,7 @@
 #include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_blob_store.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_resolver.h"
+#include "editor/agent_v1/domain/compaction/ai_compaction_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
 #include "editor/agent_v1/domain/context/ai_context_source_registry.h"
@@ -178,6 +179,7 @@
 #include "editor/agent_v1/session/admission/ai_prompt_promoter.h"
 #include "editor/agent_v1/session/admission/ai_session_input_store.h"
 #include "editor/agent_v1/session/execution/ai_session_execution.h"
+#include "editor/agent_v1/session/recovery/ai_startup_recovery.h"
 #include "editor/agent_v1/session/runner/ai_empty_session_runner.h"
 #include "editor/agent_v1/session/runner/ai_session_drain_runner.h"
 #include "editor/agent_v1/session/runner/ai_session_runner.h"
@@ -328,6 +330,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIFilePreprocessor);
 	GDREGISTER_CLASS(AIImageNormalizer);
 	GDREGISTER_CLASS(AIModelPartBuilder);
+	GDREGISTER_CLASS(AICompactionService);
 	GDREGISTER_CLASS(AIContextEpochService);
 	GDREGISTER_CLASS(AIContextEpochStore);
 	GDREGISTER_CLASS(AIContextSourceRegistry);
@@ -351,6 +354,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIEmptySessionRunner);
 	GDREGISTER_CLASS(AISessionRunner);
 	GDREGISTER_CLASS(AIPromptPromoter);
+	GDREGISTER_CLASS(AIStartupRecovery);
 	GDREGISTER_CLASS(AISessionExecution);
 	GDREGISTER_CLASS(AISessionInputStore);
 	GDREGISTER_CLASS(AISessionService);

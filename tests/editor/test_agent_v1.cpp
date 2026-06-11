@@ -9,6 +9,7 @@
 #include "core/io/image.h"
 #include "core/math/color.h"
 #include "core/object/callable_mp.h"
+#include "core/os/os.h"
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/config/ai_local_settings_store.h"
 #include "editor/agent_v1/agents/ai_agent_service_v1.h"
@@ -21,11 +22,13 @@
 #include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
 #include "editor/agent_v1/domain/context/ai_context_source_registry.h"
+#include "editor/agent_v1/domain/compaction/ai_compaction_service.h"
 #include "editor/agent_v1/domain/events/ai_event_store.h"
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
 #include "editor/agent_v1/mcp/ai_mcp_service_v1.h"
 #include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
+#include "editor/agent_v1/session/recovery/ai_startup_recovery.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
 #include "editor/agent_v1/skills/ai_skill_service_v1.h"
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
@@ -55,6 +58,23 @@ static String read_text_file(const String &p_path) {
 		return String();
 	}
 	return file->get_as_text();
+}
+
+static int count_occurrences(const String &p_text, const String &p_pattern) {
+	if (p_pattern.is_empty()) {
+		return 0;
+	}
+
+	int count = 0;
+	int from = 0;
+	while (true) {
+		const int found = p_text.find(p_pattern, from);
+		if (found < 0) {
+			return count;
+		}
+		count++;
+		from = found + p_pattern.length();
+	}
 }
 
 static void write_bytes_file(const String &p_path, const PackedByteArray &p_bytes) {
@@ -113,6 +133,33 @@ public:
 
 	bool handle_event(const Dictionary &p_event) {
 		events.push_back(p_event);
+		return false;
+	}
+};
+
+class BlockingDrainRunner : public AISessionDrainRunner {
+	GDCLASS(BlockingDrainRunner, AISessionDrainRunner);
+
+public:
+	int drain_count = 0;
+	bool saw_cancel = false;
+
+	virtual bool drain_struct(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, Vector<AISessionInputRecord> &r_promoted, AIError &r_error) override {
+		(void)p_session_id;
+		(void)p_wake_seq;
+		(void)r_promoted;
+
+		drain_count++;
+		for (int i = 0; i < 1000; i++) {
+			if (p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested()) {
+				saw_cancel = true;
+				r_error = AIError::make(AI_ERROR_INTERRUPTED, p_cancel_token->get_cancel_message("Blocking drain interrupted."));
+				return false;
+			}
+			OS::get_singleton()->delay_usec(1000);
+		}
+
+		r_error = AIError::make(AI_ERROR_INTERNAL, "Blocking drain did not receive cancellation.");
 		return false;
 	}
 };
@@ -2938,6 +2985,604 @@ TEST_CASE("[Editor][AgentV1] History selector trims without splitting tool conte
 	REQUIRE(selected[0].content.size() == 1);
 	CHECK(selected[0].content[0].type == "tool");
 	CHECK(selected[0].content[0].tool_state.status == AI_TOOL_STATUS_SUCCESS);
+}
+
+TEST_CASE("[Editor][AgentV1] Compaction service preserves events and registers summary context") {
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(String());
+
+	Ref<AISessionProjector> projector;
+	projector.instantiate();
+
+	Ref<AIContextSourceRegistry> context_registry;
+	context_registry.instantiate();
+
+	Ref<AIContextEpochStore> epoch_store;
+	epoch_store.instantiate();
+
+	Ref<AIContextEpochService> epoch_service;
+	epoch_service.instantiate();
+	epoch_service->set_event_store(event_store);
+	epoch_service->set_projector(projector);
+	epoch_service->set_epoch_store(epoch_store);
+
+	String event_error;
+	AIEventRow row;
+
+	AIPrompt first_prompt;
+	first_prompt.text = "Phase 11 user goal: preserve compacted facts. " + String("Important implementation detail. ").repeat(80);
+	Dictionary first_user;
+	first_user["id"] = "phase11-user-1";
+	first_user["message_id"] = "phase11-user-1";
+	first_user["prompt"] = first_prompt.to_dictionary();
+	REQUIRE(event_store->append("phase11-compact", AIDomainEventTypes::prompt_promoted(), first_user, false, row, event_error));
+
+	Dictionary first_step;
+	first_step["assistant_message_id"] = "phase11-assistant-1";
+	REQUIRE(event_store->append("phase11-compact", AIDomainEventTypes::step_started(), first_step, false, row, event_error));
+
+	Dictionary first_text;
+	first_text["assistant_message_id"] = "phase11-assistant-1";
+	first_text["content_id"] = "phase11-text-1";
+	first_text["text"] = "Decision: keep original events queryable after compaction. " + String("Durable audit trail remains authoritative. ").repeat(80);
+	REQUIRE(event_store->append("phase11-compact", AIDomainEventTypes::text_ended(), first_text, false, row, event_error));
+	REQUIRE(event_store->append("phase11-compact", AIDomainEventTypes::step_ended(), first_step, false, row, event_error));
+
+	AIPrompt recent_prompt;
+	recent_prompt.text = "Recent user message should stay outside the compacted prefix.";
+	Dictionary recent_user;
+	recent_user["id"] = "phase11-user-2";
+	recent_user["message_id"] = "phase11-user-2";
+	recent_user["prompt"] = recent_prompt.to_dictionary();
+	REQUIRE(event_store->append("phase11-compact", AIDomainEventTypes::prompt_promoted(), recent_user, false, row, event_error));
+
+	const int original_event_count = event_store->list("phase11-compact").size();
+
+	Ref<AICompactionService> compaction;
+	compaction.instantiate();
+	compaction->set_event_store(event_store);
+	compaction->set_projector(projector);
+	compaction->set_context_source_registry(context_registry);
+	compaction->set_context_epoch_service(epoch_service);
+
+	Dictionary input;
+	input["session_id"] = "phase11-compact";
+	input["reason"] = "manual";
+	input["target_token_budget"] = 12;
+	const Dictionary result = compaction->compact(input);
+	REQUIRE(bool(result.get("success", false)));
+	CHECK(String(result.get("summary", String())).contains("Conversation Summary"));
+	CHECK(int64_t(result.get("token_before", 0)) > int64_t(result.get("token_after", 0)));
+
+	const Vector<AIEventRow> events = event_store->list("phase11-compact");
+	CHECK(events.size() == original_event_count + 1);
+	bool saw_original_prompt = false;
+	bool saw_original_text = false;
+	int64_t compaction_seq = 0;
+	for (int i = 0; i < events.size(); i++) {
+		saw_original_prompt = saw_original_prompt || events[i].type == AIDomainEventTypes::prompt_promoted();
+		saw_original_text = saw_original_text || events[i].type == AIDomainEventTypes::text_ended();
+		if (events[i].type == AIDomainEventTypes::compaction_ended()) {
+			compaction_seq = events[i].seq;
+		}
+	}
+	CHECK(saw_original_prompt);
+	CHECK(saw_original_text);
+	REQUIRE(compaction_seq > 0);
+
+	const Vector<AISessionMessage> projected = projector->get_messages_struct("phase11-compact");
+	const Vector<AISessionMessage> runner_history = AISessionHistory::entries_for_runner(projected, 0);
+	REQUIRE(!runner_history.is_empty());
+	CHECK(runner_history[0].type == AI_SESSION_MESSAGE_COMPACTION);
+	for (int i = 1; i < runner_history.size(); i++) {
+		CHECK(runner_history[i].seq >= compaction_seq);
+	}
+
+	AISystemContext context;
+	AIError context_error;
+	AILocationRef location;
+	CHECK(context_registry->load_session_struct("phase11-compact", "main", location, "fake", "fake-model", context, context_error));
+	CHECK(context.baseline.contains("Conversation Summary"));
+	CHECK(context.baseline.contains("preserve compacted facts"));
+
+	AISystemContext other_context;
+	CHECK(context_registry->load_session_struct("phase11-other", "main", location, "fake", "fake-model", other_context, context_error));
+	CHECK_FALSE(other_context.baseline.contains("Conversation Summary"));
+}
+
+TEST_CASE("[Editor][AgentV1] Repeated compaction carries forward prior summary facts") {
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(String());
+
+	Ref<AISessionProjector> projector;
+	projector.instantiate();
+
+	Ref<AIContextSourceRegistry> context_registry;
+	context_registry.instantiate();
+
+	Ref<AIContextEpochStore> epoch_store;
+	epoch_store.instantiate();
+
+	Ref<AIContextEpochService> epoch_service;
+	epoch_service.instantiate();
+	epoch_service->set_event_store(event_store);
+	epoch_service->set_projector(projector);
+	epoch_service->set_epoch_store(epoch_store);
+
+	Ref<AICompactionService> compaction;
+	compaction.instantiate();
+	compaction->set_event_store(event_store);
+	compaction->set_projector(projector);
+	compaction->set_context_source_registry(context_registry);
+	compaction->set_context_epoch_service(epoch_service);
+
+	String event_error;
+	AIEventRow row;
+	AIPrompt first_prompt;
+	first_prompt.text = "First user goal with cumulative compaction facts.";
+	Dictionary first_user;
+	first_user["id"] = "phase11-cumulative-user-1";
+	first_user["message_id"] = "phase11-cumulative-user-1";
+	first_user["prompt"] = first_prompt.to_dictionary();
+	REQUIRE(event_store->append("phase11-cumulative-compact", AIDomainEventTypes::prompt_promoted(), first_user, false, row, event_error));
+
+	Dictionary first_step;
+	first_step["assistant_message_id"] = "phase11-cumulative-assistant-1";
+	REQUIRE(event_store->append("phase11-cumulative-compact", AIDomainEventTypes::step_started(), first_step, false, row, event_error));
+
+	Dictionary first_text;
+	first_text["assistant_message_id"] = "phase11-cumulative-assistant-1";
+	first_text["content_id"] = "phase11-cumulative-text-1";
+	first_text["text"] = "First durable decision must survive later compaction.";
+	REQUIRE(event_store->append("phase11-cumulative-compact", AIDomainEventTypes::text_ended(), first_text, false, row, event_error));
+	REQUIRE(event_store->append("phase11-cumulative-compact", AIDomainEventTypes::step_ended(), first_step, false, row, event_error));
+
+	AIPrompt bridge_prompt;
+	bridge_prompt.text = "Bridge message that remains after first compaction.";
+	Dictionary bridge_user;
+	bridge_user["id"] = "phase11-cumulative-user-2";
+	bridge_user["message_id"] = "phase11-cumulative-user-2";
+	bridge_user["prompt"] = bridge_prompt.to_dictionary();
+	REQUIRE(event_store->append("phase11-cumulative-compact", AIDomainEventTypes::prompt_promoted(), bridge_user, false, row, event_error));
+
+	Dictionary first_input;
+	first_input["session_id"] = "phase11-cumulative-compact";
+	first_input["reason"] = "manual";
+	first_input["target_token_budget"] = 12;
+	const Dictionary first_result = compaction->compact(first_input);
+	REQUIRE(bool(first_result.get("success", false)));
+	CHECK(String(first_result.get("summary", String())).contains("First durable decision"));
+
+	Dictionary second_step;
+	second_step["assistant_message_id"] = "phase11-cumulative-assistant-2";
+	REQUIRE(event_store->append("phase11-cumulative-compact", AIDomainEventTypes::step_started(), second_step, false, row, event_error));
+
+	Dictionary second_text;
+	second_text["assistant_message_id"] = "phase11-cumulative-assistant-2";
+	second_text["content_id"] = "phase11-cumulative-text-2";
+	second_text["text"] = "Second durable decision joins the cumulative summary.";
+	REQUIRE(event_store->append("phase11-cumulative-compact", AIDomainEventTypes::text_ended(), second_text, false, row, event_error));
+	REQUIRE(event_store->append("phase11-cumulative-compact", AIDomainEventTypes::step_ended(), second_step, false, row, event_error));
+
+	AIPrompt latest_prompt;
+	latest_prompt.text = "Latest message stays outside second compaction.";
+	Dictionary latest_user;
+	latest_user["id"] = "phase11-cumulative-user-3";
+	latest_user["message_id"] = "phase11-cumulative-user-3";
+	latest_user["prompt"] = latest_prompt.to_dictionary();
+	REQUIRE(event_store->append("phase11-cumulative-compact", AIDomainEventTypes::prompt_promoted(), latest_user, false, row, event_error));
+
+	Dictionary second_input;
+	second_input["session_id"] = "phase11-cumulative-compact";
+	second_input["reason"] = "manual";
+	second_input["target_token_budget"] = 12;
+	const Dictionary second_result = compaction->compact(second_input);
+	REQUIRE(bool(second_result.get("success", false)));
+	const String second_summary = second_result.get("summary", String());
+	CHECK(second_summary.contains("First durable decision"));
+	CHECK(second_summary.contains("Second durable decision"));
+	CHECK_FALSE(second_summary.contains("Previous Summary"));
+	CHECK(count_occurrences(second_summary, "## Conversation Summary") == 1);
+
+	const Vector<AISessionMessage> projected = projector->get_messages_struct("phase11-cumulative-compact");
+	const Vector<AISessionMessage> runner_history = AISessionHistory::entries_for_runner(projected, 0);
+	REQUIRE(!runner_history.is_empty());
+	CHECK(runner_history[0].type == AI_SESSION_MESSAGE_COMPACTION);
+	CHECK(runner_history[0].text.contains("First durable decision"));
+	CHECK(runner_history[0].text.contains("Second durable decision"));
+
+	AISystemContext context;
+	AIError context_error;
+	AILocationRef location;
+	CHECK(context_registry->load_session_struct("phase11-cumulative-compact", "main", location, "fake", "fake-model", context, context_error));
+	CHECK(count_occurrences(context.baseline, "## Conversation Summary") == 1);
+	CHECK(context.baseline.contains("First durable decision"));
+	CHECK(context.baseline.contains("Second durable decision"));
+}
+
+TEST_CASE("[Editor][AgentV1] Compaction summary is bounded for long sessions") {
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(String());
+
+	Ref<AISessionProjector> projector;
+	projector.instantiate();
+
+	Ref<AICompactionService> compaction;
+	compaction.instantiate();
+	compaction->set_event_store(event_store);
+	compaction->set_projector(projector);
+
+	String event_error;
+	AIEventRow row;
+	for (int i = 0; i < 12; i++) {
+		AIPrompt prompt;
+		prompt.text = "Long compacted user goal " + itos(i) + ". " + String("persistent phase11 fact. ").repeat(50);
+		Dictionary user;
+		user["id"] = "phase11-bounded-user-" + itos(i);
+		user["message_id"] = "phase11-bounded-user-" + itos(i);
+		user["prompt"] = prompt.to_dictionary();
+		REQUIRE(event_store->append("phase11-bounded-compact", AIDomainEventTypes::prompt_promoted(), user, false, row, event_error));
+
+		Dictionary step;
+		step["assistant_message_id"] = "phase11-bounded-assistant-" + itos(i);
+		REQUIRE(event_store->append("phase11-bounded-compact", AIDomainEventTypes::step_started(), step, false, row, event_error));
+
+		Dictionary text;
+		text["assistant_message_id"] = "phase11-bounded-assistant-" + itos(i);
+		text["content_id"] = "phase11-bounded-text-" + itos(i);
+		text["text"] = "Long compacted assistant decision " + itos(i) + ". " + String("durable implementation detail. ").repeat(50);
+		REQUIRE(event_store->append("phase11-bounded-compact", AIDomainEventTypes::text_ended(), text, false, row, event_error));
+		REQUIRE(event_store->append("phase11-bounded-compact", AIDomainEventTypes::step_ended(), step, false, row, event_error));
+	}
+
+	AIPrompt recent_prompt;
+	recent_prompt.text = "Recent message remains outside bounded compaction.";
+	Dictionary recent_user;
+	recent_user["id"] = "phase11-bounded-recent";
+	recent_user["message_id"] = "phase11-bounded-recent";
+	recent_user["prompt"] = recent_prompt.to_dictionary();
+	REQUIRE(event_store->append("phase11-bounded-compact", AIDomainEventTypes::prompt_promoted(), recent_user, false, row, event_error));
+
+	Dictionary input;
+	input["session_id"] = "phase11-bounded-compact";
+	input["reason"] = "manual";
+	input["target_token_budget"] = 20;
+	const Dictionary result = compaction->compact(input);
+	REQUIRE(bool(result.get("success", false)));
+	const String summary = result.get("summary", String());
+	CHECK(summary.length() <= 512);
+	CHECK(int64_t(result.get("token_after", 0)) <= 128);
+}
+
+TEST_CASE("[Editor][AgentV1] Runner triggers compaction before over-budget provider turn") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Dictionary history;
+	history["max_tokens"] = 24;
+	Dictionary override_config;
+	override_config["history"] = history;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase11-auto-compact";
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	String event_error;
+	AIEventRow row;
+	AIPrompt old_prompt;
+	old_prompt.text = "Old long goal that should be compacted. " + String("phase11 auto compact detail. ").repeat(100);
+	Dictionary old_user;
+	old_user["id"] = "phase11-auto-old-user";
+	old_user["message_id"] = "phase11-auto-old-user";
+	old_user["prompt"] = old_prompt.to_dictionary();
+	REQUIRE(service->get_event_store()->append("phase11-auto-compact", AIDomainEventTypes::prompt_promoted(), old_user, false, row, event_error));
+	service->get_projector()->project(row);
+
+	Dictionary old_step;
+	old_step["assistant_message_id"] = "phase11-auto-old-assistant";
+	REQUIRE(service->get_event_store()->append("phase11-auto-compact", AIDomainEventTypes::step_started(), old_step, false, row, event_error));
+	service->get_projector()->project(row);
+
+	Dictionary old_text;
+	old_text["assistant_message_id"] = "phase11-auto-old-assistant";
+	old_text["content_id"] = "phase11-auto-old-text";
+	old_text["text"] = "Old assistant decision to preserve in summary. " + String("stable fact. ").repeat(100);
+	REQUIRE(service->get_event_store()->append("phase11-auto-compact", AIDomainEventTypes::text_ended(), old_text, false, row, event_error));
+	service->get_projector()->project(row);
+	REQUIRE(service->get_event_store()->append("phase11-auto-compact", AIDomainEventTypes::step_ended(), old_step, false, row, event_error));
+	service->get_projector()->project(row);
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase11-auto-compact";
+	prompt["message_id"] = "phase11-auto-new-user";
+	prompt["text"] = "Continue after automatic compaction.";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Dictionary run = service->get_session_runner()->run("phase11-auto-compact", false);
+	REQUIRE(bool(run.get("success", false)));
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("phase11-auto-compact");
+	bool saw_compaction = false;
+	bool saw_provider_step = false;
+	for (int i = 0; i < events.size(); i++) {
+		saw_compaction = saw_compaction || events[i].type == AIDomainEventTypes::compaction_ended();
+		saw_provider_step = saw_provider_step || (events[i].type == AIDomainEventTypes::step_started() && String(events[i].data.get("assistant_message_id", String())) != "phase11-auto-old-assistant");
+	}
+	CHECK(saw_compaction);
+	CHECK(saw_provider_step);
+}
+
+TEST_CASE("[Editor][AgentV1] Startup recovery fails open steps and tools without dropping admitted input") {
+	Ref<AISessionStore> session_store;
+	session_store.instantiate();
+	session_store->set_base_dir(String());
+
+	Dictionary create;
+	create["id"] = "phase11-recovery";
+	AISessionRow session;
+	bool created = false;
+	String session_error;
+	REQUIRE(session_store->create_or_reuse(create, session, created, session_error));
+
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(String());
+
+	Ref<AISessionProjector> projector;
+	projector.instantiate();
+
+	String event_error;
+	AIEventRow row;
+	AIPrompt prompt;
+	prompt.text = "Admitted input survives process restart.";
+	Dictionary admitted;
+	admitted["id"] = "phase11-admitted-input";
+	admitted["session_id"] = "phase11-recovery";
+	admitted["message_id"] = "phase11-admitted-message";
+	admitted["prompt"] = prompt.to_dictionary();
+	REQUIRE(event_store->append("phase11-recovery", AIDomainEventTypes::prompt_admitted(), admitted, false, row, event_error));
+
+	Dictionary step_started;
+	step_started["assistant_message_id"] = "phase11-recovery-assistant";
+	step_started["request_id"] = "phase11-recovery-request";
+	REQUIRE(event_store->append("phase11-recovery", AIDomainEventTypes::step_started(), step_started, false, row, event_error));
+
+	Dictionary tool_called;
+	tool_called["assistant_message_id"] = "phase11-recovery-assistant";
+	tool_called["call_id"] = "phase11-recovery-call";
+	tool_called["tool"] = "file_read";
+	Dictionary tool_input;
+	tool_input["path"] = "res://lost.txt";
+	tool_called["input"] = tool_input;
+	REQUIRE(event_store->append("phase11-recovery", AIDomainEventTypes::tool_called(), tool_called, false, row, event_error));
+
+	Ref<AIStartupRecovery> recovery;
+	recovery.instantiate();
+	recovery->set_session_store(session_store);
+	recovery->set_event_store(event_store);
+	recovery->set_projector(projector);
+
+	Dictionary report = recovery->recover();
+	REQUIRE(bool(report.get("success", false)));
+	CHECK(Array(report.get("interrupted_sessions", Array())).has("phase11-recovery"));
+	CHECK(Array(report.get("failed_tool_calls", Array())).has("phase11-recovery-call"));
+
+	report = recovery->recover();
+	REQUIRE(bool(report.get("success", false)));
+
+	const Vector<AIEventRow> events = event_store->list("phase11-recovery");
+	int admitted_count = 0;
+	int step_failed_count = 0;
+	int tool_failed_count = 0;
+	for (int i = 0; i < events.size(); i++) {
+		if (events[i].type == AIDomainEventTypes::prompt_admitted()) {
+			admitted_count++;
+		} else if (events[i].type == AIDomainEventTypes::step_failed()) {
+			step_failed_count++;
+		} else if (events[i].type == AIDomainEventTypes::tool_failed()) {
+			tool_failed_count++;
+		}
+	}
+	CHECK(admitted_count == 1);
+	CHECK(step_failed_count == 1);
+	CHECK(tool_failed_count == 1);
+
+	const Vector<AISessionMessage> messages = projector->get_messages_struct("phase11-recovery");
+	REQUIRE(messages.size() == 1);
+	CHECK(messages[0].metadata.get("status", String()) == "failed");
+	REQUIRE(messages[0].content.size() == 1);
+	CHECK(messages[0].content[0].tool_state.status == AI_TOOL_STATUS_FAILED);
+}
+
+TEST_CASE("[Editor][AgentV1] Interrupt persists request and terminal events for open activity") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Dictionary create;
+	create["id"] = "phase11-interrupt";
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	String event_error;
+	AIEventRow row;
+	Dictionary step_started;
+	step_started["assistant_message_id"] = "phase11-interrupt-assistant";
+	step_started["request_id"] = "phase11-interrupt-request";
+	REQUIRE(service->get_event_store()->append("phase11-interrupt", AIDomainEventTypes::step_started(), step_started, false, row, event_error));
+
+	Dictionary tool_called;
+	tool_called["assistant_message_id"] = "phase11-interrupt-assistant";
+	tool_called["call_id"] = "phase11-interrupt-call";
+	tool_called["tool"] = "file_read";
+	REQUIRE(service->get_event_store()->append("phase11-interrupt", AIDomainEventTypes::tool_called(), tool_called, false, row, event_error));
+
+	Dictionary interrupt;
+	interrupt["session_id"] = "phase11-interrupt";
+	interrupt["reason"] = "user requested stop";
+	const Dictionary result = service->interrupt(interrupt);
+	REQUIRE(bool(result.get("success", false)));
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("phase11-interrupt");
+	bool saw_interrupt = false;
+	bool saw_step_failed = false;
+	bool saw_tool_failed = false;
+	for (int i = 0; i < events.size(); i++) {
+		saw_interrupt = saw_interrupt || events[i].type == AIDomainEventTypes::interrupt_requested();
+		saw_step_failed = saw_step_failed || events[i].type == AIDomainEventTypes::step_failed();
+		saw_tool_failed = saw_tool_failed || events[i].type == AIDomainEventTypes::tool_failed();
+	}
+	CHECK(saw_interrupt);
+	CHECK(saw_step_failed);
+	CHECK(saw_tool_failed);
+}
+
+TEST_CASE("[Editor][AgentV1] Interrupt cancels active drain before service cleanup writes terminal events") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AISessionExecution> execution;
+	execution.instantiate();
+	Ref<BlockingDrainRunner> runner;
+	runner.instantiate();
+	execution->set_runner(runner);
+	service->set_execution(execution);
+	execution->set_runner(runner);
+
+	Dictionary create;
+	create["id"] = "phase11-active-interrupt";
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	String event_error;
+	AIEventRow row;
+	Dictionary step_started;
+	step_started["assistant_message_id"] = "phase11-active-interrupt-assistant";
+	step_started["request_id"] = "phase11-active-interrupt-request";
+	REQUIRE(service->get_event_store()->append("phase11-active-interrupt", AIDomainEventTypes::step_started(), step_started, false, row, event_error));
+
+	Dictionary tool_called;
+	tool_called["assistant_message_id"] = "phase11-active-interrupt-assistant";
+	tool_called["call_id"] = "phase11-active-interrupt-call";
+	tool_called["tool"] = "file_read";
+	REQUIRE(service->get_event_store()->append("phase11-active-interrupt", AIDomainEventTypes::tool_called(), tool_called, false, row, event_error));
+
+	AISessionExecutionState state;
+	REQUIRE(execution->wake_struct("phase11-active-interrupt", 1, state));
+	REQUIRE(state.active);
+	for (int i = 0; i < 1000 && runner->drain_count == 0; i++) {
+		OS::get_singleton()->delay_usec(1000);
+	}
+	REQUIRE(runner->drain_count == 1);
+
+	Dictionary interrupt;
+	interrupt["session_id"] = "phase11-active-interrupt";
+	interrupt["reason"] = "user cancelled active drain";
+	const Dictionary result = service->interrupt(interrupt);
+	REQUIRE(bool(result.get("success", false)));
+	CHECK(bool(Dictionary(result.get("interrupted", Dictionary())).get("interrupted", false)));
+
+	execution->clear();
+	CHECK(runner->saw_cancel);
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("phase11-active-interrupt");
+	bool saw_interrupt = false;
+	bool saw_step_failed = false;
+	bool saw_tool_failed = false;
+	for (int i = 0; i < events.size(); i++) {
+		saw_interrupt = saw_interrupt || events[i].type == AIDomainEventTypes::interrupt_requested();
+		saw_step_failed = saw_step_failed || events[i].type == AIDomainEventTypes::step_failed();
+		saw_tool_failed = saw_tool_failed || events[i].type == AIDomainEventTypes::tool_failed();
+	}
+	CHECK(saw_interrupt);
+	CHECK_FALSE(saw_step_failed);
+	CHECK_FALSE(saw_tool_failed);
+}
+
+TEST_CASE("[Editor][AgentV1] Startup recovery retains permission-pending tools but interrupt fails them") {
+	Ref<AISessionStore> session_store;
+	session_store.instantiate();
+	session_store->set_base_dir(String());
+
+	Dictionary create;
+	create["id"] = "phase11-permission-recovery";
+	AISessionRow session;
+	bool created = false;
+	String session_error;
+	REQUIRE(session_store->create_or_reuse(create, session, created, session_error));
+
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(String());
+
+	Ref<AISessionProjector> projector;
+	projector.instantiate();
+
+	String event_error;
+	AIEventRow row;
+	Dictionary tool_called;
+	tool_called["assistant_message_id"] = "phase11-permission-assistant";
+	tool_called["call_id"] = "phase11-permission-call";
+	tool_called["tool"] = "file_write";
+	REQUIRE(event_store->append("phase11-permission-recovery", AIDomainEventTypes::tool_called(), tool_called, false, row, event_error));
+
+	Dictionary permission_asked;
+	permission_asked["request_id"] = "phase11-permission-request";
+	permission_asked["session_id"] = "phase11-permission-recovery";
+	permission_asked["action"] = "file.write";
+	permission_asked["resource"] = "res://pending.txt";
+	permission_asked["status"] = "pending";
+	permission_asked["source"] = tool_called.duplicate(true);
+	REQUIRE(event_store->append("phase11-permission-recovery", AIDomainEventTypes::permission_asked(), permission_asked, false, row, event_error));
+
+	Ref<AIStartupRecovery> recovery;
+	recovery.instantiate();
+	recovery->set_session_store(session_store);
+	recovery->set_event_store(event_store);
+	recovery->set_projector(projector);
+
+	const Dictionary report = recovery->recover();
+	REQUIRE(bool(report.get("success", false)));
+	CHECK_FALSE(Array(report.get("failed_tool_calls", Array())).has("phase11-permission-call"));
+
+	int startup_tool_failed_count = 0;
+	Vector<AIEventRow> events = event_store->list("phase11-permission-recovery");
+	for (int i = 0; i < events.size(); i++) {
+		if (events[i].type == AIDomainEventTypes::tool_failed()) {
+			startup_tool_failed_count++;
+		}
+	}
+	CHECK(startup_tool_failed_count == 0);
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->set_session_store(session_store);
+	service->set_event_store(event_store);
+	service->set_projector(projector);
+
+	Dictionary interrupt;
+	interrupt["session_id"] = "phase11-permission-recovery";
+	interrupt["reason"] = "user cancelled pending permission";
+	const Dictionary interrupt_result = service->interrupt(interrupt);
+	REQUIRE(bool(interrupt_result.get("success", false)));
+
+	events = event_store->list("phase11-permission-recovery");
+	bool saw_tool_failed = false;
+	for (int i = 0; i < events.size(); i++) {
+		saw_tool_failed = saw_tool_failed || events[i].type == AIDomainEventTypes::tool_failed();
+	}
+	CHECK(saw_tool_failed);
 }
 
 } // namespace TestAgentV1

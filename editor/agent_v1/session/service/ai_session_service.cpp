@@ -4,15 +4,10 @@
 
 #include "ai_session_service.h"
 
-#include "core/object/class_db.h"
-#include "core/templates/hash_map.h"
-#include "core/variant/variant.h"
+#include "editor/agent_v1/session/recovery/ai_startup_recovery.h"
 
-static String _ai_session_service_tool_key(const Dictionary &p_data) {
-	const String assistant_message_id = String(p_data.get("assistant_message_id", p_data.get("assistantMessageID", String()))).strip_edges();
-	const String call_id = String(p_data.get("call_id", p_data.get("callID", p_data.get("id", String())))).strip_edges();
-	return assistant_message_id + "|" + call_id;
-}
+#include "core/object/class_db.h"
+#include "core/variant/variant.h"
 
 void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_session_store", "session_store"), &AISessionService::set_session_store);
@@ -31,6 +26,8 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_empty_runner"), &AISessionService::get_empty_runner);
 	ClassDB::bind_method(D_METHOD("set_session_runner", "session_runner"), &AISessionService::set_session_runner);
 	ClassDB::bind_method(D_METHOD("get_session_runner"), &AISessionService::get_session_runner);
+	ClassDB::bind_method(D_METHOD("set_compaction_service", "service"), &AISessionService::set_compaction_service);
+	ClassDB::bind_method(D_METHOD("get_compaction_service"), &AISessionService::get_compaction_service);
 	ClassDB::bind_method(D_METHOD("set_context_epoch_store", "store"), &AISessionService::set_context_epoch_store);
 	ClassDB::bind_method(D_METHOD("get_context_epoch_store"), &AISessionService::get_context_epoch_store);
 	ClassDB::bind_method(D_METHOD("set_context_source_registry", "registry"), &AISessionService::set_context_source_registry);
@@ -191,6 +188,9 @@ void AISessionService::_ensure_defaults() {
 	if (session_runner.is_null()) {
 		session_runner.instantiate();
 	}
+	if (compaction_service.is_null()) {
+		compaction_service.instantiate();
+	}
 	if (context_epoch_store.is_null()) {
 		context_epoch_store.instantiate();
 	}
@@ -261,9 +261,16 @@ void AISessionService::_wire_dependencies() {
 		session_runner->set_runtime_registry(runtime_registry);
 		session_runner->set_tool_registry(tool_registry);
 		session_runner->set_session_store(session_store);
+		session_runner->set_compaction_service(compaction_service);
 		session_runner->set_model_part_builder(model_part_builder);
 		session_runner->set_skill_service(skill_service);
 		session_runner->set_agent_service(agent_service);
+	}
+	if (compaction_service.is_valid()) {
+		compaction_service->set_event_store(event_store);
+		compaction_service->set_projector(projector);
+		compaction_service->set_context_source_registry(context_source_registry);
+		compaction_service->set_context_epoch_service(context_epoch_service);
 	}
 	if (context_source_registry.is_valid()) {
 		context_source_registry->set_config_service(config_service);
@@ -417,53 +424,18 @@ bool AISessionService::_append_admitted_event(AISessionInputRecord &r_input, AIE
 	return true;
 }
 
-bool AISessionService::_append_interrupted_tool_events(const String &p_session_id, const String &p_reason, AIError &r_error) {
+bool AISessionService::_append_interrupted_activity_events(const String &p_session_id, const String &p_reason, AIError &r_error) {
 	if (event_store.is_null()) {
 		r_error = AIError::none();
 		return true;
 	}
 
-	HashMap<String, Dictionary> open_calls;
-	const Vector<AIEventRow> rows = event_store->list(p_session_id, 0, false);
-	for (int i = 0; i < rows.size(); i++) {
-		const AIEventRow &row = rows[i];
-		if (row.type == AIDomainEventTypes::tool_called()) {
-			const String key = _ai_session_service_tool_key(row.data);
-			if (!key.ends_with("|")) {
-				open_calls[key] = row.data.duplicate(true);
-			}
-		} else if (row.type == AIDomainEventTypes::tool_success() || row.type == AIDomainEventTypes::tool_failed()) {
-			const String key = _ai_session_service_tool_key(row.data);
-			if (!key.ends_with("|")) {
-				open_calls.erase(key);
-			}
-		}
-	}
-
-	for (const KeyValue<String, Dictionary> &kv : open_calls) {
-		const Dictionary call = kv.value;
-		Dictionary data;
-		data["assistant_message_id"] = call.get("assistant_message_id", call.get("assistantMessageID", String()));
-		data["call_id"] = call.get("call_id", call.get("callID", String()));
-		data["tool"] = call.get("tool", call.get("name", String()));
-		data["name"] = data["tool"];
-		data["input"] = call.get("input", Variant());
-		data["error"] = AIError::make(AI_ERROR_INTERRUPTED, p_reason.strip_edges().is_empty() ? String("Tool execution interrupted.") : p_reason).to_dictionary();
-
-		AIEventRow row;
-		String event_error;
-		const String idempotency_key = "tool.interrupted:" + p_session_id + ":" + String(data["assistant_message_id"]) + ":" + String(data["call_id"]);
-		if (!event_store->append_idempotent(p_session_id, AIDomainEventTypes::tool_failed(), data, false, idempotency_key, row, event_error)) {
-			r_error = AIError::make(AI_ERROR_INTERNAL, event_error);
-			return false;
-		}
-		if (projector.is_valid()) {
-			projector->project(row);
-		}
-	}
-
-	r_error = AIError::none();
-	return true;
+	Dictionary report;
+	report["interrupted_sessions"] = Array();
+	report["failed_tool_calls"] = Array();
+	report["notes"] = Array();
+	const String reason = p_reason.strip_edges().is_empty() ? String("Session interrupted.") : p_reason;
+	return AIStartupRecovery::cleanup_open_activity_struct(event_store, projector, p_session_id, reason, true, true, false, report, r_error);
 }
 
 void AISessionService::set_session_store(const Ref<AISessionStore> &p_session_store) {
@@ -544,6 +516,16 @@ void AISessionService::set_session_runner(const Ref<AISessionRunner> &p_session_
 
 Ref<AISessionRunner> AISessionService::get_session_runner() const {
 	return session_runner;
+}
+
+void AISessionService::set_compaction_service(const Ref<AICompactionService> &p_service) {
+	compaction_service = p_service;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AICompactionService> AISessionService::get_compaction_service() const {
+	return compaction_service;
 }
 
 void AISessionService::set_context_epoch_store(const Ref<AIContextEpochStore> &p_store) {
@@ -787,14 +769,17 @@ Dictionary AISessionService::interrupt(const Dictionary &p_input) {
 		}
 	}
 
-	AIError tool_error;
-	if (!_append_interrupted_tool_events(session_id, reason, tool_error)) {
-		return _make_error_result(tool_error);
-	}
-
 	Dictionary result;
 	result["success"] = true;
-	result["interrupted"] = execution.is_valid() ? execution->interrupt(session_id, reason) : Dictionary();
+	const Dictionary interrupted = execution.is_valid() ? execution->interrupt(session_id, reason) : Dictionary();
+	result["interrupted"] = interrupted;
+
+	if (!bool(interrupted.get("interrupted", false))) {
+		AIError tool_error;
+		if (!_append_interrupted_activity_events(session_id, reason, tool_error)) {
+			return _make_error_result(tool_error);
+		}
+	}
 	return result;
 }
 

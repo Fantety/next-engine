@@ -10,12 +10,14 @@
 
 #include "core/object/ref_counted.h"
 #include "core/os/mutex.h"
+#include "core/templates/hash_map.h"
 
 class AIContextSourceRegistry : public RefCounted {
 	GDCLASS(AIContextSourceRegistry, RefCounted);
 
 	Ref<AIConfigService> config_service;
 	Vector<AISystemContextSource> manual_sources;
+	HashMap<String, Vector<AISystemContextSource>> manual_sources_by_session;
 	bool blocked = false;
 	String blocked_reason;
 	mutable Mutex mutex;
@@ -37,9 +39,13 @@ public:
 
 	void add_source(const Dictionary &p_source);
 	void add_source_struct(const AISystemContextSource &p_source);
+	void add_session_source(const String &p_session_id, const Dictionary &p_source);
+	void add_session_source_struct(const String &p_session_id, const AISystemContextSource &p_source);
+	void clear_session_sources_with_domain_prefix_struct(const String &p_session_id, const String &p_domain_prefix);
 	void clear_sources();
 	void set_blocked(bool p_blocked, const String &p_reason = String());
 
 	bool load_struct(const String &p_agent_id, const AILocationRef &p_location, const String &p_provider, const String &p_model, AISystemContext &r_context, AIError &r_error) const;
+	bool load_session_struct(const String &p_session_id, const String &p_agent_id, const AILocationRef &p_location, const String &p_provider, const String &p_model, AISystemContext &r_context, AIError &r_error) const;
 	Dictionary load(const String &p_agent_id, const Dictionary &p_location, const String &p_provider, const String &p_model) const;
 };

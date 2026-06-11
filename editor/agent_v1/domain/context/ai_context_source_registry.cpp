@@ -19,6 +19,7 @@ void AIContextSourceRegistry::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_config_service", "config_service"), &AIContextSourceRegistry::set_config_service);
 	ClassDB::bind_method(D_METHOD("get_config_service"), &AIContextSourceRegistry::get_config_service);
 	ClassDB::bind_method(D_METHOD("add_source", "source"), &AIContextSourceRegistry::add_source);
+	ClassDB::bind_method(D_METHOD("add_session_source", "session_id", "source"), &AIContextSourceRegistry::add_session_source);
 	ClassDB::bind_method(D_METHOD("clear_sources"), &AIContextSourceRegistry::clear_sources);
 	ClassDB::bind_method(D_METHOD("set_blocked", "blocked", "reason"), &AIContextSourceRegistry::set_blocked, DEFVAL(String()));
 	ClassDB::bind_method(D_METHOD("load", "agent_id", "location", "provider", "model"), &AIContextSourceRegistry::load);
@@ -114,9 +115,54 @@ void AIContextSourceRegistry::add_source_struct(const AISystemContextSource &p_s
 	manual_sources.push_back(p_source);
 }
 
+void AIContextSourceRegistry::add_session_source(const String &p_session_id, const Dictionary &p_source) {
+	add_session_source_struct(p_session_id, AISystemContextSource::from_dictionary(p_source));
+}
+
+void AIContextSourceRegistry::add_session_source_struct(const String &p_session_id, const AISystemContextSource &p_source) {
+	const String session_id = p_session_id.strip_edges();
+	if (session_id.is_empty()) {
+		add_source_struct(p_source);
+		return;
+	}
+
+	MutexLock lock(mutex);
+	manual_sources_by_session[session_id].push_back(p_source);
+}
+
+void AIContextSourceRegistry::clear_session_sources_with_domain_prefix_struct(const String &p_session_id, const String &p_domain_prefix) {
+	const String session_id = p_session_id.strip_edges();
+	const String domain_prefix = p_domain_prefix.strip_edges();
+	if (session_id.is_empty() || domain_prefix.is_empty()) {
+		return;
+	}
+
+	MutexLock lock(mutex);
+	HashMap<String, Vector<AISystemContextSource>>::Iterator session_sources = manual_sources_by_session.find(session_id);
+	if (!session_sources) {
+		return;
+	}
+
+	Vector<AISystemContextSource> retained_sources;
+	for (int i = 0; i < session_sources->value.size(); i++) {
+		const String domain = session_sources->value[i].domain;
+		if (domain == domain_prefix || domain.begins_with(domain_prefix + ":") || domain.begins_with(domain_prefix + "/")) {
+			continue;
+		}
+		retained_sources.push_back(session_sources->value[i]);
+	}
+
+	if (retained_sources.is_empty()) {
+		manual_sources_by_session.erase(session_id);
+	} else {
+		session_sources->value = retained_sources;
+	}
+}
+
 void AIContextSourceRegistry::clear_sources() {
 	MutexLock lock(mutex);
 	manual_sources.clear();
+	manual_sources_by_session.clear();
 }
 
 void AIContextSourceRegistry::set_blocked(bool p_blocked, const String &p_reason) {
@@ -126,6 +172,10 @@ void AIContextSourceRegistry::set_blocked(bool p_blocked, const String &p_reason
 }
 
 bool AIContextSourceRegistry::load_struct(const String &p_agent_id, const AILocationRef &p_location, const String &p_provider, const String &p_model, AISystemContext &r_context, AIError &r_error) const {
+	return load_session_struct(String(), p_agent_id, p_location, p_provider, p_model, r_context, r_error);
+}
+
+bool AIContextSourceRegistry::load_session_struct(const String &p_session_id, const String &p_agent_id, const AILocationRef &p_location, const String &p_provider, const String &p_model, AISystemContext &r_context, AIError &r_error) const {
 	Vector<AISystemContextSource> sources;
 	{
 		MutexLock lock(mutex);
@@ -140,6 +190,15 @@ bool AIContextSourceRegistry::load_struct(const String &p_agent_id, const AILoca
 		}
 		for (int i = 0; i < manual_sources.size(); i++) {
 			sources.push_back(manual_sources[i]);
+		}
+		const String session_id = p_session_id.strip_edges();
+		if (!session_id.is_empty()) {
+			HashMap<String, Vector<AISystemContextSource>>::ConstIterator session_sources = manual_sources_by_session.find(session_id);
+			if (session_sources) {
+				for (int i = 0; i < session_sources->value.size(); i++) {
+					sources.push_back(session_sources->value[i]);
+				}
+			}
 		}
 	}
 
