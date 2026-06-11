@@ -33,6 +33,8 @@
 #include "editor/agent_v1/skills/ai_skill_service_v1.h"
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
+#include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_adapter.h"
+#include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
 #include "tests/test_utils.h"
 
 TEST_FORCE_LINK(test_agent_v1);
@@ -134,6 +136,30 @@ public:
 	bool handle_event(const Dictionary &p_event) {
 		events.push_back(p_event);
 		return false;
+	}
+};
+
+class AgentV1UIAdapterSignalCollector : public RefCounted {
+	GDCLASS(AgentV1UIAdapterSignalCollector, RefCounted);
+
+public:
+	Array permission_requests;
+	Array message_snapshots;
+	Array run_states;
+
+	void on_permission_requested(const Dictionary &p_request) {
+		permission_requests.push_back(p_request.duplicate(true));
+	}
+
+	void on_messages_changed(const String &p_session_id, const Array &p_messages) {
+		Dictionary snapshot;
+		snapshot["session_id"] = p_session_id;
+		snapshot["messages"] = p_messages.duplicate(true);
+		message_snapshots.push_back(snapshot);
+	}
+
+	void on_run_state_changed(const Dictionary &p_state) {
+		run_states.push_back(p_state.duplicate(true));
 	}
 };
 
@@ -3616,6 +3642,159 @@ TEST_CASE("[Editor][AgentV1] Startup recovery retains permission-pending tools b
 		saw_tool_failed = saw_tool_failed || events[i].type == AIDomainEventTypes::tool_failed();
 	}
 	CHECK(saw_tool_failed);
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter creates sessions and projects UI messages") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Ref<AgentV1UIAdapterSignalCollector> collector;
+	collector.instantiate();
+	adapter->connect("messages_changed", callable_mp(collector.ptr(), &AgentV1UIAdapterSignalCollector::on_messages_changed));
+	adapter->connect("run_state_changed", callable_mp(collector.ptr(), &AgentV1UIAdapterSignalCollector::on_run_state_changed));
+
+	Dictionary create;
+	create["id"] = "ui-session-a";
+	create["directory"] = "res://";
+	create["agent_id"] = "main";
+	create["title"] = "UI Session";
+	const Dictionary session = adapter->create_session(create);
+	REQUIRE(bool(session.get("success", false)));
+	CHECK(String(session.get("id", String())) == "ui-session-a");
+	CHECK(adapter->get_active_session_id() == "ui-session-a");
+
+	const Array sessions = adapter->list_sessions();
+	REQUIRE(sessions.size() == 1);
+	CHECK(String(Dictionary(sessions[0]).get("id", String())) == "ui-session-a");
+
+	const Dictionary sent = adapter->send_message("hello from ui", "fake-model", "main", Array(), false);
+	REQUIRE(bool(sent.get("success", false)));
+
+	const Array messages = adapter->get_messages("ui-session-a");
+	REQUIRE(messages.size() == 1);
+	const Dictionary message = messages[0];
+	CHECK(String(message.get("role", String())) == "user");
+	CHECK(String(message.get("content", String())) == "hello from ui");
+	CHECK(String(message.get("session_id", String())) == "ui-session-a");
+
+	const Dictionary metadata = message.get("metadata", Dictionary());
+	CHECK(String(metadata.get("agent_v1_type", String())) == "user");
+	CHECK(int64_t(metadata.get("seq", 0)) > 0);
+
+	REQUIRE(collector->message_snapshots.size() >= 1);
+	const Dictionary latest_snapshot = collector->message_snapshots[collector->message_snapshots.size() - 1];
+	CHECK(String(latest_snapshot.get("session_id", String())) == "ui-session-a");
+	CHECK(Array(latest_snapshot.get("messages", Array())).size() == 1);
+
+	REQUIRE(collector->run_states.size() >= 1);
+	const Dictionary run_state = collector->run_states[collector->run_states.size() - 1];
+	CHECK(String(run_state.get("session_id", String())) == "ui-session-a");
+	CHECK_FALSE(bool(run_state.get("busy", true)));
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter maps permission pending requests for UI") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Ref<AgentV1UIAdapterSignalCollector> collector;
+	collector.instantiate();
+	adapter->connect("permission_requested", callable_mp(collector.ptr(), &AgentV1UIAdapterSignalCollector::on_permission_requested));
+
+	Dictionary create;
+	create["id"] = "ui-permission-session";
+	create["directory"] = "res://";
+	REQUIRE(bool(adapter->create_session(create).get("success", false)));
+
+	Dictionary source;
+	source["tool_name"] = "file_write";
+	source["call_id"] = "call-ui";
+
+	Dictionary input;
+	input["session_id"] = "ui-permission-session";
+	input["action"] = "file.write";
+	input["resource"] = "res://ui.txt";
+	input["source"] = source;
+	const Dictionary decision = service->get_permission_service()->assert_permission(input);
+	REQUIRE(bool(decision.get("pending", false)));
+
+	const Array pending = adapter->refresh_pending_permissions();
+	REQUIRE(pending.size() == 1);
+	const Dictionary request = pending[0];
+	CHECK(String(request.get("request_id", String())).begins_with("perm_"));
+	CHECK(String(request.get("session_id", String())) == "ui-permission-session");
+	CHECK(String(request.get("action", String())) == "file.write");
+	CHECK(String(request.get("resource", String())) == "res://ui.txt");
+
+	REQUIRE(collector->permission_requests.size() == 1);
+	CHECK(String(Dictionary(collector->permission_requests[0]).get("request_id", String())) == String(request.get("request_id", String())));
+
+	const Dictionary reply = adapter->reply_permission(String(request.get("request_id", String())), false, "not from UI");
+	CHECK_FALSE(bool(reply.get("success", true)));
+	CHECK(String(reply.get("reply", String())) == "reject");
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Config adapter exposes settings snapshot without old settings") {
+	Ref<AIConfigService> config;
+	config.instantiate();
+
+	Dictionary fake_provider;
+	fake_provider["type"] = "fake";
+	fake_provider["model"] = "fake-model";
+	Dictionary providers;
+	providers["fake"] = fake_provider;
+
+	Dictionary reviewer_agent;
+	reviewer_agent["name"] = "Reviewer";
+	reviewer_agent["provider"] = "fake";
+	reviewer_agent["model"] = "fake-model";
+	Dictionary agents;
+	agents["reviewer"] = reviewer_agent;
+
+	Dictionary override_config;
+	override_config["default_provider"] = "fake";
+	override_config["default_model"] = "fake-model";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	config->set_runtime_override(override_config);
+
+	Ref<AIAgentV1UIConfigAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_config_service(config);
+
+	const Dictionary snapshot = adapter->get_settings_snapshot();
+	const Array models = snapshot.get("models", Array());
+	REQUIRE(models.size() == 1);
+	CHECK(String(Dictionary(models[0]).get("provider", String())) == "fake");
+	CHECK(String(Dictionary(models[0]).get("model", String())) == "fake-model");
+
+	const Array agent_items = snapshot.get("agents", Array());
+	REQUIRE(agent_items.size() >= 1);
+	bool saw_reviewer = false;
+	for (int i = 0; i < agent_items.size(); i++) {
+		const Dictionary agent_item = agent_items[i];
+		saw_reviewer = saw_reviewer || String(agent_item.get("id", String())) == "reviewer";
+	}
+	CHECK(saw_reviewer);
+
+	Dictionary patch;
+	patch["default_model"] = "fake-model-2";
+	const Dictionary patched = adapter->patch_settings(patch, "runtime");
+	REQUIRE(bool(patched.get("success", false)));
+	CHECK(String(adapter->get_settings_snapshot().get("default_model", String())) == "fake-model-2");
 }
 
 } // namespace TestAgentV1
