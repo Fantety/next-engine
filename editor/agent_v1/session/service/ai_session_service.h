@@ -5,7 +5,9 @@
 #pragma once
 
 #include "editor/agent_v1/config/ai_config_service.h"
+#include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
+#include "editor/agent_v1/domain/context/ai_context_source_registry.h"
 #include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_llm_runtime_registry.h"
 #include "editor/agent_v1/session/admission/ai_prompt_promoter.h"
@@ -29,6 +31,8 @@ class AISessionService : public RefCounted {
 	Ref<AIEmptySessionRunner> empty_runner;
 	Ref<AISessionRunner> session_runner;
 	Ref<AIContextEpochStore> context_epoch_store;
+	Ref<AIContextSourceRegistry> context_source_registry;
+	Ref<AIContextEpochService> context_epoch_service;
 	Ref<AIConfigService> config_service;
 	Ref<AILLMRuntimeRegistry> runtime_registry;
 	Ref<AIPermissionService> permission_service;
@@ -69,6 +73,10 @@ public:
 	Ref<AISessionRunner> get_session_runner() const;
 	void set_context_epoch_store(const Ref<AIContextEpochStore> &p_store);
 	Ref<AIContextEpochStore> get_context_epoch_store() const;
+	void set_context_source_registry(const Ref<AIContextSourceRegistry> &p_registry);
+	Ref<AIContextSourceRegistry> get_context_source_registry() const;
+	void set_context_epoch_service(const Ref<AIContextEpochService> &p_service);
+	Ref<AIContextEpochService> get_context_epoch_service() const;
 	void set_config_service(const Ref<AIConfigService> &p_config_service);
 	Ref<AIConfigService> get_config_service() const;
 	void set_runtime_registry(const Ref<AILLMRuntimeRegistry> &p_registry);

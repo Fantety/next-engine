@@ -53,7 +53,7 @@ void AIAttachmentBlobStore::_bind_methods() {
 }
 
 AIAttachmentBlobStore::AIAttachmentBlobStore() {
-	base_dir = "user://agent_v1/attachments";
+	base_dir = "user://net.nextengine/agent_v1/attachments";
 }
 
 uint64_t AIAttachmentBlobStore::_now_unix_time() {

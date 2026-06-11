@@ -23,10 +23,12 @@ public:
 	bool set_epoch_struct(const AIContextEpoch &p_epoch);
 	bool get_epoch_struct(const String &p_session_id, AIContextEpoch &r_epoch) const;
 	AIContextEpoch reset_epoch_struct(const String &p_session_id, const String &p_baseline, const Dictionary &p_snapshot, const String &p_agent_id, int64_t p_baseline_seq, int64_t p_replacement_seq = 0);
+	bool clear_epoch_struct(const String &p_session_id);
 
 	bool set_epoch(const Dictionary &p_epoch);
 	Dictionary get_epoch(const String &p_session_id) const;
 	Dictionary reset_epoch(const String &p_session_id, const String &p_baseline, const Dictionary &p_snapshot, const String &p_agent_id, int64_t p_baseline_seq, int64_t p_replacement_seq = 0);
+	bool clear_epoch(const String &p_session_id);
 	bool has_epoch(const String &p_session_id) const;
 	void clear();
 };

@@ -313,9 +313,7 @@ void AISessionProjector::_project_row_locked(const AIEventRow &p_row) {
 			if (epoch.session_id.is_empty()) {
 				epoch.session_id = session_id;
 			}
-			if (epoch.baseline_seq == 0) {
-				epoch.baseline_seq = p_row.seq;
-			}
+			epoch.baseline_seq = p_row.seq;
 			const int previous_revision = context_epochs_by_session.has(session_id) ? context_epochs_by_session[session_id].revision : 0;
 			if (epoch.revision == 0) {
 				epoch.revision = previous_revision + 1;

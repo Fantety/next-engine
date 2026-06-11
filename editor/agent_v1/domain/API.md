@@ -37,10 +37,14 @@ editor/agent_v1/domain
     ai_event_types.*
     ai_event_store.*
   context/
+    ai_system_context.*
+    ai_context_source_registry.*
+    ai_context_epoch_service.*
     ai_context_epoch_store.*
   projection/
     ai_session_projector.*
     ai_session_history.*
+    ai_token_estimator.*
 ```
 
 构建入口：
@@ -53,10 +57,13 @@ SConscript("agent_v1/domain/SCsub")
 已注册到 ClassDB 的服务类：
 
 ```cpp
+GDREGISTER_CLASS(AIContextEpochService);
 GDREGISTER_CLASS(AIContextEpochStore);
+GDREGISTER_CLASS(AIContextSourceRegistry);
 GDREGISTER_CLASS(AIEventStore);
 GDREGISTER_CLASS(AISessionHistory);
 GDREGISTER_CLASS(AISessionProjector);
+GDREGISTER_CLASS(AITokenEstimator);
 ```
 
 值对象保持为 C++ struct，不注册为 Godot Object。对外脚本边界使用 `Dictionary` / `Array`。
@@ -497,13 +504,13 @@ class AIEventStore : public RefCounted;
 默认路径：
 
 ```text
-user://agent_v1/events
+user://net.nextengine/agent_v1/events
 ```
 
 每个 aggregate 一个 JSONL 文件：
 
 ```text
-user://agent_v1/events/<aggregate_id>.jsonl
+user://net.nextengine/agent_v1/events/<aggregate_id>.jsonl
 ```
 
 主要 API：
@@ -564,6 +571,7 @@ Dictionary row = store->append_durable_event(session_id, AIDomainEventTypes::pro
 ```cpp
 #include "editor/agent_v1/domain/projection/ai_session_projector.h"
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
+#include "editor/agent_v1/domain/projection/ai_token_estimator.h"
 ```
 
 ### AISessionProjector
@@ -641,6 +649,7 @@ session.next.compaction.ended
 
 - Projector 忽略 live-only events。
 - `get_projected_seq()` 只反映 durable projection cursor。
+- `session.next.context.updated` 的 projected epoch 以 `AIEventRow.seq` 作为 canonical `baseline_seq`，忽略旧 payload 中可能滞后的 `baseline_seq`。
 - Tool settlement 必须先定位 assistant message，再定位 tool call id。
 - `mark_pending_tools_interrupted()` 只修改当前投影读模型，不写 durable event；它只能用于临时读模型修正，不能作为恢复/中断的 source of truth。
 
@@ -664,9 +673,12 @@ class AISessionHistory : public RefCounted;
 
 ```cpp
 static Vector<AISessionMessage> entries_for_runner(const Vector<AISessionMessage> &p_messages, int64_t p_baseline_seq);
+static Vector<AISessionMessage> entries_for_runner(const Vector<AISessionMessage> &p_messages, int64_t p_baseline_seq, int64_t p_token_budget);
 
 Array entries_for_runner_from_messages(const Array &p_messages, int64_t p_baseline_seq) const;
+Array entries_for_runner_with_budget_from_messages(const Array &p_messages, int64_t p_baseline_seq, int64_t p_token_budget) const;
 Array entries_for_runner_from_projector(const Ref<AISessionProjector> &p_projector, const String &p_session_id, int64_t p_baseline_seq) const;
+Array entries_for_runner_with_budget_from_projector(const Ref<AISessionProjector> &p_projector, const String &p_session_id, int64_t p_baseline_seq, int64_t p_token_budget) const;
 ```
 
 规则：
@@ -674,15 +686,135 @@ Array entries_for_runner_from_projector(const Ref<AISessionProjector> &p_project
 - 查找最新 `AI_SESSION_MESSAGE_COMPACTION` 的 `seq` 作为 compaction boundary。
 - 丢弃 boundary 之前的消息。
 - System message 只有 `seq > baseline_seq` 时进入 Runner。
+- 设置 token budget 时，从尾部保留最近消息；system/compaction message 保留；单个 assistant tool content 不会被拆开。
 - Runner 后续应基于这里的结果构造 `AIModelRequest.messages`，不要直接读 EventStore。
+
+### AITokenEstimator
+
+```cpp
+class AITokenEstimator : public RefCounted;
+```
+
+主要 API：
+
+```cpp
+static int64_t estimate_text_tokens(const String &p_text);
+static int64_t estimate_variant_tokens(const Variant &p_value);
+static int64_t estimate_message_struct(const AISessionMessage &p_message);
+
+int64_t estimate_text(const String &p_text) const;
+int64_t estimate_variant(const Variant &p_value) const;
+int64_t estimate_message(const Dictionary &p_message) const;
+```
+
+语义：
+
+- 当前是 provider-neutral 的保守估算器，用于 Phase 6 history selection。
+- 后续 provider tokenizer 可以替换该估算策略，但不应改变 `AISessionHistory` 的“按完整 message 裁剪”约束。
 
 ## context
 
 文件：
 
 ```cpp
+#include "editor/agent_v1/domain/context/ai_system_context.h"
+#include "editor/agent_v1/domain/context/ai_context_source_registry.h"
+#include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
 ```
+
+### AISystemContextSource / AISystemContext
+
+```cpp
+struct AISystemContextSource {
+	String domain;
+	String text;
+	String content_hash;
+	bool required;
+	bool available;
+	int priority;
+	Dictionary metadata;
+};
+
+struct AISystemContext {
+	String baseline;
+	Vector<AISystemContextSource> sources;
+	Dictionary snapshot;
+	bool available;
+	String blocked_reason;
+};
+```
+
+主要 API：
+
+```cpp
+bool AISystemContextSource::is_blocking() const;
+Dictionary AISystemContextSource::to_dictionary() const;
+static AISystemContextSource AISystemContextSource::from_dictionary(const Dictionary &p_dict);
+
+bool AISystemContext::is_available() const;
+Dictionary AISystemContext::to_dictionary() const;
+static AISystemContext AISystemContext::from_dictionary(const Dictionary &p_dict);
+static AISystemContext AISystemContext::combine(const Vector<AISystemContextSource> &p_sources);
+```
+
+语义：
+
+- `domain + content_hash` 是 Context Epoch reconcile 的比较基础。
+- `baseline` 是所有可用 source text 的有序组合。
+- `snapshot` 是 model-hidden source observation，包含 source hash、baseline hash 和 snapshot hash。
+- required source 不可用时，Runner 必须停止，不能 promote pending prompt。
+
+### AIContextSourceRegistry
+
+```cpp
+class AIContextSourceRegistry : public RefCounted;
+```
+
+主要 API：
+
+```cpp
+void set_config_service(const Ref<AIConfigService> &p_config_service);
+bool load_struct(const String &p_agent_id, const AILocationRef &p_location, const String &p_provider, const String &p_model, AISystemContext &r_context, AIError &r_error) const;
+Dictionary load(const String &p_agent_id, const Dictionary &p_location, const String &p_provider, const String &p_model) const;
+void add_source(const Dictionary &p_source);
+void clear_sources();
+void set_blocked(bool p_blocked, const String &p_reason = String());
+```
+
+当前内置 sources：
+
+- environment facts，包括 NextEngine agent runtime、workspace directory、host-local date。
+- model selection snapshot。
+- config 中 selected agent 的 `system`。
+- provider `system` / `instructions`。
+- `skills.guidance` / `skills.sources` 作为后续 Skill 机制接入口。
+
+### AIContextEpochService
+
+```cpp
+class AIContextEpochService : public RefCounted;
+```
+
+主要 API：
+
+```cpp
+bool initialize_struct(const String &p_session_id, const AILocationRef &p_location, const String &p_agent_id, const AISystemContext &p_context, AIContextEpoch &r_epoch, bool &r_initialized, AIError &r_error);
+bool prepare_struct(const String &p_session_id, const AILocationRef &p_location, const String &p_agent_id, const AISystemContext &p_context, AIContextEpoch &r_epoch, AIError &r_error);
+bool current_struct(const String &p_session_id, const String &p_agent_id, int p_revision, AIContextEpoch &r_epoch, AIError &r_error) const;
+bool current_struct(const String &p_session_id, const String &p_agent_id, int p_revision, const AISystemContext &p_context, AIContextEpoch &r_epoch, AIError &r_error) const;
+bool request_replacement_struct(const String &p_session_id, int64_t p_seq, AIError &r_error);
+bool reset_struct(const String &p_session_id, AIError &r_error);
+```
+
+语义：
+
+- `initialize/prepare` 是唯一可以写 `session.next.context.updated` 的入口。
+- Context 未变化时复用旧 epoch，不写重复 system message。
+- 内存 epoch 缺失时，服务会先从 `AISessionProjector` 或 `AIEventStore` 重建的 projected `context.updated` 水合，避免进程重启后重复写 system context。
+- Context 变化、agent 变化、replacement request、compaction boundary 变化时写新的 `context.updated` 并推进 revision。
+- `current_struct(..., context, ...)` 是 provider turn 前的严格 fence，必须同时确认 agent、revision、baseline 与 snapshot 未变化；冲突会返回带 `rebuild_request = true` 的 `AI_ERROR_CONFLICT`。
+- `reset_struct()` 用于 Session move，下一次 turn 重新初始化 baseline。
 
 ### AIContextEpochStore
 
@@ -696,17 +828,19 @@ class AIContextEpochStore : public RefCounted;
 bool set_epoch_struct(const AIContextEpoch &p_epoch);
 bool get_epoch_struct(const String &p_session_id, AIContextEpoch &r_epoch) const;
 AIContextEpoch reset_epoch_struct(const String &p_session_id, const String &p_baseline, const Dictionary &p_snapshot, const String &p_agent_id, int64_t p_baseline_seq, int64_t p_replacement_seq = 0);
+bool clear_epoch_struct(const String &p_session_id);
 
 bool set_epoch(const Dictionary &p_epoch);
 Dictionary get_epoch(const String &p_session_id) const;
 Dictionary reset_epoch(const String &p_session_id, const String &p_baseline, const Dictionary &p_snapshot, const String &p_agent_id, int64_t p_baseline_seq, int64_t p_replacement_seq = 0);
+bool clear_epoch(const String &p_session_id);
 bool has_epoch(const String &p_session_id) const;
 void clear();
 ```
 
 语义：
 
-- Store 当前是内存表，后续可由 Session service 替换为磁盘持久化表。
+- Store 当前是内存表； durable source of truth 仍是 `session.next.context.updated`，`AIContextEpochService` 会从投影/事件日志水合缺失的内存 epoch。
 - `reset_epoch()` 会递增 revision。
 - `baseline_seq` 与 Runner history 过滤配合使用。
 - Location move、agent/model switch、compaction replacement 都应调用 reset。
@@ -732,11 +866,19 @@ UI Composer
 
 ```text
 SessionExecution
+  -> Runner projects durable history
+  -> ContextSourceRegistry.load(...)
+  -> ContextEpochService.prepare(...)
   -> append session.next.prompt.promoted
   -> Projector marks promoted_seq
   -> Projector inserts user session_message
   -> SessionHistory exposes it to Runner
 ```
+
+关键点：
+
+- 首次或 replacement context 不可用时，不执行 prompt promotion。
+- `session.next.context.updated` 必须早于首个 model-visible prompt。
 
 ### Provider Streaming
 
@@ -796,6 +938,7 @@ SessionHistory.entries_for_runner(...)
   -> latest compaction boundary
   -> messages after boundary
   -> system messages after baseline_seq
+  -> optional token-budget trimming without splitting tool content
   -> Runner builds AIModelRequest
 ```
 
@@ -803,7 +946,7 @@ SessionHistory.entries_for_runner(...)
 
 - `AIEventStore` 已提供 durable JSONL 存储，但不是完整数据库层。
 - `AISessionProjector` 的 read model 当前在内存中，进程重启后应通过 `rebuild_from_store()` 重建。
-- `AIContextEpochStore` 当前在内存中，后续应接入 Session persistence。
+- `AIContextEpochStore` 当前在内存中；恢复时由 `AIContextEpochService` 从 durable `context.updated` 投影水合，不单独作为 source of truth。
 - Session 创建、复用、删除、移动、title/model/cost 更新尚未在本层实现。
 - Prompt exact retry conflict 尚未在本层强制执行，应由 Session service append 前检查。
 - Permission events 在 domain 层只定义事件名和 durable 分类；具体权限状态机由 `editor/agent_v1/permission` 实现。

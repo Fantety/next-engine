@@ -32,7 +32,7 @@ void AIEventStore::_bind_methods() {
 }
 
 AIEventStore::AIEventStore() {
-	base_dir = "user://agent_v1/events";
+	base_dir = "user://net.nextengine/agent_v1/events";
 }
 
 String AIEventStore::_sanitize_aggregate_id(const String &p_aggregate_id) {

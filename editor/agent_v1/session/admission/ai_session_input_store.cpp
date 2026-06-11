@@ -28,7 +28,7 @@ void AISessionInputStore::_bind_methods() {
 }
 
 AISessionInputStore::AISessionInputStore() {
-	base_dir = "user://agent_v1/session_inputs";
+	base_dir = "user://net.nextengine/agent_v1/session_inputs";
 }
 
 uint64_t AISessionInputStore::_now_unix_time() {

@@ -23,7 +23,7 @@ void AISessionStore::_bind_methods() {
 }
 
 AISessionStore::AISessionStore() {
-	base_dir = "user://agent_v1/sessions";
+	base_dir = "user://net.nextengine/agent_v1/sessions";
 }
 
 uint64_t AISessionStore::_now_unix_time() {

@@ -159,10 +159,13 @@
 #include "editor/agent_v1/core/threading/ai_task_runner.h"
 #include "editor/agent_v1/core/transport/ai_http_client.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_blob_store.h"
+#include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
+#include "editor/agent_v1/domain/context/ai_context_source_registry.h"
 #include "editor/agent_v1/domain/events/ai_event_store.h"
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
 #include "editor/agent_v1/domain/projection/ai_session_projector.h"
+#include "editor/agent_v1/domain/projection/ai_token_estimator.h"
 #include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
 #include "editor/agent_v1/runtime/ai_llm_runtime.h"
@@ -314,10 +317,13 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIOpenAICompatibleRuntime);
 	GDREGISTER_CLASS(AILLMRuntimeRegistry);
 	GDREGISTER_CLASS(AIAttachmentBlobStore);
+	GDREGISTER_CLASS(AIContextEpochService);
 	GDREGISTER_CLASS(AIContextEpochStore);
+	GDREGISTER_CLASS(AIContextSourceRegistry);
 	GDREGISTER_CLASS(AIEventStore);
 	GDREGISTER_CLASS(AISessionHistory);
 	GDREGISTER_CLASS(AISessionProjector);
+	GDREGISTER_CLASS(AITokenEstimator);
 	GDREGISTER_CLASS(AIPermissionService);
 	GDREGISTER_CLASS(AIV1Tool);
 	GDREGISTER_CLASS(AIV1ReadFileTool);

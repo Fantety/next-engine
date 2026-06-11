@@ -33,6 +33,10 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_session_runner"), &AISessionService::get_session_runner);
 	ClassDB::bind_method(D_METHOD("set_context_epoch_store", "store"), &AISessionService::set_context_epoch_store);
 	ClassDB::bind_method(D_METHOD("get_context_epoch_store"), &AISessionService::get_context_epoch_store);
+	ClassDB::bind_method(D_METHOD("set_context_source_registry", "registry"), &AISessionService::set_context_source_registry);
+	ClassDB::bind_method(D_METHOD("get_context_source_registry"), &AISessionService::get_context_source_registry);
+	ClassDB::bind_method(D_METHOD("set_context_epoch_service", "service"), &AISessionService::set_context_epoch_service);
+	ClassDB::bind_method(D_METHOD("get_context_epoch_service"), &AISessionService::get_context_epoch_service);
 	ClassDB::bind_method(D_METHOD("set_config_service", "config_service"), &AISessionService::set_config_service);
 	ClassDB::bind_method(D_METHOD("get_config_service"), &AISessionService::get_config_service);
 	ClassDB::bind_method(D_METHOD("set_runtime_registry", "registry"), &AISessionService::set_runtime_registry);
@@ -148,6 +152,12 @@ void AISessionService::_ensure_defaults() {
 	if (context_epoch_store.is_null()) {
 		context_epoch_store.instantiate();
 	}
+	if (context_source_registry.is_null()) {
+		context_source_registry.instantiate();
+	}
+	if (context_epoch_service.is_null()) {
+		context_epoch_service.instantiate();
+	}
 	if (config_service.is_null()) {
 		config_service.instantiate();
 	}
@@ -179,10 +189,20 @@ void AISessionService::_wire_dependencies() {
 		session_runner->set_event_store(event_store);
 		session_runner->set_projector(projector);
 		session_runner->set_context_epoch_store(context_epoch_store);
+		session_runner->set_context_source_registry(context_source_registry);
+		session_runner->set_context_epoch_service(context_epoch_service);
 		session_runner->set_config_service(config_service);
 		session_runner->set_runtime_registry(runtime_registry);
 		session_runner->set_tool_registry(tool_registry);
 		session_runner->set_session_store(session_store);
+	}
+	if (context_source_registry.is_valid()) {
+		context_source_registry->set_config_service(config_service);
+	}
+	if (context_epoch_service.is_valid()) {
+		context_epoch_service->set_epoch_store(context_epoch_store);
+		context_epoch_service->set_event_store(event_store);
+		context_epoch_service->set_projector(projector);
 	}
 	if (permission_service.is_valid()) {
 		permission_service->set_event_store(event_store);
@@ -396,6 +416,26 @@ void AISessionService::set_context_epoch_store(const Ref<AIContextEpochStore> &p
 
 Ref<AIContextEpochStore> AISessionService::get_context_epoch_store() const {
 	return context_epoch_store;
+}
+
+void AISessionService::set_context_source_registry(const Ref<AIContextSourceRegistry> &p_registry) {
+	context_source_registry = p_registry;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIContextSourceRegistry> AISessionService::get_context_source_registry() const {
+	return context_source_registry;
+}
+
+void AISessionService::set_context_epoch_service(const Ref<AIContextEpochService> &p_service) {
+	context_epoch_service = p_service;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIContextEpochService> AISessionService::get_context_epoch_service() const {
+	return context_epoch_service;
 }
 
 void AISessionService::set_config_service(const Ref<AIConfigService> &p_config_service) {

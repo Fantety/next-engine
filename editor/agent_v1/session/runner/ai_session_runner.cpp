@@ -175,6 +175,17 @@ static String _ai_session_runner_tool_key(const Dictionary &p_data) {
 	return assistant_message_id + "|" + call_id;
 }
 
+static Dictionary _ai_session_runner_dictionary_from_variant(const Variant &p_value) {
+	if (p_value.get_type() == Variant::DICTIONARY) {
+		return Dictionary(p_value).duplicate(true);
+	}
+	return Dictionary();
+}
+
+static bool _ai_session_runner_same_location(const AILocationRef &p_left, const AILocationRef &p_right) {
+	return p_left.directory.strip_edges() == p_right.directory.strip_edges() && p_left.workspace_id.strip_edges() == p_right.workspace_id.strip_edges();
+}
+
 void AISessionRunner::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_prompt_promoter", "prompt_promoter"), &AISessionRunner::set_prompt_promoter);
 	ClassDB::bind_method(D_METHOD("get_prompt_promoter"), &AISessionRunner::get_prompt_promoter);
@@ -184,6 +195,10 @@ void AISessionRunner::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_projector"), &AISessionRunner::get_projector);
 	ClassDB::bind_method(D_METHOD("set_context_epoch_store", "store"), &AISessionRunner::set_context_epoch_store);
 	ClassDB::bind_method(D_METHOD("get_context_epoch_store"), &AISessionRunner::get_context_epoch_store);
+	ClassDB::bind_method(D_METHOD("set_context_source_registry", "registry"), &AISessionRunner::set_context_source_registry);
+	ClassDB::bind_method(D_METHOD("get_context_source_registry"), &AISessionRunner::get_context_source_registry);
+	ClassDB::bind_method(D_METHOD("set_context_epoch_service", "service"), &AISessionRunner::set_context_epoch_service);
+	ClassDB::bind_method(D_METHOD("get_context_epoch_service"), &AISessionRunner::get_context_epoch_service);
 	ClassDB::bind_method(D_METHOD("set_config_service", "config_service"), &AISessionRunner::set_config_service);
 	ClassDB::bind_method(D_METHOD("get_config_service"), &AISessionRunner::get_config_service);
 	ClassDB::bind_method(D_METHOD("set_runtime_registry", "registry"), &AISessionRunner::set_runtime_registry);
@@ -197,10 +212,14 @@ void AISessionRunner::_bind_methods() {
 
 AISessionRunner::AISessionRunner() {
 	context_epoch_store.instantiate();
+	context_source_registry.instantiate();
+	context_epoch_service.instantiate();
 	config_service.instantiate();
 	runtime_registry.instantiate();
 	tool_registry.instantiate();
 	tool_registry->register_builtin_tools();
+	context_source_registry->set_config_service(config_service);
+	context_epoch_service->set_epoch_store(context_epoch_store);
 }
 
 String AISessionRunner::_message_text(const AISessionMessage &p_message) {
@@ -244,26 +263,29 @@ AIModelMessage AISessionRunner::_message_to_model(const AISessionMessage &p_mess
 	return AIModelMessage::text_message(role, text, p_message.id);
 }
 
-String AISessionRunner::_system_baseline_from_array(const Array &p_system) {
-	String baseline;
-	for (int i = 0; i < p_system.size(); i++) {
-		const String item = String(p_system[i]).strip_edges();
-		if (!item.is_empty()) {
-			baseline += baseline.is_empty() ? item : "\n\n" + item;
-		}
-	}
-	return baseline;
-}
-
-Vector<AIModelPart> AISessionRunner::_system_parts_from_array(const Array &p_system) {
+Vector<AIModelPart> AISessionRunner::_system_parts_from_baseline(const String &p_baseline) {
 	Vector<AIModelPart> result;
-	for (int i = 0; i < p_system.size(); i++) {
-		const String item = String(p_system[i]).strip_edges();
-		if (!item.is_empty()) {
-			result.push_back(AIModelPart::text_part(item));
-		}
+	const String baseline = p_baseline.strip_edges();
+	if (!baseline.is_empty()) {
+		result.push_back(AIModelPart::text_part(baseline));
 	}
 	return result;
+}
+
+int64_t AISessionRunner::_history_token_budget_from_config(const Dictionary &p_config) {
+	const Dictionary history = _ai_session_runner_dictionary_from_variant(p_config.get("history", Dictionary()));
+	int64_t budget = int64_t(history.get("max_tokens", history.get("maxTokens", 0)));
+	if (budget > 0) {
+		return budget;
+	}
+
+	const Dictionary context = _ai_session_runner_dictionary_from_variant(p_config.get("context", Dictionary()));
+	budget = int64_t(context.get("history_token_budget", context.get("historyTokenBudget", 0)));
+	return budget > 0 ? budget : 0;
+}
+
+bool AISessionRunner::_is_rebuild_request_conflict(const AIError &p_error) {
+	return p_error.kind == AI_ERROR_CONFLICT && bool(p_error.details.get("rebuild_request", false));
 }
 
 Dictionary AISessionRunner::_make_error_result(const AIError &p_error) {
@@ -311,49 +333,134 @@ bool AISessionRunner::_resolve_session(const String &p_session_id, AISessionRow 
 	return true;
 }
 
-bool AISessionRunner::_ensure_context_epoch(const String &p_session_id, const String &p_agent_id, const Array &p_system, const String &p_provider, const String &p_model, AIContextEpoch &r_epoch, AIError &r_error) {
-	Dictionary snapshot;
-	snapshot["provider"] = p_provider;
-	snapshot["model"] = p_model;
-	snapshot["tools"] = Array();
-	snapshot["sources"] = Array();
-
-	AIContextEpoch epoch;
-	epoch.session_id = p_session_id;
-	epoch.agent_id = p_agent_id;
-	epoch.baseline = _system_baseline_from_array(p_system);
-	epoch.snapshot = snapshot;
-	epoch.revision = 1;
-	if (context_epoch_store.is_valid()) {
-		AIContextEpoch previous;
-		if (context_epoch_store->get_epoch_struct(p_session_id, previous)) {
-			epoch.revision = previous.revision + 1;
-		}
-	}
-
-	Dictionary data = epoch.to_dictionary();
-	data["epoch"] = epoch.to_dictionary();
-	data["baseline"] = epoch.baseline;
-	data["snapshot"] = snapshot;
-
-	AIEventRow row;
-	if (!_append_event(p_session_id, AIDomainEventTypes::context_updated(), data, false, row, r_error)) {
+bool AISessionRunner::_project_durable_history(const String &p_session_id) {
+	if (event_store.is_null() || projector.is_null()) {
 		return false;
 	}
-
-	epoch.baseline_seq = row.seq;
-	if (context_epoch_store.is_valid()) {
-		context_epoch_store->set_epoch_struct(epoch);
-	}
-	r_epoch = epoch;
+	const int64_t after_seq = projector->get_projected_seq(p_session_id);
+	projector->project_from_store(event_store, p_session_id, after_seq);
 	return true;
 }
 
+bool AISessionRunner::_load_system_context(const AISessionRow &p_session, const String &p_agent_id, const String &p_provider, const String &p_model, AISystemContext &r_context, AIError &r_error) const {
+	if (context_source_registry.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no ContextSourceRegistry.");
+		return false;
+	}
+	if (!context_source_registry->load_struct(p_agent_id, p_session.location, p_provider, p_model, r_context, r_error)) {
+		return false;
+	}
+	if (!r_context.is_available()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, r_context.blocked_reason.is_empty() ? String("System context is unavailable.") : r_context.blocked_reason);
+		return false;
+	}
+	return true;
+}
+
+bool AISessionRunner::_prepare_context_epoch(const AISessionRow &p_session, const String &p_agent_id, const String &p_provider, const String &p_model, AIContextEpoch &r_epoch, AIError &r_error) {
+	if (context_epoch_service.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no ContextEpochService.");
+		return false;
+	}
+
+	AISystemContext context;
+	if (!_load_system_context(p_session, p_agent_id, p_provider, p_model, context, r_error)) {
+		return false;
+	}
+	return context_epoch_service->prepare_struct(p_session.id, p_session.location, p_agent_id, context, r_epoch, r_error);
+}
+
+bool AISessionRunner::_verify_context_epoch_current(const String &p_session_id, const String &p_agent_id, const AIModelRequest &p_request, AIError &r_error) const {
+	if (context_epoch_service.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no ContextEpochService.");
+		return false;
+	}
+	if (config_service.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no ConfigService.");
+		return false;
+	}
+	if (p_request.metadata.get("context_epoch", Variant()).get_type() != Variant::DICTIONARY) {
+		r_error = AIError::make(AI_ERROR_CONFLICT, "Model request has no context epoch fence.");
+		return false;
+	}
+
+	const AIContextEpoch prepared_epoch = AIContextEpoch::from_dictionary(p_request.metadata["context_epoch"]);
+
+	AISessionRow current_session;
+	if (session_store.is_valid()) {
+		if (!_resolve_session(p_session_id, current_session, r_error)) {
+			return false;
+		}
+	} else {
+		current_session.id = p_session_id;
+		current_session.agent_id = p_agent_id;
+		if (p_request.metadata.get("location", Variant()).get_type() == Variant::DICTIONARY) {
+			current_session.location = AILocationRef::from_dictionary(p_request.metadata["location"]);
+		}
+	}
+
+	const String current_agent = current_session.agent_id.strip_edges().is_empty() ? String("main") : current_session.agent_id.strip_edges();
+	const String prepared_agent = p_agent_id.strip_edges().is_empty() ? String("main") : p_agent_id.strip_edges();
+	if (current_agent != prepared_agent) {
+		Dictionary details;
+		details["rebuild_request"] = true;
+		details["expected_agent"] = prepared_agent;
+		details["actual_agent"] = current_agent;
+		r_error = AIError::make(AI_ERROR_CONFLICT, "Session agent changed before provider turn.", details);
+		return false;
+	}
+
+	if (p_request.metadata.get("location", Variant()).get_type() == Variant::DICTIONARY) {
+		const AILocationRef prepared_location = AILocationRef::from_dictionary(p_request.metadata["location"]);
+		if (!_ai_session_runner_same_location(prepared_location, current_session.location)) {
+			Dictionary details;
+			details["rebuild_request"] = true;
+			details["expected_location"] = prepared_location.to_dictionary();
+			details["actual_location"] = current_session.location.to_dictionary();
+			r_error = AIError::make(AI_ERROR_CONFLICT, "Session location changed before provider turn.", details);
+			return false;
+		}
+	}
+
+	const Dictionary config = config_service->get_config();
+	if (!bool(config.get("success", true))) {
+		r_error = AIError::make(AI_ERROR_INTERNAL, "ConfigService failed to provide config.", config.get("error", Dictionary()));
+		return false;
+	}
+	const String provider = config_service->get_default_provider();
+	const Dictionary provider_config = config_service->get_provider_config(provider);
+	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
+	const String effective_provider = provider.is_empty() ? String("fake") : provider;
+	const String effective_model = model.is_empty() ? String("fake-model") : model;
+	const String prepared_provider = String(p_request.metadata.get("config_provider", p_request.provider)).strip_edges();
+	const String prepared_model = String(p_request.metadata.get("config_model", p_request.model)).strip_edges();
+	if (provider != prepared_provider || model != prepared_model || p_request.provider != effective_provider || p_request.model != effective_model) {
+		Dictionary details;
+		details["rebuild_request"] = true;
+		details["expected_provider"] = prepared_provider;
+		details["actual_provider"] = provider;
+		details["expected_model"] = prepared_model;
+		details["actual_model"] = model;
+		r_error = AIError::make(AI_ERROR_CONFLICT, "Model selection changed before provider turn.", details);
+		return false;
+	}
+
+	AISystemContext current_context;
+	if (!_load_system_context(current_session, current_agent, provider, model, current_context, r_error)) {
+		return false;
+	}
+
+	AIContextEpoch current_epoch;
+	return context_epoch_service->current_struct(p_session_id, current_agent, prepared_epoch.revision, current_context, current_epoch, r_error);
+}
+
 bool AISessionRunner::_build_request(const AISessionRow &p_session, const String &p_agent_id, const String &p_root_dir, int64_t p_wake_seq, AIModelRequest &r_request, Ref<AIV1ToolMaterialization> &r_tool_materialization, AIError &r_error) {
-	if (config_service.is_null() || runtime_registry.is_null() || projector.is_null()) {
+	if (config_service.is_null() || runtime_registry.is_null() || projector.is_null() || context_epoch_service.is_null()) {
 		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner dependencies are not wired.");
 		return false;
 	}
+
+	_project_durable_history(p_session.id);
 
 	const Dictionary config = config_service->get_config();
 	if (!bool(config.get("success", true))) {
@@ -363,6 +470,33 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 
 	if (!runtime_registry->configure_from_config_struct(config, r_error)) {
 		return false;
+	}
+
+	const String provider = config_service->get_default_provider();
+	const Dictionary provider_config = config_service->get_provider_config(provider);
+	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
+
+	AIContextEpoch epoch;
+	if (!_prepare_context_epoch(p_session, p_agent_id, provider, model, epoch, r_error)) {
+		return false;
+	}
+
+	r_request.request_id = AIId::make("request");
+	r_request.provider = provider.is_empty() ? String("fake") : provider;
+	r_request.model = model.is_empty() ? String("fake-model") : model;
+	r_request.system = _system_parts_from_baseline(epoch.baseline);
+	r_request.provider_options = provider_config.duplicate(true);
+	r_request.metadata["session_id"] = p_session.id;
+	r_request.metadata["wake_seq"] = p_wake_seq;
+	r_request.metadata["location"] = p_session.location.to_dictionary();
+	r_request.metadata["config_provider"] = provider;
+	r_request.metadata["config_model"] = model;
+	r_request.metadata["context_epoch"] = epoch.to_dictionary();
+
+	const int64_t history_token_budget = _history_token_budget_from_config(config);
+	const Vector<AISessionMessage> runner_messages = AISessionHistory::entries_for_runner(projector->get_messages_struct(p_session.id), epoch.baseline_seq, history_token_budget);
+	for (int i = 0; i < runner_messages.size(); i++) {
+		r_request.messages.push_back(_message_to_model(runner_messages[i]));
 	}
 
 	if (tool_registry.is_valid()) {
@@ -389,30 +523,6 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 				}
 			}
 		}
-	}
-
-	const String provider = config_service->get_default_provider();
-	const Dictionary provider_config = config_service->get_provider_config(provider);
-	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
-	const Array system = config_service->get_system_prompt(p_agent_id);
-
-	AIContextEpoch epoch;
-	if (!_ensure_context_epoch(p_session.id, p_agent_id, system, provider, model, epoch, r_error)) {
-		return false;
-	}
-
-	r_request.request_id = AIId::make("request");
-	r_request.provider = provider.is_empty() ? String("fake") : provider;
-	r_request.model = model.is_empty() ? String("fake-model") : model;
-	r_request.system = _system_parts_from_array(system);
-	r_request.provider_options = provider_config.duplicate(true);
-	r_request.metadata["session_id"] = p_session.id;
-	r_request.metadata["wake_seq"] = p_wake_seq;
-	r_request.metadata["context_epoch"] = epoch.to_dictionary();
-
-	const Vector<AISessionMessage> runner_messages = AISessionHistory::entries_for_runner(projector->get_messages_struct(p_session.id), epoch.baseline_seq);
-	for (int i = 0; i < runner_messages.size(); i++) {
-		r_request.messages.push_back(_message_to_model(runner_messages[i]));
 	}
 	return true;
 }
@@ -496,6 +606,10 @@ bool AISessionRunner::_settle_open_tool_calls(const AISessionRow &p_session, con
 bool AISessionRunner::_run_provider_turn(const String &p_session_id, const String &p_agent_id, const AIModelRequest &p_request, const Ref<AIV1ToolMaterialization> &p_tool_materialization, const Ref<AICancelToken> &p_cancel_token, bool &r_needs_continuation, bool &r_waiting_permission, AIError &r_error) {
 	r_needs_continuation = false;
 	r_waiting_permission = false;
+	if (!_verify_context_epoch_current(p_session_id, p_agent_id, p_request, r_error)) {
+		return false;
+	}
+
 	Ref<AILLMRuntime> runtime;
 	if (!runtime_registry->get_runtime_struct(p_request.provider, runtime)) {
 		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "No LLM runtime registered for provider: " + p_request.provider);
@@ -592,6 +706,9 @@ void AISessionRunner::set_event_store(const Ref<AIEventStore> &p_event_store) {
 	if (tool_registry.is_valid()) {
 		tool_registry->set_event_store(event_store);
 	}
+	if (context_epoch_service.is_valid()) {
+		context_epoch_service->set_event_store(event_store);
+	}
 }
 
 Ref<AIEventStore> AISessionRunner::get_event_store() const {
@@ -603,6 +720,9 @@ void AISessionRunner::set_projector(const Ref<AISessionProjector> &p_projector) 
 	if (tool_registry.is_valid()) {
 		tool_registry->set_projector(projector);
 	}
+	if (context_epoch_service.is_valid()) {
+		context_epoch_service->set_projector(projector);
+	}
 }
 
 Ref<AISessionProjector> AISessionRunner::get_projector() const {
@@ -611,14 +731,44 @@ Ref<AISessionProjector> AISessionRunner::get_projector() const {
 
 void AISessionRunner::set_context_epoch_store(const Ref<AIContextEpochStore> &p_store) {
 	context_epoch_store = p_store;
+	if (context_epoch_service.is_valid()) {
+		context_epoch_service->set_epoch_store(context_epoch_store);
+	}
 }
 
 Ref<AIContextEpochStore> AISessionRunner::get_context_epoch_store() const {
 	return context_epoch_store;
 }
 
+void AISessionRunner::set_context_source_registry(const Ref<AIContextSourceRegistry> &p_registry) {
+	context_source_registry = p_registry;
+	if (context_source_registry.is_valid()) {
+		context_source_registry->set_config_service(config_service);
+	}
+}
+
+Ref<AIContextSourceRegistry> AISessionRunner::get_context_source_registry() const {
+	return context_source_registry;
+}
+
+void AISessionRunner::set_context_epoch_service(const Ref<AIContextEpochService> &p_service) {
+	context_epoch_service = p_service;
+	if (context_epoch_service.is_valid()) {
+		context_epoch_service->set_epoch_store(context_epoch_store);
+		context_epoch_service->set_event_store(event_store);
+		context_epoch_service->set_projector(projector);
+	}
+}
+
+Ref<AIContextEpochService> AISessionRunner::get_context_epoch_service() const {
+	return context_epoch_service;
+}
+
 void AISessionRunner::set_config_service(const Ref<AIConfigService> &p_config_service) {
 	config_service = p_config_service;
+	if (context_source_registry.is_valid()) {
+		context_source_registry->set_config_service(config_service);
+	}
 }
 
 Ref<AIConfigService> AISessionRunner::get_config_service() const {
@@ -675,15 +825,28 @@ bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const R
 	const String agent_id = session.agent_id.strip_edges().is_empty() ? String("main") : session.agent_id.strip_edges();
 	const String root_dir = session.location.directory.strip_edges();
 
-	if (!prompt_promoter->promote_eligible_struct(session_id, "new-activity", r_promoted, r_error)) {
+	if (config_service.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no ConfigService.");
 		return false;
 	}
-
 	Dictionary config = config_service.is_valid() ? config_service->get_config() : Dictionary();
 	if (!bool(config.get("success", true))) {
 		r_error = AIError::make(AI_ERROR_INTERNAL, "ConfigService failed to provide config.", config.get("error", Dictionary()));
 		return false;
 	}
+	const String provider = config_service->get_default_provider();
+	const Dictionary provider_config = config_service->get_provider_config(provider);
+	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
+
+	AIContextEpoch admission_epoch;
+	if (!_prepare_context_epoch(session, agent_id, provider, model, admission_epoch, r_error)) {
+		return false;
+	}
+
+	if (!prompt_promoter->promote_eligible_struct(session_id, "new-activity", r_promoted, r_error)) {
+		return false;
+	}
+
 	const Dictionary permissions = config.get("permissions", Dictionary());
 	const Array rules = permissions.get("rules", Array());
 
@@ -717,6 +880,9 @@ bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const R
 		bool needs_continuation = false;
 		bool provider_waiting_permission = false;
 		if (!_run_provider_turn(session_id, agent_id, request, materialization, p_cancel_token, needs_continuation, provider_waiting_permission, r_error)) {
+			if (_is_rebuild_request_conflict(r_error)) {
+				continue;
+			}
 			return false;
 		}
 		if (provider_waiting_permission) {

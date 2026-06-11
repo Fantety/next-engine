@@ -12,7 +12,11 @@
 #include "editor/agent_v1/core/runtime/ai_stream_sink.h"
 #include "editor/agent_v1/core/testing/ai_fake_mcp_server.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_blob_store.h"
+#include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
+#include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
+#include "editor/agent_v1/domain/context/ai_context_source_registry.h"
 #include "editor/agent_v1/domain/events/ai_event_store.h"
+#include "editor/agent_v1/domain/projection/ai_session_history.h"
 #include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
@@ -32,6 +36,21 @@ static void write_text_file(const String &p_path, const String &p_text) {
 	REQUIRE(err == OK);
 	file->store_string(p_text);
 	file->flush();
+}
+
+static AISystemContext make_context_fixture(const String &p_text, const String &p_directory, const String &p_model) {
+	AISystemContextSource source;
+	source.domain = "test.fixture";
+	source.text = p_text;
+	source.required = true;
+	source.available = true;
+	source.priority = 0;
+	source.metadata["directory"] = p_directory;
+	source.metadata["model"] = p_model;
+
+	Vector<AISystemContextSource> sources;
+	sources.push_back(source);
+	return AISystemContext::combine(sources);
 }
 
 class StreamCollector : public RefCounted {
@@ -71,6 +90,34 @@ TEST_CASE("[Editor][AgentV1] Event store writes versioned idempotent rows") {
 	AIEventRow conflict_row;
 	CHECK_FALSE(store->append_idempotent("session-a", AIDomainEventTypes::text_ended(), conflicting, false, "evt-key", conflict_row, error));
 	CHECK(error.contains("idempotency conflict"));
+}
+
+TEST_CASE("[Editor][AgentV1] Local persistence defaults stay under net.nextengine") {
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	CHECK(event_store->get_base_dir().begins_with("user://net.nextengine/"));
+
+	Ref<AIAttachmentBlobStore> attachment_store;
+	attachment_store.instantiate();
+	CHECK(attachment_store->get_base_dir().begins_with("user://net.nextengine/"));
+
+	Ref<AISessionInputStore> input_store;
+	input_store.instantiate();
+	CHECK(input_store->get_base_dir().begins_with("user://net.nextengine/"));
+
+	Ref<AISessionStore> session_store;
+	session_store.instantiate();
+	CHECK(session_store->get_base_dir().begins_with("user://net.nextengine/"));
+
+	Ref<AILocalSettingsStore> local_settings;
+	local_settings.instantiate();
+	CHECK(local_settings->get_settings_path().begins_with("user://net.nextengine/"));
+
+	Ref<AIConfigService> config;
+	config.instantiate();
+	CHECK(config->get_global_config_path().begins_with("user://net.nextengine/"));
+	CHECK(config->get_account_config_path().begins_with("user://net.nextengine/"));
+	CHECK(config->get_managed_config_path().begins_with("user://net.nextengine/"));
 }
 
 TEST_CASE("[Editor][AgentV1] Attachment blob store separates metadata and bytes") {
@@ -497,6 +544,224 @@ TEST_CASE("[Editor][AgentV1] Tool materialization captures root, filters denied 
 	scope->close();
 	const Dictionary restored_identity = registry->get_tool_identity("scoped_tool");
 	CHECK(String(restored_identity.get("id", String())) == String(base_identity.get("id", String())));
+}
+
+TEST_CASE("[Editor][AgentV1] Context epoch gates promotion and does not repeat unchanged system context") {
+	const String base = TestUtils::get_temp_path("agent_v1/phase6_context_gate");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Dictionary create;
+	create["id"] = "phase6-session";
+	create["directory"] = base.path_join("workspace");
+	Dictionary created = service->create(create);
+	REQUIRE(bool(created.get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase6-session";
+	prompt["message_id"] = "phase6-message";
+	prompt["text"] = "hello phase 6";
+	prompt["resume"] = false;
+	Dictionary admitted = service->prompt(prompt);
+	REQUIRE(bool(admitted.get("success", false)));
+
+	service->get_context_source_registry()->set_blocked(true, "context offline");
+	Dictionary blocked_run = service->get_session_runner()->run("phase6-session", false);
+	CHECK_FALSE(bool(blocked_run.get("success", true)));
+
+	Vector<AIEventRow> events = service->get_event_store()->list("phase6-session");
+	for (int i = 0; i < events.size(); i++) {
+		CHECK(events[i].type != AIDomainEventTypes::prompt_promoted());
+		CHECK(events[i].type != AIDomainEventTypes::context_updated());
+	}
+
+	service->get_context_source_registry()->set_blocked(false);
+	Dictionary first_run = service->get_session_runner()->run("phase6-session", false);
+	REQUIRE(bool(first_run.get("success", false)));
+
+	events = service->get_event_store()->list("phase6-session");
+	int64_t context_seq = 0;
+	int64_t promoted_seq = 0;
+	int context_count = 0;
+	for (int i = 0; i < events.size(); i++) {
+		if (events[i].type == AIDomainEventTypes::context_updated()) {
+			context_seq = events[i].seq;
+			context_count++;
+		} else if (events[i].type == AIDomainEventTypes::prompt_promoted()) {
+			promoted_seq = events[i].seq;
+		}
+	}
+	CHECK(context_count == 1);
+	REQUIRE(context_seq > 0);
+	REQUIRE(promoted_seq > 0);
+	CHECK(context_seq < promoted_seq);
+
+	Dictionary idle_run = service->get_session_runner()->run("phase6-session", false);
+	CHECK(bool(idle_run.get("success", false)));
+	events = service->get_event_store()->list("phase6-session");
+	int idle_context_count = 0;
+	for (int i = 0; i < events.size(); i++) {
+		if (events[i].type == AIDomainEventTypes::context_updated()) {
+			idle_context_count++;
+		}
+	}
+	CHECK(idle_context_count == 1);
+
+	Ref<AIContextEpochStore> fresh_epoch_store;
+	fresh_epoch_store.instantiate();
+	Ref<AISessionProjector> fresh_projector;
+	fresh_projector.instantiate();
+	service->set_context_epoch_store(fresh_epoch_store);
+	service->set_projector(fresh_projector);
+
+	Dictionary replay_idle_run = service->get_session_runner()->run("phase6-session", false);
+	CHECK(bool(replay_idle_run.get("success", false)));
+
+	events = service->get_event_store()->list("phase6-session");
+	int replay_context_count = 0;
+	for (int i = 0; i < events.size(); i++) {
+		if (events[i].type == AIDomainEventTypes::context_updated()) {
+			replay_context_count++;
+		}
+	}
+	CHECK(replay_context_count == 1);
+
+	AIContextEpoch hydrated_epoch;
+	REQUIRE(fresh_epoch_store->get_epoch_struct("phase6-session", hydrated_epoch));
+	CHECK(hydrated_epoch.baseline_seq == context_seq);
+}
+
+TEST_CASE("[Editor][AgentV1] Context source changes reconcile through context updated events") {
+	const String base = TestUtils::get_temp_path("agent_v1/phase6_context_change");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Dictionary create;
+	create["id"] = "phase6-change";
+	create["directory"] = base.path_join("workspace");
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase6-change";
+	prompt["message_id"] = "phase6-change-message";
+	prompt["text"] = "first prompt";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+	REQUIRE(bool(service->get_session_runner()->run("phase6-change", false).get("success", false)));
+
+	Dictionary source;
+	source["domain"] = "test.manual";
+	source["text"] = "Manual context update for phase 6.";
+	source["required"] = true;
+	source["priority"] = 50;
+	service->get_context_source_registry()->add_source(source);
+
+	Dictionary reconcile = service->get_session_runner()->run("phase6-change", false);
+	CHECK(bool(reconcile.get("success", false)));
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("phase6-change");
+	int context_count = 0;
+	bool saw_manual_context = false;
+	for (int i = 0; i < events.size(); i++) {
+		if (events[i].type == AIDomainEventTypes::context_updated()) {
+			context_count++;
+			saw_manual_context = saw_manual_context || String(events[i].data.get("text", String())).contains("Manual context update");
+		}
+	}
+	CHECK(context_count == 2);
+	CHECK(saw_manual_context);
+}
+
+TEST_CASE("[Editor][AgentV1] Context projector normalizes baseline seq from event row") {
+	Ref<AISessionProjector> projector;
+	projector.instantiate();
+
+	AIContextEpoch epoch;
+	epoch.session_id = "phase6-seq";
+	epoch.baseline = "baseline";
+	epoch.snapshot["snapshot_hash"] = "old-hash";
+	epoch.agent_id = "main";
+	epoch.baseline_seq = 2;
+	epoch.revision = 1;
+
+	Dictionary data;
+	data["message_id"] = "system-seq";
+	data["text"] = "baseline";
+	data["epoch"] = epoch.to_dictionary();
+
+	AIEventRow row;
+	row.aggregate_id = "phase6-seq";
+	row.seq = 7;
+	row.type = AIDomainEventTypes::context_updated();
+	row.data = data;
+
+	REQUIRE(projector->project(row));
+
+	AIContextEpoch projected_epoch;
+	REQUIRE(projector->get_context_epoch_struct("phase6-seq", projected_epoch));
+	CHECK(projected_epoch.baseline_seq == 7);
+}
+
+TEST_CASE("[Editor][AgentV1] Context current fence rejects changed source snapshot") {
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(String());
+
+	Ref<AISessionProjector> projector;
+	projector.instantiate();
+
+	Ref<AIContextEpochService> epoch_service;
+	epoch_service.instantiate();
+	epoch_service->set_event_store(event_store);
+	epoch_service->set_projector(projector);
+
+	AILocationRef location;
+	location.directory = "res://phase6";
+
+	const AISystemContext initial_context = make_context_fixture("same privileged baseline", "res://phase6", "fake-model");
+	AIContextEpoch epoch;
+	bool initialized = false;
+	AIError error;
+	REQUIRE(epoch_service->initialize_struct("phase6-fence", location, "main", initial_context, epoch, initialized, error));
+	REQUIRE(initialized);
+
+	AIContextEpoch current_epoch;
+	CHECK(epoch_service->current_struct("phase6-fence", "main", epoch.revision, initial_context, current_epoch, error));
+
+	const AISystemContext changed_context = make_context_fixture("same privileged baseline", "res://phase6", "other-model");
+	CHECK_FALSE(epoch_service->current_struct("phase6-fence", "main", epoch.revision, changed_context, current_epoch, error));
+	CHECK(error.kind == AI_ERROR_CONFLICT);
+	CHECK(bool(error.details.get("rebuild_request", false)));
+}
+
+TEST_CASE("[Editor][AgentV1] History selector trims without splitting tool content") {
+	Vector<AISessionMessage> messages;
+
+	AIPrompt prompt;
+	prompt.text = "Large earlier prompt " + String("x").repeat(200);
+	messages.push_back(AISessionMessage::user_message("phase6-history", 1, "user-history", prompt, 0));
+
+	AISessionMessage assistant = AISessionMessage::assistant_shell("phase6-history", 2, "assistant-tool");
+	Dictionary input;
+	input["path"] = "res://file.txt";
+	Dictionary output;
+	output["text"] = "tool output that should stay attached";
+	assistant.content.push_back(AIAssistantContent::tool_content("call-history", "file_read", AIToolState::success(input, output)));
+	messages.push_back(assistant);
+
+	const Vector<AISessionMessage> selected = AISessionHistory::entries_for_runner(messages, 0, 1);
+	REQUIRE(selected.size() == 1);
+	REQUIRE(selected[0].content.size() == 1);
+	CHECK(selected[0].content[0].type == "tool");
+	CHECK(selected[0].content[0].tool_state.status == AI_TOOL_STATUS_SUCCESS);
 }
 
 } // namespace TestAgentV1
