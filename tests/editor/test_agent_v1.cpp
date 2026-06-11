@@ -2334,6 +2334,21 @@ TEST_CASE("[Editor][AgentV1] Session runner sends path attachments as blob-backe
 	CHECK(request_json.contains("data:image/png;base64,"));
 	CHECK_FALSE(request_json.contains(image_path));
 
+	const Dictionary request_metadata = last_request.get("metadata", Dictionary());
+	const Array config_sources = request_metadata.get("config_sources", Array());
+	const String config_sources_json = Variant(config_sources).stringify();
+	CHECK_FALSE(config_sources_json.contains("phase7-secret"));
+	bool saw_runtime_config_source = false;
+	for (int i = 0; i < config_sources.size(); i++) {
+		if (config_sources[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary source = config_sources[i];
+		saw_runtime_config_source = saw_runtime_config_source || String(source.get("source", String())) == "runtime";
+		CHECK_FALSE(source.has("data"));
+	}
+	CHECK(saw_runtime_config_source);
+
 	bool saw_image_part = false;
 	const Array messages = last_request.get("messages", Array());
 	for (int i = 0; i < messages.size(); i++) {
@@ -2537,6 +2552,15 @@ TEST_CASE("[Editor][AgentV1] Tool registry settles read tools, pending writes, a
 	REQUIRE(materialization->settle_struct(read_settle_input, read_settlement, error));
 	CHECK(read_settlement.success);
 	CHECK(String(Dictionary(read_settlement.structured).get("text", String())) == "tool registry read");
+	Dictionary read_metadata = read_settlement.metadata;
+	Dictionary read_identity = read_metadata.get("registration_identity", Dictionary());
+	CHECK(String(read_identity.get("name", String())) == "file_read");
+	CHECK(String(Dictionary(read_identity.get("metadata", Dictionary())).get("source", String())) == "builtin");
+	Dictionary read_permission = read_metadata.get("permission_decision", Dictionary());
+	CHECK(String(read_permission.get("status", String())) == "allowed");
+	CHECK(String(read_permission.get("effect", String())) == "allow");
+	CHECK(String(read_permission.get("action", String())) == "file.read");
+	CHECK(String(read_permission.get("resource", String())).ends_with("readme.txt"));
 
 	Dictionary write_args;
 	write_args["path"] = "generated.txt";
@@ -2571,6 +2595,15 @@ TEST_CASE("[Editor][AgentV1] Tool registry settles read tools, pending writes, a
 	REQUIRE(materialization->settle_struct(write_settle_input, rejected_write_settlement, error));
 	CHECK_FALSE(rejected_write_settlement.success);
 	CHECK(rejected_write_settlement.error.kind == AI_ERROR_PERMISSION);
+	Dictionary rejected_metadata = rejected_write_settlement.metadata;
+	Dictionary rejected_identity = rejected_metadata.get("registration_identity", Dictionary());
+	CHECK(String(rejected_identity.get("name", String())) == "file_write");
+	CHECK(String(Dictionary(rejected_identity.get("metadata", Dictionary())).get("source", String())) == "builtin");
+	Dictionary rejected_permission = rejected_metadata.get("permission_decision", Dictionary());
+	CHECK(String(rejected_permission.get("status", String())) == "rejected");
+	CHECK(String(rejected_permission.get("reply", String())) == "reject");
+	CHECK(String(rejected_permission.get("action", String())) == "file.write");
+	CHECK(String(rejected_permission.get("resource", String())).ends_with("generated.txt"));
 
 	Ref<AIV1ReadFileTool> replacement;
 	replacement.instantiate();

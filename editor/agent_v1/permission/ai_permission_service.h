@@ -50,6 +50,7 @@ class AIPermissionService : public RefCounted {
 	Array rules;
 	HashMap<String, PendingRequest> pending_requests;
 	HashMap<String, bool> saved_approvals;
+	HashMap<String, Dictionary> decision_audits;
 	mutable Mutex mutex;
 
 	static String _normalize_effect(const String &p_effect);
@@ -58,8 +59,11 @@ class AIPermissionService : public RefCounted {
 	static String _approval_key(const String &p_action, const String &p_resource);
 	static bool _rule_matches(const Dictionary &p_rule, const String &p_action, const String &p_resource);
 	static bool _is_resource_match(const String &p_pattern, const String &p_resource);
+	static bool _source_matches(const Dictionary &p_filter, const Dictionary &p_source);
 	String _default_effect_for_action(const String &p_action) const;
 	String _evaluate_effect_locked(const String &p_action, const String &p_resource, String &r_reason, const String &p_default_effect = String()) const;
+	void _record_decision_locked(const String &p_request_key, const AIPermissionDecision &p_decision);
+	void _record_pending_request_locked(const String &p_request_key, const PendingRequest &p_request);
 	bool _append_permission_event(const String &p_session_id, const String &p_type, const Dictionary &p_data, AIError &r_error);
 
 protected:
@@ -77,5 +81,7 @@ public:
 	Dictionary assert_permission(const Dictionary &p_input);
 	Dictionary reply(const Dictionary &p_input);
 	Array get_pending_requests() const;
+	Array get_decisions_for_source_struct(const String &p_session_id, const Dictionary &p_source) const;
+	Array get_decisions_for_source(const String &p_session_id, const Dictionary &p_source) const;
 	void clear();
 };

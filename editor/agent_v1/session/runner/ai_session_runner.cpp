@@ -230,6 +230,27 @@ static Variant _ai_session_runner_redact_sensitive_variant(const Variant &p_valu
 	return p_value;
 }
 
+static Array _ai_session_runner_config_sources_for_request(const Ref<AIConfigService> &p_config_service) {
+	Array result;
+	if (p_config_service.is_null()) {
+		return result;
+	}
+
+	const Array entries = p_config_service->entries();
+	for (int i = 0; i < entries.size(); i++) {
+		if (entries[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary entry = entries[i];
+		Dictionary source;
+		source["source"] = entry.get("source", String());
+		source["path"] = entry.get("path", String());
+		source["priority"] = entry.get("priority", 0);
+		result.push_back(source);
+	}
+	return result;
+}
+
 static bool _ai_session_runner_same_location(const AILocationRef &p_left, const AILocationRef &p_right) {
 	return p_left.directory.strip_edges() == p_right.directory.strip_edges() && p_left.workspace_id.strip_edges() == p_right.workspace_id.strip_edges();
 }
@@ -820,6 +841,7 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 	r_request.metadata["location"] = p_session.location.to_dictionary();
 	r_request.metadata["config_provider"] = provider;
 	r_request.metadata["config_model"] = model;
+	r_request.metadata["config_sources"] = _ai_session_runner_config_sources_for_request(config_service);
 	r_request.metadata["context_epoch"] = epoch.to_dictionary();
 	r_request.metadata["selected_skills"] = selected_skills.duplicate(true);
 

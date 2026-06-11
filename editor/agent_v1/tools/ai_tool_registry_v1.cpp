@@ -138,6 +138,39 @@ static bool _aiv1_bound_tool_settlement_output(AIV1ToolSettlement &r_settlement,
 	return true;
 }
 
+static void _aiv1_apply_tool_audit_metadata(AIV1ToolSettlement &r_settlement, const AIRegistrationIdentity &p_identity, const Ref<AIPermissionService> &p_permission_service, const Dictionary &p_source) {
+	if (p_identity.is_valid()) {
+		const Dictionary identity = p_identity.to_dictionary();
+		r_settlement.metadata["registration_identity"] = identity;
+		if (identity.get("metadata", Variant()).get_type() == Variant::DICTIONARY) {
+			const Dictionary identity_metadata = identity["metadata"];
+			const String source = String(identity_metadata.get("source", String())).strip_edges();
+			if (!source.is_empty()) {
+				r_settlement.metadata["registration_source"] = source;
+			}
+		}
+	}
+
+	if (p_permission_service.is_valid()) {
+		const Array decisions = p_permission_service->get_decisions_for_source_struct(r_settlement.session_id, p_source);
+		if (!decisions.is_empty()) {
+			r_settlement.metadata["permission_decisions"] = decisions.duplicate(true);
+			if (decisions[decisions.size() - 1].get_type() == Variant::DICTIONARY) {
+				r_settlement.metadata["permission_decision"] = Dictionary(decisions[decisions.size() - 1]).duplicate(true);
+			}
+			return;
+		}
+	}
+
+	Dictionary decision;
+	decision["status"] = "not_requested";
+	decision["session_id"] = r_settlement.session_id;
+	decision["action"] = String();
+	decision["resource"] = String();
+	decision["source"] = p_source.duplicate(true);
+	r_settlement.metadata["permission_decision"] = decision;
+}
+
 Dictionary AIV1ToolSettlement::to_dictionary() const {
 	Dictionary output;
 	output["success"] = success && !error.is_error();
@@ -685,6 +718,11 @@ bool AIV1ToolRegistry::settle_materialized_tool(const Ref<AIV1Tool> &p_tool, con
 	context.source["assistant_message_id"] = r_settlement.assistant_message_id;
 	context.source["call_id"] = r_settlement.call_id;
 	context.source["tool"] = r_settlement.tool_name;
+	if (p_identity.is_valid()) {
+		const Dictionary identity = p_identity.to_dictionary();
+		context.source["registration_identity"] = identity;
+		context.metadata["registration_identity"] = identity;
+	}
 
 	AIV1ToolExecutionResult execution_result;
 	AIError execution_error;
@@ -695,6 +733,7 @@ bool AIV1ToolRegistry::settle_materialized_tool(const Ref<AIV1Tool> &p_tool, con
 	r_settlement.structured = execution_result.structured;
 	r_settlement.output_paths = execution_result.output_paths;
 	r_settlement.metadata = execution_result.metadata.duplicate(true);
+	_aiv1_apply_tool_audit_metadata(r_settlement, p_identity, permission_service, context.source);
 	if (!_aiv1_bound_tool_settlement_output(r_settlement, r_error)) {
 		r_settlement.success = false;
 		r_settlement.error = r_error;
