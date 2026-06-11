@@ -2,6 +2,8 @@
 
 This report examines whether the current modular documentation aligns with the current source code architecture of opencode. The conclusion is that the general direction is largely aligned, but some documents have written the "recommended complete architecture for forking" as the "currently implemented architecture." The scope needs to be narrowed in subsequent revisions. In particular, details regarding tool registration, the permission system, Context Epoch, compaction, and the Session API should be corrected according to the current V2 implementation.
 
+Revision note: The module documents in this directory have incorporated the main corrections from this report. Read this file as the source-alignment checklist and rationale for those corrections, not as a statement that every listed inconsistency is still present.
+
 ## Audit Scope
 
 The core implementations examined in this comparison include:
@@ -33,8 +35,8 @@ Not all old V1 paths, UI components, or plugin system details are fully expanded
 | 08 Skill Mechanism | Largely Consistent | Skill guidance is composed with System Context; Skill scripts/tools sections should be marked as extensions |
 | 09 Multi-Agent & Subagents | Partially Consistent | The Agent/task/subagent direction is correct; capabilities like agent switching in V2 still have unavailable/follow-up items |
 | 10 Compaction, Interruption & Recovery | Partially Consistent | The automatic compaction and interruption concepts are correct; manual compact and post-crash recovery cannot be described as fully implemented |
-| 11 Forking Roadmap | Can Be Retained | Suitable as an extension roadmap, but needs to distinguish between "currently available" and "subsequent additions" |
-| 13 Settings, Config Persistence & Import Application | Newly Aligned | Distinguish between core `Config.entries()`, app config merge/update, HTTP API, and frontend local settings |
+| Implementation Roadmap | Can Be Retained | Suitable as an extension roadmap, but needs to distinguish between "currently available" and "subsequent additions" |
+| 11 Settings, Config Persistence & Import Application | Newly Aligned | Distinguish between core `Config.entries()`, app config merge/update, HTTP API, and frontend local settings |
 
 ## Key Inconsistencies & Revision Suggestions
 

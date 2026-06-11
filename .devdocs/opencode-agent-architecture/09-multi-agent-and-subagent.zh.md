@@ -117,6 +117,7 @@ const taskTool = Tool.make({
   input: TaskToolInput,
   output: TaskToolOutput,
   execute: runTaskTool,
+  toModelOutput: ({ output }) => [{ type: "text", text: output.summary }],
 })
 
 yield* tools.register({ task: taskTool })
@@ -133,47 +134,46 @@ Main model returns task tool_call
   -> SessionExecution.wake(childSessionID)
   -> wait child settles
   -> summarize child final result
-  -> assistant.tool.completed in parent session
+  -> session.next.tool.success in parent session
 ```
 
 Pseudocode:
 
 ```ts
-async function runTaskTool(input: ToolExecutionInput<TaskToolInput>): Promise<ToolExecutionOutput<TaskToolOutput>> {
-  const childAgent = await agentService.resolve(input.arguments.agentID)
+async function runTaskTool(input: TaskToolInput, context: ToolContext): Promise<TaskToolOutput> {
+  const parentSession = await sessionStore.get(context.sessionID)
+  const childAgent = await agentService.resolve(input.agentID)
   const childSession = await sessionService.create({
     agentID: childAgent.id,
-    location: input.location,
+    location: parentSession.location,
     metadata: {
-      parentSessionID: input.sessionID,
-      parentToolCallID: input.toolCallID,
+      parentSessionID: context.sessionID,
+      parentAssistantMessageID: context.assistantMessageID,
+      parentToolCallID: context.toolCallID,
     },
   })
 
   await sessionService.prompt({
     sessionID: childSession.id,
-    location: input.location,
-    parts: buildChildPrompt(input.arguments),
+    prompt: buildChildPrompt(input),
     delivery: "queue",
     resume: true,
   })
 
   const result = await subagentMonitor.waitForSettled({
     childSessionID: childSession.id,
-    signal: input.signal,
   })
 
   return {
-    output: result.summary,
-    data: {
-      childSessionID: childSession.id,
-      summary: result.summary,
-      result: result.finalText,
-      status: result.status,
-    },
+    childSessionID: childSession.id,
+    summary: result.summary,
+    result: result.finalText,
+    status: result.status,
   }
 }
 ```
+
+In the current opaque `Tool.make(...)` model, the tool returns typed domain output. Model-visible text is produced by the tool's `toModelOutput(...)`, and the registry still applies output encoding and bounding before publishing the parent tool settlement.
 
 ## Subagent Context Isolation
 
@@ -293,8 +293,7 @@ Child sessions use regular events:
 Parent sessions use regular tool events:
 
 - `session.next.tool.called` with `tool = "task"`.
-- `assistant.tool.started`.
-- `assistant.tool.completed`, with payload containing the child session ID.
+- `session.next.tool.success` or `session.next.tool.failed`, with payload containing the child session ID in structured output.
 
 Optional addition:
 

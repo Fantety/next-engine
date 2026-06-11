@@ -105,6 +105,8 @@ Design Trade-offs:
 
 Convert the draft into prompt parts upon submission.
 
+The following request is a UI/API convenience shape. The current V2 core `sessions.prompt(...)` still requires an existing `sessionID`; if the user is starting a new chat, the upper layer must call `sessions.create(...)` first and then submit the prompt to that Session.
+
 ```ts
 type PromptSubmitRequest = {
   sessionID?: SessionID
@@ -378,12 +380,18 @@ Do not send local paths directly to the model unless the tool or provider explic
 Tools may also produce multimodal results, such as browser screenshots, image generation, and PDF rendering.
 
 ```ts
-type ToolExecutionOutput<TOutput> = {
-  output: string
-  data?: TOutput
-  media?: FileAttachment[]
+type ToolContent =
+  | { type: "text"; text: string }
+  | { type: "file"; data: string; mime: string; name?: string }
+
+type ToolSettlementMedia = {
+  structured: Record<string, unknown>
+  content: ToolContent[]
+  outputPaths?: string[]
 }
 ```
+
+In the core tool pipeline, tools still return typed domain output. Media becomes model-visible only through the tool's output codec, `toModelOutput(...)`, registry settlement, and unified output bounding.
 
 Whether the model sees this media in the next round depends on:
 

@@ -30,12 +30,19 @@ type PromptID = string
 
 type PromptDelivery = "steer" | "queue"
 
+type Prompt = {
+  text: string
+  files: FileAttachment[]
+  agents: AgentReference[]
+  references: PromptReference[]
+}
+
 type SessionInputRow = {
   id: PromptID
   sessionID: SessionID
   messageID: MessageID
   role: "user"
-  parts: MessagePart[]
+  prompt: Prompt
   delivery: PromptDelivery
   status: "admitted" | "promoted" | "canceled"
   resume: boolean
@@ -89,11 +96,9 @@ interface SessionService {
   }): Promise<SessionRow>
 
   prompt(input: {
-    sessionID?: SessionID
-    agentID?: AgentID
-    location: Location
-    messageID?: MessageID
-    parts: MessagePart[]
+    sessionID: SessionID
+    id?: MessageID
+    prompt: Prompt
     delivery?: PromptDelivery
     resume?: boolean
     idempotencyKey?: string
@@ -106,20 +111,27 @@ interface SessionService {
 }
 
 type PromptAdmissionResult = {
-  session: SessionRow
   prompt: SessionInputRow
+  admittedSeq: number
   wakeScheduled: boolean
 }
 ```
 
 Responsibilities of `prompt(...)`:
 
-1. If no `sessionID` is provided, create a new Session.
-2. If `sessionID` is provided, read the existing Session and adopt its agent and location.
-3. Handle exact retries using `messageID` or `idempotencyKey`.
+1. Read the existing Session by `sessionID`; missing Sessions are rejected.
+2. Adopt the Session's persisted agent, model, and Location rather than accepting them from the prompt call.
+3. Handle exact retries using `id` or `idempotencyKey`.
 4. Write `SessionInputRow(status = "admitted")`.
-5. Append the `prompt.admitted` event.
-6. If `resume !== false`, call `SessionExecution.wake(sessionID)`.
+5. Append the `session.next.prompt.admitted` event and obtain `admittedSeq`.
+6. If `resume !== false`, call `SessionExecution.wake(sessionID, admittedSeq)`.
+
+If an upper layer wants a "new chat and first prompt" API, it should implement that as a wrapper:
+
+```text
+sessions.create(...)
+  -> sessions.prompt({ sessionID: created.id, ... })
+```
 
 ## Prompt Admission
 
@@ -130,7 +142,7 @@ interface SessionInputStore {
   admit(input: {
     sessionID: SessionID
     messageID?: MessageID
-    parts: MessagePart[]
+    prompt: Prompt
     delivery: PromptDelivery
     resume: boolean
     idempotencyKey?: string
@@ -148,8 +160,8 @@ When a client times out, it may retry using the same `messageID` or `idempotency
 
 Retries should satisfy:
 
-- If Session, messageID, parts, delivery, and resume are all identical, return the existing input.
-- If messageID is the same but parts differ, reject and return a conflict.
+- If Session, messageID, prompt, delivery, and resume are all identical, return the existing input.
+- If messageID is the same but prompt differs, reject and return a conflict.
 - If messageID is the same but sessionID differs, reject.
 - If a projected prompt already exists in history but the inbox record is missing, lazily synthesize a promoted input and then return success.
 
@@ -200,34 +212,28 @@ The Coordinator is the in-process arbitration mechanism for Session drains.
 
 ```ts
 interface SessionExecution {
-  wake(sessionID: SessionID): void
-  interrupt(sessionID: SessionID, reason?: string): void
-  getState(sessionID: SessionID): SessionExecutionState
-}
-
-type SessionExecutionState = {
-  sessionID: SessionID
-  active: boolean
-  wakePending: boolean
-  activeRunID?: string
-  interrupted: boolean
+  resume(sessionID: SessionID): Effect<void, RunError>
+  wake(sessionID: SessionID, seq?: number): Effect<void, RunError>
+  interrupt(sessionID: SessionID, seq?: number): Effect<void>
 }
 ```
 
-A local implementation can use `Map<SessionID, RunSlot>`:
+`resume` is explicit recovery and forces at least one Runner attempt. `wake` is advisory and only runs when pending steer/queue input exists. `interrupt` affects only the active ownership chain held by the current process; if the Session is idle or owned elsewhere, it is a no-op after the durable interrupt request has been recorded.
+
+A local implementation can still use a `Map<SessionID, RunSlot>` internally:
 
 ```ts
 type RunSlot = {
   running: boolean
   wakePending: boolean
-  abortController?: AbortController
+  interrupt?: () => void
 }
 ```
 
 Pseudocode for `wake(sessionID)`:
 
 ```ts
-function wake(sessionID: SessionID) {
+function wake(sessionID: SessionID, seq?: number) {
   const slot = getOrCreateSlot(sessionID)
   slot.wakePending = true
   if (slot.running) return
@@ -239,15 +245,17 @@ async function startDrain(sessionID: SessionID, slot: RunSlot) {
   try {
     while (slot.wakePending) {
       slot.wakePending = false
-      await runner.drain(sessionID, { signal: slot.abortController.signal })
+      await runner.run({ sessionID, force: false })
     }
   } finally {
     slot.running = false
-    slot.abortController = undefined
+    slot.interrupt = undefined
     if (slot.wakePending) startDrain(sessionID, slot)
   }
 }
 ```
+
+Observability methods such as `getState(...)`, or an `AbortController` adapter for non-Effect runtimes, are implementation conveniences rather than the current V2 core interface.
 
 Design points:
 

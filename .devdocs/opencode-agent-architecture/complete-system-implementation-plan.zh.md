@@ -1,6 +1,8 @@
-# 14 Complete System Implementation Plan
+# Complete System Implementation Plan
 
 This document organizes the previously broken-down architecture documents into an executable complete system implementation plan. Its goal is not to replace the design of each module, but to tell the development team: which design to read first, what to deliver, how to divide the work, how to accept deliverables, which interfaces must be stabilized, and ultimately to replicate an Agent system consistent with opencode's current V2 architecture.
+
+For NextEngine, this plan should be read as a bridge from opencode's Agent architecture to the AI Agent implementation inside a Godot Engine derivative. The module boundaries and invariants come from opencode; the concrete implementation must map them onto NextEngine's editor extension points, `editor/agent_v1`, `editor/user_system`, `scene/gui` UI controls, project/workspace model, and engine-side persistence/runtime constraints.
 
 Each section includes a "Reading Guide" pointing to the corresponding module documentation. During actual development, first read this plan to determine the boundaries of the current phase, then go to the referenced module documentation to fill in data models, function signatures, call chains, and implementation details.
 
@@ -18,7 +20,7 @@ This plan defaults to using opencode V2's core constraints:
 - Separation of prompt admission and model execution: user input is persisted first, then scheduled for execution.
 - Only one local drain is allowed per Session at any given time.
 - Each provider turn calls `llm.stream(request)` only once.
-- Tool calls must go through registry, schema, permission, execute, settlement.
+- Local tool calls must go through the materialized registry snapshot, schema codecs, tool-owned permission assertion, execution, output encoding/bounding, and settlement.
 - Context must be projectable, replayable, and auditable before entering the model.
 - Configuration import, permission rules, MCP, Skill, Agent, and attachments must not bypass the unified runtime pipeline.
 
@@ -72,9 +74,9 @@ flowchart TD
 
 Reading Guide:
 
-- [README: Module Reading Order & General Principles](./README.md)
-- [Source Code Consistency Audit Report](./12-source-alignment-audit.md)
-- [From-Scratch Recreation Roadmap & Acceptance Checklist](./11-implementation-roadmap.md)
+- [README: Module Reading Order & General Principles](./README.zh.md)
+- [Source Code Consistency Audit Report](./source-alignment-audit.zh.md)
+- [From-Scratch Recreation Roadmap & Acceptance Checklist](./implementation-roadmap.zh.md)
 
 Goal:
 
@@ -119,8 +121,8 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [01 Domain Model & Event Log](./01-domain-model-and-event-log.md)
-- [05 Context Management & History Projection](./05-context-management-and-history-projection.md)
+- [01 Domain Model & Event Log](./01-domain-model-and-event-log.zh.md)
+- [05 Context Management & History Projection](./05-context-management-and-history-projection.zh.md)
 
 Goal:
 
@@ -200,10 +202,10 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [13 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.md)
-- [04 Tool Registration, Execution & Permission System](./04-tool-registry-execution-and-permission.md)
-- [07 MCP Integration](./07-mcp-integration.md)
-- [08 Skill Mechanism](./08-skill-system.md)
+- [11 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.zh.md)
+- [04 Tool Registration, Execution & Permission System](./04-tool-registry-execution-and-permission.zh.md)
+- [07 MCP Integration](./07-mcp-integration.zh.md)
+- [08 Skill Mechanism](./08-skill-system.zh.md)
 
 Goal:
 
@@ -270,8 +272,8 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [02 Session, Prompt Admission & Run Coordination](./02-session-admission-and-coordinator.md)
-- [01 Domain Model & Event Log](./01-domain-model-and-event-log.md)
+- [02 Session, Prompt Admission & Run Coordination](./02-session-admission-and-coordinator.zh.md)
+- [01 Domain Model & Event Log](./01-domain-model-and-event-log.zh.md)
 
 Goal:
 
@@ -280,6 +282,7 @@ Implement the boundary for user input queuing and run scheduling. Submitting a p
 Deliverables:
 
 - `SessionService.prompt`
+- `SessionExecution.resume`
 - `SessionExecution.wake`
 - `SessionExecution.interrupt`
 - `SessionRunCoordinator`
@@ -292,17 +295,17 @@ Core Interface:
 interface SessionService {
   prompt(input: {
     sessionID: string
-    messageID: string
-    parts: InputPart[]
+    id?: string
+    prompt: Prompt
     delivery?: "steer" | "queue"
     resume?: boolean
   }): Promise<PromptAdmission>
 }
 
 interface SessionExecution {
-  wake(sessionID: string): Promise<void>
-  interrupt(sessionID: string, reason: string): Promise<void>
-  getState(sessionID: string): Promise<SessionExecutionState>
+  resume(sessionID: string): Promise<void>
+  wake(sessionID: string, seq?: number): Promise<void>
+  interrupt(sessionID: string, seq?: number): Promise<void>
 }
 ```
 
@@ -312,8 +315,8 @@ Call Chain:
 POST /session/:id/prompt
   -> SessionService.prompt
   -> write session_input row
-  -> append prompt admitted event
-  -> if resume !== false: SessionExecution.wake(sessionID)
+  -> append session.next.prompt.admitted event
+  -> if resume !== false: SessionExecution.wake(sessionID, admittedSeq)
   -> coordinator joins or schedules drain
 ```
 
@@ -336,8 +339,8 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [03 Agent Runner & LLM Runtime](./03-agent-runner-and-llm-runtime.md)
-- [05 Context Management & History Projection](./05-context-management-and-history-projection.md)
+- [03 Agent Runner & LLM Runtime](./03-agent-runner-and-llm-runtime.zh.md)
+- [05 Context Management & History Projection](./05-context-management-and-history-projection.zh.md)
 
 Goal:
 
@@ -409,8 +412,8 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [04 Tool Registration, Tool Execution & Permission System](./04-tool-registry-execution-and-permission.md)
-- [13 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.md)
+- [04 Tool Registration, Tool Execution & Permission System](./04-tool-registry-execution-and-permission.zh.md)
+- [11 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.zh.md)
 
 Goal:
 
@@ -429,29 +432,27 @@ Deliverables:
 Core Interface:
 
 ```ts
-type Tool<TInput, TOutput> = {
-  id: string
-  description: string
-  parameters: unknown
-  execute(input: TInput, context: ToolExecutionContext): Promise<TOutput>
-}
+type AnyTool = Tool.Definition<any, any>
 
 interface ToolRegistry {
-  register(input: {
-    location: Location
-    scope?: string
-    tools: Record<string, Tool<unknown, unknown>>
-  }): Promise<void>
+  register(tools: Record<string, AnyTool>): Promise<RegistrationScope>
 
-  materialize(input: {
-    location: Location
-    agentName?: string
-  }): Promise<MaterializedToolSet>
+  materialize(permissions?: PermissionRuleset): Promise<MaterializedToolSet>
+}
+
+type MaterializedToolSet = {
+  definitions: ModelToolDefinition[]
+  settle(input: {
+    sessionID: string
+    agent: string
+    assistantMessageID: string
+    call: ToolCall
+  }): Promise<ToolSettlement>
 }
 
 interface PermissionService {
-  evaluate(input: PermissionRequest): Promise<PermissionDecision>
-  respond(input: PermissionResponse): Promise<void>
+  assert(input: PermissionAssertInput): Promise<void>
+  reply(input: PermissionReplyInput): Promise<void>
 }
 ```
 
@@ -488,13 +489,13 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [05 Context Management & History Projection](./05-context-management-and-history-projection.md)
-- [01 Domain Model & Event Log](./01-domain-model-and-event-log.md)
-- [03 Agent Runner & LLM Runtime](./03-agent-runner-and-llm-runtime.md)
+- [05 Context Management & History Projection](./05-context-management-and-history-projection.zh.md)
+- [01 Domain Model & Event Log](./01-domain-model-and-event-log.zh.md)
+- [03 Agent Runner & LLM Runtime](./03-agent-runner-and-llm-runtime.zh.md)
 
 Goal:
 
-Implement context construction before model request. Historical messages, system prompts, tool lists, Skill instructions, MCP resources, attachment summaries, compaction summaries must all enter the model through an auditable Context Epoch.
+Implement context construction before model request. System prompts, Skill guidance, configured instructions, and other privileged system sources are reconciled through the Session Context Epoch; historical messages, compaction checkpoints, attachments, and materialized tool definitions are assembled by the Runner from projected history and runtime registries at the same safe boundary.
 
 Deliverables:
 
@@ -509,23 +510,30 @@ Core Interface:
 
 ```ts
 interface ContextEpochService {
-  create(input: {
+  initialize(input: {
     sessionID: string
-    agentName?: string
-    baselineSeq: number
-    sources: ContextSourceSnapshot[]
-    selectedHistory: SelectedHistory
-    tools: string[]
-  }): Promise<ContextEpoch>
+    location: Location
+    agent: string
+    context: SystemContext
+  }): Promise<SessionContextEpoch | undefined>
+
+  prepare(input: {
+    sessionID: string
+    location: Location
+    agent: string
+    context: SystemContext
+  }): Promise<SessionContextEpoch>
+
+  requestReplacement(sessionID: string, seq: number): Promise<void>
 }
 
-type ContextEpoch = {
-  id: string
+type SessionContextEpoch = {
   sessionID: string
-  baseline: string[]
-  snapshot: ContextSourceSnapshot[]
-  agent?: string
+  baseline: string
+  snapshot: SystemContextSnapshot
+  agent: string
   baselineSeq: number
+  replacementSeq?: number
   revision: number
 }
 ```
@@ -535,10 +543,10 @@ Call Chain:
 ```text
 Runner before provider turn
   -> project durable history
-  -> select history under token budget
   -> collect context sources
-  -> materialize tool names
-  -> persist Context Epoch
+  -> initialize/prepare Session Context Epoch
+  -> select history from baselineSeq and compaction boundary
+  -> materialize tool names through ToolRegistry
   -> build ModelRequest
 ```
 
@@ -552,8 +560,8 @@ Implementation Steps:
 
 Acceptance Criteria:
 
-- Context Epoch exists before each provider turn.
-- Epoch explains which system, history, tools, sources are included in the turn.
+- Session Context Epoch is initialized before the first model-visible prompt and prepared before provider turns.
+- Epoch explains the privileged system baseline, source snapshot, effective agent, baselineSeq, and revision; selected history and materialized tools belong to Runner request construction, not epoch fields.
 - Overlong history is trimmed, but tool pairs remain intact.
 - Same event log can replay equivalent model requests.
 
@@ -561,9 +569,9 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [06 Multimodal Files & Chat Attachments](./06-multimodal-files-and-chat-attachments.md)
-- [03 Agent Runner & LLM Runtime](./03-agent-runner-and-llm-runtime.md)
-- [13 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.md)
+- [06 Multimodal Files & Chat Attachments](./06-multimodal-files-and-chat-attachments.zh.md)
+- [03 Agent Runner & LLM Runtime](./03-agent-runner-and-llm-runtime.zh.md)
+- [11 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.zh.md)
 
 Goal:
 
@@ -636,9 +644,9 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [07 MCP Integration](./07-mcp-integration.md)
-- [04 Tool Registration, Execution & Permission System](./04-tool-registry-execution-and-permission.md)
-- [13 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.md)
+- [07 MCP Integration](./07-mcp-integration.zh.md)
+- [04 Tool Registration, Execution & Permission System](./04-tool-registry-execution-and-permission.zh.md)
+- [11 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.zh.md)
 
 Goal:
 
@@ -698,9 +706,9 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [08 Skill Mechanism](./08-skill-system.md)
-- [05 Context Management & History Projection](./05-context-management-and-history-projection.md)
-- [13 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.md)
+- [08 Skill Mechanism](./08-skill-system.zh.md)
+- [05 Context Management & History Projection](./05-context-management-and-history-projection.zh.md)
+- [11 Settings, Configuration Persistence & Activation](./11-settings-config-persistence-and-activation.zh.md)
 
 Goal:
 
@@ -764,9 +772,9 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [09 Multi-Agent & Subagent](./09-multi-agent-and-subagent.md)
-- [04 Tool Registration, Execution & Permission System](./04-tool-registry-execution-and-permission.md)
-- [02 Session, Prompt Admission & Run Coordination](./02-session-admission-and-coordinator.md)
+- [09 Multi-Agent & Subagent](./09-multi-agent-and-subagent.zh.md)
+- [04 Tool Registration, Execution & Permission System](./04-tool-registry-execution-and-permission.zh.md)
+- [02 Session, Prompt Admission & Run Coordination](./02-session-admission-and-coordinator.zh.md)
 
 Goal:
 
@@ -836,9 +844,9 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [10 Compaction, Interrupt & Recovery](./10-compaction-interrupt-and-recovery.md)
-- [05 Context Management & History Projection](./05-context-management-and-history-projection.md)
-- [02 Session, Prompt Admission & Run Coordination](./02-session-admission-and-coordinator.md)
+- [10 Compaction, Interrupt & Recovery](./10-compaction-interrupt-and-recovery.zh.md)
+- [05 Context Management & History Projection](./05-context-management-and-history-projection.zh.md)
+- [02 Session, Prompt Admission & Run Coordination](./02-session-admission-and-coordinator.zh.md)
 
 Goal:
 
@@ -899,8 +907,8 @@ Acceptance Criteria:
 
 Reading Guide:
 
-- [11 From-Scratch Recreation Roadmap & Acceptance Checklist](./11-implementation-roadmap.md)
-- [12 Source Code Consistency Audit Report](./12-source-alignment-audit.md)
+- [From-Scratch Recreation Roadmap & Acceptance Checklist](./implementation-roadmap.zh.md)
+- [Source Code Consistency Audit Report](./source-alignment-audit.zh.md)
 - All module documents referenced in previous phases of this plan
 
 Goal:

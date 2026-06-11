@@ -28,7 +28,7 @@ The goal of compaction is not to rewrite history, but to provide a shorter conte
 Event Log full history
   -> choose compaction input messages
   -> call summarizer model
-  -> write compaction completed event
+  -> write session.next.compaction.ended
   -> Context Source exposes summary
   -> HistorySelector can omit compacted messages
 ```
@@ -52,26 +52,15 @@ type CompactionRow = {
 }
 ```
 
-Events:
+Current durable/live event family:
 
-```ts
-type CompactionStartedPayload = {
-  compactionID: CompactionID
-  inputMessageIDs: MessageID[]
-  tokenBefore: number
-}
-
-type CompactionCompletedPayload = {
-  compactionID: CompactionID
-  summary: string
-  tokenAfter: number
-}
-
-type CompactionFailedPayload = {
-  compactionID: CompactionID
-  error: ToolError
-}
+```text
+session.next.compaction.started
+session.next.compaction.delta   live-only
+session.next.compaction.ended   durable
 ```
+
+The current durable ended payload contains the summary text plus serialized recent context. A separate `CompactionRow` can be useful in a fork implementation, but the replayable boundary is still `session.next.compaction.ended`.
 
 ## Trigger Timing
 
@@ -167,17 +156,19 @@ Do not retain:
 ## Compaction Service
 
 ```ts
+type CancellationContext = unknown
+
 interface CompactionService {
   maybeCompact(input: {
     sessionID: SessionID
     model: ModelInfo
-    signal: AbortSignal
+    cancellation?: CancellationContext
   }): Promise<CompactionResult | undefined>
 
   compact(input: {
     sessionID: SessionID
     messageIDs: MessageID[]
-    signal: AbortSignal
+    cancellation?: CancellationContext
   }): Promise<CompactionResult>
 }
 
@@ -196,8 +187,9 @@ Runner before provider turn
   -> HistoryProjection.projectMessages
   -> CompactionPolicy.shouldCompact
   -> CompactionService.compact if needed
-  -> EventStore.append("session.compaction.completed")
-  -> ContextSource "compaction summary" updates
+  -> EventStore.append("session.next.compaction.ended")
+  -> project compaction message
+  -> request Context Epoch replacement
   -> HistorySelector.select
 ```
 
@@ -219,7 +211,7 @@ type CompactedHistoryMarker = {
 
 ## Interruption Model
 
-Interruption is divided into "interrupt requested" and "interrupted."
+The current V2 durable boundary for user interruption is the request event. The actual cancellation of the active provider stream, tool fibers, and Runner ownership chain is process-local and is represented afterward through ordinary step/tool terminal events.
 
 ```ts
 type InterruptRequest = {
@@ -230,37 +222,29 @@ type InterruptRequest = {
 }
 ```
 
-Events:
+Durable event:
 
-```ts
-type InterruptRequestedPayload = {
-  interruptID: string
-  reason?: string
-}
-
-type InterruptedPayload = {
-  interruptID?: string
-  assistantMessageID?: MessageID
-  activeToolCallID?: ToolCallID
-  reason?: string
-}
+```text
+session.next.interrupt.requested
 ```
+
+If a fork wants a separate `interrupted` event for UI diagnostics, mark it as an extension. Do not make recovery depend on it unless it is written durably and projected consistently with step/tool state.
 
 ## Interruption Call Chain
 
 ```text
 UI/CLI interrupt
   -> SessionService.interrupt(sessionID)
-  -> EventStore.append("session.interrupt.requested")
-  -> SessionExecution.interrupt(sessionID)
-  -> active AbortController.abort(reason)
-  -> Runner catches abort
-  -> EventStore.append("session.interrupted")
+  -> EventStore.append("session.next.interrupt.requested")
+  -> SessionExecution.interrupt(sessionID, seq?)
+  -> Effect interruption reaches active Runner/tool fibers
+  -> Runner flushes durable fragments when possible
+  -> Runner publishes session.next.step.failed and/or session.next.tool.failed for unsettled work
 ```
 
 `SessionExecution.interrupt` only interrupts the active drain owned by the current process. When there is no active drain:
 
-- Can still write `session.interrupt.requested`.
+- Can still write `session.next.interrupt.requested`.
 - Does not error.
 - Next Runner drain sees idle state and handles it.
 
@@ -271,24 +255,26 @@ Handling rules:
 - Preserve already received text/reasoning deltas.
 - Do not execute incomplete tool call deltas.
 - If the provider has already returned a complete tool call but the tool hasn't been executed, treat it as canceled/failed.
-- Write `session.interrupted`.
+- If an assistant step has started, write a terminal `session.next.step.failed` or equivalent failure boundary; do not rely on a separate durable "interrupted" event unless a fork explicitly adds one.
 
 ## Tool Execution Interruption
 
-Tool implementations must accept an `AbortSignal`.
+Tool implementations run under the Runner's interruption context. Effect-native tools should allow interruption to propagate; adapters around child processes, network calls, browser automation, or child-agent waits should bridge that interruption into the underlying API's cancellation mechanism.
 
 ```ts
-async function execute(input: ToolExecutionInput<unknown>) {
-  input.signal.throwIfAborted()
-  // long running work checks signal periodically
-}
+const tool = Tool.make({
+  execute: (input, context) =>
+    Effect.gen(function* () {
+      yield* Effect.interruptible(longRunningWork(input, context))
+    }),
+})
 ```
 
 When interrupting a tool:
 
 - Terminate child processes, network requests, browser operations, or child agent waits.
-- Write `assistant.tool.failed` or `assistant.tool.canceled`.
-- The tool result text sent to the model should indicate user interruption.
+- Write `session.next.tool.failed` with a message such as `Tool execution interrupted`.
+- The next model turn should see an ordinary failed tool settlement only when the call was complete enough to be represented durably.
 
 ## Startup Cleanup
 
@@ -308,8 +294,8 @@ type StartupCleanupResult = {
 
 Cleanup rules:
 
-- If `assistant.step.started` has no completed following it, mark as interrupted or failed.
-- If `assistant.tool.started` has no completed/failed following it, mark as failed with reason "process restarted."
+- If `session.next.step.started` has no `session.next.step.ended` or `session.next.step.failed`, mark it as interrupted or failed.
+- If a projected tool is still pending/running without `session.next.tool.success` or `session.next.tool.failed`, mark it failed with reason `Tool execution interrupted` or `process restarted`.
 - `permission_pending` can be retained, waiting for user response or cancellation.
 - Admitted prompts are not automatically discarded.
 
@@ -330,8 +316,8 @@ Recommended strategy:
 ## Implementation Steps
 
 1. Implement `InterruptRequest` and `SessionService.interrupt`.
-2. Have `SessionExecution` save AbortController for the active drain.
-3. Runner and tool execution check AbortSignal.
+2. Connect `SessionExecution.interrupt(sessionID, seq?)` to the active Effect ownership chain.
+3. Ensure tools and adapters propagate interruption to child processes, network requests, browser work, or child-agent waits.
 4. Implement `StartupRecovery.cleanup`.
 5. Implement `CompactionPolicy` and input selector.
 6. Implement summarizer provider call.
@@ -353,4 +339,4 @@ Recommended strategy:
 - Deleting already output content upon interruption, destroying sources of truth.
 - Overwriting original history during compaction, making auditing impossible.
 - Summaries overly focused on human narrative, losing details needed for subsequent development.
-- Tools not accepting AbortSignal, causing UI to show interrupted while background processes still run.
+- Tool adapters not propagating interruption to their child work, causing UI to show interrupted while background work still runs.

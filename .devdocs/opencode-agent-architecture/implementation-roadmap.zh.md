@@ -1,6 +1,10 @@
 # From-Scratch Replication Roadmap and Acceptance Checklist
 
-This roadmap connects the previous 10 modules into an executable development plan. It is recommended to submit each phase incrementally, with each phase having a self-contained minimal closed loop. Avoid implementing real models, MCP, multimodality, and sub-agents all at once from the start.
+This roadmap connects the modular documents into a compact feature-first development checklist. It is recommended to submit each phase incrementally, with each phase having a self-contained minimal closed loop. Avoid implementing real models, MCP, multimodality, and sub-agents all at once from the start.
+
+The roadmap is based on opencode's Agent architecture and is intended to guide the NextEngine AI Agent implementation. Treat opencode as the reference architecture for durable sessions, runner loops, tools, permissions, context epochs, compaction, and recovery; treat NextEngine as the target runtime where those concepts must be integrated with Godot editor workflows and project data.
+
+For a full replication plan, follow [Complete System Implementation Plan](./complete-system-implementation-plan.zh.md), which brings Settings and Config forward before most runtime modules. This roadmap intentionally defers full configuration to Phase 12; before that phase, implementations should use in-memory defaults or test fixtures rather than inventing a second configuration system.
 
 ## Overall Milestones
 
@@ -108,7 +112,7 @@ Acceptance:
 
 - Model can call read-only tools and see results in the next round.
 - File-write and shell tools trigger permission pending by default.
-- User denies permission → model receives a rejection result.
+- User denies permission -> model receives a rejection result.
 - Tool execution is skipped if parameters are invalid.
 
 ## Phase 6: Context Management and History Projection
@@ -122,8 +126,8 @@ Deliverables:
 
 Acceptance:
 
-- Each provider turn has a Context Epoch.
-- Epoch records system, history ids, tool names, source hashes.
+- A Session Context Epoch exists before model-visible prompts and is prepared before provider turns.
+- Epoch records privileged system baseline, source snapshot, effective agent, baselineSeq, and revision; history selection and tool materialization are request-construction outputs, not epoch fields.
 - Long histories can be truncated without breaking tool pairs.
 
 ## Phase 7: Multimodal Attachments
@@ -321,12 +325,12 @@ interface CoreServices {
 ## Key Invariants
 
 - User input must first be admitted, then woken.
-- Prompt admitted ≠ visible to model; only promoted is visible.
+- Prompt admitted is not visible to the model; only promoted is visible.
 - Only one active drain at a time per Session.
 - Only one `llm.stream(request)` call per provider turn.
-- Tool calls must go through registry resolve, schema validate, permission assert, execute, event append.
+- Local tool calls must go through the materialized registry snapshot, schema codecs, tool-owned permission assertion, execution, output encoding/bounding, and durable settlement events.
 - Permission decisions are made server-side, not UI-only.
-- Context Epoch must be persisted before the provider turn.
+- Session Context Epoch must be initialized before the first promoted prompt and prepared/fenced before provider turns.
 - Multimodal attachments must undergo capability checks; local paths must not be sent directly to cloud models.
 - MCP and Skills both go through unified registration/context/permission pipelines.
 - Sub-agents must have child Sessions, not silently run in memory.

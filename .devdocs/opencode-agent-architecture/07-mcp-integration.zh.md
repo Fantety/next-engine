@@ -162,8 +162,8 @@ Conversion rules:
 - Add server namespace to registration name, e.g., `tools.register({ mcp__server__tool: tool })`.
 - Preserve the original MCP tool name in metadata, restoring it during execution.
 - MCP input schema goes into unified schema validation.
-- MCP result is converted to unified `ToolExecutionOutput`.
-- MCP tools default to at least `external` risk; if the server is remote, `network` can be added.
+- MCP result is converted to the wrapped tool's typed output, then projected through `toModelOutput(...)` and unified ToolRegistry settlement/bounding.
+- MCP permission facts should mark the call as external; if the server is remote, include network access facts for default policy decisions.
 
 ## MCP Tool Result
 
@@ -281,7 +281,7 @@ type MCPEventType =
   | "mcp.discovery.completed"
 ```
 
-Tool execution itself still uses `assistant.tool.*` events; no separate MCP tool events are needed. MCP metadata can be placed in the payload.
+Tool execution itself still uses `session.next.tool.called`, `session.next.tool.success`, and `session.next.tool.failed`; no separate MCP tool events are needed. MCP metadata can be placed in the tool payload or settlement result.
 
 ## Reconnection and Failure
 
