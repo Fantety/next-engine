@@ -182,6 +182,7 @@
 #include "editor/agent_v1/session/runner/ai_session_runner.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
 #include "editor/agent_v1/session/service/ai_session_store.h"
+#include "editor/agent_v1/skills/ai_skill_service_v1.h"
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 #include "editor/agent_v1/tools/ai_tool_v1.h"
@@ -334,6 +335,8 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIPermissionService);
 	GDREGISTER_CLASS(AIV1MCPService);
 	GDREGISTER_CLASS(AIV1MCPToolAdapter);
+	GDREGISTER_CLASS(AIV1SkillService);
+	GDREGISTER_CLASS(AIV1SkillScriptToolAdapter);
 	GDREGISTER_CLASS(AIV1Tool);
 	GDREGISTER_CLASS(AIV1ReadFileTool);
 	GDREGISTER_CLASS(AIV1WriteFileTool);

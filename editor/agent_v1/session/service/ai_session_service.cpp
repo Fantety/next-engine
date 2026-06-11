@@ -51,6 +51,8 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_attachment_resolver"), &AISessionService::get_attachment_resolver);
 	ClassDB::bind_method(D_METHOD("set_model_part_builder", "builder"), &AISessionService::set_model_part_builder);
 	ClassDB::bind_method(D_METHOD("get_model_part_builder"), &AISessionService::get_model_part_builder);
+	ClassDB::bind_method(D_METHOD("set_skill_service", "service"), &AISessionService::set_skill_service);
+	ClassDB::bind_method(D_METHOD("get_skill_service"), &AISessionService::get_skill_service);
 	ClassDB::bind_method(D_METHOD("create", "input"), &AISessionService::create);
 	ClassDB::bind_method(D_METHOD("prompt", "input"), &AISessionService::prompt);
 	ClassDB::bind_method(D_METHOD("reply_permission", "input"), &AISessionService::reply_permission);
@@ -218,6 +220,9 @@ void AISessionService::_ensure_defaults() {
 	if (model_part_builder.is_null()) {
 		model_part_builder.instantiate();
 	}
+	if (skill_service.is_null()) {
+		skill_service.instantiate();
+	}
 }
 
 void AISessionService::_wire_dependencies() {
@@ -249,6 +254,7 @@ void AISessionService::_wire_dependencies() {
 		session_runner->set_tool_registry(tool_registry);
 		session_runner->set_session_store(session_store);
 		session_runner->set_model_part_builder(model_part_builder);
+		session_runner->set_skill_service(skill_service);
 	}
 	if (context_source_registry.is_valid()) {
 		context_source_registry->set_config_service(config_service);
@@ -265,6 +271,9 @@ void AISessionService::_wire_dependencies() {
 		tool_registry->set_event_store(event_store);
 		tool_registry->set_projector(projector);
 		tool_registry->set_permission_service(permission_service);
+	}
+	if (skill_service.is_valid()) {
+		skill_service->set_tool_registry(tool_registry);
 	}
 	if (execution.is_valid()) {
 		if (session_runner.is_valid()) {
@@ -613,6 +622,16 @@ void AISessionService::set_model_part_builder(const Ref<AIModelPartBuilder> &p_b
 
 Ref<AIModelPartBuilder> AISessionService::get_model_part_builder() const {
 	return model_part_builder;
+}
+
+void AISessionService::set_skill_service(const Ref<AIV1SkillService> &p_service) {
+	skill_service = p_service;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIV1SkillService> AISessionService::get_skill_service() const {
+	return skill_service;
 }
 
 Dictionary AISessionService::create(const Dictionary &p_input) {

@@ -254,6 +254,8 @@ void AISessionRunner::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_session_store"), &AISessionRunner::get_session_store);
 	ClassDB::bind_method(D_METHOD("set_model_part_builder", "builder"), &AISessionRunner::set_model_part_builder);
 	ClassDB::bind_method(D_METHOD("get_model_part_builder"), &AISessionRunner::get_model_part_builder);
+	ClassDB::bind_method(D_METHOD("set_skill_service", "service"), &AISessionRunner::set_skill_service);
+	ClassDB::bind_method(D_METHOD("get_skill_service"), &AISessionRunner::get_skill_service);
 	ClassDB::bind_method(D_METHOD("run", "session_id", "force"), &AISessionRunner::run, DEFVAL(false));
 }
 
@@ -265,9 +267,11 @@ AISessionRunner::AISessionRunner() {
 	runtime_registry.instantiate();
 	tool_registry.instantiate();
 	model_part_builder.instantiate();
+	skill_service.instantiate();
 	tool_registry->register_builtin_tools();
 	context_source_registry->set_config_service(config_service);
 	context_epoch_service->set_epoch_store(context_epoch_store);
+	skill_service->set_tool_registry(tool_registry);
 }
 
 String AISessionRunner::_message_text(const AISessionMessage &p_message) {
@@ -294,6 +298,15 @@ String AISessionRunner::_message_text(const AISessionMessage &p_message) {
 		}
 	}
 	return text;
+}
+
+String AISessionRunner::_latest_user_prompt_text(const Vector<AISessionMessage> &p_messages) {
+	for (int i = p_messages.size() - 1; i >= 0; i--) {
+		if (p_messages[i].type == AI_SESSION_MESSAGE_USER) {
+			return _message_text(p_messages[i]);
+		}
+	}
+	return String();
 }
 
 bool AISessionRunner::_message_to_model(const AISessionMessage &p_message, const Dictionary &p_provider_config, AIModelMessage &r_message, AIError &r_error) {
@@ -353,6 +366,21 @@ int64_t AISessionRunner::_history_token_budget_from_config(const Dictionary &p_c
 
 bool AISessionRunner::_is_rebuild_request_conflict(const AIError &p_error) {
 	return p_error.kind == AI_ERROR_CONFLICT && bool(p_error.details.get("rebuild_request", false));
+}
+
+AIError AISessionRunner::_error_from_result(const Dictionary &p_result, const String &p_fallback_message) {
+	if (p_result.get("error", Variant()).get_type() != Variant::DICTIONARY) {
+		return AIError::make(AI_ERROR_INTERNAL, p_fallback_message);
+	}
+
+	const Dictionary error = p_result["error"];
+	Dictionary details;
+	if (error.get("details", Variant()).get_type() == Variant::DICTIONARY) {
+		details = Dictionary(error["details"]).duplicate(true);
+	}
+	const String kind = String(error.get("kind", String())).strip_edges();
+	const String message = String(error.get("message", p_fallback_message)).strip_edges();
+	return AIError::make(AIError::string_to_kind(kind), message.is_empty() ? p_fallback_message : message, details);
 }
 
 Dictionary AISessionRunner::_model_part_for_event_log(const AIModelPart &p_part) {
@@ -471,13 +499,85 @@ bool AISessionRunner::_project_durable_history(const String &p_session_id) {
 	return true;
 }
 
-bool AISessionRunner::_load_system_context(const AISessionRow &p_session, const String &p_agent_id, const String &p_provider, const String &p_model, AISystemContext &r_context, AIError &r_error) const {
+bool AISessionRunner::_configure_skill_service_from_config(const Dictionary &p_config, AIError &r_error) const {
+	if (skill_service.is_null()) {
+		r_error = AIError::none();
+		return true;
+	}
+	if (tool_registry.is_valid()) {
+		skill_service->set_tool_registry(tool_registry);
+	}
+	if (!skill_service->import_config_struct(p_config, r_error)) {
+		return false;
+	}
+	return skill_service->refresh_struct(r_error);
+}
+
+bool AISessionRunner::_select_skills_for_prompt(const Dictionary &p_config, const String &p_prompt, Array &r_selected_skills, AIError &r_error) const {
+	r_selected_skills.clear();
+	if (skill_service.is_null()) {
+		r_error = AIError::none();
+		return true;
+	}
+	if (!_configure_skill_service_from_config(p_config, r_error)) {
+		return false;
+	}
+
+	r_selected_skills = skill_service->select(p_prompt, Array());
+	r_error = AIError::none();
+	return true;
+}
+
+bool AISessionRunner::_append_selected_skill_sources(const Array &p_selected_skills, Vector<AISystemContextSource> &r_sources, AIError &r_error) const {
+	if (p_selected_skills.is_empty()) {
+		r_error = AIError::none();
+		return true;
+	}
+	if (skill_service.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no SkillService.");
+		return false;
+	}
+
+	for (int i = 0; i < p_selected_skills.size(); i++) {
+		if (p_selected_skills[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary selected = p_selected_skills[i];
+		const String skill_id = String(selected.get("skill_id", selected.get("skillID", String()))).strip_edges();
+		if (skill_id.is_empty()) {
+			continue;
+		}
+
+		const Dictionary source_result = skill_service->make_context_source(skill_id, true, 150 + i);
+		if (!bool(source_result.get("success", false))) {
+			r_error = _error_from_result(source_result, "Failed to build selected Skill context source.");
+			return false;
+		}
+		if (source_result.get("source", Variant()).get_type() != Variant::DICTIONARY) {
+			r_error = AIError::make(AI_ERROR_INTERNAL, "Selected Skill did not produce a context source.");
+			return false;
+		}
+		r_sources.push_back(AISystemContextSource::from_dictionary(source_result["source"]));
+	}
+
+	r_error = AIError::none();
+	return true;
+}
+
+bool AISessionRunner::_load_system_context(const AISessionRow &p_session, const String &p_agent_id, const String &p_provider, const String &p_model, const Array &p_selected_skills, AISystemContext &r_context, AIError &r_error) const {
 	if (context_source_registry.is_null()) {
 		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no ContextSourceRegistry.");
 		return false;
 	}
 	if (!context_source_registry->load_struct(p_agent_id, p_session.location, p_provider, p_model, r_context, r_error)) {
 		return false;
+	}
+	if (!p_selected_skills.is_empty()) {
+		Vector<AISystemContextSource> sources = r_context.sources;
+		if (!_append_selected_skill_sources(p_selected_skills, sources, r_error)) {
+			return false;
+		}
+		r_context = AISystemContext::combine(sources);
 	}
 	if (!r_context.is_available()) {
 		r_error = AIError::make(AI_ERROR_UNAVAILABLE, r_context.blocked_reason.is_empty() ? String("System context is unavailable.") : r_context.blocked_reason);
@@ -486,14 +586,14 @@ bool AISessionRunner::_load_system_context(const AISessionRow &p_session, const 
 	return true;
 }
 
-bool AISessionRunner::_prepare_context_epoch(const AISessionRow &p_session, const String &p_agent_id, const String &p_provider, const String &p_model, AIContextEpoch &r_epoch, AIError &r_error) {
+bool AISessionRunner::_prepare_context_epoch(const AISessionRow &p_session, const String &p_agent_id, const String &p_provider, const String &p_model, const Array &p_selected_skills, AIContextEpoch &r_epoch, AIError &r_error) {
 	if (context_epoch_service.is_null()) {
 		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no ContextEpochService.");
 		return false;
 	}
 
 	AISystemContext context;
-	if (!_load_system_context(p_session, p_agent_id, p_provider, p_model, context, r_error)) {
+	if (!_load_system_context(p_session, p_agent_id, p_provider, p_model, p_selected_skills, context, r_error)) {
 		return false;
 	}
 	return context_epoch_service->prepare_struct(p_session.id, p_session.location, p_agent_id, context, r_epoch, r_error);
@@ -574,8 +674,13 @@ bool AISessionRunner::_verify_context_epoch_current(const String &p_session_id, 
 		return false;
 	}
 
+	Array selected_skills;
+	if (p_request.metadata.get("selected_skills", Variant()).get_type() == Variant::ARRAY) {
+		selected_skills = Array(p_request.metadata["selected_skills"]).duplicate(true);
+	}
+
 	AISystemContext current_context;
-	if (!_load_system_context(current_session, current_agent, provider, model, current_context, r_error)) {
+	if (!_load_system_context(current_session, current_agent, provider, model, selected_skills, current_context, r_error)) {
 		return false;
 	}
 
@@ -605,8 +710,14 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 	const Dictionary provider_config = config_service->get_provider_config(provider);
 	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
 
+	const Vector<AISessionMessage> projected_messages = projector->get_messages_struct(p_session.id);
+	Array selected_skills;
+	if (!_select_skills_for_prompt(config, _latest_user_prompt_text(projected_messages), selected_skills, r_error)) {
+		return false;
+	}
+
 	AIContextEpoch epoch;
-	if (!_prepare_context_epoch(p_session, p_agent_id, provider, model, epoch, r_error)) {
+	if (!_prepare_context_epoch(p_session, p_agent_id, provider, model, selected_skills, epoch, r_error)) {
 		return false;
 	}
 
@@ -621,9 +732,10 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 	r_request.metadata["config_provider"] = provider;
 	r_request.metadata["config_model"] = model;
 	r_request.metadata["context_epoch"] = epoch.to_dictionary();
+	r_request.metadata["selected_skills"] = selected_skills.duplicate(true);
 
 	const int64_t history_token_budget = _history_token_budget_from_config(config);
-	const Vector<AISessionMessage> runner_messages = AISessionHistory::entries_for_runner(projector->get_messages_struct(p_session.id), epoch.baseline_seq, history_token_budget);
+	const Vector<AISessionMessage> runner_messages = AISessionHistory::entries_for_runner(projected_messages, epoch.baseline_seq, history_token_budget);
 	for (int i = 0; i < runner_messages.size(); i++) {
 		AIModelMessage message;
 		if (!_message_to_model(runner_messages[i], provider_config, message, r_error)) {
@@ -922,6 +1034,9 @@ void AISessionRunner::set_tool_registry(const Ref<AIV1ToolRegistry> &p_registry)
 		tool_registry->set_event_store(event_store);
 		tool_registry->set_projector(projector);
 	}
+	if (skill_service.is_valid()) {
+		skill_service->set_tool_registry(tool_registry);
+	}
 }
 
 Ref<AIV1ToolRegistry> AISessionRunner::get_tool_registry() const {
@@ -945,6 +1060,17 @@ void AISessionRunner::set_model_part_builder(const Ref<AIModelPartBuilder> &p_bu
 
 Ref<AIModelPartBuilder> AISessionRunner::get_model_part_builder() const {
 	return model_part_builder;
+}
+
+void AISessionRunner::set_skill_service(const Ref<AIV1SkillService> &p_service) {
+	skill_service = p_service;
+	if (skill_service.is_valid()) {
+		skill_service->set_tool_registry(tool_registry);
+	}
+}
+
+Ref<AIV1SkillService> AISessionRunner::get_skill_service() const {
+	return skill_service;
 }
 
 bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, bool p_force, Vector<AISessionInputRecord> &r_promoted, AIError &r_error) {
@@ -983,7 +1109,7 @@ bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const R
 	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
 
 	AIContextEpoch admission_epoch;
-	if (!_prepare_context_epoch(session, agent_id, provider, model, admission_epoch, r_error)) {
+	if (!_prepare_context_epoch(session, agent_id, provider, model, Array(), admission_epoch, r_error)) {
 		return false;
 	}
 
@@ -993,6 +1119,9 @@ bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const R
 
 	const Dictionary permissions = config.get("permissions", Dictionary());
 	const Array rules = permissions.get("rules", Array());
+	if (!_configure_skill_service_from_config(config, r_error)) {
+		return false;
+	}
 
 	bool settled_open_tools = false;
 	bool waiting_permission = false;

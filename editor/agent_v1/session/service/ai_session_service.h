@@ -17,6 +17,7 @@
 #include "editor/agent_v1/session/runner/ai_empty_session_runner.h"
 #include "editor/agent_v1/session/runner/ai_session_runner.h"
 #include "editor/agent_v1/session/service/ai_session_store.h"
+#include "editor/agent_v1/skills/ai_skill_service_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 
 #include "core/object/ref_counted.h"
@@ -42,6 +43,7 @@ class AISessionService : public RefCounted {
 	Ref<AIAttachmentBlobStore> attachment_blob_store;
 	Ref<AIAttachmentResolver> attachment_resolver;
 	Ref<AIModelPartBuilder> model_part_builder;
+	Ref<AIV1SkillService> skill_service;
 
 	static Array _parts_from_input(const Dictionary &p_input);
 	static AIPrompt _prompt_from_input(const Dictionary &p_input, const Array &p_parts);
@@ -99,6 +101,8 @@ public:
 	Ref<AIAttachmentResolver> get_attachment_resolver() const;
 	void set_model_part_builder(const Ref<AIModelPartBuilder> &p_builder);
 	Ref<AIModelPartBuilder> get_model_part_builder() const;
+	void set_skill_service(const Ref<AIV1SkillService> &p_service);
+	Ref<AIV1SkillService> get_skill_service() const;
 
 	Dictionary create(const Dictionary &p_input);
 	Dictionary prompt(const Dictionary &p_input);

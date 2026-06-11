@@ -25,6 +25,7 @@
 #include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
+#include "editor/agent_v1/skills/ai_skill_service_v1.h"
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 #include "tests/test_utils.h"
@@ -1016,6 +1017,289 @@ TEST_CASE("[Editor][AgentV1] MCP failed discovery rolls back partially registere
 	CHECK_FALSE(service->refresh_struct(error));
 	CHECK(error.kind == AI_ERROR_VALIDATION);
 	CHECK_FALSE(registry->has_tool(AIV1MCPService::make_tool_name("rollback", "first.echo")));
+}
+
+TEST_CASE("[Editor][AgentV1] Skill explicit selection enters context without loading unselected skills") {
+	const String root = TestUtils::get_temp_path("agent_v1/skills_explicit");
+	const String tdd_dir = root.path_join("tdd");
+	const String unused_dir = root.path_join("unused");
+
+	write_text_file(tdd_dir.path_join("skill.json"), "{\n\"id\":\"tdd\",\"name\":\"TDD\",\"description\":\"Use when changing behavior.\",\"entry\":\"SKILL.md\",\"triggers\":[{\"type\":\"keyword\",\"value\":\"test\"}]\n}\n");
+	write_text_file(tdd_dir.path_join("SKILL.md"), "---\nname: TDD\ndescription: Use when changing behavior.\n---\n\nWrite failing tests before implementation.");
+	write_text_file(unused_dir.path_join("skill.json"), "{\n\"id\":\"unused\",\"name\":\"Unused\",\"description\":\"Should not load.\",\"entry\":\"SKILL.md\"\n}\n");
+	write_text_file(unused_dir.path_join("SKILL.md"), "UNSELECTED SECRET GUIDANCE");
+
+	Ref<AIV1SkillService> service;
+	service.instantiate();
+	Dictionary skills_config;
+	Array sources;
+	sources.push_back(root);
+	skills_config["sources"] = sources;
+	skills_config["auto_select"] = false;
+	Dictionary app_config;
+	app_config["skills"] = skills_config;
+
+	AIError error;
+	REQUIRE(service->import_config_struct(app_config, error));
+	REQUIRE(service->refresh_struct(error));
+
+	Array manifests = service->list_manifests();
+	REQUIRE(manifests.size() == 2);
+	for (int i = 0; i < manifests.size(); i++) {
+		CHECK_FALSE(String(Dictionary(manifests[i]).get("guidance", String())).contains("Write failing tests"));
+		CHECK_FALSE(String(Dictionary(manifests[i]).get("content", String())).contains("UNSELECTED SECRET GUIDANCE"));
+	}
+
+	Array explicit_names;
+	explicit_names.push_back("TDD");
+	Array selected = service->select("please refactor this", explicit_names);
+	REQUIRE(selected.size() == 1);
+	CHECK(String(Dictionary(selected[0]).get("skill_id", String())) == "tdd");
+	CHECK(bool(Dictionary(selected[0]).get("explicit", false)));
+
+	Dictionary source_result = service->make_context_source("tdd", true, 150);
+	REQUIRE(bool(source_result.get("success", false)));
+	Dictionary source = source_result.get("source", Dictionary());
+	CHECK(String(source.get("domain", String())) == "skill/tdd");
+	CHECK(String(source.get("text", String())).contains("## Skill: TDD"));
+	CHECK(String(source.get("text", String())).contains("Write failing tests before implementation."));
+
+	Ref<AIContextSourceRegistry> context_registry;
+	context_registry.instantiate();
+	context_registry->add_source(source);
+
+	AILocationRef location;
+	location.directory = root;
+	AISystemContext context;
+	REQUIRE(context_registry->load_struct("main", location, "fake", "fake-model", context, error));
+	CHECK(context.baseline.contains("Write failing tests before implementation."));
+	CHECK_FALSE(context.baseline.contains("UNSELECTED SECRET GUIDANCE"));
+}
+
+TEST_CASE("[Editor][AgentV1] Skill selector is conservative and observes disabled and max count config") {
+	const String root = TestUtils::get_temp_path("agent_v1/skills_selector");
+	write_text_file(root.path_join("pytest").path_join("skill.json"), "{\n\"id\":\"pytest\",\"name\":\"Pytest\",\"description\":\"Use for pytest.\",\"entry\":\"SKILL.md\",\"triggers\":[{\"type\":\"keyword\",\"value\":\"pytest\"}]\n}\n");
+	write_text_file(root.path_join("pytest").path_join("SKILL.md"), "Use pytest fixtures.");
+	write_text_file(root.path_join("docs").path_join("skill.json"), "{\n\"id\":\"docs\",\"name\":\"Docs\",\"description\":\"Use for docs.\",\"entry\":\"SKILL.md\",\"triggers\":[{\"type\":\"keyword\",\"value\":\"documentation\"}]\n}\n");
+	write_text_file(root.path_join("docs").path_join("SKILL.md"), "Write documentation.");
+
+	Ref<AIV1SkillService> service;
+	service.instantiate();
+	Dictionary skills_config;
+	Array sources;
+	sources.push_back(root);
+	skills_config["sources"] = sources;
+	skills_config["auto_select"] = true;
+	skills_config["max_skills_per_turn"] = 1;
+	Array disabled;
+	disabled.push_back("docs");
+	skills_config["disabled_skill_ids"] = disabled;
+	Dictionary app_config;
+	app_config["skills"] = skills_config;
+
+	AIError error;
+	REQUIRE(service->import_config_struct(app_config, error));
+	REQUIRE(service->refresh_struct(error));
+
+	Array no_match = service->select("ordinary request", Array());
+	CHECK(no_match.is_empty());
+
+	Array selected = service->select("please fix the pytest suite and documentation", Array());
+	REQUIRE(selected.size() == 1);
+	CHECK(String(Dictionary(selected[0]).get("skill_id", String())) == "pytest");
+	CHECK_FALSE(bool(Dictionary(selected[0]).get("explicit", true)));
+}
+
+TEST_CASE("[Editor][AgentV1] Session runner injects selected Skill into Context Epoch") {
+	const String base = TestUtils::get_temp_path("agent_v1/skills_runner_epoch");
+	const String workspace = base.path_join("workspace");
+	const String skills_root = base.path_join("skills");
+	write_text_file(skills_root.path_join("pytest").path_join("skill.json"), "{\n\"id\":\"pytest\",\"name\":\"Pytest\",\"description\":\"Python test workflow.\",\"entry\":\"SKILL.md\",\"triggers\":[{\"type\":\"keyword\",\"value\":\"pytest\"}]\n}\n");
+	write_text_file(skills_root.path_join("pytest").path_join("SKILL.md"), "---\nname: Pytest\ndescription: Python test workflow.\n---\n\nUse pytest fixtures from runner integration.");
+	write_text_file(skills_root.path_join("unused").path_join("skill.json"), "{\n\"id\":\"unused\",\"name\":\"Unused\",\"description\":\"Should not be selected.\",\"entry\":\"SKILL.md\",\"triggers\":[{\"type\":\"keyword\",\"value\":\"never-match-runner\"}]\n}\n");
+	write_text_file(skills_root.path_join("unused").path_join("SKILL.md"), "UNSELECTED RUNNER SECRET");
+
+	Ref<AIFakeLLMRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_response_text("skill context accepted");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("fake", runtime);
+
+	Dictionary fake_provider;
+	fake_provider["type"] = "fake";
+	fake_provider["model"] = "fake-model";
+	Dictionary providers;
+	providers["fake"] = fake_provider;
+
+	Array skill_sources;
+	skill_sources.push_back(skills_root);
+	Dictionary skills_config;
+	skills_config["sources"] = skill_sources;
+	skills_config["auto_select"] = true;
+
+	Dictionary override_config;
+	override_config["default_provider"] = "fake";
+	override_config["default_model"] = "fake-model";
+	override_config["providers"] = providers;
+	override_config["skills"] = skills_config;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase9-skill-runner";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase9-skill-runner";
+	prompt["message_id"] = "phase9-skill-runner-message";
+	prompt["text"] = "please run the pytest suite";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Dictionary run = service->get_session_runner()->run("phase9-skill-runner", false);
+	REQUIRE(bool(run.get("success", false)));
+	CHECK(runtime->get_stream_call_count() == 1);
+
+	const Dictionary request = runtime->get_last_request();
+	const String request_json = Variant(request).stringify();
+	CHECK(request_json.contains("Use pytest fixtures from runner integration."));
+	CHECK_FALSE(request_json.contains("UNSELECTED RUNNER SECRET"));
+
+	String system_text;
+	const Array system_parts = request.get("system", Array());
+	for (int i = 0; i < system_parts.size(); i++) {
+		if (system_parts[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary part = system_parts[i];
+		if (String(part.get("type", String())) == "text") {
+			system_text += String(part.get("text", String()));
+		}
+	}
+	CHECK_FALSE(system_text.contains(skills_root));
+
+	const Dictionary metadata = request.get("metadata", Dictionary());
+	const Array selected_skills = metadata.get("selected_skills", Array());
+	CHECK(selected_skills.size() == 1);
+	if (selected_skills.size() == 1) {
+		CHECK(String(Dictionary(selected_skills[0]).get("skill_id", String())) == "pytest");
+	}
+
+	const Dictionary context_epoch = metadata.get("context_epoch", Dictionary());
+	CHECK(String(context_epoch.get("baseline", String())).contains("Use pytest fixtures from runner integration."));
+}
+
+TEST_CASE("[Editor][AgentV1] Skill resources are read on demand with source metadata") {
+	const String root = TestUtils::get_temp_path("agent_v1/skills_resources");
+	const String skill_dir = root.path_join("resourceful");
+	write_text_file(skill_dir.path_join("skill.json"), "{\n\"id\":\"resourceful\",\"name\":\"Resourceful\",\"description\":\"Has resources.\",\"entry\":\"SKILL.md\",\"resources\":[{\"path\":\"references/guide.md\",\"kind\":\"reference\"},{\"path\":\"templates/component.txt\",\"kind\":\"template\"}]\n}\n");
+	write_text_file(skill_dir.path_join("SKILL.md"), "Load resources only when needed.");
+	write_text_file(skill_dir.path_join("references").path_join("guide.md"), "Reference material loaded on demand.");
+	write_text_file(skill_dir.path_join("templates").path_join("component.txt"), "Template body.");
+
+	Ref<AIV1SkillService> service;
+	service.instantiate();
+	Dictionary skills_config;
+	Array sources;
+	sources.push_back(root);
+	skills_config["sources"] = sources;
+	Dictionary app_config;
+	app_config["skills"] = skills_config;
+
+	AIError error;
+	REQUIRE(service->import_config_struct(app_config, error));
+	REQUIRE(service->refresh_struct(error));
+
+	Dictionary read = service->read_resource("resourceful", "references/guide.md", "reference");
+	REQUIRE(bool(read.get("success", false)));
+	CHECK(String(read.get("text", String())) == "Reference material loaded on demand.");
+	CHECK(String(read.get("skill_id", String())) == "resourceful");
+	CHECK(String(read.get("path", String())) == "references/guide.md");
+	CHECK(String(read.get("kind", String())) == "reference");
+	CHECK_FALSE(String(read.get("content_hash", String())).is_empty());
+
+	Dictionary escaped = service->read_resource("resourceful", "../outside.md", "reference");
+	CHECK_FALSE(bool(escaped.get("success", false)));
+	CHECK(String(Dictionary(escaped.get("error", Dictionary())).get("kind", String())) == "permission");
+}
+
+TEST_CASE("[Editor][AgentV1] Skill script tools register through ToolRegistry and require permission") {
+	const String root = TestUtils::get_temp_path("agent_v1/skills_script_tool");
+	const String skill_dir = root.path_join("script_skill");
+	write_text_file(skill_dir.path_join("skill.json"), "{\n\"id\":\"script_skill\",\"name\":\"Script Skill\",\"description\":\"Has a script tool.\",\"entry\":\"SKILL.md\",\"tools\":[{\"name\":\"echo\",\"description\":\"Echo from skill.\",\"command\":[\"cmd\",\"/C\",\"echo skill tool\"],\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}]\n}\n");
+	write_text_file(skill_dir.path_join("SKILL.md"), "Script tool guidance.");
+
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(TestUtils::get_temp_path("agent_v1/skill_script_permission_events"));
+
+	Ref<AIPermissionService> permission_service;
+	permission_service.instantiate();
+	permission_service->set_event_store(event_store);
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	registry->set_permission_service(permission_service);
+
+	Ref<AIV1SkillService> service;
+	service.instantiate();
+	service->set_tool_registry(registry);
+
+	Dictionary skills_config;
+	Array sources;
+	sources.push_back(root);
+	skills_config["sources"] = sources;
+	skills_config["script_tools_enabled"] = true;
+	skills_config["script_permission_default"] = "ask";
+	Dictionary app_config;
+	app_config["skills"] = skills_config;
+
+	AIError error;
+	REQUIRE(service->import_config_struct(app_config, error));
+	REQUIRE(service->refresh_struct(error));
+
+	const String tool_name = AIV1SkillService::make_tool_name("script_skill", "echo");
+	CHECK(registry->has_tool(tool_name));
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization->has_tool(tool_name));
+
+	Dictionary call;
+	call["id"] = "call-skill-script";
+	call["name"] = tool_name;
+	call["input"] = Dictionary();
+	Dictionary settle_input;
+	settle_input["session_id"] = "session-skill-script";
+	settle_input["assistant_message_id"] = "assistant-skill-script";
+	settle_input["call"] = call;
+
+	AIV1ToolSettlement pending_settlement;
+	REQUIRE(materialization->settle_struct(settle_input, pending_settlement, error));
+	CHECK_FALSE(pending_settlement.success);
+	CHECK(pending_settlement.pending);
+
+	Array pending = permission_service->get_pending_requests();
+	REQUIRE(pending.size() == 1);
+	Dictionary pending_request = pending[0];
+	CHECK(String(pending_request.get("action", String())) == "skill.script.run");
+	CHECK(String(pending_request.get("resource", String())).contains("script_skill/echo"));
+
+	Dictionary reply;
+	reply["request_id"] = pending_request.get("request_id", String());
+	reply["reply"] = "once";
+	(void)permission_service->reply(reply);
+
+	AIV1ToolSettlement settlement;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	REQUIRE(settlement.success);
+	CHECK(String(settlement.content).contains("skill tool"));
+	CHECK(String(settlement.metadata.get("tool_origin", String())) == "skill");
+	CHECK(String(settlement.metadata.get("skill_id", String())) == "script_skill");
 }
 
 TEST_CASE("[Editor][AgentV1] Session prompt requires an existing session and resume false only admits") {

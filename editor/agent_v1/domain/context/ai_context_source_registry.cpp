@@ -198,7 +198,6 @@ bool AIContextSourceRegistry::load_struct(const String &p_agent_id, const AILoca
 	Dictionary skill_metadata;
 	skill_metadata["agent"] = agent_id;
 	_append_text_sources(sources, "skills.guidance/" + agent_id, skills.get("guidance", Variant()), false, 200, skill_metadata);
-	_append_text_sources(sources, "skills.sources/" + agent_id, skills.get("sources", Variant()), false, 220, skill_metadata);
 
 	r_context = AISystemContext::combine(sources);
 	r_error = AIError::none();
