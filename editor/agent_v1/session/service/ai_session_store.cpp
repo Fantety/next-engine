@@ -18,6 +18,7 @@ void AISessionStore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_base_dir"), &AISessionStore::get_base_dir);
 	ClassDB::bind_method(D_METHOD("create_session", "input"), &AISessionStore::create_session);
 	ClassDB::bind_method(D_METHOD("get_session", "session_id"), &AISessionStore::get_session);
+	ClassDB::bind_method(D_METHOD("update_metadata", "session_id", "metadata"), &AISessionStore::update_metadata);
 	ClassDB::bind_method(D_METHOD("list_sessions"), &AISessionStore::list_sessions);
 	ClassDB::bind_method(D_METHOD("clear_memory"), &AISessionStore::clear_memory);
 }
@@ -191,6 +192,36 @@ bool AISessionStore::get_session_struct(const String &p_session_id, AISessionRow
 	return true;
 }
 
+bool AISessionStore::update_metadata_struct(const String &p_session_id, const Dictionary &p_metadata, AISessionRow &r_session, String &r_error) {
+	const String session_id = p_session_id.strip_edges();
+	if (session_id.is_empty()) {
+		r_error = "AI session id cannot be empty.";
+		return false;
+	}
+
+	MutexLock lock(mutex);
+	if (!_ensure_loaded_locked(r_error)) {
+		return false;
+	}
+
+	HashMap<String, AISessionRow>::Iterator session = sessions_by_id.find(session_id);
+	if (!session) {
+		r_error = "AI session not found: " + session_id;
+		return false;
+	}
+
+	AISessionRow updated = session->value;
+	updated.metadata = p_metadata.duplicate(true);
+	updated.updated_at = _now_unix_time();
+	if (!_append_snapshot_locked(updated, r_error)) {
+		return false;
+	}
+
+	sessions_by_id[session_id] = updated;
+	r_session = updated;
+	return true;
+}
+
 Dictionary AISessionStore::create_session(const Dictionary &p_input) {
 	AISessionRow session;
 	bool created = false;
@@ -205,6 +236,21 @@ Dictionary AISessionStore::create_session(const Dictionary &p_input) {
 	Dictionary result = session.to_dictionary();
 	result["success"] = true;
 	result["created"] = created;
+	return result;
+}
+
+Dictionary AISessionStore::update_metadata(const String &p_session_id, const Dictionary &p_metadata) {
+	AISessionRow session;
+	String error;
+	if (!update_metadata_struct(p_session_id, p_metadata, session, error)) {
+		Dictionary result;
+		result["success"] = false;
+		result["error"] = error;
+		return result;
+	}
+
+	Dictionary result = session.to_dictionary();
+	result["success"] = true;
 	return result;
 }
 

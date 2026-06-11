@@ -730,6 +730,14 @@ Array AIConfigService::get_system_prompt(const String &p_agent_id) {
 	const Dictionary agent = _dictionary_from_variant(agents.get(agent_id, Dictionary()));
 	Array system = _array_from_variant(agent.get("system", Array()));
 	if (system.is_empty()) {
+		const Variant system_prompt = agent.get("system_prompt", agent.get("systemPrompt", Variant()));
+		if (system_prompt.get_type() == Variant::ARRAY) {
+			system = _array_from_variant(system_prompt);
+		} else if (system_prompt.get_type() == Variant::STRING || system_prompt.get_type() == Variant::STRING_NAME) {
+			system.push_back(String(system_prompt));
+		}
+	}
+	if (system.is_empty()) {
 		system.push_back("You are NextEngine Agent.");
 	}
 	return system;

@@ -14,6 +14,7 @@ class AISessionRunnerEventRecorder : public RefCounted {
 	Ref<AIEventStore> event_store;
 	Ref<AISessionProjector> projector;
 	Ref<AIV1ToolMaterialization> tool_materialization;
+	Ref<AICancelToken> cancel_token;
 	String session_id;
 	String agent_id;
 	String assistant_message_id;
@@ -44,10 +45,11 @@ class AISessionRunnerEventRecorder : public RefCounted {
 	}
 
 public:
-	void setup(const Ref<AIEventStore> &p_event_store, const Ref<AISessionProjector> &p_projector, const Ref<AIV1ToolMaterialization> &p_tool_materialization, const String &p_session_id, const String &p_agent_id, const String &p_assistant_message_id) {
+	void setup(const Ref<AIEventStore> &p_event_store, const Ref<AISessionProjector> &p_projector, const Ref<AIV1ToolMaterialization> &p_tool_materialization, const Ref<AICancelToken> &p_cancel_token, const String &p_session_id, const String &p_agent_id, const String &p_assistant_message_id) {
 		event_store = p_event_store;
 		projector = p_projector;
 		tool_materialization = p_tool_materialization;
+		cancel_token = p_cancel_token;
 		session_id = p_session_id;
 		agent_id = p_agent_id;
 		assistant_message_id = p_assistant_message_id;
@@ -143,6 +145,7 @@ public:
 			settle_input["session_id"] = session_id;
 			settle_input["agent"] = agent_id;
 			settle_input["assistant_message_id"] = assistant_message_id;
+			settle_input["cancel_token"] = cancel_token;
 			if (data.has("registration_identity")) {
 				settle_input["registration_identity"] = data["registration_identity"];
 			}
@@ -256,6 +259,8 @@ void AISessionRunner::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_model_part_builder"), &AISessionRunner::get_model_part_builder);
 	ClassDB::bind_method(D_METHOD("set_skill_service", "service"), &AISessionRunner::set_skill_service);
 	ClassDB::bind_method(D_METHOD("get_skill_service"), &AISessionRunner::get_skill_service);
+	ClassDB::bind_method(D_METHOD("set_agent_service", "service"), &AISessionRunner::set_agent_service);
+	ClassDB::bind_method(D_METHOD("get_agent_service"), &AISessionRunner::get_agent_service);
 	ClassDB::bind_method(D_METHOD("run", "session_id", "force"), &AISessionRunner::run, DEFVAL(false));
 }
 
@@ -268,10 +273,12 @@ AISessionRunner::AISessionRunner() {
 	tool_registry.instantiate();
 	model_part_builder.instantiate();
 	skill_service.instantiate();
+	agent_service.instantiate();
 	tool_registry->register_builtin_tools();
 	context_source_registry->set_config_service(config_service);
 	context_epoch_service->set_epoch_store(context_epoch_store);
 	skill_service->set_tool_registry(tool_registry);
+	agent_service->set_config_service(config_service);
 }
 
 String AISessionRunner::_message_text(const AISessionMessage &p_message) {
@@ -383,6 +390,17 @@ AIError AISessionRunner::_error_from_result(const Dictionary &p_result, const St
 	return AIError::make(AIError::string_to_kind(kind), message.is_empty() ? p_fallback_message : message, details);
 }
 
+Array AISessionRunner::_permission_rules_from_config(const Dictionary &p_config) {
+	if (p_config.get("permissions", Variant()).get_type() != Variant::DICTIONARY) {
+		return Array();
+	}
+	const Dictionary permissions = p_config["permissions"];
+	if (permissions.get("rules", Variant()).get_type() != Variant::ARRAY) {
+		return Array();
+	}
+	return Array(permissions["rules"]).duplicate(true);
+}
+
 Dictionary AISessionRunner::_model_part_for_event_log(const AIModelPart &p_part) {
 	Dictionary part = p_part.to_dictionary();
 	if (p_part.type == AI_MODEL_PART_TEXT && bool(p_part.metadata.get("derived_from_attachment", false)) && !p_part.text.is_empty()) {
@@ -488,6 +506,48 @@ bool AISessionRunner::_resolve_session(const String &p_session_id, AISessionRow 
 	r_session.agent_id = "main";
 	r_error = AIError::none();
 	return true;
+}
+
+bool AISessionRunner::_resolve_agent_for_session(const AISessionRow &p_session, AIAgentConfig &r_agent, AIError &r_error) const {
+	if (agent_service.is_valid()) {
+		if (agent_service->get_config_service().is_null()) {
+			agent_service->set_config_service(config_service);
+		}
+		if (agent_service->get_session_store().is_null()) {
+			agent_service->set_session_store(session_store);
+		}
+		if (!p_session.id.strip_edges().is_empty() && agent_service->get_session_store().is_valid()) {
+			return agent_service->resolve_for_session_struct(p_session.id, r_agent, r_error);
+		}
+		return agent_service->resolve_struct(p_session.agent_id, r_agent, r_error);
+	}
+
+	if (config_service.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "SessionRunner has no AgentService or ConfigService.");
+		return false;
+	}
+	const Dictionary config = config_service->get_config();
+	if (!bool(config.get("success", true))) {
+		r_error = AIError::make(AI_ERROR_INTERNAL, "ConfigService failed to provide config.", config.get("error", Dictionary()));
+		return false;
+	}
+	const Dictionary agents = _ai_session_runner_dictionary_from_variant(config.get("agents", Dictionary()));
+	String agent_id = p_session.agent_id.strip_edges().is_empty() ? String(config.get("default_agent", "main")) : p_session.agent_id.strip_edges();
+	if (agent_id.is_empty()) {
+		agent_id = "main";
+	}
+	const Dictionary agent_dict = _ai_session_runner_dictionary_from_variant(agents.get(agent_id, Dictionary()));
+	r_agent = AIAgentConfig::from_dictionary(agent_id, agent_dict, config_service->get_default_provider(), config_service->get_default_model());
+	r_error = AIError::none();
+	return true;
+}
+
+Array AISessionRunner::_permission_rules_for_agent(const Dictionary &p_config, const AIAgentConfig &p_agent) const {
+	const Array base_rules = _permission_rules_from_config(p_config);
+	if (agent_service.is_valid()) {
+		return agent_service->permission_rules_for_agent(p_agent, base_rules);
+	}
+	return base_rules;
 }
 
 bool AISessionRunner::_project_durable_history(const String &p_session_id) {
@@ -628,8 +688,12 @@ bool AISessionRunner::_verify_context_epoch_current(const String &p_session_id, 
 		}
 	}
 
-	const String current_agent = current_session.agent_id.strip_edges().is_empty() ? String("main") : current_session.agent_id.strip_edges();
-	const String prepared_agent = p_agent_id.strip_edges().is_empty() ? String("main") : p_agent_id.strip_edges();
+	AIAgentConfig agent_config;
+	if (!_resolve_agent_for_session(current_session, agent_config, r_error)) {
+		return false;
+	}
+	const String current_agent = agent_config.id.strip_edges().is_empty() ? (current_session.agent_id.strip_edges().is_empty() ? String("main") : current_session.agent_id.strip_edges()) : agent_config.id.strip_edges();
+	const String prepared_agent = p_agent_id.strip_edges().is_empty() ? current_agent : p_agent_id.strip_edges();
 	if (current_agent != prepared_agent) {
 		Dictionary details;
 		details["rebuild_request"] = true;
@@ -656,9 +720,9 @@ bool AISessionRunner::_verify_context_epoch_current(const String &p_session_id, 
 		r_error = AIError::make(AI_ERROR_INTERNAL, "ConfigService failed to provide config.", config.get("error", Dictionary()));
 		return false;
 	}
-	const String provider = config_service->get_default_provider();
+	const String provider = agent_config.provider;
 	const Dictionary provider_config = config_service->get_provider_config(provider);
-	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
+	const String model = agent_config.model.strip_edges().is_empty() ? String(provider_config.get("model", config_service->get_default_model())).strip_edges() : agent_config.model.strip_edges();
 	const String effective_provider = provider.is_empty() ? String("fake") : provider;
 	const String effective_model = model.is_empty() ? String("fake-model") : model;
 	const String prepared_provider = String(p_request.metadata.get("config_provider", p_request.provider)).strip_edges();
@@ -706,9 +770,16 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 		return false;
 	}
 
-	const String provider = config_service->get_default_provider();
-	const Dictionary provider_config = config_service->get_provider_config(provider);
-	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
+	AIAgentConfig agent_config;
+	if (!_resolve_agent_for_session(p_session, agent_config, r_error)) {
+		return false;
+	}
+	const String provider = agent_config.provider;
+	Dictionary provider_config = config_service->get_provider_config(provider);
+	const String model = agent_config.model.strip_edges().is_empty() ? String(provider_config.get("model", config_service->get_default_model())).strip_edges() : agent_config.model.strip_edges();
+	if (!model.is_empty()) {
+		provider_config["model"] = model;
+	}
 
 	const Vector<AISessionMessage> projected_messages = projector->get_messages_struct(p_session.id);
 	Array selected_skills;
@@ -745,8 +816,7 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 	}
 
 	if (tool_registry.is_valid()) {
-		const Dictionary permissions = config.get("permissions", Dictionary());
-		const Array rules = permissions.get("rules", Array());
+		const Array rules = _permission_rules_for_agent(config, agent_config);
 		if (tool_registry->get_permission_service().is_valid()) {
 			tool_registry->get_permission_service()->set_rules(rules);
 		}
@@ -826,6 +896,7 @@ bool AISessionRunner::_settle_open_tool_calls(const AISessionRow &p_session, con
 		settle_input["agent"] = p_agent_id;
 		settle_input["assistant_message_id"] = data.get("assistant_message_id", data.get("assistantMessageID", String()));
 		settle_input["root_dir"] = p_root_dir;
+		settle_input["cancel_token"] = p_cancel_token;
 		if (call.has("registration_identity")) {
 			settle_input["registration_identity"] = call["registration_identity"];
 		}
@@ -876,7 +947,7 @@ bool AISessionRunner::_run_provider_turn(const String &p_session_id, const Strin
 
 	Ref<AISessionRunnerEventRecorder> recorder;
 	recorder.instantiate();
-	recorder->setup(event_store, projector, p_tool_materialization, p_session_id, p_agent_id, assistant_message_id);
+	recorder->setup(event_store, projector, p_tool_materialization, p_cancel_token, p_session_id, p_agent_id, assistant_message_id);
 
 	Ref<AICallableStreamSink> sink;
 	sink.instantiate();
@@ -1014,6 +1085,9 @@ void AISessionRunner::set_config_service(const Ref<AIConfigService> &p_config_se
 	if (context_source_registry.is_valid()) {
 		context_source_registry->set_config_service(config_service);
 	}
+	if (agent_service.is_valid()) {
+		agent_service->set_config_service(config_service);
+	}
 }
 
 Ref<AIConfigService> AISessionRunner::get_config_service() const {
@@ -1045,6 +1119,9 @@ Ref<AIV1ToolRegistry> AISessionRunner::get_tool_registry() const {
 
 void AISessionRunner::set_session_store(const Ref<AISessionStore> &p_store) {
 	session_store = p_store;
+	if (agent_service.is_valid()) {
+		agent_service->set_session_store(session_store);
+	}
 }
 
 Ref<AISessionStore> AISessionRunner::get_session_store() const {
@@ -1073,6 +1150,18 @@ Ref<AIV1SkillService> AISessionRunner::get_skill_service() const {
 	return skill_service;
 }
 
+void AISessionRunner::set_agent_service(const Ref<AIAgentService> &p_service) {
+	agent_service = p_service;
+	if (agent_service.is_valid()) {
+		agent_service->set_config_service(config_service);
+		agent_service->set_session_store(session_store);
+	}
+}
+
+Ref<AIAgentService> AISessionRunner::get_agent_service() const {
+	return agent_service;
+}
+
 bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, bool p_force, Vector<AISessionInputRecord> &r_promoted, AIError &r_error) {
 	const String session_id = p_session_id.strip_edges();
 	if (session_id.is_empty()) {
@@ -1092,7 +1181,11 @@ bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const R
 	if (!_resolve_session(session_id, session, r_error)) {
 		return false;
 	}
-	const String agent_id = session.agent_id.strip_edges().is_empty() ? String("main") : session.agent_id.strip_edges();
+	AIAgentConfig agent_config;
+	if (!_resolve_agent_for_session(session, agent_config, r_error)) {
+		return false;
+	}
+	const String agent_id = agent_config.id.strip_edges().is_empty() ? (session.agent_id.strip_edges().is_empty() ? String("main") : session.agent_id.strip_edges()) : agent_config.id.strip_edges();
 	const String root_dir = session.location.directory.strip_edges();
 
 	if (config_service.is_null()) {
@@ -1104,9 +1197,9 @@ bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const R
 		r_error = AIError::make(AI_ERROR_INTERNAL, "ConfigService failed to provide config.", config.get("error", Dictionary()));
 		return false;
 	}
-	const String provider = config_service->get_default_provider();
+	const String provider = agent_config.provider;
 	const Dictionary provider_config = config_service->get_provider_config(provider);
-	const String model = String(provider_config.get("model", config_service->get_default_model())).strip_edges();
+	const String model = agent_config.model.strip_edges().is_empty() ? String(provider_config.get("model", config_service->get_default_model())).strip_edges() : agent_config.model.strip_edges();
 
 	AIContextEpoch admission_epoch;
 	if (!_prepare_context_epoch(session, agent_id, provider, model, Array(), admission_epoch, r_error)) {
@@ -1117,8 +1210,7 @@ bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const R
 		return false;
 	}
 
-	const Dictionary permissions = config.get("permissions", Dictionary());
-	const Array rules = permissions.get("rules", Array());
+	const Array rules = _permission_rules_for_agent(config, agent_config);
 	if (!_configure_skill_service_from_config(config, r_error)) {
 		return false;
 	}

@@ -5,6 +5,7 @@
 #pragma once
 
 #include "editor/agent_v1/config/ai_config_service.h"
+#include "editor/agent_v1/agents/ai_agent_service_v1.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_resolver.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
@@ -44,6 +45,8 @@ class AISessionService : public RefCounted {
 	Ref<AIAttachmentResolver> attachment_resolver;
 	Ref<AIModelPartBuilder> model_part_builder;
 	Ref<AIV1SkillService> skill_service;
+	Ref<AIAgentService> agent_service;
+	Ref<AIV1TaskTool> task_tool;
 
 	static Array _parts_from_input(const Dictionary &p_input);
 	static AIPrompt _prompt_from_input(const Dictionary &p_input, const Array &p_parts);
@@ -103,6 +106,8 @@ public:
 	Ref<AIModelPartBuilder> get_model_part_builder() const;
 	void set_skill_service(const Ref<AIV1SkillService> &p_service);
 	Ref<AIV1SkillService> get_skill_service() const;
+	void set_agent_service(const Ref<AIAgentService> &p_service);
+	Ref<AIAgentService> get_agent_service() const;
 
 	Dictionary create(const Dictionary &p_input);
 	Dictionary prompt(const Dictionary &p_input);

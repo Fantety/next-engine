@@ -150,6 +150,7 @@
 #include "editor/ai_component/context/ai_editor_context_provider.h"
 #include "editor/ai_component/context/ai_file_context_provider.h"
 #include "editor/ai_component/context/ai_project_tree_context_provider.h"
+#include "editor/agent_v1/agents/ai_agent_service_v1.h"
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/config/ai_local_settings_store.h"
 #include "editor/agent_v1/core/base/ai_cancel_token.h"
@@ -316,6 +317,8 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AICallableStreamSink);
 	GDREGISTER_CLASS(AIFakeMCPServer);
 	GDREGISTER_CLASS(AITaskRunner);
+	GDREGISTER_CLASS(AIAgentService);
+	GDREGISTER_CLASS(AIV1TaskTool);
 	GDREGISTER_CLASS(AILLMRuntime);
 	GDREGISTER_CLASS(AIFakeLLMRuntime);
 	GDREGISTER_CLASS(AIOpenAICompatibleRuntime);

@@ -11,7 +11,9 @@
 #include "core/object/callable_mp.h"
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/config/ai_local_settings_store.h"
+#include "editor/agent_v1/agents/ai_agent_service_v1.h"
 #include "editor/agent_v1/core/runtime/ai_stream_sink.h"
+#include "editor/agent_v1/core/runtime/ai_stream_event.h"
 #include "editor/agent_v1/core/testing/ai_fake_mcp_server.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_blob_store.h"
@@ -133,6 +135,146 @@ public:
 		return true;
 	}
 };
+
+class Phase10ParentRuntime : public AILLMRuntime {
+	GDCLASS(Phase10ParentRuntime, AILLMRuntime);
+
+public:
+	Dictionary task_input;
+	int64_t stream_call_count = 0;
+	Dictionary last_request;
+
+	virtual String get_runtime_type() const override {
+		return "phase10-parent";
+	}
+
+	virtual bool stream_struct(const AIModelRequest &p_request, const Ref<AIStreamSink> &p_sink, const Ref<AICancelToken> &p_cancel_token, AIError &r_error) override {
+		stream_call_count++;
+		last_request = p_request.to_dictionary();
+		if (p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested()) {
+			r_error = AIError::make(AI_ERROR_INTERRUPTED, p_cancel_token->get_cancel_message("Parent runtime interrupted."));
+			return false;
+		}
+		if (p_sink.is_null()) {
+			r_error = AIError::make(AI_ERROR_VALIDATION, "Parent runtime requires a stream sink.");
+			return false;
+		}
+
+		bool stop_requested = false;
+		String sink_error;
+		AIStreamEvent start = AIStreamEvent::step_start();
+		start.id = p_request.request_id;
+		if (!p_sink->push_event(start, stop_requested, sink_error)) {
+			r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+			return false;
+		}
+
+		if (stream_call_count == 1) {
+			AIStreamEvent text = AIStreamEvent::text_delta("phase10-parent-text", "Delegating task.");
+			if (!p_sink->push_event(text, stop_requested, sink_error)) {
+				r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+				return false;
+			}
+			AIStreamEvent tool_call = AIStreamEvent::tool_call("phase10-task-call", "task", task_input);
+			if (!p_sink->push_event(tool_call, stop_requested, sink_error)) {
+				r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+				return false;
+			}
+		} else {
+			AIStreamEvent text = AIStreamEvent::text_delta("phase10-parent-final", "Parent consumed child result.");
+			if (!p_sink->push_event(text, stop_requested, sink_error)) {
+				r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+				return false;
+			}
+		}
+
+		AIStreamEvent end;
+		end.type = AI_STREAM_EVENT_STEP_END;
+		end.id = p_request.request_id;
+		if (!p_sink->push_event(end, stop_requested, sink_error)) {
+			r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+			return false;
+		}
+
+		r_error = AIError::none();
+		return !stop_requested;
+	}
+};
+
+class Phase10CancelTokenRuntime : public AILLMRuntime {
+	GDCLASS(Phase10CancelTokenRuntime, AILLMRuntime);
+
+public:
+	Ref<AICancelToken> expected_token;
+	bool saw_expected_token = false;
+	int64_t stream_call_count = 0;
+
+	virtual String get_runtime_type() const override {
+		return "phase10-cancel-token";
+	}
+
+	virtual bool stream_struct(const AIModelRequest &p_request, const Ref<AIStreamSink> &p_sink, const Ref<AICancelToken> &p_cancel_token, AIError &r_error) override {
+		(void)p_request;
+		stream_call_count++;
+		saw_expected_token = expected_token.is_valid() && p_cancel_token.is_valid() && expected_token.ptr() == p_cancel_token.ptr();
+		if (p_sink.is_null()) {
+			r_error = AIError::make(AI_ERROR_VALIDATION, "Cancel token runtime requires a stream sink.");
+			return false;
+		}
+
+		bool stop_requested = false;
+		String sink_error;
+		AIStreamEvent start = AIStreamEvent::step_start();
+		start.id = p_request.request_id;
+		if (!p_sink->push_event(start, stop_requested, sink_error)) {
+			r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+			return false;
+		}
+		AIStreamEvent text = AIStreamEvent::text_delta("phase10-cancel-child-text", "child saw parent token");
+		if (!p_sink->push_event(text, stop_requested, sink_error)) {
+			r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+			return false;
+		}
+		AIStreamEvent end;
+		end.type = AI_STREAM_EVENT_STEP_END;
+		end.id = p_request.request_id;
+		if (!p_sink->push_event(end, stop_requested, sink_error)) {
+			r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+			return false;
+		}
+		r_error = AIError::none();
+		return !stop_requested;
+	}
+};
+
+static int phase10_child_session_count(const Ref<AISessionStore> &p_store, const String &p_parent_session_id) {
+	int count = 0;
+	const Array sessions = p_store->list_sessions();
+	for (int i = 0; i < sessions.size(); i++) {
+		if (sessions[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary session = sessions[i];
+		const Dictionary metadata = session.get("metadata", Dictionary());
+		if (String(metadata.get("parent_session_id", String())) == p_parent_session_id) {
+			count++;
+		}
+	}
+	return count;
+}
+
+static bool phase10_request_has_tool(const Dictionary &p_request, const String &p_tool_name) {
+	const Array tools = p_request.get("tools", Array());
+	for (int i = 0; i < tools.size(); i++) {
+		if (tools[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		if (String(Dictionary(tools[i]).get("name", String())) == p_tool_name) {
+			return true;
+		}
+	}
+	return false;
+}
 
 TEST_CASE("[Editor][AgentV1] Event store writes versioned idempotent rows") {
 	Ref<AIEventStore> store;
@@ -1300,6 +1442,688 @@ TEST_CASE("[Editor][AgentV1] Skill script tools register through ToolRegistry an
 	CHECK(String(settlement.content).contains("skill tool"));
 	CHECK(String(settlement.metadata.get("tool_origin", String())) == "skill");
 	CHECK(String(settlement.metadata.get("skill_id", String())) == "script_skill");
+}
+
+TEST_CASE("[Editor][AgentV1] Agent service resolves configured and session-bound agents") {
+	Ref<AIConfigService> config;
+	config.instantiate();
+
+	Dictionary main_agent;
+	main_agent["name"] = "Main";
+	main_agent["provider"] = "fake-parent";
+	main_agent["model"] = "parent-model";
+	Array main_system;
+	main_system.push_back("Main system prompt.");
+	main_agent["system"] = main_system;
+
+	Dictionary reviewer_agent;
+	reviewer_agent["name"] = "Reviewer";
+	reviewer_agent["description"] = "Reviews delegated work.";
+	reviewer_agent["provider"] = "fake-child";
+	reviewer_agent["model"] = "child-model";
+	reviewer_agent["system_prompt"] = "Reviewer system prompt.";
+
+	Dictionary agents;
+	agents["main"] = main_agent;
+	agents["reviewer"] = reviewer_agent;
+
+	Dictionary override_config;
+	override_config["default_agent"] = "main";
+	override_config["agents"] = agents;
+	config->set_runtime_override(override_config);
+
+	Ref<AISessionStore> sessions;
+	sessions.instantiate();
+	sessions->set_base_dir(String());
+	Dictionary session_input;
+	session_input["id"] = "phase10-agent-session";
+	session_input["agent_id"] = "reviewer";
+	bool created = false;
+	String store_error;
+	AISessionRow session;
+	REQUIRE(sessions->create_or_reuse(session_input, session, created, store_error));
+
+	Ref<AIAgentService> service;
+	service.instantiate();
+	service->set_config_service(config);
+	service->set_session_store(sessions);
+
+	Array listed = service->list();
+	CHECK(listed.size() == 2);
+
+	Dictionary resolved = service->resolve("reviewer");
+	REQUIRE(bool(resolved.get("success", false)));
+	CHECK(String(resolved.get("id", String())) == "reviewer");
+	CHECK(String(resolved.get("provider", String())) == "fake-child");
+	CHECK(String(resolved.get("model", String())) == "child-model");
+	CHECK(String(Array(resolved.get("system", Array()))[0]) == "Reviewer system prompt.");
+
+	Dictionary session_resolved = service->resolve_for_session("phase10-agent-session");
+	REQUIRE(bool(session_resolved.get("success", false)));
+	CHECK(String(session_resolved.get("id", String())) == "reviewer");
+}
+
+TEST_CASE("[Editor][AgentV1] Task tool is materialized and asks agent.spawn before creating a child session") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/phase10_task_permission");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Dictionary main_agent;
+	main_agent["provider"] = "fake";
+	main_agent["model"] = "fake-model";
+	Dictionary subagents;
+	Array allowed;
+	allowed.push_back("reviewer");
+	subagents["allowed_agent_ids"] = allowed;
+	subagents["max_depth"] = 2;
+	main_agent["subagents"] = subagents;
+
+	Dictionary reviewer_agent;
+	reviewer_agent["provider"] = "fake";
+	reviewer_agent["model"] = "fake-model";
+
+	Dictionary agents;
+	agents["main"] = main_agent;
+	agents["reviewer"] = reviewer_agent;
+	Dictionary override_config;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase10-task-parent";
+	create["agent_id"] = "main";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Ref<AIV1ToolMaterialization> materialization = service->get_tool_registry()->materialize_struct(workspace, Array());
+	REQUIRE(materialization->has_tool("task"));
+
+	Dictionary task_input;
+	task_input["agent_id"] = "reviewer";
+	task_input["description"] = "Review this change.";
+	task_input["prompt"] = "Find correctness risks.";
+
+	Dictionary call;
+	call["id"] = "phase10-task-call";
+	call["name"] = "task";
+	call["input"] = task_input;
+
+	Dictionary settle_input;
+	settle_input["session_id"] = "phase10-task-parent";
+	settle_input["agent"] = "main";
+	settle_input["assistant_message_id"] = "phase10-parent-assistant";
+	settle_input["call"] = call;
+
+	AIError error;
+	AIV1ToolSettlement settlement;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	CHECK_FALSE(settlement.success);
+	CHECK(settlement.pending);
+
+	Array pending = service->get_permission_service()->get_pending_requests();
+	REQUIRE(pending.size() == 1);
+	Dictionary request = pending[0];
+	CHECK(String(request.get("action", String())) == "agent.spawn");
+	CHECK(String(request.get("resource", String())) == "reviewer");
+	CHECK(service->get_session_store()->list_sessions().size() == 1);
+}
+
+TEST_CASE("[Editor][AgentV1] Task tool creates child session through the normal runner and returns result to parent") {
+	const String base = TestUtils::get_temp_path("agent_v1/phase10_subagent_runner");
+	const String workspace = base.path_join("workspace");
+
+	Ref<Phase10ParentRuntime> parent_runtime;
+	parent_runtime.instantiate();
+	parent_runtime->task_input["agent_id"] = "reviewer";
+	parent_runtime->task_input["description"] = "Review delegated code.";
+	parent_runtime->task_input["prompt"] = "Return the important finding.";
+	parent_runtime->task_input["expected_output"] = "A concise review result.";
+
+	Ref<AIFakeLLMRuntime> child_runtime;
+	child_runtime.instantiate();
+	child_runtime->set_response_text("child completed result");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("fake-parent", parent_runtime);
+	service->get_runtime_registry()->register_runtime("fake-child", child_runtime);
+
+	Dictionary parent_provider;
+	parent_provider["type"] = "fake";
+	parent_provider["model"] = "parent-model";
+	Dictionary child_provider;
+	child_provider["type"] = "fake";
+	child_provider["model"] = "child-model";
+	Dictionary providers;
+	providers["fake-parent"] = parent_provider;
+	providers["fake-child"] = child_provider;
+
+	Dictionary main_agent;
+	main_agent["provider"] = "fake-parent";
+	main_agent["model"] = "parent-model";
+	Dictionary subagents;
+	Array allowed;
+	allowed.push_back("reviewer");
+	subagents["allowed_agent_ids"] = allowed;
+	subagents["max_depth"] = 2;
+	subagents["max_concurrent"] = 1;
+	main_agent["subagents"] = subagents;
+
+	Dictionary reviewer_agent;
+	reviewer_agent["name"] = "Reviewer";
+	reviewer_agent["provider"] = "fake-child";
+	reviewer_agent["model"] = "child-model";
+	reviewer_agent["system_prompt"] = "You are the reviewer subagent.";
+
+	Dictionary agents;
+	agents["main"] = main_agent;
+	agents["reviewer"] = reviewer_agent;
+
+	Dictionary allow_spawn;
+	allow_spawn["action"] = "agent.spawn";
+	allow_spawn["resource"] = "reviewer";
+	allow_spawn["effect"] = "allow";
+	Array rules;
+	rules.push_back(allow_spawn);
+	Dictionary permissions;
+	permissions["rules"] = rules;
+
+	Dictionary override_config;
+	override_config["default_provider"] = "fake-parent";
+	override_config["default_model"] = "parent-model";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	override_config["permissions"] = permissions;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase10-parent";
+	create["agent_id"] = "main";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase10-parent";
+	prompt["message_id"] = "phase10-parent-prompt";
+	prompt["text"] = "Please delegate this review.";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Dictionary run = service->get_session_runner()->run("phase10-parent", false);
+	REQUIRE(bool(run.get("success", false)));
+	CHECK(parent_runtime->stream_call_count == 2);
+	CHECK(child_runtime->get_stream_call_count() == 1);
+
+	Array sessions = service->get_session_store()->list_sessions();
+	String child_session_id;
+	for (int i = 0; i < sessions.size(); i++) {
+		const Dictionary item = sessions[i];
+		const Dictionary metadata = item.get("metadata", Dictionary());
+		if (String(metadata.get("parent_session_id", String())) == "phase10-parent") {
+			child_session_id = item.get("id", String());
+			CHECK(String(item.get("agent_id", String())) == "reviewer");
+			CHECK(String(metadata.get("parent_tool_call_id", String())) == "phase10-task-call");
+		}
+	}
+	REQUIRE(!child_session_id.is_empty());
+
+	const Dictionary child_request = child_runtime->get_last_request();
+	CHECK(String(child_request.get("provider", String())) == "fake-child");
+	CHECK(String(child_request.get("model", String())) == "child-model");
+	const String child_request_json = Variant(child_request).stringify();
+	CHECK(child_request_json.contains("[Parent Task]"));
+	CHECK(child_request_json.contains("Review delegated code."));
+	CHECK(child_request_json.contains("Return the important finding."));
+
+	const Vector<AIEventRow> parent_events = service->get_event_store()->list("phase10-parent");
+	bool saw_task_success = false;
+	for (int i = 0; i < parent_events.size(); i++) {
+		if (parent_events[i].type != AIDomainEventTypes::tool_success()) {
+			continue;
+		}
+		const Dictionary data = parent_events[i].data;
+		if (String(data.get("tool", String())) != "task") {
+			continue;
+		}
+		saw_task_success = true;
+		const Dictionary structured = data.get("structured", Dictionary());
+		CHECK(String(structured.get("child_session_id", String())) == child_session_id);
+		CHECK(String(structured.get("status", String())) == "completed");
+		CHECK(String(structured.get("result", String())).contains("child completed result"));
+	}
+	CHECK(saw_task_success);
+
+	const Dictionary parent_second_request = parent_runtime->last_request;
+	CHECK(Variant(parent_second_request).stringify().contains("child completed result"));
+}
+
+TEST_CASE("[Editor][AgentV1] Session runner uses non-main default agent consistently") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/phase10_default_agent");
+
+	Ref<AIFakeLLMRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_response_text("coder default agent response");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("fake-coder", runtime);
+
+	Dictionary provider;
+	provider["type"] = "fake";
+	provider["model"] = "coder-model";
+	Dictionary providers;
+	providers["fake-coder"] = provider;
+
+	Dictionary coder_agent;
+	coder_agent["provider"] = "fake-coder";
+	coder_agent["model"] = "coder-model";
+	coder_agent["system_prompt"] = "You are the configured default coder.";
+	Dictionary agents;
+	agents["coder"] = coder_agent;
+
+	Dictionary override_config;
+	override_config["default_agent"] = "coder";
+	override_config["default_provider"] = "fake-coder";
+	override_config["default_model"] = "coder-model";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase10-default-agent-session";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase10-default-agent-session";
+	prompt["message_id"] = "phase10-default-agent-prompt";
+	prompt["text"] = "Use the configured default agent.";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Dictionary run = service->get_session_runner()->run("phase10-default-agent-session", false);
+	REQUIRE(bool(run.get("success", false)));
+	CHECK(runtime->get_stream_call_count() == 1);
+	const Dictionary request = runtime->get_last_request();
+	CHECK(String(request.get("provider", String())) == "fake-coder");
+	CHECK(String(request.get("model", String())) == "coder-model");
+}
+
+TEST_CASE("[Editor][AgentV1] Task tool is idempotent for a parent tool call") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/phase10_task_idempotency");
+
+	Ref<AIFakeLLMRuntime> child_runtime;
+	child_runtime.instantiate();
+	child_runtime->set_response_text("idempotent child result");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("fake-child", child_runtime);
+
+	Dictionary child_provider;
+	child_provider["type"] = "fake";
+	child_provider["model"] = "child-model";
+	Dictionary providers;
+	providers["fake-child"] = child_provider;
+
+	Dictionary main_permissions;
+	main_permissions["spawn_default_effect"] = "allow";
+	Dictionary main_agent;
+	main_agent["provider"] = "fake-child";
+	main_agent["model"] = "child-model";
+	main_agent["permissions"] = main_permissions;
+	Dictionary subagents;
+	Array allowed;
+	allowed.push_back("reviewer");
+	subagents["allowed_agent_ids"] = allowed;
+	subagents["max_depth"] = 2;
+	main_agent["subagents"] = subagents;
+
+	Dictionary reviewer_agent;
+	reviewer_agent["provider"] = "fake-child";
+	reviewer_agent["model"] = "child-model";
+
+	Dictionary agents;
+	agents["main"] = main_agent;
+	agents["reviewer"] = reviewer_agent;
+	Dictionary override_config;
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase10-idempotent-parent";
+	create["agent_id"] = "main";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Ref<AIV1ToolMaterialization> materialization = service->get_tool_registry()->materialize_struct(workspace, Array());
+	REQUIRE(materialization->has_tool("task"));
+
+	Dictionary task_input;
+	task_input["agent_id"] = "reviewer";
+	task_input["description"] = "Run once.";
+	task_input["prompt"] = "Return one result.";
+
+	Dictionary call;
+	call["id"] = "phase10-idempotent-task-call";
+	call["name"] = "task";
+	call["input"] = task_input;
+
+	Dictionary settle_input;
+	settle_input["session_id"] = "phase10-idempotent-parent";
+	settle_input["agent"] = "main";
+	settle_input["assistant_message_id"] = "phase10-idempotent-assistant";
+	settle_input["call"] = call;
+
+	AIError error;
+	AIV1ToolSettlement first;
+	REQUIRE(materialization->settle_struct(settle_input, first, error));
+	REQUIRE(first.success);
+	CHECK(phase10_child_session_count(service->get_session_store(), "phase10-idempotent-parent") == 1);
+	const String first_child = String(Dictionary(first.structured).get("child_session_id", String()));
+	REQUIRE(!first_child.is_empty());
+
+	AIV1ToolSettlement retry;
+	REQUIRE(materialization->settle_struct(settle_input, retry, error));
+	REQUIRE(retry.success);
+	CHECK(phase10_child_session_count(service->get_session_store(), "phase10-idempotent-parent") == 1);
+	CHECK(String(Dictionary(retry.structured).get("child_session_id", String())) == first_child);
+}
+
+TEST_CASE("[Editor][AgentV1] Agent permission default deny narrows inherited global tool rules") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/phase10_agent_permission_narrowing");
+
+	Ref<AIFakeLLMRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_response_text("restricted agent response");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("fake-restricted", runtime);
+
+	Dictionary provider;
+	provider["type"] = "fake";
+	provider["model"] = "restricted-model";
+	Dictionary providers;
+	providers["fake-restricted"] = provider;
+
+	Dictionary restricted_permissions;
+	restricted_permissions["default_effect"] = "deny";
+	Dictionary restricted_agent;
+	restricted_agent["provider"] = "fake-restricted";
+	restricted_agent["model"] = "restricted-model";
+	restricted_agent["permissions"] = restricted_permissions;
+	Dictionary agents;
+	agents["restricted"] = restricted_agent;
+
+	Dictionary allow_read;
+	allow_read["action"] = "file.read";
+	allow_read["resource"] = "*";
+	allow_read["effect"] = "allow";
+	Array rules;
+	rules.push_back(allow_read);
+	Dictionary permissions;
+	permissions["rules"] = rules;
+
+	Dictionary override_config;
+	override_config["default_agent"] = "restricted";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	override_config["permissions"] = permissions;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase10-restricted-agent";
+	create["agent_id"] = "restricted";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase10-restricted-agent";
+	prompt["message_id"] = "phase10-restricted-prompt";
+	prompt["text"] = "Show restricted tools.";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Dictionary run = service->get_session_runner()->run("phase10-restricted-agent", false);
+	REQUIRE(bool(run.get("success", false)));
+	CHECK_FALSE(phase10_request_has_tool(runtime->get_last_request(), "file_read"));
+	CHECK_FALSE(phase10_request_has_tool(runtime->get_last_request(), "file_write"));
+}
+
+TEST_CASE("[Editor][AgentV1] Agent service rejects spawning above max concurrent active subagents") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/phase10_max_concurrent");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Dictionary main_agent;
+	main_agent["provider"] = "fake";
+	main_agent["model"] = "fake-model";
+	Dictionary subagents;
+	Array allowed;
+	allowed.push_back("reviewer");
+	subagents["allowed_agent_ids"] = allowed;
+	subagents["max_depth"] = 2;
+	subagents["max_concurrent"] = 1;
+	main_agent["subagents"] = subagents;
+
+	Dictionary reviewer_agent;
+	reviewer_agent["provider"] = "fake";
+	reviewer_agent["model"] = "fake-model";
+
+	Dictionary agents;
+	agents["main"] = main_agent;
+	agents["reviewer"] = reviewer_agent;
+	Dictionary override_config;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create_parent;
+	create_parent["id"] = "phase10-concurrent-parent";
+	create_parent["agent_id"] = "main";
+	create_parent["directory"] = workspace;
+	REQUIRE(bool(service->create(create_parent).get("success", false)));
+
+	Dictionary child_metadata;
+	child_metadata["parent_session_id"] = "phase10-concurrent-parent";
+	child_metadata["parent_tool_call_id"] = "phase10-running-call";
+	child_metadata["subagent_status"] = "running";
+	Dictionary create_child;
+	create_child["id"] = "phase10-running-child";
+	create_child["agent_id"] = "reviewer";
+	create_child["directory"] = workspace;
+	create_child["metadata"] = child_metadata;
+	REQUIRE(bool(service->create(create_child).get("success", false)));
+
+	AIError error;
+	CHECK_FALSE(service->get_agent_service()->assert_can_spawn_struct("phase10-concurrent-parent", "reviewer", error));
+	CHECK(error.kind == AI_ERROR_PERMISSION);
+}
+
+TEST_CASE("[Editor][AgentV1] Task tool rejects non-positive timeout limits") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/phase10_task_timeout");
+
+	Ref<AIFakeLLMRuntime> child_runtime;
+	child_runtime.instantiate();
+	child_runtime->set_response_text("timeout child result");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("fake-child", child_runtime);
+
+	Dictionary provider;
+	provider["type"] = "fake";
+	provider["model"] = "child-model";
+	Dictionary providers;
+	providers["fake-child"] = provider;
+
+	Dictionary main_permissions;
+	main_permissions["spawn_default_effect"] = "allow";
+	Dictionary main_agent;
+	main_agent["provider"] = "fake-child";
+	main_agent["model"] = "child-model";
+	main_agent["permissions"] = main_permissions;
+	Dictionary subagents;
+	Array allowed;
+	allowed.push_back("reviewer");
+	subagents["allowed_agent_ids"] = allowed;
+	subagents["max_depth"] = 2;
+	subagents["timeout_ms"] = 300000;
+	main_agent["subagents"] = subagents;
+
+	Dictionary reviewer_agent;
+	reviewer_agent["provider"] = "fake-child";
+	reviewer_agent["model"] = "child-model";
+
+	Dictionary agents;
+	agents["main"] = main_agent;
+	agents["reviewer"] = reviewer_agent;
+	Dictionary override_config;
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase10-timeout-parent";
+	create["agent_id"] = "main";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Ref<AIV1ToolMaterialization> materialization = service->get_tool_registry()->materialize_struct(workspace, Array());
+	REQUIRE(materialization->has_tool("task"));
+
+	Dictionary task_input;
+	task_input["agent_id"] = "reviewer";
+	task_input["description"] = "Timeout should reject.";
+	task_input["prompt"] = "This should not run.";
+	task_input["timeout_ms"] = 0;
+
+	Dictionary call;
+	call["id"] = "phase10-timeout-task-call";
+	call["name"] = "task";
+	call["input"] = task_input;
+
+	Dictionary settle_input;
+	settle_input["session_id"] = "phase10-timeout-parent";
+	settle_input["agent"] = "main";
+	settle_input["assistant_message_id"] = "phase10-timeout-assistant";
+	settle_input["call"] = call;
+
+	AIError error;
+	AIV1ToolSettlement settlement;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	CHECK_FALSE(settlement.success);
+	CHECK(settlement.error.kind == AI_ERROR_VALIDATION);
+	CHECK(phase10_child_session_count(service->get_session_store(), "phase10-timeout-parent") == 0);
+}
+
+TEST_CASE("[Editor][AgentV1] Subagent task receives the parent runner cancel token") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/phase10_task_cancel_token");
+
+	Ref<Phase10ParentRuntime> parent_runtime;
+	parent_runtime.instantiate();
+	parent_runtime->task_input["agent_id"] = "reviewer";
+	parent_runtime->task_input["description"] = "Observe cancel token.";
+	parent_runtime->task_input["prompt"] = "Return after checking token.";
+
+	Ref<Phase10CancelTokenRuntime> child_runtime;
+	child_runtime.instantiate();
+	Ref<AICancelToken> parent_token;
+	parent_token.instantiate();
+	child_runtime->expected_token = parent_token;
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("fake-parent", parent_runtime);
+	service->get_runtime_registry()->register_runtime("fake-child", child_runtime);
+
+	Dictionary parent_provider;
+	parent_provider["type"] = "fake";
+	parent_provider["model"] = "parent-model";
+	Dictionary child_provider;
+	child_provider["type"] = "fake";
+	child_provider["model"] = "child-model";
+	Dictionary providers;
+	providers["fake-parent"] = parent_provider;
+	providers["fake-child"] = child_provider;
+
+	Dictionary main_agent;
+	main_agent["provider"] = "fake-parent";
+	main_agent["model"] = "parent-model";
+	Dictionary subagents;
+	Array allowed;
+	allowed.push_back("reviewer");
+	subagents["allowed_agent_ids"] = allowed;
+	subagents["max_depth"] = 2;
+	main_agent["subagents"] = subagents;
+
+	Dictionary reviewer_agent;
+	reviewer_agent["provider"] = "fake-child";
+	reviewer_agent["model"] = "child-model";
+
+	Dictionary allow_spawn;
+	allow_spawn["action"] = "agent.spawn";
+	allow_spawn["resource"] = "reviewer";
+	allow_spawn["effect"] = "allow";
+	Array rules;
+	rules.push_back(allow_spawn);
+	Dictionary permissions;
+	permissions["rules"] = rules;
+
+	Dictionary override_config;
+	override_config["providers"] = providers;
+	override_config["permissions"] = permissions;
+	Dictionary agents;
+	agents["main"] = main_agent;
+	agents["reviewer"] = reviewer_agent;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase10-cancel-parent";
+	create["agent_id"] = "main";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase10-cancel-parent";
+	prompt["message_id"] = "phase10-cancel-prompt";
+	prompt["text"] = "Delegate and preserve cancel token.";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Vector<AISessionInputRecord> promoted;
+	AIError error;
+	REQUIRE(service->get_session_runner()->drain_struct("phase10-cancel-parent", parent_token, 0, promoted, error));
+	CHECK(child_runtime->stream_call_count == 1);
+	CHECK(child_runtime->saw_expected_token);
 }
 
 TEST_CASE("[Editor][AgentV1] Session prompt requires an existing session and resume false only admits") {

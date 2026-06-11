@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "editor/agent_v1/agents/ai_agent_service_v1.h"
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
@@ -32,6 +33,7 @@ class AISessionRunner : public AISessionDrainRunner {
 	Ref<AISessionStore> session_store;
 	Ref<AIModelPartBuilder> model_part_builder;
 	Ref<AIV1SkillService> skill_service;
+	Ref<AIAgentService> agent_service;
 
 	static String _message_text(const AISessionMessage &p_message);
 	static String _latest_user_prompt_text(const Vector<AISessionMessage> &p_messages);
@@ -39,6 +41,7 @@ class AISessionRunner : public AISessionDrainRunner {
 	static int64_t _history_token_budget_from_config(const Dictionary &p_config);
 	static bool _is_rebuild_request_conflict(const AIError &p_error);
 	static AIError _error_from_result(const Dictionary &p_result, const String &p_fallback_message);
+	static Array _permission_rules_from_config(const Dictionary &p_config);
 	static Dictionary _model_part_for_event_log(const AIModelPart &p_part);
 	static Dictionary _model_message_for_event_log(const AIModelMessage &p_message);
 	static Dictionary _request_for_event_log(const AIModelRequest &p_request);
@@ -47,6 +50,8 @@ class AISessionRunner : public AISessionDrainRunner {
 	bool _message_to_model(const AISessionMessage &p_message, const Dictionary &p_provider_config, AIModelMessage &r_message, AIError &r_error);
 	bool _append_event(const String &p_session_id, const String &p_type, const Dictionary &p_data, bool p_live_only, AIEventRow &r_row, AIError &r_error);
 	bool _resolve_session(const String &p_session_id, AISessionRow &r_session, AIError &r_error) const;
+	bool _resolve_agent_for_session(const AISessionRow &p_session, AIAgentConfig &r_agent, AIError &r_error) const;
+	Array _permission_rules_for_agent(const Dictionary &p_config, const AIAgentConfig &p_agent) const;
 	bool _project_durable_history(const String &p_session_id);
 	bool _configure_skill_service_from_config(const Dictionary &p_config, AIError &r_error) const;
 	bool _select_skills_for_prompt(const Dictionary &p_config, const String &p_prompt, Array &r_selected_skills, AIError &r_error) const;
@@ -89,6 +94,8 @@ public:
 	Ref<AIModelPartBuilder> get_model_part_builder() const;
 	void set_skill_service(const Ref<AIV1SkillService> &p_service);
 	Ref<AIV1SkillService> get_skill_service() const;
+	void set_agent_service(const Ref<AIAgentService> &p_service);
+	Ref<AIAgentService> get_agent_service() const;
 
 	virtual bool drain_struct(const String &p_session_id, const Ref<AICancelToken> &p_cancel_token, int64_t p_wake_seq, Vector<AISessionInputRecord> &r_promoted, AIError &r_error) override;
 	Dictionary run(const String &p_session_id, bool p_force = false);

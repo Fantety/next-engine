@@ -355,7 +355,8 @@ bool AIV1ToolRegistry::_is_tool_wholly_disabled(const String &p_name, const Ref<
 			continue;
 		}
 		const Dictionary rule = p_rules[i];
-		if (!_wildcard_match(String(rule.get("action", "*")), action)) {
+		const String rule_action = String(rule.get("action", "*"));
+		if (!_wildcard_match(rule_action, action) && !_wildcard_match(rule_action, p_name)) {
 			continue;
 		}
 
@@ -677,6 +678,10 @@ bool AIV1ToolRegistry::settle_materialized_tool(const Ref<AIV1Tool> &p_tool, con
 	context.tool_name = r_settlement.tool_name;
 	context.root_dir = String(p_input.get("root_dir", get_root_dir())).strip_edges();
 	context.permission_service = permission_service;
+	if (p_input.get("cancel_token", Variant()).get_type() == Variant::OBJECT) {
+		Ref<AICancelToken> cancel_token = p_input["cancel_token"];
+		context.cancel_token = cancel_token;
+	}
 	context.source["assistant_message_id"] = r_settlement.assistant_message_id;
 	context.source["call_id"] = r_settlement.call_id;
 	context.source["tool"] = r_settlement.tool_name;

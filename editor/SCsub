@@ -105,6 +105,7 @@ if env.editor_build:
     SConscript("themes/SCsub")
     SConscript("agent_v1/core/SCsub")
     SConscript("agent_v1/config/SCsub")
+    SConscript("agent_v1/agents/SCsub")
     SConscript("agent_v1/domain/SCsub")
     SConscript("agent_v1/permission/SCsub")
     SConscript("agent_v1/tools/SCsub")

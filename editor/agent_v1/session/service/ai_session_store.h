@@ -36,9 +36,11 @@ public:
 
 	bool create_or_reuse(const Dictionary &p_input, AISessionRow &r_session, bool &r_created, String &r_error);
 	bool get_session_struct(const String &p_session_id, AISessionRow &r_session);
+	bool update_metadata_struct(const String &p_session_id, const Dictionary &p_metadata, AISessionRow &r_session, String &r_error);
 
 	Dictionary create_session(const Dictionary &p_input);
 	Dictionary get_session(const String &p_session_id);
+	Dictionary update_metadata(const String &p_session_id, const Dictionary &p_metadata);
 	Array list_sessions();
 	void clear_memory();
 };

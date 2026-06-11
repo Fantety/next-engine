@@ -53,6 +53,8 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_model_part_builder"), &AISessionService::get_model_part_builder);
 	ClassDB::bind_method(D_METHOD("set_skill_service", "service"), &AISessionService::set_skill_service);
 	ClassDB::bind_method(D_METHOD("get_skill_service"), &AISessionService::get_skill_service);
+	ClassDB::bind_method(D_METHOD("set_agent_service", "service"), &AISessionService::set_agent_service);
+	ClassDB::bind_method(D_METHOD("get_agent_service"), &AISessionService::get_agent_service);
 	ClassDB::bind_method(D_METHOD("create", "input"), &AISessionService::create);
 	ClassDB::bind_method(D_METHOD("prompt", "input"), &AISessionService::prompt);
 	ClassDB::bind_method(D_METHOD("reply_permission", "input"), &AISessionService::reply_permission);
@@ -223,6 +225,12 @@ void AISessionService::_ensure_defaults() {
 	if (skill_service.is_null()) {
 		skill_service.instantiate();
 	}
+	if (agent_service.is_null()) {
+		agent_service.instantiate();
+	}
+	if (task_tool.is_null()) {
+		task_tool.instantiate();
+	}
 }
 
 void AISessionService::_wire_dependencies() {
@@ -255,6 +263,7 @@ void AISessionService::_wire_dependencies() {
 		session_runner->set_session_store(session_store);
 		session_runner->set_model_part_builder(model_part_builder);
 		session_runner->set_skill_service(skill_service);
+		session_runner->set_agent_service(agent_service);
 	}
 	if (context_source_registry.is_valid()) {
 		context_source_registry->set_config_service(config_service);
@@ -274,6 +283,19 @@ void AISessionService::_wire_dependencies() {
 	}
 	if (skill_service.is_valid()) {
 		skill_service->set_tool_registry(tool_registry);
+	}
+	if (agent_service.is_valid()) {
+		agent_service->set_config_service(config_service);
+		agent_service->set_session_store(session_store);
+	}
+	if (task_tool.is_valid()) {
+		task_tool->setup(this, agent_service.ptr());
+	}
+	if (tool_registry.is_valid() && task_tool.is_valid() && !tool_registry->has_tool("task")) {
+		Dictionary task_metadata;
+		task_metadata["tool_origin"] = "builtin";
+		task_metadata["phase"] = "10";
+		tool_registry->register_tool_struct("task", task_tool, "builtin", task_metadata);
 	}
 	if (execution.is_valid()) {
 		if (session_runner.is_valid()) {
@@ -632,6 +654,16 @@ void AISessionService::set_skill_service(const Ref<AIV1SkillService> &p_service)
 
 Ref<AIV1SkillService> AISessionService::get_skill_service() const {
 	return skill_service;
+}
+
+void AISessionService::set_agent_service(const Ref<AIAgentService> &p_service) {
+	agent_service = p_service;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AIAgentService> AISessionService::get_agent_service() const {
+	return agent_service;
 }
 
 Dictionary AISessionService::create(const Dictionary &p_input) {
