@@ -836,6 +836,10 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 	r_request.model = model.is_empty() ? String("fake-model") : model;
 	r_request.system = _system_parts_from_baseline(epoch.baseline);
 	r_request.provider_options = provider_config.duplicate(true);
+	r_request.max_output_tokens = int(provider_config.get("max_output_tokens", provider_config.get("maxOutputTokens", 0)));
+	if (r_request.max_output_tokens < 0) {
+		r_request.max_output_tokens = 0;
+	}
 	r_request.metadata["session_id"] = p_session.id;
 	r_request.metadata["wake_seq"] = p_wake_seq;
 	r_request.metadata["location"] = p_session.location.to_dictionary();

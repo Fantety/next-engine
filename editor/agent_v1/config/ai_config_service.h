@@ -41,6 +41,7 @@ class AIConfigService : public RefCounted {
 	static Dictionary _dictionary_from_variant(const Variant &p_value);
 	static Array _array_from_variant(const Variant &p_value);
 	static Dictionary _merge_dicts(const Dictionary &p_base, const Dictionary &p_patch);
+	static Dictionary _merge_patch_dicts(const Dictionary &p_base, const Dictionary &p_patch);
 	static String _strip_json_comments(const String &p_text);
 	static bool _parse_json_text(const String &p_text, const String &p_label, Dictionary &r_data, AIError &r_error);
 	static bool _read_json_file(const String &p_path, Dictionary &r_data, AIError &r_error);

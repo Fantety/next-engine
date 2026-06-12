@@ -29,6 +29,12 @@ void AIAgentV1UIBridge::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("get_settings_snapshot"), &AIAgentV1UIBridge::get_settings_snapshot);
 	ClassDB::bind_method(D_METHOD("list_models"), &AIAgentV1UIBridge::list_models);
+	ClassDB::bind_method(D_METHOD("list_model_provider_presets"), &AIAgentV1UIBridge::list_model_provider_presets);
+	ClassDB::bind_method(D_METHOD("list_model_profiles", "enabled_only"), &AIAgentV1UIBridge::list_model_profiles, DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("get_model_profile", "profile_id"), &AIAgentV1UIBridge::get_model_profile);
+	ClassDB::bind_method(D_METHOD("add_model_profile", "profile", "scope"), &AIAgentV1UIBridge::add_model_profile, DEFVAL("project"));
+	ClassDB::bind_method(D_METHOD("update_model_profile", "profile_id", "profile", "scope"), &AIAgentV1UIBridge::update_model_profile, DEFVAL("project"));
+	ClassDB::bind_method(D_METHOD("remove_model_profile", "profile_id", "scope"), &AIAgentV1UIBridge::remove_model_profile, DEFVAL("project"));
 	ClassDB::bind_method(D_METHOD("list_agents"), &AIAgentV1UIBridge::list_agents);
 	ClassDB::bind_method(D_METHOD("patch_settings", "patch", "scope"), &AIAgentV1UIBridge::patch_settings, DEFVAL("project"));
 
@@ -41,6 +47,7 @@ void AIAgentV1UIBridge::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("send_message", "text", "model_id", "agent_id", "attachments", "resume"), &AIAgentV1UIBridge::send_message, DEFVAL(String()), DEFVAL(String()), DEFVAL(Array()), DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("cancel_active_run", "reason"), &AIAgentV1UIBridge::cancel_active_run, DEFVAL(String()));
 	ClassDB::bind_method(D_METHOD("get_run_state", "session_id"), &AIAgentV1UIBridge::get_run_state, DEFVAL(String()));
+	ClassDB::bind_method(D_METHOD("reply_permission", "request_id", "allowed", "reason", "options"), &AIAgentV1UIBridge::reply_permission, DEFVAL(String()), DEFVAL(Dictionary()));
 
 	ADD_SIGNAL(MethodInfo("sessions_changed", PropertyInfo(Variant::ARRAY, "sessions")));
 	ADD_SIGNAL(MethodInfo("active_session_changed", PropertyInfo(Variant::DICTIONARY, "session")));
@@ -395,6 +402,36 @@ Array AIAgentV1UIBridge::list_models() {
 	return config_adapter->list_models();
 }
 
+Array AIAgentV1UIBridge::list_model_provider_presets() {
+	_sync_adapters();
+	return config_adapter->list_model_provider_presets();
+}
+
+Array AIAgentV1UIBridge::list_model_profiles(bool p_enabled_only) {
+	_sync_adapters();
+	return config_adapter->list_model_profiles(p_enabled_only);
+}
+
+Dictionary AIAgentV1UIBridge::get_model_profile(const String &p_profile_id) {
+	_sync_adapters();
+	return config_adapter->get_model_profile(p_profile_id);
+}
+
+Dictionary AIAgentV1UIBridge::add_model_profile(const Dictionary &p_profile, const String &p_scope) {
+	_sync_adapters();
+	return config_adapter->add_model_profile(p_profile, p_scope);
+}
+
+Dictionary AIAgentV1UIBridge::update_model_profile(const String &p_profile_id, const Dictionary &p_profile, const String &p_scope) {
+	_sync_adapters();
+	return config_adapter->update_model_profile(p_profile_id, p_profile, p_scope);
+}
+
+Dictionary AIAgentV1UIBridge::remove_model_profile(const String &p_profile_id, const String &p_scope) {
+	_sync_adapters();
+	return config_adapter->remove_model_profile(p_profile_id, p_scope);
+}
+
 Array AIAgentV1UIBridge::list_agents() {
 	_sync_adapters();
 	return config_adapter->list_agents();
@@ -449,4 +486,9 @@ Dictionary AIAgentV1UIBridge::get_run_state(const String &p_session_id) const {
 		return Dictionary();
 	}
 	return conversation_adapter->get_run_state(p_session_id);
+}
+
+Dictionary AIAgentV1UIBridge::reply_permission(const String &p_request_id, bool p_allowed, const String &p_reason, const Dictionary &p_options) {
+	_sync_adapters();
+	return conversation_adapter->reply_permission(p_request_id, p_allowed, p_reason, p_options);
 }

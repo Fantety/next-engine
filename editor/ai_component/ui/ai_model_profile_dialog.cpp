@@ -20,11 +20,14 @@
 
 namespace {
 
-bool _find_provider_preset(const String &p_provider_id, AIModelProviderPreset &r_preset) {
-	Vector<AIModelProviderPreset> providers = AIModelSettings::get_provider_presets();
-	for (int i = 0; i < providers.size(); i++) {
-		if (providers[i].id == p_provider_id) {
-			r_preset = providers[i];
+bool _find_provider_preset(const Array &p_presets, const String &p_provider_id, Dictionary &r_preset) {
+	for (int i = 0; i < p_presets.size(); i++) {
+		if (p_presets[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary preset = p_presets[i];
+		if (String(preset.get("id", String())) == p_provider_id) {
+			r_preset = preset;
 			return true;
 		}
 	}
@@ -55,15 +58,12 @@ VBoxContainer *_make_tab_scroll_content(Control *p_page) {
 	return content;
 }
 
-const int DEFAULT_MAX_INPUT_CHARS = 96000;
-const int DEFAULT_MAX_CONTEXT_CHARS = 24000;
-const int DEFAULT_MAX_HISTORY_CHARS = 64000;
-const int DEFAULT_MAX_TOOL_RESULT_CHARS = 16000;
-const int DEFAULT_MIN_RECENT_MESSAGES = 4;
-const int DEFAULT_MAX_PROVIDER_TURNS = 255;
-const int DEFAULT_MAX_TOOL_CALLS = 60;
 const int DEFAULT_MAX_OUTPUT_TOKENS = 0;
-const int DEFAULT_TIMEOUT_SECONDS = 180;
+const int DEFAULT_TIMEOUT_MSEC = 120000;
+
+int _profile_int(const Dictionary &p_profile, const String &p_key, int p_default_value) {
+	return int(p_profile.get(p_key, p_default_value));
+}
 
 } // namespace
 
@@ -83,6 +83,11 @@ AIModelProfileDialog::AIModelProfileDialog() {
 	set_ok_button_text(TTR("Add Model"));
 	set_cancel_button_text(TTR("Cancel"));
 	set_hide_on_ok(false);
+}
+
+void AIModelProfileDialog::set_model_provider_presets(const Array &p_presets) {
+	provider_presets = p_presets.duplicate(true);
+	_reload_provider_presets();
 }
 
 void AIModelProfileDialog::_build_ui() {
@@ -174,10 +179,27 @@ void AIModelProfileDialog::_build_provider_add_tab(Control *p_page) {
 	content->add_child(add_button);
 	provider_model_submit_button = add_button;
 
-	Vector<AIModelProviderPreset> providers = AIModelSettings::get_provider_presets();
-	for (int i = 0; i < providers.size(); i++) {
-		provider_model_provider->add_item(providers[i].display_name);
-		provider_model_provider->set_item_metadata(i, providers[i].id);
+	_reload_provider_presets();
+}
+
+void AIModelProfileDialog::_reload_provider_presets() {
+	if (!provider_model_provider) {
+		return;
+	}
+
+	provider_model_provider->clear();
+	if (provider_model_model) {
+		provider_model_model->clear();
+	}
+
+	for (int i = 0; i < provider_presets.size(); i++) {
+		if (provider_presets[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary preset = provider_presets[i];
+		const int item_index = provider_model_provider->get_item_count();
+		provider_model_provider->add_item(String(preset.get("display_name", preset.get("id", String()))));
+		provider_model_provider->set_item_metadata(item_index, String(preset.get("id", String())));
 	}
 	if (provider_model_provider->get_item_count() > 0) {
 		provider_model_provider->select(0);
@@ -201,17 +223,6 @@ void AIModelProfileDialog::_build_custom_add_tab(Control *p_page) {
 	custom_display_name->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	custom_display_name->set_placeholder(TTR("e.g. Local Ollama"));
 	content->add_child(custom_display_name);
-
-	Label *format_label = memnew(Label);
-	format_label->set_text(TTR("* API Format"));
-	content->add_child(format_label);
-
-	custom_api_format = memnew(OptionButton);
-	custom_api_format->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	custom_api_format->add_item(TTR("OpenAI Chat Completions"));
-	custom_api_format->set_item_metadata(0, "openai_chat_completions");
-	custom_api_format->select(0);
-	content->add_child(custom_api_format);
 
 	HBoxContainer *url_header = memnew(HBoxContainer);
 	url_header->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -321,110 +332,47 @@ void AIModelProfileDialog::_build_advanced_config(VBoxContainer *p_content, bool
 	p_content->add_child(advanced_label);
 
 	Label *advanced_description = memnew(Label);
-	advanced_description->set_text(TTR("Uses the current Agent defaults. Output tokens set to 0 does not send max_tokens."));
+	advanced_description->set_text(TTR("Output tokens set to 0 does not send max_tokens."));
 	advanced_description->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	advanced_description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	advanced_description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	p_content->add_child(advanced_description);
 
-	SpinBox *max_input_chars = _add_advanced_spinbox(p_content, TTR("Input Context Characters"), DEFAULT_MAX_INPUT_CHARS, 256, 2000000, TTR("Maximum estimated input characters sent to the model."));
-	SpinBox *max_context_chars = _add_advanced_spinbox(p_content, TTR("Project/Skill Context Characters"), DEFAULT_MAX_CONTEXT_CHARS, 128, 1000000, TTR("Maximum characters kept from static project and skill context."));
-	SpinBox *max_history_chars = _add_advanced_spinbox(p_content, TTR("History Characters"), DEFAULT_MAX_HISTORY_CHARS, 128, 2000000, TTR("Maximum conversation history characters kept in model requests."));
-	SpinBox *max_tool_result_chars = _add_advanced_spinbox(p_content, TTR("Tool Result Characters"), DEFAULT_MAX_TOOL_RESULT_CHARS, 64, 1000000, TTR("Maximum characters kept from each tool result before it enters context."));
-	SpinBox *min_recent_messages = _add_advanced_spinbox(p_content, TTR("Minimum Recent Messages"), DEFAULT_MIN_RECENT_MESSAGES, 1, 1000, TTR("Recent messages to preserve when history exceeds the character budget."));
-	SpinBox *max_provider_turns = _add_advanced_spinbox(p_content, TTR("Provider Turns"), DEFAULT_MAX_PROVIDER_TURNS, 1, 1000, TTR("Maximum consecutive model calls in one agent request."));
-	SpinBox *max_tool_calls = _add_advanced_spinbox(p_content, TTR("Tool Calls"), DEFAULT_MAX_TOOL_CALLS, 1, 1000, TTR("Maximum tool executions in one agent request."));
 	SpinBox *max_output_tokens = _add_advanced_spinbox(p_content, TTR("Output Tokens"), DEFAULT_MAX_OUTPUT_TOKENS, 0, 1000000, TTR("0 means max_tokens is not sent to OpenAI-compatible requests."));
-	SpinBox *timeout_seconds = _add_advanced_spinbox(p_content, TTR("Request Timeout"), DEFAULT_TIMEOUT_SECONDS, 1, 3600, TTR("Connection and read timeout in seconds."));
+	SpinBox *timeout_msec = _add_advanced_spinbox(p_content, TTR("Request Timeout (ms)"), DEFAULT_TIMEOUT_MSEC, 1, 3600000, TTR("Connection and read timeout in milliseconds."));
 
 	if (p_provider_tab) {
-		provider_max_input_chars = max_input_chars;
-		provider_max_context_chars = max_context_chars;
-		provider_max_history_chars = max_history_chars;
-		provider_max_tool_result_chars = max_tool_result_chars;
-		provider_min_recent_messages = min_recent_messages;
-		provider_max_provider_turns = max_provider_turns;
-		provider_max_tool_calls = max_tool_calls;
 		provider_max_output_tokens = max_output_tokens;
-		provider_timeout_seconds = timeout_seconds;
+		provider_timeout_msec = timeout_msec;
 	} else {
-		custom_max_input_chars = max_input_chars;
-		custom_max_context_chars = max_context_chars;
-		custom_max_history_chars = max_history_chars;
-		custom_max_tool_result_chars = max_tool_result_chars;
-		custom_min_recent_messages = min_recent_messages;
-		custom_max_provider_turns = max_provider_turns;
-		custom_max_tool_calls = max_tool_calls;
 		custom_max_output_tokens = max_output_tokens;
-		custom_timeout_seconds = timeout_seconds;
+		custom_timeout_msec = timeout_msec;
 	}
 }
 
 void AIModelProfileDialog::_reset_advanced_config(bool p_provider_tab) {
-	AIModelProfile defaults;
+	Dictionary defaults;
 	_apply_advanced_config(defaults, p_provider_tab);
 }
 
-void AIModelProfileDialog::_apply_advanced_config(const AIModelProfile &p_profile, bool p_provider_tab) {
-	SpinBox *max_input_chars = p_provider_tab ? provider_max_input_chars : custom_max_input_chars;
-	SpinBox *max_context_chars = p_provider_tab ? provider_max_context_chars : custom_max_context_chars;
-	SpinBox *max_history_chars = p_provider_tab ? provider_max_history_chars : custom_max_history_chars;
-	SpinBox *max_tool_result_chars = p_provider_tab ? provider_max_tool_result_chars : custom_max_tool_result_chars;
-	SpinBox *min_recent_messages = p_provider_tab ? provider_min_recent_messages : custom_min_recent_messages;
-	SpinBox *max_provider_turns = p_provider_tab ? provider_max_provider_turns : custom_max_provider_turns;
-	SpinBox *max_tool_calls = p_provider_tab ? provider_max_tool_calls : custom_max_tool_calls;
+void AIModelProfileDialog::_apply_advanced_config(const Dictionary &p_profile, bool p_provider_tab) {
 	SpinBox *max_output_tokens = p_provider_tab ? provider_max_output_tokens : custom_max_output_tokens;
-	SpinBox *timeout_seconds = p_provider_tab ? provider_timeout_seconds : custom_timeout_seconds;
+	SpinBox *timeout_msec = p_provider_tab ? provider_timeout_msec : custom_timeout_msec;
 
-	if (max_input_chars) {
-		max_input_chars->set_value(p_profile.max_input_chars);
-	}
-	if (max_context_chars) {
-		max_context_chars->set_value(p_profile.max_context_chars);
-	}
-	if (max_history_chars) {
-		max_history_chars->set_value(p_profile.max_history_chars);
-	}
-	if (max_tool_result_chars) {
-		max_tool_result_chars->set_value(p_profile.max_tool_result_chars);
-	}
-	if (min_recent_messages) {
-		min_recent_messages->set_value(p_profile.min_recent_messages);
-	}
-	if (max_provider_turns) {
-		max_provider_turns->set_value(p_profile.max_provider_turns);
-	}
-	if (max_tool_calls) {
-		max_tool_calls->set_value(p_profile.max_tool_calls);
-	}
 	if (max_output_tokens) {
-		max_output_tokens->set_value(p_profile.max_output_tokens);
+		max_output_tokens->set_value(_profile_int(p_profile, "max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS));
 	}
-	if (timeout_seconds) {
-		timeout_seconds->set_value(p_profile.timeout_seconds);
+	if (timeout_msec) {
+		timeout_msec->set_value(_profile_int(p_profile, "timeout_msec", DEFAULT_TIMEOUT_MSEC));
 	}
 }
 
-void AIModelProfileDialog::_read_advanced_config(AIModelProfile &r_profile, bool p_provider_tab) const {
-	SpinBox *max_input_chars = p_provider_tab ? provider_max_input_chars : custom_max_input_chars;
-	SpinBox *max_context_chars = p_provider_tab ? provider_max_context_chars : custom_max_context_chars;
-	SpinBox *max_history_chars = p_provider_tab ? provider_max_history_chars : custom_max_history_chars;
-	SpinBox *max_tool_result_chars = p_provider_tab ? provider_max_tool_result_chars : custom_max_tool_result_chars;
-	SpinBox *min_recent_messages = p_provider_tab ? provider_min_recent_messages : custom_min_recent_messages;
-	SpinBox *max_provider_turns = p_provider_tab ? provider_max_provider_turns : custom_max_provider_turns;
-	SpinBox *max_tool_calls = p_provider_tab ? provider_max_tool_calls : custom_max_tool_calls;
+void AIModelProfileDialog::_read_advanced_config(Dictionary &r_profile, bool p_provider_tab) const {
 	SpinBox *max_output_tokens = p_provider_tab ? provider_max_output_tokens : custom_max_output_tokens;
-	SpinBox *timeout_seconds = p_provider_tab ? provider_timeout_seconds : custom_timeout_seconds;
+	SpinBox *timeout_msec = p_provider_tab ? provider_timeout_msec : custom_timeout_msec;
 
-	r_profile.max_input_chars = max_input_chars ? (int)max_input_chars->get_value() : DEFAULT_MAX_INPUT_CHARS;
-	r_profile.max_context_chars = max_context_chars ? (int)max_context_chars->get_value() : DEFAULT_MAX_CONTEXT_CHARS;
-	r_profile.max_history_chars = max_history_chars ? (int)max_history_chars->get_value() : DEFAULT_MAX_HISTORY_CHARS;
-	r_profile.max_tool_result_chars = max_tool_result_chars ? (int)max_tool_result_chars->get_value() : DEFAULT_MAX_TOOL_RESULT_CHARS;
-	r_profile.min_recent_messages = min_recent_messages ? (int)min_recent_messages->get_value() : DEFAULT_MIN_RECENT_MESSAGES;
-	r_profile.max_provider_turns = max_provider_turns ? (int)max_provider_turns->get_value() : DEFAULT_MAX_PROVIDER_TURNS;
-	r_profile.max_tool_calls = max_tool_calls ? (int)max_tool_calls->get_value() : DEFAULT_MAX_TOOL_CALLS;
-	r_profile.max_output_tokens = max_output_tokens ? (int)max_output_tokens->get_value() : DEFAULT_MAX_OUTPUT_TOKENS;
-	r_profile.timeout_seconds = timeout_seconds ? (int)timeout_seconds->get_value() : DEFAULT_TIMEOUT_SECONDS;
+	r_profile["max_output_tokens"] = max_output_tokens ? (int)max_output_tokens->get_value() : DEFAULT_MAX_OUTPUT_TOKENS;
+	r_profile["timeout_msec"] = timeout_msec ? (int)timeout_msec->get_value() : DEFAULT_TIMEOUT_MSEC;
 }
 
 void AIModelProfileDialog::_provider_model_provider_selected(int p_index) {
@@ -434,14 +382,16 @@ void AIModelProfileDialog::_provider_model_provider_selected(int p_index) {
 
 	provider_model_model->clear();
 	const String provider_id = String(provider_model_provider->get_item_metadata(p_index));
-	AIModelProviderPreset provider;
-	if (!_find_provider_preset(provider_id, provider)) {
+	Dictionary provider;
+	if (!_find_provider_preset(provider_presets, provider_id, provider)) {
 		return;
 	}
 
-	for (int i = 0; i < provider.preset_models.size(); i++) {
-		provider_model_model->add_item(provider.preset_models[i]);
-		provider_model_model->set_item_metadata(i, provider.preset_models[i]);
+	const Array preset_models = provider.get("preset_models", Array());
+	for (int i = 0; i < preset_models.size(); i++) {
+		const String model = String(preset_models[i]);
+		provider_model_model->add_item(model);
+		provider_model_model->set_item_metadata(i, model);
 	}
 	if (provider_model_model->get_item_count() > 0) {
 		provider_model_model->select(0);
@@ -506,47 +456,45 @@ void AIModelProfileDialog::popup_add_model() {
 	popup_centered(Size2(680, 560) * EDSCALE);
 }
 
-void AIModelProfileDialog::popup_edit_model(const AIModelProfile &p_profile) {
+void AIModelProfileDialog::popup_edit_model(const Dictionary &p_profile) {
 	_build_ui();
 
-	if (p_profile.id.is_empty()) {
+	const String profile_id = String(p_profile.get("id", String())).strip_edges();
+	if (profile_id.is_empty()) {
 		return;
 	}
 
 	_reset_form();
 
 	editing_model = true;
-	editing_profile_id = p_profile.id;
-	editing_custom = p_profile.custom;
+	editing_profile_id = profile_id;
+	editing_custom = bool(p_profile.get("custom", false));
 	set_title(TTR("Edit Model"));
 
-	if (p_profile.custom) {
+	if (editing_custom) {
 		if (custom_model_submit_button) {
 			custom_model_submit_button->set_text(TTR("Save Model"));
 		}
 		if (add_model_tabs) {
 			add_model_tabs->set_current_tab(1);
 		}
-		if (custom_api_format && custom_api_format->get_item_count() > 0) {
-			_select_option_metadata(custom_api_format, p_profile.api_format.is_empty() ? String("openai_chat_completions") : p_profile.api_format);
-		}
 		if (custom_display_name) {
-			custom_display_name->set_text(p_profile.display_name);
+			custom_display_name->set_text(String(p_profile.get("display_name", String())));
 		}
 		if (custom_base_url) {
-			custom_base_url->set_text(p_profile.base_url);
+			custom_base_url->set_text(String(p_profile.get("base_url", String())));
 		}
 		if (custom_model_id) {
-			custom_model_id->set_text(p_profile.model);
+			custom_model_id->set_text(String(p_profile.get("model", String())));
 		}
 		if (custom_api_key) {
-			custom_api_key->set_text(p_profile.api_key);
+			custom_api_key->set_text(String(p_profile.get("api_key", String())));
 		}
 		if (custom_full_url) {
 			custom_full_url->set_pressed(false);
 		}
 		if (custom_multimodal) {
-			custom_multimodal->set_pressed(p_profile.supports_multimodal);
+			custom_multimodal->set_pressed(bool(p_profile.get("supports_multimodal", false)));
 		}
 		_apply_advanced_config(p_profile, false);
 	} else {
@@ -557,17 +505,17 @@ void AIModelProfileDialog::popup_edit_model(const AIModelProfile &p_profile) {
 			add_model_tabs->set_current_tab(0);
 		}
 		if (provider_model_provider) {
-			_select_option_metadata(provider_model_provider, p_profile.provider_id);
+			_select_option_metadata(provider_model_provider, String(p_profile.get("provider_id", String())));
 			_provider_model_provider_selected(provider_model_provider->get_selected());
 		}
 		if (provider_model_model) {
-			_select_option_metadata(provider_model_model, p_profile.model);
+			_select_option_metadata(provider_model_model, String(p_profile.get("model", String())));
 		}
 		if (provider_model_display_name) {
-			provider_model_display_name->set_text(p_profile.display_name);
+			provider_model_display_name->set_text(String(p_profile.get("display_name", String())));
 		}
 		if (provider_model_api_key) {
-			provider_model_api_key->set_text(p_profile.api_key);
+			provider_model_api_key->set_text(String(p_profile.get("api_key", String())));
 		}
 		_apply_advanced_config(p_profile, true);
 	}
@@ -587,38 +535,44 @@ String AIModelProfileDialog::get_editing_profile_id() const {
 	return editing_profile_id;
 }
 
-AIModelProfile AIModelProfileDialog::get_submitted_profile() const {
-	AIModelProfile profile;
+Dictionary AIModelProfileDialog::get_submitted_profile() const {
+	Dictionary profile;
 
 	if (!editing_custom && add_model_tabs && add_model_tabs->get_current_tab() == 0) {
 		if (!provider_model_provider || !provider_model_model || provider_model_provider->get_selected() < 0 || provider_model_model->get_selected() < 0) {
 			return profile;
 		}
 
-		profile.provider_id = String(provider_model_provider->get_selected_metadata());
-		profile.model = String(provider_model_model->get_selected_metadata());
-		if (profile.provider_id.is_empty() || profile.model.is_empty()) {
-			return AIModelProfile();
+		const String provider_id = String(provider_model_provider->get_selected_metadata());
+		const String model = String(provider_model_model->get_selected_metadata());
+		if (provider_id.is_empty() || model.is_empty()) {
+			return Dictionary();
 		}
 
-		profile.display_name = provider_model_display_name ? provider_model_display_name->get_text().strip_edges() : String();
-		profile.api_key = provider_model_api_key ? provider_model_api_key->get_text().strip_edges() : String();
-		profile.base_url = AIModelSettings::get_provider_base_url(profile.provider_id);
-		profile.custom = false;
+		Dictionary preset;
+		_find_provider_preset(provider_presets, provider_id, preset);
+		profile["provider_id"] = provider_id;
+		profile["model"] = model;
+		profile["display_name"] = provider_model_display_name ? provider_model_display_name->get_text().strip_edges() : String();
+		profile["api_key"] = provider_model_api_key ? provider_model_api_key->get_text().strip_edges() : String();
+		profile["base_url"] = preset.get("default_base_url", String());
+		profile["type"] = preset.get("type", "openai-compatible");
+		profile["custom"] = false;
 		_read_advanced_config(profile, true);
 	} else {
-		profile.model = custom_model_id ? custom_model_id->get_text().strip_edges() : String();
-		if (profile.model.is_empty()) {
-			return AIModelProfile();
+		const String model = custom_model_id ? custom_model_id->get_text().strip_edges() : String();
+		if (model.is_empty()) {
+			return Dictionary();
 		}
 
-		profile.provider_id = "compatible";
-		profile.display_name = custom_display_name ? custom_display_name->get_text().strip_edges() : String();
-		profile.api_key = custom_api_key ? custom_api_key->get_text().strip_edges() : String();
-		profile.base_url = custom_base_url ? custom_base_url->get_text().strip_edges() : String();
-		profile.api_format = custom_api_format && custom_api_format->get_selected() >= 0 ? String(custom_api_format->get_selected_metadata()) : String("openai_chat_completions");
-		profile.supports_multimodal = custom_multimodal && custom_multimodal->is_pressed();
-		profile.custom = true;
+		profile["provider_id"] = "compatible";
+		profile["display_name"] = custom_display_name ? custom_display_name->get_text().strip_edges() : String();
+		profile["api_key"] = custom_api_key ? custom_api_key->get_text().strip_edges() : String();
+		profile["base_url"] = custom_base_url ? custom_base_url->get_text().strip_edges() : String();
+		profile["model"] = model;
+		profile["type"] = "openai-compatible";
+		profile["supports_multimodal"] = custom_multimodal && custom_multimodal->is_pressed();
+		profile["custom"] = true;
 		_read_advanced_config(profile, false);
 	}
 

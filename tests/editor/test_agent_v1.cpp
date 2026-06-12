@@ -164,6 +164,17 @@ public:
 	}
 };
 
+class AgentV1UIConfigSignalCollector : public RefCounted {
+	GDCLASS(AgentV1UIConfigSignalCollector, RefCounted);
+
+public:
+	Array model_snapshots;
+
+	void on_models_changed(const Array &p_models) {
+		model_snapshots.push_back(p_models.duplicate(true));
+	}
+};
+
 class BlockingDrainRunner : public AISessionDrainRunner {
 	GDCLASS(BlockingDrainRunner, AISessionDrainRunner);
 
@@ -1831,6 +1842,62 @@ TEST_CASE("[Editor][AgentV1] Session runner uses non-main default agent consiste
 	const Dictionary request = runtime->get_last_request();
 	CHECK(String(request.get("provider", String())) == "fake-coder");
 	CHECK(String(request.get("model", String())) == "coder-model");
+}
+
+TEST_CASE("[Editor][AgentV1] Session runner applies provider request options") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/provider_request_options");
+
+	Ref<AIFakeLLMRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_response_text("provider options applied");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("fake-provider-options", runtime);
+
+	Dictionary provider;
+	provider["type"] = "fake";
+	provider["model"] = "options-model";
+	provider["max_output_tokens"] = 2048;
+	provider["timeout_msec"] = 45000;
+	Dictionary providers;
+	providers["fake-provider-options"] = provider;
+
+	Dictionary main_agent;
+	main_agent["provider"] = "fake-provider-options";
+	main_agent["model"] = "options-model";
+	Dictionary agents;
+	agents["main"] = main_agent;
+
+	Dictionary override_config;
+	override_config["default_provider"] = "fake-provider-options";
+	override_config["default_model"] = "options-model";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "provider-request-options";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "provider-request-options";
+	prompt["message_id"] = "provider-request-options-prompt";
+	prompt["text"] = "Use provider options.";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Dictionary run = service->get_session_runner()->run("provider-request-options", false);
+	REQUIRE(bool(run.get("success", false)));
+
+	const Dictionary request = runtime->get_last_request();
+	CHECK(int(request.get("max_output_tokens", 0)) == 2048);
+	const Dictionary provider_options = request.get("provider_options", Dictionary());
+	CHECK(int(provider_options.get("timeout_msec", 0)) == 45000);
 }
 
 TEST_CASE("[Editor][AgentV1] Task tool is idempotent for a parent tool call") {
@@ -3675,7 +3742,7 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter creates sessions and projects UI
 	REQUIRE(sessions.size() == 1);
 	CHECK(String(Dictionary(sessions[0]).get("id", String())) == "ui-session-a");
 
-	const Dictionary sent = adapter->send_message("hello from ui", "fake-model", "main", Array(), false);
+	const Dictionary sent = adapter->send_message("hello from ui", String(), "main", Array(), false);
 	REQUIRE(bool(sent.get("success", false)));
 
 	const Array messages = adapter->get_messages("ui-session-a");
@@ -3698,6 +3765,127 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter creates sessions and projects UI
 	const Dictionary run_state = collector->run_states[collector->run_states.size() - 1];
 	CHECK(String(run_state.get("session_id", String())) == "ui-session-a");
 	CHECK_FALSE(bool(run_state.get("busy", true)));
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter applies selected UI model profile per session without mutating runtime config") {
+	Ref<AIFakeLLMRuntime> runtime_a;
+	runtime_a.instantiate();
+	runtime_a->set_response_text("model a");
+
+	Ref<AIFakeLLMRuntime> runtime_b;
+	runtime_b.instantiate();
+	runtime_b->set_response_text("model b");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("profile-a", runtime_a);
+	service->get_runtime_registry()->register_runtime("profile-b", runtime_b);
+
+	Dictionary provider_a;
+	provider_a["type"] = "fake";
+	provider_a["model"] = "model-a";
+	provider_a["ui_model_profile"] = true;
+	Dictionary provider_b;
+	provider_b["type"] = "fake";
+	provider_b["model"] = "model-b";
+	provider_b["ui_model_profile"] = true;
+	Dictionary providers;
+	providers["profile-a"] = provider_a;
+	providers["profile-b"] = provider_b;
+
+	Dictionary main_agent;
+	main_agent["provider"] = "profile-a";
+	main_agent["model"] = "model-a";
+	Dictionary agents;
+	agents["main"] = main_agent;
+
+	Dictionary override_config;
+	override_config["default_provider"] = "profile-a";
+	override_config["default_model"] = "model-a";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Dictionary create_b;
+	create_b["id"] = "ui-session-profile-b";
+	create_b["directory"] = "res://";
+	create_b["agent_id"] = "main";
+	REQUIRE(bool(adapter->create_session(create_b).get("success", false)));
+	const Dictionary sent_b = adapter->send_message("run selected profile b", "profile-b", "main", Array(), false);
+	REQUIRE(bool(sent_b.get("success", false)));
+
+	Dictionary session_b = service->get_session_store()->get_session("ui-session-profile-b");
+	REQUIRE(bool(session_b.get("success", false)));
+	Dictionary session_b_metadata = session_b.get("metadata", Dictionary());
+	Dictionary session_b_model_ref = session_b_metadata.get("model_ref", Dictionary());
+	CHECK(String(session_b_model_ref.get("provider", String())) == "profile-b");
+	CHECK(String(session_b_model_ref.get("model", String())) == "model-b");
+
+	Dictionary create_a;
+	create_a["id"] = "ui-session-profile-a";
+	create_a["directory"] = "res://";
+	create_a["agent_id"] = "main";
+	REQUIRE(bool(adapter->create_session(create_a).get("success", false)));
+	const Dictionary sent_a = adapter->send_message("run selected profile a", "profile-a", "main", Array(), false);
+	REQUIRE(bool(sent_a.get("success", false)));
+
+	const Dictionary effective_config = service->get_config_service()->get_config();
+	CHECK(String(effective_config.get("default_provider", String())) == "profile-a");
+	CHECK(String(effective_config.get("default_model", String())) == "model-a");
+	const Dictionary effective_agents = effective_config.get("agents", Dictionary());
+	const Dictionary effective_main_agent = effective_agents.get("main", Dictionary());
+	CHECK(String(effective_main_agent.get("provider", String())) == "profile-a");
+	CHECK(String(effective_main_agent.get("model", String())) == "model-a");
+
+	Dictionary run_b = service->get_session_runner()->run("ui-session-profile-b", false);
+	REQUIRE(bool(run_b.get("success", false)));
+
+	const Dictionary request_b = runtime_b->get_last_request();
+	CHECK(String(request_b.get("provider", String())) == "profile-b");
+	CHECK(String(request_b.get("model", String())) == "model-b");
+	CHECK(runtime_a->get_last_request().is_empty());
+
+	Dictionary run_a = service->get_session_runner()->run("ui-session-profile-a", false);
+	REQUIRE(bool(run_a.get("success", false)));
+
+	const Dictionary request_a = runtime_a->get_last_request();
+	CHECK(String(request_a.get("provider", String())) == "profile-a");
+	CHECK(String(request_a.get("model", String())) == "model-a");
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter rejects unknown UI model profile ids") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Dictionary create;
+	create["id"] = "ui-session-missing-profile";
+	create["directory"] = "res://";
+	create["agent_id"] = "main";
+	REQUIRE(bool(adapter->create_session(create).get("success", false)));
+
+	const Dictionary sent = adapter->send_message("should fail", "missing-profile", "main", Array(), false);
+	CHECK_FALSE(bool(sent.get("success", true)));
+	const Dictionary error = sent.get("error", Dictionary());
+	CHECK(String(error.get("kind", String())) == "validation");
+	const Dictionary details = error.get("details", Dictionary());
+	CHECK(String(details.get("model_profile_id", String())) == "missing-profile");
+
+	const Array messages = adapter->get_messages("ui-session-missing-profile");
+	CHECK(messages.is_empty());
 }
 
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter maps permission pending requests for UI") {
@@ -3796,6 +3984,184 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Config adapter exposes settings snapshot
 	const Dictionary patched = adapter->patch_settings(patch, "runtime");
 	REQUIRE(bool(patched.get("success", false)));
 	CHECK(String(adapter->get_settings_snapshot().get("default_model", String())) == "fake-model-2");
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Config adapter manages model profiles through config service") {
+	Ref<AIConfigService> config;
+	config.instantiate();
+
+	Dictionary override_config;
+	override_config["default_provider"] = "fake";
+	override_config["default_model"] = "fake-model";
+	override_config["providers"] = Dictionary();
+	config->set_runtime_override(override_config);
+
+	Ref<AIAgentV1UIConfigAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_config_service(config);
+
+	Dictionary profile;
+	profile["display_name"] = "OpenAI Primary";
+	profile["provider_id"] = "openai";
+	profile["model"] = "gpt-5.4";
+	profile["api_key"] = "initial-key";
+	profile["supports_multimodal"] = true;
+	profile["max_output_tokens"] = 2048;
+	profile["timeout_msec"] = 45000;
+	profile["timeout_seconds"] = 45;
+	profile["max_provider_turns"] = 12;
+	profile["max_tool_calls"] = 6;
+	profile["max_context_chars"] = 98765;
+	const Dictionary added = adapter->add_model_profile(profile, "runtime");
+	REQUIRE(bool(added.get("success", false)));
+	const String profile_id = added.get("id", String());
+	REQUIRE_FALSE(profile_id.is_empty());
+
+	Array profiles = adapter->list_model_profiles();
+	REQUIRE(profiles.size() == 1);
+	Dictionary stored_profile = profiles[0];
+	CHECK(String(stored_profile.get("id", String())) == profile_id);
+	CHECK(String(stored_profile.get("provider_id", String())) == "openai");
+	CHECK(String(stored_profile.get("provider_key", String())) == profile_id);
+	CHECK(String(stored_profile.get("model", String())) == "gpt-5.4");
+	CHECK(String(stored_profile.get("api_key", String())) == "initial-key");
+	CHECK(bool(stored_profile.get("supports_multimodal", false)));
+	CHECK(int(stored_profile.get("max_output_tokens", 0)) == 2048);
+	CHECK(int(stored_profile.get("timeout_msec", 0)) == 45000);
+	CHECK_FALSE(stored_profile.has("metadata"));
+	CHECK_FALSE(stored_profile.has("timeout_seconds"));
+	CHECK_FALSE(stored_profile.has("max_provider_turns"));
+	CHECK_FALSE(stored_profile.has("max_tool_calls"));
+	CHECK_FALSE(stored_profile.has("max_context_chars"));
+
+	const Dictionary provider_config = config->get_provider_config(profile_id);
+	CHECK(String(provider_config.get("type", String())) == "openai-compatible");
+	CHECK(String(provider_config.get("model", String())) == "gpt-5.4");
+	CHECK(bool(provider_config.get("ui_model_profile", false)));
+	CHECK(bool(provider_config.get("supports_multimodal", false)));
+	CHECK(int(provider_config.get("max_output_tokens", 0)) == 2048);
+	CHECK(int(provider_config.get("timeout_msec", 0)) == 45000);
+	CHECK_FALSE(provider_config.has("timeout_seconds"));
+	CHECK_FALSE(provider_config.has("max_provider_turns"));
+	CHECK_FALSE(provider_config.has("max_tool_calls"));
+	CHECK_FALSE(provider_config.has("max_context_chars"));
+
+	Dictionary stale_provider_patch;
+	stale_provider_patch["max_provider_turns"] = 99;
+	stale_provider_patch["max_tool_calls"] = 88;
+	stale_provider_patch["max_context_chars"] = 777;
+	stale_provider_patch["timeout_seconds"] = 12;
+	Dictionary stale_providers_patch;
+	stale_providers_patch[profile_id] = stale_provider_patch;
+	Dictionary stale_patch;
+	stale_patch["providers"] = stale_providers_patch;
+	REQUIRE(bool(config->patch_config(stale_patch, "runtime").get("success", false)));
+	CHECK(config->get_provider_config(profile_id).has("max_provider_turns"));
+
+	Dictionary update;
+	update["api_key"] = "edited-key";
+	update["model"] = "gpt-5.4-mini";
+	update["max_output_tokens"] = 1024;
+	update["timeout_msec"] = 30000;
+	const Dictionary updated = adapter->update_model_profile(profile_id, update, "runtime");
+	REQUIRE(bool(updated.get("success", false)));
+	stored_profile = adapter->get_model_profile(profile_id);
+	CHECK(String(stored_profile.get("model", String())) == "gpt-5.4-mini");
+	CHECK(String(stored_profile.get("api_key", String())) == "edited-key");
+	CHECK(int(stored_profile.get("max_output_tokens", 0)) == 1024);
+	CHECK(int(stored_profile.get("timeout_msec", 0)) == 30000);
+	const Dictionary updated_provider_config = config->get_provider_config(profile_id);
+	CHECK(int(updated_provider_config.get("max_output_tokens", 0)) == 1024);
+	CHECK(int(updated_provider_config.get("timeout_msec", 0)) == 30000);
+	CHECK_FALSE(updated_provider_config.has("timeout_seconds"));
+	CHECK_FALSE(updated_provider_config.has("max_provider_turns"));
+	CHECK_FALSE(updated_provider_config.has("max_tool_calls"));
+	CHECK_FALSE(updated_provider_config.has("max_context_chars"));
+
+	const Dictionary removed = adapter->remove_model_profile(profile_id, "runtime");
+	REQUIRE(bool(removed.get("success", false)));
+	CHECK(adapter->list_model_profiles().is_empty());
+	const Dictionary config_after_remove = config->get_config();
+	const Dictionary providers_after_remove = config_after_remove.get("providers", Dictionary());
+	CHECK_FALSE(providers_after_remove.has(profile_id));
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Config adapter preserves model profile enabled state") {
+	Ref<AIConfigService> config;
+	config.instantiate();
+
+	Dictionary override_config;
+	override_config["default_provider"] = "fake";
+	override_config["default_model"] = "fake-model";
+	override_config["providers"] = Dictionary();
+	config->set_runtime_override(override_config);
+
+	Ref<AIAgentV1UIConfigAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_config_service(config);
+
+	Dictionary profile;
+	profile["provider_id"] = "openai";
+	profile["model"] = "gpt-5.4";
+	profile["display_name"] = "Disabled OpenAI";
+	profile["enabled"] = false;
+
+	const Dictionary added = adapter->add_model_profile(profile, "runtime");
+	REQUIRE(bool(added.get("success", false)));
+	const String profile_id = added.get("id", String());
+	REQUIRE_FALSE(profile_id.is_empty());
+
+	const Dictionary stored = adapter->get_model_profile(profile_id);
+	REQUIRE_FALSE(stored.is_empty());
+	CHECK_FALSE(bool(stored.get("enabled", true)));
+	CHECK(adapter->list_model_profiles(true).is_empty());
+	CHECK(adapter->list_model_profiles(false).size() == 1);
+
+	Dictionary enable_patch;
+	enable_patch["enabled"] = true;
+	const Dictionary updated = adapter->update_model_profile(profile_id, enable_patch, "runtime");
+	REQUIRE(bool(updated.get("success", false)));
+	CHECK(bool(adapter->get_model_profile(profile_id).get("enabled", false)));
+	CHECK(adapter->list_model_profiles(true).size() == 1);
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Config adapter emits model profile DTOs on model changes") {
+	Ref<AIConfigService> config;
+	config.instantiate();
+
+	Dictionary override_config;
+	override_config["default_provider"] = "fake";
+	override_config["default_model"] = "fake-model";
+	override_config["providers"] = Dictionary();
+	config->set_runtime_override(override_config);
+
+	Ref<AIAgentV1UIConfigAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_config_service(config);
+
+	Ref<AgentV1UIConfigSignalCollector> collector;
+	collector.instantiate();
+	adapter->connect("models_changed", callable_mp(collector.ptr(), &AgentV1UIConfigSignalCollector::on_models_changed));
+
+	Dictionary profile;
+	profile["provider_id"] = "openai";
+	profile["model"] = "gpt-5.4";
+	profile["display_name"] = "OpenAI Profile DTO";
+
+	const Dictionary added = adapter->add_model_profile(profile, "runtime");
+	REQUIRE(bool(added.get("success", false)));
+	const String profile_id = added.get("id", String());
+	REQUIRE_FALSE(profile_id.is_empty());
+
+	REQUIRE(collector->model_snapshots.size() >= 1);
+	const Array emitted_models = collector->model_snapshots[collector->model_snapshots.size() - 1];
+	REQUIRE(emitted_models.size() == 1);
+	const Dictionary emitted = emitted_models[0];
+	CHECK(String(emitted.get("id", String())) == profile_id);
+	CHECK(String(emitted.get("provider_key", String())) == profile_id);
+	CHECK(String(emitted.get("provider_id", String())) == "openai");
+	CHECK(String(emitted.get("model", String())) == "gpt-5.4");
+	CHECK_FALSE(emitted.has("metadata"));
 }
 
 TEST_CASE("[Editor][AgentV1][UIAdapter] Bridge owns shared backend services for UI adapters") {

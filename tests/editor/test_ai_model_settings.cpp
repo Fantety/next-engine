@@ -5,6 +5,8 @@
 #include "tests/test_macros.h"
 
 #include "core/markdown/markdown_parser.h"
+#include "editor/agent_v1/config/ai_config_service.h"
+#include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/ai_component/providers/ai_mcp_settings.h"
 #include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/providers/ai_openai_compatible_codec.h"
@@ -12,9 +14,11 @@
 #include "editor/ai_component/skills/ai_skill_settings.h"
 #include "editor/ai_component/ui/ai_next_marquee_settings.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
+#include "editor/ai_component/ui/ai_composer.h"
 #include "editor/ai_component/ui/ai_markdown_label.h"
 #include "editor/ai_component/ui/ai_message_bubble.h"
 #include "editor/ai_component/ui/ai_message_list.h"
+#include "editor/ai_component/ui/ai_settings_models_page.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/gui/label.h"
 #include "scene/gui/link_button.h"
@@ -110,6 +114,36 @@ void process_scene_frames(int p_count) {
 	for (int i = 0; i < p_count; i++) {
 		tree->process(0.0);
 	}
+}
+
+Ref<AIAgentV1UIBridge> setup_agent_v1_model_bridge_for_test() {
+	AIAgentV1UIBridge::clear_singleton_for_test();
+
+	Ref<AIConfigService> config;
+	config.instantiate();
+
+	Dictionary override_config;
+	override_config["default_provider"] = "fake";
+	override_config["default_model"] = "fake-model";
+	override_config["providers"] = Dictionary();
+	config->set_runtime_override(override_config);
+
+	Ref<AIAgentV1UIBridge> bridge = AIAgentV1UIBridge::get_singleton();
+	bridge->set_config_service(config);
+	return bridge;
+}
+
+Dictionary find_agent_v1_model_profile(const Array &p_profiles, const String &p_provider_id, const String &p_model) {
+	for (int i = 0; i < p_profiles.size(); i++) {
+		if (p_profiles[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary profile = p_profiles[i];
+		if (String(profile.get("provider_id", String())) == p_provider_id && String(profile.get("model", String())) == p_model) {
+			return profile;
+		}
+	}
+	return Dictionary();
 }
 
 real_t get_scroll_viewport_bottom(AIMessageList *p_list) {
@@ -780,79 +814,55 @@ TEST_CASE("[Editor][AI] Preset models are opt-in by default") {
 	}
 }
 
-TEST_CASE("[Editor][AI] Settings dialog starts with an empty model table when no models are enabled") {
-	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
-	Vector<AIModelProviderPreset> providers = AIModelSettings::get_provider_presets();
-	Vector<String> original_custom_models;
-	Vector<Vector<bool>> original_preset_enabled;
-	AIModelSettings::clear_model_profiles_for_test();
-	for (int i = 0; i < providers.size(); i++) {
-		original_custom_models.push_back(AIModelSettings::get_custom_models(providers[i].id));
-		AIModelSettings::set_custom_models(providers[i].id, String());
-		Vector<bool> enabled_states;
-		for (int j = 0; j < providers[i].preset_models.size(); j++) {
-			enabled_states.push_back(AIModelSettings::is_model_enabled(providers[i].id, providers[i].preset_models[j]));
-			AIModelSettings::set_model_enabled(providers[i].id, providers[i].preset_models[j], false);
-		}
-		original_preset_enabled.push_back(enabled_states);
-	}
+TEST_CASE("[Editor][AI] Settings models page starts with an empty model table when no models are enabled") {
+	Ref<AIAgentV1UIBridge> bridge = setup_agent_v1_model_bridge_for_test();
 
-	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
-	dialog->build_for_test();
+	AISettingsModelsPage *page = memnew(AISettingsModelsPage);
+	page->build_for_test();
 
-	CHECK(dialog->get_model_table_row_count_for_test() == 0);
-	CHECK(dialog->get_custom_model_table_row_count_for_test() == 0);
+	CHECK(page->get_model_table_row_count_for_test() == 0);
+	CHECK(page->get_custom_model_table_row_count_for_test() == 0);
+	CHECK(bridge->list_model_profiles().is_empty());
 
-	memdelete(dialog);
-
-	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
-	for (int i = 0; i < providers.size(); i++) {
-		AIModelSettings::set_custom_models(providers[i].id, original_custom_models[i]);
-		for (int j = 0; j < providers[i].preset_models.size(); j++) {
-			AIModelSettings::set_model_enabled(providers[i].id, providers[i].preset_models[j], original_preset_enabled[i][j]);
-		}
-	}
+	memdelete(page);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+	bridge.unref();
 }
 
-TEST_CASE("[Editor][AI] Settings dialog adds enabled provider and custom models") {
-	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
-	const String original_custom_models = AIModelSettings::get_custom_models("compatible");
+TEST_CASE("[Editor][AI] Settings models page adds enabled provider and custom models") {
+	Ref<AIAgentV1UIBridge> bridge = setup_agent_v1_model_bridge_for_test();
 
-	AIModelSettings::clear_model_profiles_for_test();
-	AIModelSettings::set_custom_models("compatible", String());
+	AISettingsModelsPage *page = memnew(AISettingsModelsPage);
+	page->build_for_test();
 
-	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
-	dialog->build_for_test();
-
-	dialog->add_provider_model_for_test("openai", "gpt-5.4", "settings-test-key");
-	CHECK(dialog->get_model_table_row_count_for_test() == 1);
-	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles();
+	page->add_provider_model_for_test("openai", "gpt-5.4", "settings-test-key");
+	CHECK(page->get_model_table_row_count_for_test() == 1);
+	Array profiles = bridge->list_model_profiles();
 	REQUIRE(profiles.size() == 1);
-	CHECK(profiles[0].provider_id == "openai");
-	CHECK(profiles[0].model == "gpt-5.4");
-	CHECK(profiles[0].api_key == "settings-test-key");
+	Dictionary provider_profile = find_agent_v1_model_profile(profiles, "openai", "gpt-5.4");
+	REQUIRE_FALSE(provider_profile.is_empty());
+	CHECK(String(provider_profile.get("api_key", String())) == "settings-test-key");
 
-	dialog->add_custom_model_for_test("next-test-model", "https://example.test/v1", "compatible-test-key");
-	CHECK(dialog->get_model_table_row_count_for_test() == 2);
-	CHECK(dialog->get_custom_model_table_row_count_for_test() == 1);
-	CHECK(AIModelSettings::get_custom_models("compatible").contains("next-test-model"));
-	profiles = AIModelSettings::get_model_profiles();
+	page->add_custom_model_for_test("next-test-model", "https://example.test/v1", "compatible-test-key");
+	CHECK(page->get_model_table_row_count_for_test() == 2);
+	CHECK(page->get_custom_model_table_row_count_for_test() == 1);
+	profiles = bridge->list_model_profiles();
 	REQUIRE(profiles.size() == 2);
-	CHECK(profiles[1].custom);
-	CHECK(profiles[1].provider_id == "compatible");
-	CHECK(profiles[1].model == "next-test-model");
-	CHECK(profiles[1].api_key == "compatible-test-key");
-	CHECK(profiles[1].base_url == "https://example.test/v1");
+	Dictionary custom_profile = find_agent_v1_model_profile(profiles, "compatible", "next-test-model");
+	REQUIRE_FALSE(custom_profile.is_empty());
+	CHECK(bool(custom_profile.get("custom", false)));
+	CHECK(String(custom_profile.get("api_key", String())) == "compatible-test-key");
+	CHECK(String(custom_profile.get("base_url", String())) == "https://example.test/v1");
 
-	dialog->remove_custom_model_for_test("compatible", "next-test-model");
-	CHECK(dialog->get_custom_model_table_row_count_for_test() == 0);
-	CHECK_FALSE(AIModelSettings::get_custom_models("compatible").contains("next-test-model"));
-	CHECK(AIModelSettings::get_model_profiles().size() == 1);
+	page->remove_custom_model_for_test("compatible", "next-test-model");
+	CHECK(page->get_custom_model_table_row_count_for_test() == 0);
+	profiles = bridge->list_model_profiles();
+	CHECK(profiles.size() == 1);
+	CHECK(find_agent_v1_model_profile(profiles, "compatible", "next-test-model").is_empty());
 
-	memdelete(dialog);
-
-	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
-	AIModelSettings::set_custom_models("compatible", original_custom_models);
+	memdelete(page);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+	bridge.unref();
 }
 
 TEST_CASE("[Editor][AI] Settings dialog adds MCP servers") {
@@ -877,53 +887,73 @@ TEST_CASE("[Editor][AI] Settings dialog adds MCP servers") {
 	AIMCPSettings::set_server_storage_for_test(original_servers);
 }
 
-TEST_CASE("[Editor][AI] Settings dialog edits added provider model credentials") {
-	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
-	AIModelSettings::clear_model_profiles_for_test();
+TEST_CASE("[Editor][AI] Settings models page edits added provider model credentials") {
+	Ref<AIAgentV1UIBridge> bridge = setup_agent_v1_model_bridge_for_test();
 
-	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
-	dialog->build_for_test();
+	AISettingsModelsPage *page = memnew(AISettingsModelsPage);
+	page->build_for_test();
 
-	dialog->add_provider_model_for_test("openai", "gpt-5.4", "initial-key");
-	dialog->edit_provider_model_for_test("openai", "gpt-5.4", "edited-key");
+	page->add_provider_model_for_test("openai", "gpt-5.4", "initial-key");
+	page->edit_provider_model_for_test("openai", "gpt-5.4", "edited-key");
 
-	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles();
+	Array profiles = bridge->list_model_profiles();
 	REQUIRE(profiles.size() == 1);
-	CHECK(profiles[0].api_key == "edited-key");
-	CHECK(profiles[0].model == "gpt-5.4");
-	CHECK(dialog->get_model_table_row_count_for_test() == 1);
+	Dictionary profile = find_agent_v1_model_profile(profiles, "openai", "gpt-5.4");
+	REQUIRE_FALSE(profile.is_empty());
+	CHECK(String(profile.get("api_key", String())) == "edited-key");
+	CHECK(page->get_model_table_row_count_for_test() == 1);
 
-	memdelete(dialog);
-
-	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
+	memdelete(page);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+	bridge.unref();
 }
 
-TEST_CASE("[Editor][AI] Settings dialog edits custom model identity and provider auth") {
-	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
-	const String original_custom_models = AIModelSettings::get_custom_models("compatible");
+TEST_CASE("[Editor][AI] Settings models page edits custom model identity and provider auth") {
+	Ref<AIAgentV1UIBridge> bridge = setup_agent_v1_model_bridge_for_test();
 
-	AIModelSettings::clear_model_profiles_for_test();
-	AIModelSettings::set_custom_models("compatible", String());
+	AISettingsModelsPage *page = memnew(AISettingsModelsPage);
+	page->build_for_test();
 
-	AIAgentSettingsDialog *dialog = memnew(AIAgentSettingsDialog);
-	dialog->build_for_test();
+	page->add_custom_model_for_test("next-old-model", "https://old.example.test/v1", "old-key");
+	page->edit_custom_model_for_test("next-old-model", "next-new-model", "https://new.example.test/v1", "new-key");
 
-	dialog->add_custom_model_for_test("next-old-model", "https://old.example.test/v1", "old-key");
-	dialog->edit_custom_model_for_test("next-old-model", "next-new-model", "https://new.example.test/v1", "new-key");
-
-	CHECK(AIModelSettings::get_custom_models("compatible").contains("next-new-model"));
-	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles();
+	Array profiles = bridge->list_model_profiles();
 	REQUIRE(profiles.size() == 1);
-	CHECK(profiles[0].custom);
-	CHECK(profiles[0].model == "next-new-model");
-	CHECK(profiles[0].base_url == "https://new.example.test/v1");
-	CHECK(profiles[0].api_key == "new-key");
-	CHECK(dialog->get_custom_model_table_row_count_for_test() == 1);
+	Dictionary profile = find_agent_v1_model_profile(profiles, "compatible", "next-new-model");
+	REQUIRE_FALSE(profile.is_empty());
+	CHECK(bool(profile.get("custom", false)));
+	CHECK(String(profile.get("base_url", String())) == "https://new.example.test/v1");
+	CHECK(String(profile.get("api_key", String())) == "new-key");
+	CHECK(page->get_custom_model_table_row_count_for_test() == 1);
 
-	memdelete(dialog);
+	memdelete(page);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+	bridge.unref();
+}
 
+TEST_CASE("[Editor][AI] Composer model selector uses agent_v1 model profiles") {
+	Array original_profiles = AIModelSettings::get_model_profile_storage_for_test();
+	AIModelSettings::clear_model_profiles_for_test();
+
+	Ref<AIAgentV1UIBridge> bridge = setup_agent_v1_model_bridge_for_test();
+
+	Dictionary profile;
+	profile["provider_id"] = "openai";
+	profile["model"] = "gpt-5.4";
+	profile["display_name"] = "Agent V1 OpenAI";
+	profile["api_key"] = "composer-test-key";
+	const Dictionary added = bridge->add_model_profile(profile, "runtime");
+	REQUIRE(bool(added.get("success", false)));
+	const String profile_id = added.get("id", String());
+	REQUIRE_FALSE(profile_id.is_empty());
+
+	AIComposer *composer = memnew(AIComposer);
+	CHECK(composer->get_selected_model() == profile_id);
+
+	memdelete(composer);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+	bridge.unref();
 	AIModelSettings::set_model_profile_storage_for_test(original_profiles);
-	AIModelSettings::set_custom_models("compatible", original_custom_models);
 }
 
 TEST_CASE("[Editor][AI] Message bubbles render labels without BBCode markup") {

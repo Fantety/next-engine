@@ -89,6 +89,7 @@ void AIAgentV1UIAdapter::_wire_service_signals() {
 
 Dictionary AIAgentV1UIAdapter::_make_error_result(const String &p_message, const Dictionary &p_details) {
 	Dictionary error;
+	error["kind"] = "validation";
 	error["message"] = p_message;
 	error["details"] = p_details.duplicate(true);
 
@@ -370,6 +371,68 @@ void AIAgentV1UIAdapter::_emit_run_state_changed(const String &p_session_id) {
 	emit_signal(SNAME("run_state_changed"), _build_run_state(p_session_id));
 }
 
+Dictionary AIAgentV1UIAdapter::_apply_selected_model_profile(const String &p_model_id, const String &p_agent_id) {
+	(void)p_agent_id;
+
+	Dictionary result;
+	result["success"] = true;
+
+	const String model_profile_id = p_model_id.strip_edges();
+	if (model_profile_id.is_empty()) {
+		return result;
+	}
+	if (session_service.is_null() || session_service->get_config_service().is_null() || session_service->get_session_store().is_null()) {
+		return _make_error_result("Agent UI adapter dependencies are not available.");
+	}
+
+	Ref<AIConfigService> config_service = session_service->get_config_service();
+	const Dictionary provider_config = config_service->get_provider_config(model_profile_id);
+	if (provider_config.is_empty()) {
+		Dictionary details;
+		details["model_profile_id"] = model_profile_id;
+		return _make_error_result("Selected model profile was not found.", details);
+	}
+	if (!bool(provider_config.get("enabled", true))) {
+		Dictionary details;
+		details["model_profile_id"] = model_profile_id;
+		return _make_error_result("Selected model profile is disabled.", details);
+	}
+
+	const String model = String(provider_config.get("model", String())).strip_edges();
+	if (model.is_empty()) {
+		Dictionary details;
+		details["model_profile_id"] = model_profile_id;
+		return _make_error_result("Selected model profile has no model.", details);
+	}
+
+	AISessionRow session;
+	if (!session_service->get_session_store()->get_session_struct(active_session_id, session)) {
+		Dictionary details;
+		details["session_id"] = active_session_id;
+		return _make_error_result("Active session was not found.", details);
+	}
+
+	Dictionary model_ref;
+	model_ref["provider"] = model_profile_id;
+	model_ref["model"] = model;
+	model_ref["profile_id"] = model_profile_id;
+	model_ref["source"] = "ui_model_profile";
+
+	Dictionary session_metadata = session.metadata.duplicate(true);
+	session_metadata["model_ref"] = model_ref;
+	session_metadata["selected_model_profile_id"] = model_profile_id;
+
+	AISessionRow updated_session;
+	String error;
+	if (!session_service->get_session_store()->update_metadata_struct(active_session_id, session_metadata, updated_session, error)) {
+		Dictionary details;
+		details["session_id"] = active_session_id;
+		return _make_error_result(error.is_empty() ? String("Failed to update session model selection.") : error, details);
+	}
+
+	return result;
+}
+
 void AIAgentV1UIAdapter::_permission_asked(const Dictionary &p_request) {
 	const Dictionary request = _permission_request_to_view(p_request);
 	const String request_id = request.get("request_id", String());
@@ -508,6 +571,12 @@ Dictionary AIAgentV1UIAdapter::send_message(const String &p_text, const String &
 		if (!bool(created.get("success", false))) {
 			return created;
 		}
+	}
+
+	const Dictionary model_applied = _apply_selected_model_profile(p_model_id, p_agent_id);
+	if (!bool(model_applied.get("success", false))) {
+		_emit_error(model_applied);
+		return model_applied;
 	}
 
 	Dictionary prompt_metadata;

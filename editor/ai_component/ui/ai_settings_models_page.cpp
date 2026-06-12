@@ -20,18 +20,6 @@
 
 namespace {
 
-Vector<String> _split_model_lines(const String &p_models) {
-	Vector<String> models;
-	Vector<String> lines = p_models.replace(",", "\n").split("\n", false);
-	for (int i = 0; i < lines.size(); i++) {
-		String model = lines[i].strip_edges();
-		if (!model.is_empty() && models.find(model) == -1) {
-			models.push_back(model);
-		}
-	}
-	return models;
-}
-
 void _clear_children(Node *p_node) {
 	ERR_FAIL_NULL(p_node);
 	while (p_node->get_child_count() > 0) {
@@ -66,6 +54,10 @@ void AISettingsModelsPage::_notification(int p_what) {
 }
 
 AISettingsModelsPage::AISettingsModelsPage() {
+}
+
+Ref<AIAgentV1UIBridge> AISettingsModelsPage::_get_adapter() {
+	return AIAgentV1UIBridge::get_singleton();
 }
 
 void AISettingsModelsPage::_build_ui() {
@@ -123,6 +115,7 @@ void AISettingsModelsPage::_build_ui() {
 	table_panel->add_child(model_table);
 
 	profile_dialog = memnew(AIModelProfileDialog);
+	profile_dialog->set_model_provider_presets(_get_adapter()->list_model_provider_presets());
 	profile_dialog->connect("profile_submitted", callable_mp(this, &AISettingsModelsPage::_profile_submitted));
 	add_child(profile_dialog);
 
@@ -160,9 +153,12 @@ void AISettingsModelsPage::_refresh_model_table() {
 	HSeparator *header_separator = memnew(HSeparator);
 	model_table->add_child(header_separator);
 
-	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(true);
+	const Array profiles = _get_adapter()->list_model_profiles(true);
 	int model_count = 0;
 	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
 		_add_model_table_row(profiles[i]);
 		model_count++;
 	}
@@ -181,15 +177,15 @@ void AISettingsModelsPage::_refresh_model_table() {
 	}
 }
 
-void AISettingsModelsPage::_add_model_table_row(const AIModelProfile &p_profile) {
+void AISettingsModelsPage::_add_model_table_row(const Dictionary &p_profile) {
 	ERR_FAIL_NULL(model_table);
 
 	ModelTableRow row_data;
-	row_data.profile_id = p_profile.id;
-	row_data.display_name = p_profile.display_name;
-	row_data.provider_id = p_profile.provider_id;
-	row_data.model = p_profile.model;
-	row_data.custom = p_profile.custom;
+	row_data.profile_id = String(p_profile.get("id", String()));
+	row_data.display_name = String(p_profile.get("display_name", String()));
+	row_data.provider_id = String(p_profile.get("provider_id", String()));
+	row_data.model = String(p_profile.get("model", String()));
+	row_data.custom = bool(p_profile.get("custom", false));
 	model_table_rows.push_back(row_data);
 
 	HBoxContainer *row = memnew(HBoxContainer);
@@ -210,15 +206,15 @@ void AISettingsModelsPage::_add_model_table_row(const AIModelProfile &p_profile)
 	model_cell->add_child(icon);
 
 	Label *name_label = memnew(Label);
-	name_label->set_text(p_profile.display_name);
+	name_label->set_text(row_data.display_name);
 	name_label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
 	name_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	model_cell->add_child(name_label);
 
-	Label *provider_label = _make_table_label(p_profile.provider_name, 170);
+	Label *provider_label = _make_table_label(String(p_profile.get("provider_name", row_data.provider_id)), 170);
 	row->add_child(provider_label);
 
-	Label *model_label = _make_table_label(p_profile.model, 180);
+	Label *model_label = _make_table_label(row_data.model, 180);
 	row->add_child(model_label);
 
 	HBoxContainer *action_cell = memnew(HBoxContainer);
@@ -228,12 +224,12 @@ void AISettingsModelsPage::_add_model_table_row(const AIModelProfile &p_profile)
 
 	Button *edit_button = memnew(Button);
 	edit_button->set_text(TTR("Edit"));
-	edit_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsModelsPage::_edit_model_pressed).bind(p_profile.id), CONNECT_DEFERRED);
+	edit_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsModelsPage::_edit_model_pressed).bind(row_data.profile_id), CONNECT_DEFERRED);
 	action_cell->add_child(edit_button);
 
 	Button *remove_button = memnew(Button);
 	remove_button->set_text(TTR("Remove"));
-	remove_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsModelsPage::_remove_model_pressed).bind(p_profile.id), CONNECT_DEFERRED);
+	remove_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsModelsPage::_remove_model_pressed).bind(row_data.profile_id), CONNECT_DEFERRED);
 	action_cell->add_child(remove_button);
 
 	HSeparator *row_separator = memnew(HSeparator);
@@ -248,8 +244,8 @@ void AISettingsModelsPage::_popup_add_model_dialog() {
 void AISettingsModelsPage::_edit_model_pressed(const String &p_profile_id) {
 	ERR_FAIL_NULL(profile_dialog);
 
-	AIModelProfile profile = AIModelSettings::get_model_profile(p_profile_id);
-	if (profile.id.is_empty()) {
+	Dictionary profile = _get_adapter()->get_model_profile(p_profile_id);
+	if (profile.is_empty()) {
 		return;
 	}
 
@@ -259,31 +255,15 @@ void AISettingsModelsPage::_edit_model_pressed(const String &p_profile_id) {
 void AISettingsModelsPage::_profile_submitted() {
 	ERR_FAIL_NULL(profile_dialog);
 
-	AIModelProfile profile = profile_dialog->get_submitted_profile();
-	if (profile.provider_id.is_empty() || profile.model.is_empty()) {
+	Dictionary profile = profile_dialog->get_submitted_profile();
+	if (String(profile.get("provider_id", String())).is_empty() || String(profile.get("model", String())).is_empty()) {
 		return;
 	}
 
-	if (!profile_dialog->is_editing_custom_model() && !profile.custom) {
-		if (profile_dialog->is_editing_model()) {
-			profile.id = profile_dialog->get_editing_profile_id();
-			AIModelSettings::update_model_profile_config(profile);
-		} else {
-			(void)AIModelSettings::add_model_profile_config(profile);
-		}
+	if (profile_dialog->is_editing_model()) {
+		(void)_get_adapter()->update_model_profile(profile_dialog->get_editing_profile_id(), profile, model_profile_scope);
 	} else {
-		const String editing_profile_id = profile_dialog->get_editing_profile_id();
-		if (profile_dialog->is_editing_model() && profile_dialog->is_editing_custom_model()) {
-			AIModelProfile previous_profile = AIModelSettings::get_model_profile(editing_profile_id);
-			profile.id = editing_profile_id;
-			AIModelSettings::update_model_profile_config(profile);
-			if (!previous_profile.id.is_empty() && previous_profile.model != profile.model) {
-				_remove_custom_model_if_unused(previous_profile.provider_id, previous_profile.model, previous_profile.id);
-			}
-		} else {
-			(void)AIModelSettings::add_model_profile_config(profile);
-		}
-		_append_custom_model(profile.provider_id, profile.model);
+		(void)_get_adapter()->add_model_profile(profile, model_profile_scope);
 	}
 
 	_refresh_model_table();
@@ -292,45 +272,27 @@ void AISettingsModelsPage::_profile_submitted() {
 }
 
 void AISettingsModelsPage::_remove_model_pressed(const String &p_profile_id) {
-	AIModelProfile profile = AIModelSettings::get_model_profile(p_profile_id);
-	if (profile.custom) {
-		_remove_custom_model_if_unused(profile.provider_id, profile.model, profile.id);
-	}
-
-	AIModelSettings::remove_model_profile(p_profile_id);
+	(void)_get_adapter()->remove_model_profile(p_profile_id, model_profile_scope);
 	_refresh_model_table();
 	emit_signal(SNAME("settings_changed"));
 }
 
-void AISettingsModelsPage::_append_custom_model(const String &p_provider_id, const String &p_model) {
-	Vector<String> custom_models = _split_model_lines(AIModelSettings::get_custom_models(p_provider_id));
-	if (custom_models.find(p_model) == -1) {
-		custom_models.push_back(p_model);
-	}
-	AIModelSettings::set_custom_models(p_provider_id, String("\n").join(custom_models));
-}
-
-void AISettingsModelsPage::_remove_custom_model_if_unused(const String &p_provider_id, const String &p_model, const String &p_ignored_profile_id) {
-	bool has_other_matching_profile = false;
-	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(false);
+Dictionary AISettingsModelsPage::_find_model_profile(const String &p_provider_id, const String &p_model, bool p_custom_only) const {
+	Ref<AIAgentV1UIBridge> bridge = AIAgentV1UIBridge::get_singleton();
+	const Array profiles = bridge->list_model_profiles(false);
 	for (int i = 0; i < profiles.size(); i++) {
-		if (profiles[i].id != p_ignored_profile_id && profiles[i].custom && profiles[i].provider_id == p_provider_id && profiles[i].model == p_model) {
-			has_other_matching_profile = true;
-			break;
+		if (profiles[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		Dictionary profile = profiles[i];
+		if (String(profile.get("provider_id", String())) != p_provider_id || String(profile.get("model", String())) != p_model) {
+			continue;
+		}
+		if (!p_custom_only || bool(profile.get("custom", false))) {
+			return profile;
 		}
 	}
-
-	if (has_other_matching_profile) {
-		return;
-	}
-
-	Vector<String> custom_models = _split_model_lines(AIModelSettings::get_custom_models(p_provider_id));
-	for (int i = custom_models.size() - 1; i >= 0; i--) {
-		if (custom_models[i] == p_model) {
-			custom_models.remove_at(i);
-		}
-	}
-	AIModelSettings::set_custom_models(p_provider_id, String("\n").join(custom_models));
+	return Dictionary();
 }
 
 void AISettingsModelsPage::build_for_test() {
@@ -352,55 +314,61 @@ int AISettingsModelsPage::get_custom_model_table_row_count_for_test() const {
 }
 
 void AISettingsModelsPage::add_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
-	(void)AIModelSettings::add_model_profile(String(), p_provider_id, p_model, p_api_key, AIModelSettings::get_provider_base_url(p_provider_id), false);
-	_refresh_model_table();
-}
-
-void AISettingsModelsPage::add_provider_model_for_test(const AIModelProfile &p_profile) {
-	(void)AIModelSettings::add_model_profile_config(p_profile);
+	Dictionary profile;
+	profile["provider_id"] = p_provider_id;
+	profile["model"] = p_model;
+	profile["api_key"] = p_api_key;
+	profile["custom"] = false;
+	(void)_get_adapter()->add_model_profile(profile, "runtime");
 	_refresh_model_table();
 }
 
 void AISettingsModelsPage::add_custom_model_for_test(const String &p_model, const String &p_base_url, const String &p_api_key) {
-	_append_custom_model("compatible", p_model);
-	(void)AIModelSettings::add_model_profile(String(), "compatible", p_model, p_api_key, p_base_url, true);
+	Dictionary profile;
+	profile["provider_id"] = "compatible";
+	profile["model"] = p_model;
+	profile["base_url"] = p_base_url;
+	profile["api_key"] = p_api_key;
+	profile["custom"] = true;
+	(void)_get_adapter()->add_model_profile(profile, "runtime");
 	_refresh_model_table();
 }
 
 void AISettingsModelsPage::edit_provider_model_for_test(const String &p_provider_id, const String &p_model, const String &p_api_key) {
-	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(false);
-	for (int i = 0; i < profiles.size(); i++) {
-		if (profiles[i].provider_id == p_provider_id && profiles[i].model == p_model && !profiles[i].custom) {
-			AIModelSettings::update_model_profile(profiles[i].id, profiles[i].display_name, p_provider_id, p_model, p_api_key, AIModelSettings::get_provider_base_url(p_provider_id), false);
-			_refresh_model_table();
-			return;
-		}
+	Dictionary existing = _find_model_profile(p_provider_id, p_model, false);
+	Dictionary profile;
+	profile["provider_id"] = p_provider_id;
+	profile["model"] = p_model;
+	profile["api_key"] = p_api_key;
+	profile["custom"] = false;
+	if (!existing.is_empty() && !bool(existing.get("custom", false))) {
+		(void)_get_adapter()->update_model_profile(String(existing.get("id", String())), profile, "runtime");
+	} else {
+		(void)_get_adapter()->add_model_profile(profile, "runtime");
 	}
-	(void)AIModelSettings::add_model_profile(String(), p_provider_id, p_model, p_api_key, AIModelSettings::get_provider_base_url(p_provider_id), false);
 	_refresh_model_table();
 }
 
 void AISettingsModelsPage::edit_custom_model_for_test(const String &p_current_model, const String &p_new_model, const String &p_base_url, const String &p_api_key) {
-	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(false);
-	for (int i = 0; i < profiles.size(); i++) {
-		if (profiles[i].provider_id == "compatible" && profiles[i].model == p_current_model && profiles[i].custom) {
-			AIModelSettings::update_model_profile(profiles[i].id, profiles[i].display_name, "compatible", p_new_model, p_api_key, p_base_url, true);
-			_append_custom_model("compatible", p_new_model);
-			_refresh_model_table();
-			return;
-		}
+	Dictionary existing = _find_model_profile("compatible", p_current_model, true);
+	Dictionary profile;
+	profile["provider_id"] = "compatible";
+	profile["model"] = p_new_model;
+	profile["base_url"] = p_base_url;
+	profile["api_key"] = p_api_key;
+	profile["custom"] = true;
+	if (!existing.is_empty()) {
+		(void)_get_adapter()->update_model_profile(String(existing.get("id", String())), profile, "runtime");
+	} else {
+		(void)_get_adapter()->add_model_profile(profile, "runtime");
 	}
-	_append_custom_model("compatible", p_new_model);
-	(void)AIModelSettings::add_model_profile(String(), "compatible", p_new_model, p_api_key, p_base_url, true);
 	_refresh_model_table();
 }
 
 void AISettingsModelsPage::remove_custom_model_for_test(const String &p_provider_id, const String &p_model) {
-	Vector<AIModelProfile> profiles = AIModelSettings::get_model_profiles(false);
-	for (int i = 0; i < profiles.size(); i++) {
-		if (profiles[i].provider_id == p_provider_id && profiles[i].model == p_model && profiles[i].custom) {
-			_remove_model_pressed(profiles[i].id);
-			return;
-		}
+	Dictionary profile = _find_model_profile(p_provider_id, p_model, true);
+	if (!profile.is_empty()) {
+		(void)_get_adapter()->remove_model_profile(String(profile.get("id", String())), "runtime");
+		_refresh_model_table();
 	}
 }

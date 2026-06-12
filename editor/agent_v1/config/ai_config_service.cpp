@@ -132,7 +132,21 @@ Dictionary AIConfigService::_merge_dicts(const Dictionary &p_base, const Diction
 	for (const KeyValue<Variant, Variant> &kv : p_patch) {
 		if (kv.value.get_type() == Variant::DICTIONARY && result.get(kv.key, Variant()).get_type() == Variant::DICTIONARY) {
 			result[kv.key] = _merge_dicts(Dictionary(result[kv.key]), Dictionary(kv.value));
-		 } else {
+		} else {
+			result[kv.key] = kv.value;
+		}
+	}
+	return result;
+}
+
+Dictionary AIConfigService::_merge_patch_dicts(const Dictionary &p_base, const Dictionary &p_patch) {
+	Dictionary result = p_base.duplicate(true);
+	for (const KeyValue<Variant, Variant> &kv : p_patch) {
+		if (kv.value.get_type() == Variant::NIL) {
+			result.erase(kv.key);
+		} else if (kv.value.get_type() == Variant::DICTIONARY && result.get(kv.key, Variant()).get_type() == Variant::DICTIONARY) {
+			result[kv.key] = _merge_patch_dicts(Dictionary(result[kv.key]), Dictionary(kv.value));
+		} else {
 			result[kv.key] = kv.value;
 		}
 	}
@@ -622,7 +636,7 @@ Dictionary AIConfigService::patch_config(const Dictionary &p_patch, const String
 		return update_global(p_patch);
 	}
 	if (scope == "runtime") {
-		set_runtime_override(_merge_dicts(get_runtime_override(), p_patch));
+		set_runtime_override(_merge_patch_dicts(get_runtime_override(), p_patch));
 		invalidate("patch_runtime");
 		Dictionary config = get_config();
 		call_deferred("emit_signal", SNAME("config_changed"), config);
@@ -649,7 +663,7 @@ Dictionary AIConfigService::update(const Dictionary &p_patch) {
 		return result;
 	}
 
-	const Dictionary updated = _merge_dicts(existing, p_patch);
+	const Dictionary updated = _merge_patch_dicts(existing, p_patch);
 	if (!_write_json_file(target_path, updated, error)) {
 		Dictionary result;
 		result["success"] = false;
@@ -672,7 +686,7 @@ Dictionary AIConfigService::update_global(const Dictionary &p_patch) {
 		return result;
 	}
 
-	const Dictionary updated = _merge_dicts(existing, p_patch);
+	const Dictionary updated = _merge_patch_dicts(existing, p_patch);
 	if (!_write_json_file(global_config_path, updated, error)) {
 		Dictionary result;
 		result["success"] = false;

@@ -159,6 +159,83 @@ AIAgentConfig AIAgentConfig::from_dictionary(const String &p_id, const Dictionar
 	return result;
 }
 
+static Dictionary _ai_agent_service_model_ref_from_session_metadata(const Dictionary &p_metadata) {
+	const Variant model_ref_value = p_metadata.get("model_ref", p_metadata.get("modelRef", Variant()));
+	if (model_ref_value.get_type() == Variant::DICTIONARY) {
+		return Dictionary(model_ref_value).duplicate(true);
+	}
+
+	const String profile_id = _ai_agent_service_string_from_variant(p_metadata.get("selected_model_profile_id", p_metadata.get("selectedModelProfileID", String())));
+	if (profile_id.is_empty()) {
+		return Dictionary();
+	}
+
+	Dictionary model_ref;
+	model_ref["provider"] = profile_id;
+	model_ref["profile_id"] = profile_id;
+	model_ref["source"] = "session_metadata";
+	return model_ref;
+}
+
+static bool _ai_agent_service_apply_session_model_ref(const AISessionRow &p_session, const Ref<AIConfigService> &p_config_service, AIAgentConfig &r_agent, AIError &r_error) {
+	const Dictionary model_ref = _ai_agent_service_model_ref_from_session_metadata(p_session.metadata);
+	if (model_ref.is_empty()) {
+		r_error = AIError::none();
+		return true;
+	}
+	if (p_config_service.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "AgentService has no ConfigService.");
+		return false;
+	}
+
+	String provider = _ai_agent_service_string_from_variant(model_ref.get("provider", model_ref.get("profile_id", model_ref.get("profileID", String()))));
+	if (provider.is_empty()) {
+		provider = r_agent.provider.strip_edges();
+	}
+	if (provider.is_empty()) {
+		Dictionary details;
+		details["session_id"] = p_session.id;
+		details["model_ref"] = model_ref.duplicate(true);
+		r_error = AIError::make(AI_ERROR_VALIDATION, "Session model reference has no provider.", details);
+		return false;
+	}
+
+	const Dictionary provider_config = p_config_service->get_provider_config(provider);
+	if (provider_config.is_empty()) {
+		Dictionary details;
+		details["session_id"] = p_session.id;
+		details["provider"] = provider;
+		details["model_ref"] = model_ref.duplicate(true);
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "Session model provider is not configured: " + provider, details);
+		return false;
+	}
+	if (!bool(provider_config.get("enabled", true))) {
+		Dictionary details;
+		details["session_id"] = p_session.id;
+		details["provider"] = provider;
+		r_error = AIError::make(AI_ERROR_VALIDATION, "Session model provider is disabled: " + provider, details);
+		return false;
+	}
+
+	String model = _ai_agent_service_string_from_variant(model_ref.get("model", String()));
+	if (model.is_empty()) {
+		model = _ai_agent_service_string_from_variant(provider_config.get("model", p_config_service->get_default_model()));
+	}
+	if (model.is_empty()) {
+		Dictionary details;
+		details["session_id"] = p_session.id;
+		details["provider"] = provider;
+		r_error = AIError::make(AI_ERROR_VALIDATION, "Session model reference has no model.", details);
+		return false;
+	}
+
+	r_agent.provider = provider;
+	r_agent.model = model;
+	r_agent.metadata["session_model_ref"] = model_ref.duplicate(true);
+	r_error = AIError::none();
+	return true;
+}
+
 void AIAgentService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_config_service", "config_service"), &AIAgentService::set_config_service);
 	ClassDB::bind_method(D_METHOD("get_config_service"), &AIAgentService::get_config_service);
@@ -348,17 +425,26 @@ bool AIAgentService::resolve_struct(const String &p_agent_id, AIAgentConfig &r_a
 
 bool AIAgentService::resolve_for_session_struct(const String &p_session_id, AIAgentConfig &r_agent, AIError &r_error) const {
 	String agent_id;
+	AISessionRow session;
+	bool has_session = false;
 	if (session_store.is_valid()) {
-		AISessionRow session;
 		if (!session_store->get_session_struct(p_session_id, session)) {
 			Dictionary details;
 			details["session_id"] = p_session_id;
 			r_error = AIError::make(AI_ERROR_UNAVAILABLE, "Session not found.", details);
 			return false;
 		}
+		has_session = true;
 		agent_id = session.agent_id.strip_edges();
 	}
-	return resolve_struct(agent_id, r_agent, r_error);
+	if (!resolve_struct(agent_id, r_agent, r_error)) {
+		return false;
+	}
+	if (has_session) {
+		return _ai_agent_service_apply_session_model_ref(session, config_service, r_agent, r_error);
+	}
+	r_error = AIError::none();
+	return true;
 }
 
 bool AIAgentService::assert_can_spawn_struct(const String &p_parent_session_id, const String &p_child_agent_id, AIError &r_error) const {

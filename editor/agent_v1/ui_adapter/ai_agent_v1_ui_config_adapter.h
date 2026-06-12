@@ -27,6 +27,7 @@ class AIAgentV1UIConfigAdapter : public RefCounted {
 	static Dictionary _dictionary_from_variant(const Variant &p_value);
 	static Array _array_from_variant(const Variant &p_value);
 	Array _models_from_config(const Dictionary &p_config) const;
+	Array _model_profiles_from_config(const Dictionary &p_config, bool p_enabled_only = true) const;
 	Array _mcp_servers_from_config(const Dictionary &p_config) const;
 	Array _skills_from_config(const Dictionary &p_config) const;
 	Array _rules_from_config(const Dictionary &p_config) const;
@@ -53,6 +54,12 @@ public:
 
 	Dictionary get_settings_snapshot();
 	Array list_models();
+	Array list_model_provider_presets();
+	Array list_model_profiles(bool p_enabled_only = true);
+	Dictionary get_model_profile(const String &p_profile_id);
+	Dictionary add_model_profile(const Dictionary &p_profile, const String &p_scope = "project");
+	Dictionary update_model_profile(const String &p_profile_id, const Dictionary &p_profile, const String &p_scope = "project");
+	Dictionary remove_model_profile(const String &p_profile_id, const String &p_scope = "project");
 	Array list_agents();
 	Dictionary patch_settings(const Dictionary &p_patch, const String &p_scope = "project");
 };

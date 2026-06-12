@@ -81,6 +81,12 @@ public:
 
 	Dictionary get_settings_snapshot();
 	Array list_models();
+	Array list_model_provider_presets();
+	Array list_model_profiles(bool p_enabled_only = true);
+	Dictionary get_model_profile(const String &p_profile_id);
+	Dictionary add_model_profile(const Dictionary &p_profile, const String &p_scope = "project");
+	Dictionary update_model_profile(const String &p_profile_id, const Dictionary &p_profile, const String &p_scope = "project");
+	Dictionary remove_model_profile(const String &p_profile_id, const String &p_scope = "project");
 	Array list_agents();
 	Dictionary patch_settings(const Dictionary &p_patch, const String &p_scope = "project");
 
@@ -93,4 +99,5 @@ public:
 	Dictionary send_message(const String &p_text, const String &p_model_id = String(), const String &p_agent_id = String(), const Array &p_attachments = Array(), bool p_resume = true);
 	Dictionary cancel_active_run(const String &p_reason = String());
 	Dictionary get_run_state(const String &p_session_id = String()) const;
+	Dictionary reply_permission(const String &p_request_id, bool p_allowed, const String &p_reason = String(), const Dictionary &p_options = Dictionary());
 };

@@ -38,6 +38,7 @@ class AIAgentV1UIAdapter : public RefCounted {
 	void _emit_error(const Dictionary &p_error_result);
 	void _emit_messages_changed(const String &p_session_id);
 	void _emit_run_state_changed(const String &p_session_id);
+	Dictionary _apply_selected_model_profile(const String &p_model_id, const String &p_agent_id);
 
 	void _permission_asked(const Dictionary &p_request);
 	void _permission_replied(const Dictionary &p_reply);

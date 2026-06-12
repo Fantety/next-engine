@@ -6,7 +6,7 @@
 
 #include "editor/docks/editor_dock.h"
 
-#include "editor/ai_component/agent/ai_agent_session.h"
+#include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/ai_component/ui/ai_change_review_panel.h"
 #include "editor/ai_component/ui/ai_composer.h"
 #include "editor/ai_component/ui/ai_message_list.h"
@@ -43,7 +43,7 @@ class AIAgentDock : public EditorDock {
 	ColorRect *request_progress = nullptr;
 	Label *token_usage_label = nullptr;
 	AIComposer *composer = nullptr;
-	AIAgentSession *session = nullptr;
+	Ref<AIAgentV1UIBridge> bridge;
 	VBoxContainer *normal_panel = nullptr;
 	String pending_delete_session_id;
 	Dictionary pending_tool_approval;
@@ -52,14 +52,19 @@ class AIAgentDock : public EditorDock {
 
 	static inline AIAgentDock *singleton = nullptr;
 
+	Ref<AIAgentV1UIBridge> _get_adapter();
+	String _normalize_agent_profile_id(const String &p_agent_profile_id) const;
+	bool _is_run_busy() const;
+	void _send_to_agent_v1(const String &p_message, const String &p_model, const String &p_agent_profile_id, const Array &p_attachments, bool p_resume);
 	void _send_requested(const String &p_message, const String &p_model, const String &p_agent_profile_id, const Array &p_attachments);
 	void _agent_profile_selected(const String &p_agent_profile_id);
 	void _cancel_requested();
-	void _message_added(const Dictionary &p_message);
-	void _message_updated(int p_index, const Dictionary &p_message);
-	void _message_removed(int p_index);
-	void _state_changed(int p_state);
-	void _token_usage_changed(const Dictionary &p_usage);
+	void _sessions_changed(const Array &p_sessions);
+	void _active_session_changed(const Dictionary &p_session);
+	void _messages_changed(const String &p_session_id, const Array &p_messages);
+	void _run_state_changed(const Dictionary &p_state);
+	void _permission_requested(const Dictionary &p_request);
+	void _permission_resolved(const Dictionary &p_reply);
 	void _mcp_status_changed(const Array &p_statuses, const Dictionary &p_summary);
 	void _tool_approval_requested(const Dictionary &p_approval);
 	void _settings_changed();
@@ -92,7 +97,6 @@ class AIAgentDock : public EditorDock {
 	void _refresh_request_progress_material();
 	void _clear_request_progress_material();
 	String _format_token_count(int p_tokens) const;
-	AIProviderConfig _get_provider_config(const String &p_model_id) const;
 
 protected:
 	static void _bind_methods();

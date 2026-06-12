@@ -7,9 +7,9 @@
 #include "core/input/input_event.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/ai_component/ui/ai_reference_resolver.h"
 #include "editor/ai_component/ui/ai_reference_text_edit.h"
-#include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/ui/ai_plan_panel.h"
 #include "editor/gui/editor_file_dialog.h"
 #include "editor/themes/editor_scale.h"
@@ -158,18 +158,30 @@ void AIComposer::reload_models() {
 	model_selector->clear();
 	has_model = false;
 
-	Vector<AIModelDescriptor> enabled_models = AIModelSettings::get_enabled_models();
-	for (int i = 0; i < enabled_models.size(); i++) {
-		const AIModelDescriptor &model = enabled_models[i];
+	Ref<AIAgentV1UIBridge> bridge = AIAgentV1UIBridge::get_singleton();
+	const Array profiles = bridge->list_model_profiles(true);
+	for (int i = 0; i < profiles.size(); i++) {
+		if (profiles[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		const Dictionary profile = profiles[i];
+		const String profile_id = String(profile.get("id", String())).strip_edges();
+		const String model = String(profile.get("model", String())).strip_edges();
+		if (profile_id.is_empty() || model.is_empty()) {
+			continue;
+		}
+
 		int item_index = model_selector->get_item_count();
-		String label = model.display_name;
+		String label = String(profile.get("display_name", String())).strip_edges();
 		if (label.is_empty()) {
-			label = model.provider_name + " / " + model.model;
-		} else if (!label.contains(model.model)) {
-			label += " / " + model.model;
+			label = String(profile.get("provider_name", profile.get("provider_id", String()))).strip_edges();
+			label = label.is_empty() ? model : label + " / " + model;
+		} else if (!label.contains(model)) {
+			label += " / " + model;
 		}
 		model_selector->add_item(label);
-		model_selector->set_item_metadata(item_index, model.id);
+		model_selector->set_item_metadata(item_index, profile_id);
 	}
 
 	if (model_selector->get_item_count() == 0) {

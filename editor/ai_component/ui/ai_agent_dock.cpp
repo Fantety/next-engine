@@ -12,7 +12,6 @@
 #include "core/os/os.h"
 #include "core/os/time.h"
 #include "editor/ai_component/agent/ai_mcp_service.h"
-#include "editor/ai_component/providers/ai_model_settings.h"
 #include "editor/ai_component/skills/ai_skill_settings.h"
 #include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
 #include "editor/ai_component/ui/ai_agent_settings_dialog.h"
@@ -308,55 +307,88 @@ AIAgentDock *AIAgentDock::get_singleton() {
 	return singleton;
 }
 
-void AIAgentDock::_send_requested(const String &p_message, const String &p_model, const String &p_agent_profile_id, const Array &p_attachments) {
-	_ensure_session();
-	ERR_FAIL_NULL(session);
+Ref<AIAgentV1UIBridge> AIAgentDock::_get_adapter() {
+	if (bridge.is_null()) {
+		bridge = AIAgentV1UIBridge::get_singleton();
+	}
+	return bridge;
+}
 
-	session->configure_provider(_get_provider_config(p_model));
-	session->set_agent_profile_id(p_agent_profile_id);
-	session->send_user_message(p_message, p_attachments);
-	composer->clear_input();
+String AIAgentDock::_normalize_agent_profile_id(const String &p_agent_profile_id) const {
+	const String profile_id = p_agent_profile_id.strip_edges();
+	if (profile_id.is_empty() || profile_id == "auto" || profile_id == "ask") {
+		return "main";
+	}
+	return profile_id;
+}
+
+bool AIAgentDock::_is_run_busy() const {
+	if (bridge.is_null()) {
+		return false;
+	}
+	const Dictionary state = bridge->get_run_state();
+	return bool(state.get("busy", false));
+}
+
+void AIAgentDock::_send_to_agent_v1(const String &p_message, const String &p_model, const String &p_agent_profile_id, const Array &p_attachments, bool p_resume) {
+	_ensure_session();
+
+	const Dictionary result = _get_adapter()->send_message(p_message, p_model, _normalize_agent_profile_id(p_agent_profile_id), p_attachments, p_resume);
+	if (bool(result.get("success", false))) {
+		if (composer) {
+			composer->clear_input();
+		}
+		_reload_messages_from_session();
+		_refresh_session_list();
+	}
+}
+
+void AIAgentDock::_send_requested(const String &p_message, const String &p_model, const String &p_agent_profile_id, const Array &p_attachments) {
+	_send_to_agent_v1(p_message, p_model, p_agent_profile_id, p_attachments, true);
 }
 
 void AIAgentDock::_agent_profile_selected(const String &p_agent_profile_id) {
 	_ensure_session();
-	ERR_FAIL_NULL(session);
-
-	if (session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT || session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
+	if (_is_run_busy()) {
 		return;
 	}
-
-	session->set_agent_profile_id(p_agent_profile_id);
+	(void)p_agent_profile_id;
 }
 
 void AIAgentDock::_cancel_requested() {
-	if (session) {
-		session->cancel_request();
+	(void)_get_adapter()->cancel_active_run(TTR("User cancelled."));
+}
+
+void AIAgentDock::_sessions_changed(const Array &p_sessions) {
+	(void)p_sessions;
+	_refresh_session_list();
+}
+
+void AIAgentDock::_active_session_changed(const Dictionary &p_session) {
+	(void)p_session;
+	_reload_messages_from_session();
+	_refresh_session_list();
+}
+
+void AIAgentDock::_messages_changed(const String &p_session_id, const Array &p_messages) {
+	if (p_session_id != _get_adapter()->get_active_session_id()) {
+		return;
 	}
-}
-
-void AIAgentDock::_message_added(const Dictionary &p_message) {
-	message_list->add_message(p_message);
-	_refresh_token_usage();
-	if (String(p_message.get("role", String())) == "user") {
-		_queue_refresh_session_list();
+	if (message_list) {
+		message_list->set_messages(p_messages);
+		message_list->scroll_to_bottom();
 	}
-}
-
-void AIAgentDock::_message_updated(int p_index, const Dictionary &p_message) {
-	message_list->update_message(p_index, p_message);
 	_refresh_token_usage();
+	_queue_refresh_session_list();
 }
 
-void AIAgentDock::_message_removed(int p_index) {
-	message_list->remove_message(p_index);
-	_refresh_token_usage();
-}
-
-void AIAgentDock::_state_changed(int p_state) {
-	const bool running = p_state == AI_AGENT_STATE_STREAMING || p_state == AI_AGENT_STATE_PREPARING_CONTEXT;
-	const bool waiting_approval = p_state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL;
-	composer->set_running(running || waiting_approval);
+void AIAgentDock::_run_state_changed(const Dictionary &p_state) {
+	const String state = String(p_state.get("state", String()));
+	const bool running = bool(p_state.get("busy", false));
+	const bool waiting_approval = state == "waiting_permission";
+	if (composer) {
+		composer->set_running(running || waiting_approval);
+	}
 	if (new_session_button) {
 		new_session_button->set_disabled(running || waiting_approval);
 	}
@@ -374,15 +406,21 @@ void AIAgentDock::_state_changed(int p_state) {
 	if (request_status_row) {
 		request_status_row->set_visible(running);
 	}
-	if (p_state == AI_AGENT_STATE_IDLE || p_state == AI_AGENT_STATE_FAILED || p_state == AI_AGENT_STATE_CANCELLED || p_state == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
+	if (!running || waiting_approval) {
 		_queue_refresh_session_list();
 	}
 	_refresh_token_usage();
 }
 
-void AIAgentDock::_token_usage_changed(const Dictionary &p_usage) {
-	(void)p_usage;
-	_refresh_token_usage();
+void AIAgentDock::_permission_requested(const Dictionary &p_request) {
+	_tool_approval_requested(p_request);
+}
+
+void AIAgentDock::_permission_resolved(const Dictionary &p_reply) {
+	(void)p_reply;
+	pending_tool_approval.clear();
+	_reload_messages_from_session();
+	_run_state_changed(_get_adapter()->get_run_state());
 }
 
 void AIAgentDock::_mcp_status_changed(const Array &p_statuses, const Dictionary &p_summary) {
@@ -460,11 +498,16 @@ void AIAgentDock::_tool_approval_requested(const Dictionary &p_approval) {
 		return;
 	}
 
-	const String tool_name = String(pending_tool_approval.get("tool_name", ""));
+	Dictionary source;
+	if (pending_tool_approval.get("source", Variant()).get_type() == Variant::DICTIONARY) {
+		source = pending_tool_approval["source"];
+	}
+	const String tool_name = String(pending_tool_approval.get("tool_name", source.get("tool_name", source.get("tool", String()))));
 	const String reason = String(pending_tool_approval.get("reason", ""));
+	const Variant arguments = pending_tool_approval.get("arguments", pending_tool_approval.get("input", source.get("input", Variant())));
 	if (AIRequirementFormTool::is_requirement_form_tool(tool_name)) {
-		if (requirement_form_dialog && pending_tool_approval.has("arguments") && Variant(pending_tool_approval["arguments"]).get_type() == Variant::DICTIONARY) {
-			requirement_form_dialog->set_form(pending_tool_approval["arguments"]);
+		if (requirement_form_dialog && arguments.get_type() == Variant::DICTIONARY) {
+			requirement_form_dialog->set_form(arguments);
 			requirement_form_dialog->popup_centered_ratio(0.45);
 		}
 		return;
@@ -474,8 +517,8 @@ void AIAgentDock::_tool_approval_requested(const Dictionary &p_approval) {
 	if (!reason.is_empty()) {
 		text += "\n\n" + reason;
 	}
-	if (pending_tool_approval.has("arguments") && Variant(pending_tool_approval["arguments"]).get_type() == Variant::DICTIONARY) {
-		text += "\n\n" + TTR("Arguments:") + "\n" + JSON::stringify(pending_tool_approval["arguments"], "\t");
+	if (arguments.get_type() == Variant::DICTIONARY) {
+		text += "\n\n" + TTR("Arguments:") + "\n" + JSON::stringify(arguments, "\t");
 	}
 
 	tool_approval_dialog->set_text(text);
@@ -484,25 +527,29 @@ void AIAgentDock::_tool_approval_requested(const Dictionary &p_approval) {
 
 void AIAgentDock::_new_session_pressed() {
 	_ensure_session();
-	ERR_FAIL_NULL(session);
 
-	session->start_new_session();
+	Dictionary create;
+	create["directory"] = "res://";
+	create["agent_id"] = "main";
+	create["title"] = TTR("New Chat");
+	(void)_get_adapter()->create_session(create);
 	_sync_composer_agent_profile();
-	message_list->clear_messages();
+	if (message_list) {
+		message_list->clear_messages();
+	}
 	_refresh_token_usage();
 	_refresh_session_list();
 }
 
 void AIAgentDock::_delete_session_pressed() {
 	_ensure_session();
-	ERR_FAIL_NULL(session);
 
 	const String session_id = _get_selected_session_id();
 	if (session_id.is_empty()) {
 		return;
 	}
 
-	if (session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT || session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
+	if (_is_run_busy()) {
 		return;
 	}
 
@@ -518,95 +565,98 @@ void AIAgentDock::_delete_session_pressed() {
 
 void AIAgentDock::_confirm_delete_session() {
 	_ensure_session();
-	ERR_FAIL_NULL(session);
 
-	const String session_id = pending_delete_session_id;
 	pending_delete_session_id.clear();
-	if (session_id.is_empty()) {
-		return;
-	}
-
-	const bool deleting_current = session_id == session->get_session_id();
-	if (!session->delete_session(session_id)) {
-		_refresh_session_list();
-		return;
-	}
-
-	if (deleting_current) {
-		_reload_messages_from_session();
-	}
 	_refresh_session_list();
 }
 
 void AIAgentDock::_confirm_tool_approval() {
-	if (!session) {
-		pending_tool_approval.clear();
-		return;
+	const String request_id = String(pending_tool_approval.get("request_id", String()));
+	if (!request_id.is_empty()) {
+		(void)_get_adapter()->reply_permission(request_id, true);
 	}
-
 	pending_tool_approval.clear();
-	session->approve_pending_tool();
 }
 
 void AIAgentDock::_reject_tool_approval() {
-	if (!session) {
-		pending_tool_approval.clear();
-		return;
-	}
-	if (pending_tool_approval.is_empty() && session->get_pending_tool_approval().is_empty()) {
+	if (pending_tool_approval.is_empty()) {
 		return;
 	}
 
+	const String request_id = String(pending_tool_approval.get("request_id", String()));
+	if (!request_id.is_empty()) {
+		(void)_get_adapter()->reply_permission(request_id, false, TTR("Rejected from UI."));
+	}
 	pending_tool_approval.clear();
-	session->reject_pending_tool();
 }
 
 void AIAgentDock::_requirement_form_submitted(const Dictionary &p_answers) {
-	if (!session) {
-		pending_tool_approval.clear();
-		return;
+	const String request_id = String(pending_tool_approval.get("request_id", String()));
+	if (!request_id.is_empty()) {
+		Dictionary options;
+		options["answers"] = p_answers.duplicate(true);
+		(void)_get_adapter()->reply_permission(request_id, true, String(), options);
 	}
-
 	pending_tool_approval.clear();
-	session->submit_pending_requirement_form(p_answers);
 }
 
 void AIAgentDock::_session_selected(int p_index) {
 	_ensure_session();
-	ERR_FAIL_NULL(session);
 
 	if (!session_selector || p_index < 0) {
 		return;
 	}
-	if (session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT || session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL) {
+	if (_is_run_busy()) {
 		_select_current_session();
 		return;
 	}
 
 	String session_id = session_selector->get_item_metadata(p_index);
-	if (session_id.is_empty() || session_id == session->get_session_id()) {
+	if (session_id.is_empty() || session_id == _get_adapter()->get_active_session_id()) {
 		return;
 	}
 
-	if (session->load_session(session_id)) {
+	if (_get_adapter()->set_active_session(session_id)) {
 		_reload_messages_from_session();
 		_refresh_session_list();
 	}
 }
 
 void AIAgentDock::_ensure_session() {
-	if (session) {
-		return;
+	Ref<AIAgentV1UIBridge> adapter = _get_adapter();
+	if (adapter.is_valid()) {
+		const Callable sessions_changed = callable_mp(this, &AIAgentDock::_sessions_changed);
+		if (!adapter->is_connected(SNAME("sessions_changed"), sessions_changed)) {
+			adapter->connect(SNAME("sessions_changed"), sessions_changed);
+		}
+		const Callable active_session_changed = callable_mp(this, &AIAgentDock::_active_session_changed);
+		if (!adapter->is_connected(SNAME("active_session_changed"), active_session_changed)) {
+			adapter->connect(SNAME("active_session_changed"), active_session_changed);
+		}
+		const Callable messages_changed = callable_mp(this, &AIAgentDock::_messages_changed);
+		if (!adapter->is_connected(SNAME("messages_changed"), messages_changed)) {
+			adapter->connect(SNAME("messages_changed"), messages_changed);
+		}
+		const Callable run_state_changed = callable_mp(this, &AIAgentDock::_run_state_changed);
+		if (!adapter->is_connected(SNAME("run_state_changed"), run_state_changed)) {
+			adapter->connect(SNAME("run_state_changed"), run_state_changed);
+		}
+		const Callable permission_requested = callable_mp(this, &AIAgentDock::_permission_requested);
+		if (!adapter->is_connected(SNAME("permission_requested"), permission_requested)) {
+			adapter->connect(SNAME("permission_requested"), permission_requested);
+		}
+		const Callable permission_resolved = callable_mp(this, &AIAgentDock::_permission_resolved);
+		if (!adapter->is_connected(SNAME("permission_resolved"), permission_resolved)) {
+			adapter->connect(SNAME("permission_resolved"), permission_resolved);
+		}
+		if (adapter->get_active_session_id().is_empty()) {
+			Dictionary create;
+			create["directory"] = "res://";
+			create["agent_id"] = "main";
+			create["title"] = TTR("New Chat");
+			(void)adapter->create_session(create);
+		}
 	}
-
-	session = memnew(AIAgentSession);
-	add_child(session);
-	session->connect("message_added", callable_mp(this, &AIAgentDock::_message_added));
-	session->connect("message_updated", callable_mp(this, &AIAgentDock::_message_updated));
-	session->connect("message_removed", callable_mp(this, &AIAgentDock::_message_removed));
-	session->connect("state_changed", callable_mp(this, &AIAgentDock::_state_changed));
-	session->connect("token_usage_changed", callable_mp(this, &AIAgentDock::_token_usage_changed));
-	session->connect("tool_approval_requested", callable_mp(this, &AIAgentDock::_tool_approval_requested));
 	Ref<AIMCPService> mcp_service = AIMCPService::get_singleton();
 	if (mcp_service.is_valid()) {
 		_mcp_status_changed(mcp_service->get_statuses(), mcp_service->get_status_summary());
@@ -649,12 +699,12 @@ void AIAgentDock::_flush_session_list_refresh() {
 
 void AIAgentDock::_refresh_session_list() {
 	session_list_refresh_queued = false;
-	if (!session_selector || !session) {
+	if (!session_selector) {
 		return;
 	}
 
 	session_selector->clear();
-	Array sessions = session->list_sessions();
+	Array sessions = _get_adapter()->list_sessions();
 	for (int i = 0; i < sessions.size(); i++) {
 		if (Variant(sessions[i]).get_type() != Variant::DICTIONARY) {
 			continue;
@@ -679,16 +729,16 @@ void AIAgentDock::_refresh_session_list() {
 	}
 	_select_current_session();
 	if (delete_session_button) {
-		delete_session_button->set_disabled(session_selector->get_item_count() == 0 || session_selector->get_selected() < 0 || session->get_state() == AI_AGENT_STATE_STREAMING || session->get_state() == AI_AGENT_STATE_PREPARING_CONTEXT || session->get_state() == AI_AGENT_STATE_WAITING_TOOL_APPROVAL);
+		delete_session_button->set_disabled(true);
 	}
 }
 
 void AIAgentDock::_select_current_session() {
-	if (!session_selector || !session) {
+	if (!session_selector) {
 		return;
 	}
 
-	String current_id = session->get_session_id();
+	String current_id = _get_adapter()->get_active_session_id();
 	for (int i = 0; i < session_selector->get_item_count(); i++) {
 		if (String(session_selector->get_item_metadata(i)) == current_id) {
 			session_selector->select(i);
@@ -698,8 +748,8 @@ void AIAgentDock::_select_current_session() {
 }
 
 void AIAgentDock::_reload_messages_from_session() {
-	ERR_FAIL_NULL(session);
-	message_list->set_messages(session->get_messages_as_array());
+	ERR_FAIL_NULL(message_list);
+	message_list->set_messages(_get_adapter()->get_messages());
 	message_list->scroll_to_bottom();
 	_refresh_token_usage();
 }
@@ -839,21 +889,11 @@ void AIAgentDock::_refresh_skill_status_popup() {
 }
 
 void AIAgentDock::_refresh_token_usage() {
-	if (!token_usage_label || !session) {
+	if (!token_usage_label) {
 		return;
 	}
 
-	Dictionary usage = session->get_token_usage();
-	const int prompt_tokens = (int)usage.get("prompt_tokens", 0);
-	const int completion_tokens = (int)usage.get("completion_tokens", 0);
-	const int total_tokens = (int)usage.get("total_tokens", 0);
-	const int estimated_input_tokens = (int)usage.get("estimated_input_tokens", 0);
-
-	String text = vformat(TTR("Tokens  In %s  Out %s  Total %s"), _format_token_count(prompt_tokens), _format_token_count(completion_tokens), _format_token_count(total_tokens));
-	if (estimated_input_tokens > 0) {
-		text += vformat(TTR("  Context ~%s"), _format_token_count(estimated_input_tokens));
-	}
-	token_usage_label->set_text(text);
+	token_usage_label->set_text(vformat(TTR("Tokens  In %s  Out %s  Total %s"), _format_token_count(0), _format_token_count(0), _format_token_count(0)));
 }
 
 void AIAgentDock::_ensure_request_progress_material() {
@@ -885,8 +925,4 @@ String AIAgentDock::_format_token_count(int p_tokens) const {
 		return rtos((double)p_tokens / 1000.0).pad_decimals(1) + "k";
 	}
 	return itos(MAX(0, p_tokens));
-}
-
-AIProviderConfig AIAgentDock::_get_provider_config(const String &p_model) const {
-	return AIModelSettings::get_provider_config(p_model);
 }
