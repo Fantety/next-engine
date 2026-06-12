@@ -624,6 +624,14 @@ void AIV1ToolRegistry::register_builtin_tools() {
 		shell_tool.instantiate();
 		register_tool_struct("shell_run", shell_tool, "builtin");
 	}
+	if (!has_tool("todowrite")) {
+		Ref<AIV1TodoWriteTool> todo_tool;
+		todo_tool.instantiate();
+		Dictionary todo_metadata;
+		todo_metadata["tool_origin"] = "builtin";
+		todo_metadata["action"] = "todo.write";
+		register_tool_struct("todowrite", todo_tool, "builtin", todo_metadata);
+	}
 	AIV1EditorTools::register_editor_tools(Ref<AIV1ToolRegistry>(this));
 }
 

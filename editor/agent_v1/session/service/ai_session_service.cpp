@@ -5,6 +5,7 @@
 #include "ai_session_service.h"
 
 #include "editor/agent_v1/session/recovery/ai_startup_recovery.h"
+#include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 
 #include "core/object/class_db.h"
 #include "core/variant/variant.h"
@@ -45,6 +46,10 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_permission_service"), &AISessionService::get_permission_service);
 	ClassDB::bind_method(D_METHOD("set_tool_registry", "tool_registry"), &AISessionService::set_tool_registry);
 	ClassDB::bind_method(D_METHOD("get_tool_registry"), &AISessionService::get_tool_registry);
+	ClassDB::bind_method(D_METHOD("set_todo_store", "store"), &AISessionService::set_todo_store);
+	ClassDB::bind_method(D_METHOD("get_todo_store"), &AISessionService::get_todo_store);
+	ClassDB::bind_method(D_METHOD("set_todo_service", "service"), &AISessionService::set_todo_service);
+	ClassDB::bind_method(D_METHOD("get_todo_service"), &AISessionService::get_todo_service);
 	ClassDB::bind_method(D_METHOD("set_attachment_blob_store", "blob_store"), &AISessionService::set_attachment_blob_store);
 	ClassDB::bind_method(D_METHOD("get_attachment_blob_store"), &AISessionService::get_attachment_blob_store);
 	ClassDB::bind_method(D_METHOD("set_attachment_resolver", "resolver"), &AISessionService::set_attachment_resolver);
@@ -60,6 +65,8 @@ void AISessionService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reply_permission", "input"), &AISessionService::reply_permission);
 	ClassDB::bind_method(D_METHOD("interrupt", "input"), &AISessionService::interrupt);
 	ClassDB::bind_method(D_METHOD("promote_eligible", "session_id", "mode"), &AISessionService::promote_eligible, DEFVAL("new-activity"));
+	ClassDB::bind_method(D_METHOD("update_todos", "session_id", "todos"), &AISessionService::update_todos);
+	ClassDB::bind_method(D_METHOD("get_todos", "session_id"), &AISessionService::get_todos);
 }
 
 AISessionService::AISessionService() {
@@ -224,6 +231,12 @@ void AISessionService::_ensure_defaults() {
 		tool_registry.instantiate();
 		tool_registry->register_builtin_tools();
 	}
+	if (todo_store.is_null()) {
+		todo_store.instantiate();
+	}
+	if (todo_service.is_null()) {
+		todo_service.instantiate();
+	}
 	if (attachment_blob_store.is_null()) {
 		attachment_blob_store.instantiate();
 	}
@@ -241,6 +254,9 @@ void AISessionService::_ensure_defaults() {
 	}
 	if (task_tool.is_null()) {
 		task_tool.instantiate();
+	}
+	if (todo_write_tool.is_null()) {
+		todo_write_tool.instantiate();
 	}
 }
 
@@ -294,6 +310,11 @@ void AISessionService::_wire_dependencies() {
 	if (permission_service.is_valid()) {
 		permission_service->set_event_store(event_store);
 	}
+	if (todo_service.is_valid()) {
+		todo_service->set_todo_store(todo_store);
+		todo_service->set_event_store(event_store);
+		todo_service->set_projector(projector);
+	}
 	if (tool_registry.is_valid()) {
 		tool_registry->set_event_store(event_store);
 		tool_registry->set_projector(projector);
@@ -308,6 +329,16 @@ void AISessionService::_wire_dependencies() {
 	}
 	if (task_tool.is_valid()) {
 		task_tool->setup(this, agent_service.ptr());
+	}
+	if (todo_write_tool.is_valid()) {
+		todo_write_tool->set_todo_service(todo_service);
+	}
+	if (tool_registry.is_valid() && todo_write_tool.is_valid() && !todo_write_tool_registered) {
+		Dictionary todo_metadata;
+		todo_metadata["tool_origin"] = "builtin";
+		todo_metadata["action"] = "todo.write";
+		todo_metadata["session_service_bound"] = true;
+		todo_write_tool_registered = tool_registry->register_tool_struct("todowrite", todo_write_tool, "builtin", todo_metadata);
 	}
 	if (tool_registry.is_valid() && task_tool.is_valid() && !tool_registry->has_tool("task")) {
 		Dictionary task_metadata;
@@ -333,6 +364,7 @@ void AISessionService::_apply_project_scope_storage() {
 	const String session_dir = project_root.path_join("sessions");
 	const String input_dir = project_root.path_join("session_inputs");
 	const String event_dir = project_root.path_join("events");
+	const String todo_dir = project_root.path_join("todos");
 	const String attachment_dir = project_root.path_join("attachments");
 
 	if (session_store.is_valid() && session_store->get_base_dir() != session_dir) {
@@ -343,6 +375,9 @@ void AISessionService::_apply_project_scope_storage() {
 	}
 	if (event_store.is_valid() && event_store->get_base_dir() != event_dir) {
 		event_store->set_base_dir(event_dir);
+	}
+	if (todo_store.is_valid() && todo_store->get_base_dir() != todo_dir) {
+		todo_store->set_base_dir(todo_dir);
 	}
 	if (attachment_blob_store.is_valid() && attachment_blob_store->get_base_dir() != attachment_dir) {
 		attachment_blob_store->set_base_dir(attachment_dir);
@@ -649,13 +684,38 @@ Ref<AIPermissionService> AISessionService::get_permission_service() const {
 }
 
 void AISessionService::set_tool_registry(const Ref<AIV1ToolRegistry> &p_tool_registry) {
+	const bool registry_changed = tool_registry != p_tool_registry;
 	tool_registry = p_tool_registry;
+	if (registry_changed) {
+		todo_write_tool_registered = false;
+	}
 	_ensure_defaults();
 	_wire_dependencies();
 }
 
 Ref<AIV1ToolRegistry> AISessionService::get_tool_registry() const {
 	return tool_registry;
+}
+
+void AISessionService::set_todo_store(const Ref<AITodoStore> &p_store) {
+	todo_store = p_store;
+	_ensure_defaults();
+	_apply_project_scope_storage();
+	_wire_dependencies();
+}
+
+Ref<AITodoStore> AISessionService::get_todo_store() const {
+	return todo_store;
+}
+
+void AISessionService::set_todo_service(const Ref<AITodoService> &p_service) {
+	todo_service = p_service;
+	_ensure_defaults();
+	_wire_dependencies();
+}
+
+Ref<AITodoService> AISessionService::get_todo_service() const {
+	return todo_service;
 }
 
 void AISessionService::set_attachment_blob_store(const Ref<AIAttachmentBlobStore> &p_blob_store) {
@@ -859,4 +919,22 @@ Dictionary AISessionService::promote_eligible(const String &p_session_id, const 
 		return _make_error_result(AIError::make(AI_ERROR_UNAVAILABLE, "SessionService has no PromptPromoter."));
 	}
 	return prompt_promoter->promote_eligible(p_session_id, p_mode);
+}
+
+Dictionary AISessionService::update_todos(const String &p_session_id, const Array &p_todos) {
+	_ensure_defaults();
+	_wire_dependencies();
+	if (todo_service.is_null()) {
+		return _make_error_result(AIError::make(AI_ERROR_UNAVAILABLE, "SessionService has no TodoService."));
+	}
+	return todo_service->update_todos(p_session_id, p_todos);
+}
+
+Array AISessionService::get_todos(const String &p_session_id) {
+	_ensure_defaults();
+	_wire_dependencies();
+	if (todo_service.is_null()) {
+		return Array();
+	}
+	return todo_service->get_todos(p_session_id);
 }

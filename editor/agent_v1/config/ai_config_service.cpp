@@ -80,6 +80,7 @@ Dictionary AIConfigService::_default_config() {
 
 	Array system;
 	system.push_back("You are NextEngine Agent.");
+	system.push_back("When a user request has three or more clear steps, use the todowrite tool to maintain the visible session task list. Submit the complete todo snapshot before starting, keep exactly one item in_progress, update the snapshot immediately after each step completes, mark obsolete work cancelled, and do not batch progress updates only at the end.");
 
 	Dictionary main_agent;
 	main_agent["provider"] = "fake";
@@ -753,6 +754,7 @@ Array AIConfigService::get_system_prompt(const String &p_agent_id) {
 	}
 	if (system.is_empty()) {
 		system.push_back("You are NextEngine Agent.");
+		system.push_back("When a user request has three or more clear steps, use the todowrite tool to maintain the visible session task list. Submit the complete todo snapshot before starting, keep exactly one item in_progress, update the snapshot immediately after each step completes, mark obsolete work cancelled, and do not batch progress updates only at the end.");
 	}
 	return system;
 }

@@ -311,6 +311,10 @@ AIAgentDock::AIAgentDock() {
 	change_review_panel = memnew(AIChangeReviewPanel);
 	main->add_child(change_review_panel);
 
+	todo_panel = memnew(AITodoListPanel);
+	todo_panel->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	main->add_child(todo_panel);
+
 	message_list = memnew(AIMessageList);
 	main->add_child(message_list);
 
@@ -353,6 +357,7 @@ AIAgentDock::AIAgentDock() {
 	_mcp_settings_changed();
 	_sync_composer_agent_profile();
 	_reload_messages_from_session();
+	_reload_todos_from_session();
 	_refresh_session_list();
 	_refresh_mcp_status_button();
 	_refresh_skill_status_button();
@@ -429,6 +434,7 @@ void AIAgentDock::_sessions_changed(const Array &p_sessions) {
 void AIAgentDock::_active_session_changed(const Dictionary &p_session) {
 	(void)p_session;
 	_reload_messages_from_session();
+	_reload_todos_from_session();
 	_refresh_session_list();
 }
 
@@ -442,6 +448,13 @@ void AIAgentDock::_messages_changed(const String &p_session_id, const Array &p_m
 	}
 	_refresh_token_usage();
 	_queue_refresh_session_list();
+}
+
+void AIAgentDock::_todos_changed(const String &p_session_id, const Array &p_todos) {
+	if (p_session_id != _get_adapter()->get_active_session_id()) {
+		return;
+	}
+	_refresh_todo_panel(p_todos);
 }
 
 void AIAgentDock::_run_state_changed(const Dictionary &p_state) {
@@ -611,6 +624,7 @@ void AIAgentDock::_new_session_pressed() {
 	if (message_list) {
 		message_list->clear_messages();
 	}
+	_reload_todos_from_session();
 	_refresh_token_usage();
 	_refresh_session_list();
 }
@@ -719,6 +733,10 @@ void AIAgentDock::_ensure_session() {
 		const Callable messages_changed = callable_mp(this, &AIAgentDock::_messages_changed);
 		if (!adapter->is_connected(SNAME("messages_changed"), messages_changed)) {
 			adapter->connect(SNAME("messages_changed"), messages_changed);
+		}
+		const Callable todos_changed = callable_mp(this, &AIAgentDock::_todos_changed);
+		if (!adapter->is_connected(SNAME("todos_changed"), todos_changed)) {
+			adapter->connect(SNAME("todos_changed"), todos_changed);
 		}
 		const Callable run_state_changed = callable_mp(this, &AIAgentDock::_run_state_changed);
 		if (!adapter->is_connected(SNAME("run_state_changed"), run_state_changed)) {
@@ -846,6 +864,17 @@ void AIAgentDock::_reload_messages_from_session() {
 	message_list->set_messages(_get_adapter()->get_messages());
 	message_list->scroll_to_bottom();
 	_refresh_token_usage();
+}
+
+void AIAgentDock::_reload_todos_from_session() {
+	_refresh_todo_panel(_get_adapter()->get_todos());
+}
+
+void AIAgentDock::_refresh_todo_panel(const Array &p_todos) {
+	if (!todo_panel) {
+		return;
+	}
+	todo_panel->set_todos(p_todos);
 }
 
 void AIAgentDock::_refresh_mcp_status_button() {

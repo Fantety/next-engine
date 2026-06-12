@@ -56,6 +56,7 @@ class AIAgentV1UIAdapter : public RefCounted {
 	void _emit_error(const Dictionary &p_error_result);
 	void _emit_messages_changed(const String &p_session_id);
 	void _emit_run_state_changed(const String &p_session_id);
+	void _emit_todos_changed(const String &p_session_id);
 	void _queue_messages_changed(const String &p_session_id);
 	void _queue_run_state_changed(const String &p_session_id);
 	void _flush_queued_messages_changed();
@@ -92,6 +93,7 @@ public:
 	Dictionary get_active_session();
 
 	Array get_messages(const String &p_session_id = String());
+	Array get_todos(const String &p_session_id = String());
 	Dictionary send_message(const String &p_text, const String &p_model_id = String(), const String &p_agent_id = String(), const Array &p_attachments = Array(), bool p_resume = true);
 	Dictionary cancel_active_run(const String &p_reason = String());
 	Dictionary get_run_state(const String &p_session_id = String()) const;

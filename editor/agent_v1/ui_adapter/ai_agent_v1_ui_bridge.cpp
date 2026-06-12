@@ -54,6 +54,7 @@ void AIAgentV1UIBridge::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_active_session_id"), &AIAgentV1UIBridge::get_active_session_id);
 	ClassDB::bind_method(D_METHOD("get_active_session"), &AIAgentV1UIBridge::get_active_session);
 	ClassDB::bind_method(D_METHOD("get_messages", "session_id"), &AIAgentV1UIBridge::get_messages, DEFVAL(String()));
+	ClassDB::bind_method(D_METHOD("get_todos", "session_id"), &AIAgentV1UIBridge::get_todos, DEFVAL(String()));
 	ClassDB::bind_method(D_METHOD("send_message", "text", "model_id", "agent_id", "attachments", "resume"), &AIAgentV1UIBridge::send_message, DEFVAL(String()), DEFVAL(String()), DEFVAL(Array()), DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("cancel_active_run", "reason"), &AIAgentV1UIBridge::cancel_active_run, DEFVAL(String()));
 	ClassDB::bind_method(D_METHOD("get_run_state", "session_id"), &AIAgentV1UIBridge::get_run_state, DEFVAL(String()));
@@ -62,6 +63,7 @@ void AIAgentV1UIBridge::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("sessions_changed", PropertyInfo(Variant::ARRAY, "sessions")));
 	ADD_SIGNAL(MethodInfo("active_session_changed", PropertyInfo(Variant::DICTIONARY, "session")));
 	ADD_SIGNAL(MethodInfo("messages_changed", PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::ARRAY, "messages")));
+	ADD_SIGNAL(MethodInfo("todos_changed", PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::ARRAY, "todos")));
 	ADD_SIGNAL(MethodInfo("run_state_changed", PropertyInfo(Variant::DICTIONARY, "state")));
 	ADD_SIGNAL(MethodInfo("permission_requested", PropertyInfo(Variant::DICTIONARY, "request")));
 	ADD_SIGNAL(MethodInfo("permission_resolved", PropertyInfo(Variant::DICTIONARY, "reply")));
@@ -208,6 +210,11 @@ void AIAgentV1UIBridge::_wire_adapter_signals() {
 		conversation_adapter->connect(SNAME("messages_changed"), messages_changed);
 	}
 
+	const Callable todos_changed = callable_mp(this, &AIAgentV1UIBridge::_todos_changed);
+	if (!conversation_adapter->is_connected(SNAME("todos_changed"), todos_changed)) {
+		conversation_adapter->connect(SNAME("todos_changed"), todos_changed);
+	}
+
 	const Callable run_state_changed = callable_mp(this, &AIAgentV1UIBridge::_run_state_changed);
 	if (!conversation_adapter->is_connected(SNAME("run_state_changed"), run_state_changed)) {
 		conversation_adapter->connect(SNAME("run_state_changed"), run_state_changed);
@@ -304,6 +311,10 @@ void AIAgentV1UIBridge::_active_session_changed(const Dictionary &p_session) {
 
 void AIAgentV1UIBridge::_messages_changed(const String &p_session_id, const Array &p_messages) {
 	emit_signal(SNAME("messages_changed"), p_session_id, p_messages.duplicate(true));
+}
+
+void AIAgentV1UIBridge::_todos_changed(const String &p_session_id, const Array &p_todos) {
+	emit_signal(SNAME("todos_changed"), p_session_id, p_todos.duplicate(true));
 }
 
 void AIAgentV1UIBridge::_run_state_changed(const Dictionary &p_state) {
@@ -641,6 +652,11 @@ Dictionary AIAgentV1UIBridge::get_active_session() {
 Array AIAgentV1UIBridge::get_messages(const String &p_session_id) {
 	_sync_adapters();
 	return conversation_adapter->get_messages(p_session_id);
+}
+
+Array AIAgentV1UIBridge::get_todos(const String &p_session_id) {
+	_sync_adapters();
+	return conversation_adapter->get_todos(p_session_id);
 }
 
 Dictionary AIAgentV1UIBridge::send_message(const String &p_text, const String &p_model_id, const String &p_agent_id, const Array &p_attachments, bool p_resume) {

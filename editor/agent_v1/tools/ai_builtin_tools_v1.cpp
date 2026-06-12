@@ -4,6 +4,8 @@
 
 #include "ai_builtin_tools_v1.h"
 
+#include "editor/agent_v1/session/service/ai_todo_service.h"
+
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -27,6 +29,16 @@ static Dictionary _aiv1_object_schema(const Dictionary &p_properties, const Arra
 	schema["properties"] = p_properties;
 	schema["required"] = p_required;
 	return schema;
+}
+
+static Dictionary _aiv1_string_enum_property(const String &p_description, const PackedStringArray &p_values) {
+	Dictionary property = _aiv1_schema_property("string", p_description);
+	Array values;
+	for (int i = 0; i < p_values.size(); i++) {
+		values.push_back(p_values[i]);
+	}
+	property["enum"] = values;
+	return property;
 }
 
 static String _aiv1_resolve_path(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIError &r_error) {
@@ -263,10 +275,117 @@ bool AIV1ShellTool::execute_struct(const Dictionary &p_arguments, const AIV1Tool
 	return true;
 }
 
+void AIV1TodoWriteTool::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_todo_service", "service"), &AIV1TodoWriteTool::set_todo_service);
+	ClassDB::bind_method(D_METHOD("get_todo_service"), &AIV1TodoWriteTool::get_todo_service);
+}
+
+AIV1TodoWriteTool::AIV1TodoWriteTool() {
+	Dictionary todo_properties;
+	todo_properties["content"] = _aiv1_schema_property("string", "Short task description.");
+	PackedStringArray statuses;
+	statuses.push_back("pending");
+	statuses.push_back("in_progress");
+	statuses.push_back("completed");
+	statuses.push_back("cancelled");
+	todo_properties["status"] = _aiv1_string_enum_property("Task status.", statuses);
+	PackedStringArray priorities;
+	priorities.push_back("high");
+	priorities.push_back("medium");
+	priorities.push_back("low");
+	todo_properties["priority"] = _aiv1_string_enum_property("Task priority.", priorities);
+
+	Array todo_required;
+	todo_required.push_back("content");
+	todo_required.push_back("status");
+	todo_required.push_back("priority");
+
+	Dictionary todo_item_schema = _aiv1_object_schema(todo_properties, todo_required);
+
+	Dictionary todos_property = _aiv1_schema_property("array", "The complete current todo snapshot for this session, in display order. Replace the whole list every time.");
+	todos_property["items"] = todo_item_schema;
+
+	Dictionary properties;
+	properties["todos"] = todos_property;
+	Array required;
+	required.push_back("todos");
+
+	Dictionary tool_metadata;
+	tool_metadata["action"] = "todo.write";
+	tool_metadata["tool_origin"] = "builtin";
+	configure(
+			"Maintain the user-visible task list for the current session. Use this tool when the work has three or more clear steps. Always submit the complete todos array, not a patch. Mark exactly one active task as in_progress while working, mark tasks completed immediately after finishing them, mark obsolete tasks cancelled, and do not wait until the end to update progress.",
+			_aiv1_object_schema(properties, required),
+			Callable(),
+			tool_metadata);
+}
+
+void AIV1TodoWriteTool::set_todo_service(const Ref<AITodoService> &p_service) {
+	todo_service = p_service;
+	if (todo_service.is_null()) {
+		todo_service.instantiate();
+	}
+}
+
+Ref<AITodoService> AIV1TodoWriteTool::get_todo_service() const {
+	return todo_service;
+}
+
+bool AIV1TodoWriteTool::execute_struct(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIV1ToolExecutionResult &r_result, AIError &r_error) {
+	const String session_id = p_context.session_id.strip_edges();
+	if (session_id.is_empty()) {
+		r_error = AIError::make(AI_ERROR_VALIDATION, "todowrite requires a session id.");
+		r_result = AIV1ToolExecutionResult::fail(r_error);
+		return false;
+	}
+	if (p_arguments.get("todos", Variant()).get_type() != Variant::ARRAY) {
+		r_error = AIError::make(AI_ERROR_VALIDATION, "todowrite argument 'todos' must be an array.");
+		r_result = AIV1ToolExecutionResult::fail(r_error);
+		return false;
+	}
+	if (p_context.permission_service.is_null()) {
+		r_error = AIError::make(AI_ERROR_PERMISSION, "PermissionService is required to update todos.");
+		r_result = AIV1ToolExecutionResult::fail(r_error);
+		return false;
+	}
+
+	Dictionary permission_input = p_context.make_permission_input("todo.write", "session:" + session_id + "/todos", "Update session todo list.");
+	permission_input["default_effect"] = "allow";
+	AIPermissionDecision decision;
+	if (!p_context.permission_service->assert_permission_struct(permission_input, decision, r_error)) {
+		if (!r_error.is_error()) {
+			r_error = decision.error.is_error() ? decision.error : AIError::make(AI_ERROR_PERMISSION, "Permission denied.");
+		}
+		r_result = AIV1ToolExecutionResult::fail(r_error);
+		return false;
+	}
+
+	if (todo_service.is_null()) {
+		todo_service.instantiate();
+	}
+	if (todo_service->get_event_store().is_null()) {
+		todo_service->set_event_store(p_context.permission_service->get_event_store());
+	}
+
+	Array todos;
+	if (!todo_service->update_todos_struct(session_id, p_arguments["todos"], todos, r_error)) {
+		r_result = AIV1ToolExecutionResult::fail(r_error);
+		return false;
+	}
+
+	Dictionary structured;
+	structured["session_id"] = session_id;
+	structured["todos"] = todos.duplicate(true);
+	r_result = AIV1ToolExecutionResult::ok(structured, structured, structured);
+	r_result.metadata["todo_count"] = todos.size();
+	return true;
+}
+
 void AIV1BuiltinTools::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("create_read_file_tool"), &AIV1BuiltinTools::create_read_file_tool);
 	ClassDB::bind_method(D_METHOD("create_write_file_tool"), &AIV1BuiltinTools::create_write_file_tool);
 	ClassDB::bind_method(D_METHOD("create_shell_tool"), &AIV1BuiltinTools::create_shell_tool);
+	ClassDB::bind_method(D_METHOD("create_todo_write_tool"), &AIV1BuiltinTools::create_todo_write_tool);
 }
 
 Ref<AIV1ReadFileTool> AIV1BuiltinTools::create_read_file_tool() const {
@@ -283,6 +402,12 @@ Ref<AIV1WriteFileTool> AIV1BuiltinTools::create_write_file_tool() const {
 
 Ref<AIV1ShellTool> AIV1BuiltinTools::create_shell_tool() const {
 	Ref<AIV1ShellTool> tool;
+	tool.instantiate();
+	return tool;
+}
+
+Ref<AIV1TodoWriteTool> AIV1BuiltinTools::create_todo_write_tool() const {
+	Ref<AIV1TodoWriteTool> tool;
 	tool.instantiate();
 	return tool;
 }

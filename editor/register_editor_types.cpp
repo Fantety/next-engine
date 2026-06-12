@@ -176,6 +176,7 @@
 #include "editor/agent_v1/session/runner/ai_session_runner.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
 #include "editor/agent_v1/session/service/ai_session_store.h"
+#include "editor/agent_v1/session/service/ai_todo_service.h"
 #include "editor/agent_v1/skills/ai_skill_service_v1.h"
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
@@ -205,6 +206,7 @@
 #include "editor/agent_ui/component/ai_requirement_form_dialog.h"
 #include "editor/agent_ui/component/ai_skill_dialog.h"
 #include "editor/agent_ui/component/ai_text_diff_viewer.h"
+#include "editor/agent_ui/component/ai_todo_list_panel.h"
 #include "editor/user_system/auth_client.h"
 #include "editor/user_system/editor_user_avatar.h"
 #include "editor/user_system/editor_user_login_dialog.h"
@@ -317,6 +319,8 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIContextEpochStore);
 	GDREGISTER_CLASS(AIContextSourceRegistry);
 	GDREGISTER_CLASS(AIEventStore);
+	GDREGISTER_CLASS(AITodoStore);
+	GDREGISTER_CLASS(AITodoService);
 	GDREGISTER_CLASS(AISessionHistory);
 	GDREGISTER_CLASS(AISessionProjector);
 	GDREGISTER_CLASS(AITokenEstimator);
@@ -329,6 +333,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIV1ReadFileTool);
 	GDREGISTER_CLASS(AIV1WriteFileTool);
 	GDREGISTER_CLASS(AIV1ShellTool);
+	GDREGISTER_CLASS(AIV1TodoWriteTool);
 	GDREGISTER_CLASS(AIV1BuiltinTools);
 	GDREGISTER_CLASS(AIV1ToolRegistry);
 	GDREGISTER_CLASS(AIV1ToolMaterialization);
@@ -369,6 +374,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AISettingsRulesPage);
 	GDREGISTER_CLASS(AISettingsSkillsPage);
 	GDREGISTER_CLASS(AITextDiffViewer);
+	GDREGISTER_CLASS(AITodoListPanel);
 	GDREGISTER_CLASS(AuthTransport);
 	GDREGISTER_CLASS(AuthHTTPTransport);
 	GDREGISTER_CLASS(AuthClient);

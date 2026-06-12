@@ -38,6 +38,10 @@
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
 #include "editor/agent_ui/component/ai_reference_resolver.h"
+#include "editor/agent_ui/component/ai_todo_list_panel.h"
+#include "scene/gui/label.h"
+#include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
 #include "tests/test_utils.h"
 
 TEST_FORCE_LINK(test_agent_v1);
@@ -86,6 +90,38 @@ static void flush_deferred_calls() {
 	if (MessageQueue::get_singleton()) {
 		MessageQueue::get_singleton()->flush();
 	}
+}
+
+static Label *find_first_label(Node *p_node) {
+	if (!p_node) {
+		return nullptr;
+	}
+	if (Label *label = Object::cast_to<Label>(p_node)) {
+		return label;
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (Label *label = find_first_label(p_node->get_child(i))) {
+			return label;
+		}
+	}
+	return nullptr;
+}
+
+static Label *find_label_with_text(Node *p_node, const String &p_text) {
+	if (!p_node) {
+		return nullptr;
+	}
+	if (Label *label = Object::cast_to<Label>(p_node)) {
+		if (label->get_text() == p_text) {
+			return label;
+		}
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (Label *label = find_label_with_text(p_node->get_child(i), p_text)) {
+			return label;
+		}
+	}
+	return nullptr;
 }
 
 static void write_bytes_file(const String &p_path, const PackedByteArray &p_bytes) {
@@ -155,6 +191,7 @@ public:
 	Array permission_requests;
 	Array message_snapshots;
 	Array run_states;
+	Array todo_snapshots;
 
 	void on_permission_requested(const Dictionary &p_request) {
 		permission_requests.push_back(p_request.duplicate(true));
@@ -169,6 +206,13 @@ public:
 
 	void on_run_state_changed(const Dictionary &p_state) {
 		run_states.push_back(p_state.duplicate(true));
+	}
+
+	void on_todos_changed(const String &p_session_id, const Array &p_todos) {
+		Dictionary snapshot;
+		snapshot["session_id"] = p_session_id;
+		snapshot["todos"] = p_todos.duplicate(true);
+		todo_snapshots.push_back(snapshot);
 	}
 };
 
@@ -2984,6 +3028,213 @@ TEST_CASE("[Editor][AgentV1] Tool registry settles read tools, pending writes, a
 	CHECK(saw_failed);
 }
 
+TEST_CASE("[Editor][AgentV1] todowrite replaces session todos and emits todo updated events") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_todo_store()->set_base_dir(TestUtils::get_temp_path("agent_v1/todos_store"));
+
+	Dictionary create;
+	create["id"] = "todo-session";
+	create["directory"] = "res://";
+	create["agent_id"] = "main";
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Ref<AIV1ToolMaterialization> materialization = service->get_tool_registry()->materialize_struct("res://", Array());
+	REQUIRE(materialization.is_valid());
+	CHECK(materialization->has_tool("todowrite"));
+	Dictionary todo_identity = materialization->get_tool_identity("todowrite");
+	CHECK(bool(Dictionary(todo_identity.get("metadata", Dictionary())).get("session_service_bound", false)));
+
+	Array todos;
+	Dictionary first;
+	first["content"] = "Locate the bug";
+	first["status"] = "in_progress";
+	first["priority"] = "high";
+	todos.push_back(first);
+	Dictionary second;
+	second["content"] = "Run verification";
+	second["status"] = "pending";
+	second["priority"] = "medium";
+	todos.push_back(second);
+
+	Dictionary args;
+	args["todos"] = todos;
+	Dictionary call;
+	call["id"] = "call-todo-1";
+	call["name"] = "todowrite";
+	call["input"] = args;
+	Dictionary settle_input;
+	settle_input["session_id"] = "todo-session";
+	settle_input["agent"] = "main";
+	settle_input["assistant_message_id"] = "assistant-todo";
+	settle_input["call"] = call;
+
+	AIV1ToolSettlement settlement;
+	AIError error;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	CHECK(settlement.success);
+	CHECK(Dictionary(settlement.structured).get("todos", Array()).get_type() == Variant::ARRAY);
+
+	Array stored = service->get_todos("todo-session");
+	REQUIRE(stored.size() == 2);
+	CHECK(String(Dictionary(stored[0]).get("content", String())) == "Locate the bug");
+	CHECK(String(Dictionary(stored[0]).get("status", String())) == "in_progress");
+
+	bool saw_todo_updated = false;
+	const Vector<AIEventRow> events = service->get_event_store()->list("todo-session");
+	for (int i = 0; i < events.size(); i++) {
+		if (events[i].type == AIDomainEventTypes::todo_updated()) {
+			saw_todo_updated = true;
+			CHECK(Array(Dictionary(events[i].data).get("todos", Array())).size() == 2);
+		}
+	}
+	CHECK(saw_todo_updated);
+
+	Array replacement;
+	Dictionary completed;
+	completed["content"] = "Run verification";
+	completed["status"] = "completed";
+	completed["priority"] = "medium";
+	replacement.push_back(completed);
+
+	Dictionary replacement_args;
+	replacement_args["todos"] = replacement;
+	Dictionary replacement_call;
+	replacement_call["id"] = "call-todo-2";
+	replacement_call["name"] = "todowrite";
+	replacement_call["input"] = replacement_args;
+	settle_input["call"] = replacement_call;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	CHECK(settlement.success);
+
+	stored = service->get_todos("todo-session");
+	REQUIRE(stored.size() == 1);
+	CHECK(String(Dictionary(stored[0]).get("content", String())) == "Run verification");
+	CHECK(String(Dictionary(stored[0]).get("status", String())) == "completed");
+
+	service->get_todo_store()->clear_memory();
+	stored = service->get_todos("todo-session");
+	REQUIRE(stored.size() == 1);
+	CHECK(String(Dictionary(stored[0]).get("status", String())) == "completed");
+}
+
+TEST_CASE("[Editor][AgentV1] todowrite materialization survives repeated bridge sync") {
+	AIAgentV1UIBridge::clear_singleton_for_test();
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_todo_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIBridge> bridge;
+	bridge.instantiate();
+	bridge->set_session_service(service);
+
+	Ref<AIV1ToolMaterialization> materialization = service->get_tool_registry()->materialize_struct("res://", Array());
+	REQUIRE(materialization.is_valid());
+	REQUIRE(materialization->has_tool("todowrite"));
+	const Dictionary identity_before = materialization->get_tool_identity("todowrite");
+	REQUIRE(!identity_before.is_empty());
+
+	(void)bridge->get_todos("todo-bridge-sync-session");
+	const Dictionary identity_after = service->get_tool_registry()->get_tool_identity("todowrite");
+	CHECK(String(identity_after.get("id", String())) == String(identity_before.get("id", String())));
+	CHECK(int64_t(identity_after.get("generation", 0)) == int64_t(identity_before.get("generation", 0)));
+
+	Array todos;
+	Dictionary todo;
+	todo["content"] = "Keep todowrite identity stable";
+	todo["status"] = "in_progress";
+	todo["priority"] = "high";
+	todos.push_back(todo);
+
+	Dictionary args;
+	args["todos"] = todos;
+	Dictionary call;
+	call["id"] = "call-todo-bridge-sync";
+	call["name"] = "todowrite";
+	call["input"] = args;
+
+	Dictionary settle_input;
+	settle_input["session_id"] = "todo-bridge-sync-session";
+	settle_input["agent"] = "main";
+	settle_input["assistant_message_id"] = "assistant-todo-bridge-sync";
+	settle_input["call"] = call;
+
+	AIV1ToolSettlement settlement;
+	AIError error;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	CHECK_FALSE(settlement.stale);
+	CHECK(settlement.success);
+	CHECK(service->get_todos("todo-bridge-sync-session").size() == 1);
+
+	AIAgentV1UIBridge::clear_singleton_for_test();
+}
+
+TEST_CASE("[Editor][AgentV1] todowrite respects explicit permission deny rules") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_todo_store()->set_base_dir(String());
+
+	Array rules;
+	Dictionary deny_todos;
+	deny_todos["action"] = "todo.write";
+	deny_todos["resource"] = "session:todo-denied-session/todos";
+	deny_todos["effect"] = "deny";
+	deny_todos["reason"] = "todo writes disabled";
+	rules.push_back(deny_todos);
+	service->get_permission_service()->set_rules(rules);
+
+	Dictionary create;
+	create["id"] = "todo-denied-session";
+	create["directory"] = "res://";
+	create["agent_id"] = "main";
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Ref<AIV1ToolMaterialization> materialization = service->get_tool_registry()->materialize_struct("res://", Array());
+	REQUIRE(materialization.is_valid());
+	REQUIRE(materialization->has_tool("todowrite"));
+
+	Array todos;
+	Dictionary todo;
+	todo["content"] = "Should not persist";
+	todo["status"] = "in_progress";
+	todo["priority"] = "high";
+	todos.push_back(todo);
+
+	Dictionary args;
+	args["todos"] = todos;
+	Dictionary call;
+	call["id"] = "call-todo-denied";
+	call["name"] = "todowrite";
+	call["input"] = args;
+	Dictionary settle_input;
+	settle_input["session_id"] = "todo-denied-session";
+	settle_input["agent"] = "main";
+	settle_input["assistant_message_id"] = "assistant-todo-denied";
+	settle_input["call"] = call;
+
+	AIV1ToolSettlement settlement;
+	AIError error;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	CHECK_FALSE(settlement.success);
+	CHECK(settlement.error.kind == AI_ERROR_PERMISSION);
+	CHECK(service->get_todos("todo-denied-session").is_empty());
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("todo-denied-session");
+	for (int i = 0; i < events.size(); i++) {
+		CHECK(events[i].type != AIDomainEventTypes::todo_updated());
+	}
+}
+
 TEST_CASE("[Editor][AgentV1] Tool materialization captures root, filters denied tools, and restores scoped registrations") {
 	const String root_a = TestUtils::get_temp_path("agent_v1/tools_root_a");
 	const String root_b = TestUtils::get_temp_path("agent_v1/tools_root_b");
@@ -2993,6 +3244,7 @@ TEST_CASE("[Editor][AgentV1] Tool materialization captures root, filters denied 
 	Ref<AIV1ToolRegistry> registry;
 	registry.instantiate();
 	registry->register_builtin_tools();
+	CHECK(registry->has_tool("todowrite"));
 
 	Array rules;
 	Dictionary deny_write;
@@ -4230,6 +4482,97 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter creates sessions and projects UI
 	const Dictionary run_state = collector->run_states[collector->run_states.size() - 1];
 	CHECK(String(run_state.get("session_id", String())) == "ui-session-a");
 	CHECK_FALSE(bool(run_state.get("busy", true)));
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter emits todo snapshots for session updates") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_todo_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Ref<AgentV1UIAdapterSignalCollector> collector;
+	collector.instantiate();
+	adapter->connect("todos_changed", callable_mp(collector.ptr(), &AgentV1UIAdapterSignalCollector::on_todos_changed));
+
+	Dictionary create;
+	create["id"] = "ui-todo-session";
+	create["directory"] = "res://";
+	create["agent_id"] = "main";
+	REQUIRE(bool(adapter->create_session(create).get("success", false)));
+
+	Array todos;
+	Dictionary first;
+	first["content"] = "Plan work";
+	first["status"] = "completed";
+	first["priority"] = "high";
+	todos.push_back(first);
+	Dictionary second;
+	second["content"] = "Implement work";
+	second["status"] = "in_progress";
+	second["priority"] = "high";
+	todos.push_back(second);
+
+	REQUIRE(bool(service->update_todos("ui-todo-session", todos).get("success", false)));
+	flush_deferred_calls();
+
+	REQUIRE(!collector->todo_snapshots.is_empty());
+	const Dictionary latest = collector->todo_snapshots[collector->todo_snapshots.size() - 1];
+	CHECK(String(latest.get("session_id", String())) == "ui-todo-session");
+	const Array snapshot_todos = latest.get("todos", Array());
+	REQUIRE(snapshot_todos.size() == 2);
+	CHECK(String(Dictionary(snapshot_todos[1]).get("content", String())) == "Implement work");
+	CHECK(String(Dictionary(snapshot_todos[1]).get("status", String())) == "in_progress");
+	CHECK(adapter->get_todos("ui-todo-session").size() == 2);
+}
+
+TEST_CASE("[Editor][AgentUI] Todo list panel accepts multi-item snapshots") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AITodoListPanel *panel = memnew(AITodoListPanel);
+	root->add_child(panel);
+	CHECK_FALSE(panel->is_visible());
+
+	Array todos;
+	Dictionary first;
+	first["content"] = "Inspect current changes";
+	first["status"] = "completed";
+	first["priority"] = "high";
+	todos.push_back(first);
+	Dictionary second;
+	second["content"] = "Update todo panel";
+	second["status"] = "in_progress";
+	second["priority"] = "high";
+	todos.push_back(second);
+	Dictionary third;
+	third["content"] = "Run focused tests";
+	third["status"] = "pending";
+	third["priority"] = "medium";
+	todos.push_back(third);
+
+	panel->set_todos(todos);
+	CHECK(panel->is_visible());
+	CHECK(panel->get_todos().size() == 3);
+	Label *summary_label = find_first_label(panel);
+	REQUIRE(summary_label);
+	CHECK(summary_label->get_text() == String::utf8(u8"已完成 1 个任务（共 3 个）"));
+	CHECK_FALSE(summary_label->get_text().contains("å"));
+	CHECK(find_label_with_text(panel, "Inspect current changes") != nullptr);
+	CHECK(find_label_with_text(panel, "Update todo panel") != nullptr);
+	CHECK(find_label_with_text(panel, "Run focused tests") != nullptr);
+
+	panel->set_todos(Array());
+	CHECK_FALSE(panel->is_visible());
+
+	root->remove_child(panel);
+	memdelete(panel);
 }
 
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter keeps promoted user messages in chronological UI order") {

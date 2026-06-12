@@ -101,6 +101,7 @@ AIAgentConfig AIAgentConfig::from_dictionary(const String &p_id, const Dictionar
 	}
 	if (result.system.is_empty()) {
 		result.system.push_back("You are NextEngine Agent.");
+		result.system.push_back("When a user request has three or more clear steps, use the todowrite tool to maintain the visible session task list. Submit the complete todo snapshot before starting, keep exactly one item in_progress, update the snapshot immediately after each step completes, mark obsolete work cancelled, and do not batch progress updates only at the end.");
 	}
 
 	if (p_dict.get("tools", Variant()).get_type() == Variant::DICTIONARY) {

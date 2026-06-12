@@ -45,6 +45,7 @@ class AIAgentV1UIBridge : public RefCounted {
 	void _sessions_changed(const Array &p_sessions);
 	void _active_session_changed(const Dictionary &p_session);
 	void _messages_changed(const String &p_session_id, const Array &p_messages);
+	void _todos_changed(const String &p_session_id, const Array &p_todos);
 	void _run_state_changed(const Dictionary &p_state);
 	void _permission_requested(const Dictionary &p_request);
 	void _permission_resolved(const Dictionary &p_reply);
@@ -112,6 +113,7 @@ public:
 	String get_active_session_id() const;
 	Dictionary get_active_session();
 	Array get_messages(const String &p_session_id = String());
+	Array get_todos(const String &p_session_id = String());
 	Dictionary send_message(const String &p_text, const String &p_model_id = String(), const String &p_agent_id = String(), const Array &p_attachments = Array(), bool p_resume = true);
 	Dictionary cancel_active_run(const String &p_reason = String());
 	Dictionary get_run_state(const String &p_session_id = String()) const;

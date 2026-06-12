@@ -19,10 +19,13 @@
 #include "editor/agent_v1/session/runner/ai_empty_session_runner.h"
 #include "editor/agent_v1/session/runner/ai_session_runner.h"
 #include "editor/agent_v1/session/service/ai_session_store.h"
+#include "editor/agent_v1/session/service/ai_todo_service.h"
 #include "editor/agent_v1/skills/ai_skill_service_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 
 #include "core/object/ref_counted.h"
+
+class AIV1TodoWriteTool;
 
 class AISessionService : public RefCounted {
 	GDCLASS(AISessionService, RefCounted);
@@ -43,12 +46,16 @@ class AISessionService : public RefCounted {
 	Ref<AILLMRuntimeRegistry> runtime_registry;
 	Ref<AIPermissionService> permission_service;
 	Ref<AIV1ToolRegistry> tool_registry;
+	Ref<AITodoStore> todo_store;
+	Ref<AITodoService> todo_service;
 	Ref<AIAttachmentBlobStore> attachment_blob_store;
 	Ref<AIAttachmentResolver> attachment_resolver;
 	Ref<AIModelPartBuilder> model_part_builder;
 	Ref<AIV1SkillService> skill_service;
 	Ref<AIAgentService> agent_service;
 	Ref<AIV1TaskTool> task_tool;
+	Ref<AIV1TodoWriteTool> todo_write_tool;
+	bool todo_write_tool_registered = false;
 	String project_scope_id;
 	String project_scope_directory;
 	String project_scope_storage_root;
@@ -111,6 +118,10 @@ public:
 	Ref<AIPermissionService> get_permission_service() const;
 	void set_tool_registry(const Ref<AIV1ToolRegistry> &p_tool_registry);
 	Ref<AIV1ToolRegistry> get_tool_registry() const;
+	void set_todo_store(const Ref<AITodoStore> &p_store);
+	Ref<AITodoStore> get_todo_store() const;
+	void set_todo_service(const Ref<AITodoService> &p_service);
+	Ref<AITodoService> get_todo_service() const;
 	void set_attachment_blob_store(const Ref<AIAttachmentBlobStore> &p_blob_store);
 	Ref<AIAttachmentBlobStore> get_attachment_blob_store() const;
 	void set_attachment_resolver(const Ref<AIAttachmentResolver> &p_resolver);
@@ -127,4 +138,6 @@ public:
 	Dictionary reply_permission(const Dictionary &p_input);
 	Dictionary interrupt(const Dictionary &p_input);
 	Dictionary promote_eligible(const String &p_session_id, const String &p_mode = "new-activity");
+	Dictionary update_todos(const String &p_session_id, const Array &p_todos);
+	Array get_todos(const String &p_session_id);
 };

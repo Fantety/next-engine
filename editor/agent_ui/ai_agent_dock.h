@@ -10,6 +10,7 @@
 #include "editor/agent_ui/ai_change_review_panel.h"
 #include "editor/agent_ui/ai_composer.h"
 #include "editor/agent_ui/component/ai_message_list.h"
+#include "editor/agent_ui/component/ai_todo_list_panel.h"
 #include "scene/gui/button.h"
 #include "scene/gui/label.h"
 #include "scene/gui/option_button.h"
@@ -39,6 +40,7 @@ class AIAgentDock : public EditorDock {
 	AIRequirementFormDialog *requirement_form_dialog = nullptr;
 	AIChangeReviewPanel *change_review_panel = nullptr;
 	AIMessageList *message_list = nullptr;
+	AITodoListPanel *todo_panel = nullptr;
 	HBoxContainer *request_status_row = nullptr;
 	ColorRect *request_progress = nullptr;
 	Label *token_usage_label = nullptr;
@@ -62,6 +64,7 @@ class AIAgentDock : public EditorDock {
 	void _sessions_changed(const Array &p_sessions);
 	void _active_session_changed(const Dictionary &p_session);
 	void _messages_changed(const String &p_session_id, const Array &p_messages);
+	void _todos_changed(const String &p_session_id, const Array &p_todos);
 	void _run_state_changed(const Dictionary &p_state);
 	void _permission_requested(const Dictionary &p_request);
 	void _permission_resolved(const Dictionary &p_reply);
@@ -89,6 +92,8 @@ class AIAgentDock : public EditorDock {
 	void _refresh_session_list();
 	void _select_current_session();
 	void _reload_messages_from_session();
+	void _reload_todos_from_session();
+	void _refresh_todo_panel(const Array &p_todos);
 	void _refresh_mcp_status_button();
 	void _refresh_mcp_status_popup();
 	void _refresh_skill_status_button();

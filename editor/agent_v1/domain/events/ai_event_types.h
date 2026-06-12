@@ -33,6 +33,7 @@ public:
 	static String tool_failed();
 
 	static String context_updated();
+	static String todo_updated();
 
 	static String compaction_started();
 	static String compaction_delta();

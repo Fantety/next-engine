@@ -82,6 +82,10 @@ String AIDomainEventTypes::context_updated() {
 	return "session.next.context.updated";
 }
 
+String AIDomainEventTypes::todo_updated() {
+	return "session.next.todo.updated";
+}
+
 String AIDomainEventTypes::compaction_started() {
 	return "session.next.compaction.started";
 }
