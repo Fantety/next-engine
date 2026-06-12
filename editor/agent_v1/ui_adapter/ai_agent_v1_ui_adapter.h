@@ -33,6 +33,9 @@ class AIAgentV1UIAdapter : public RefCounted {
 	static Dictionary _permission_request_to_view(const Dictionary &p_request);
 
 	String _resolve_session_id(const String &p_session_id = String()) const;
+	int64_t _next_ui_last_active_seq() const;
+	String _select_restorable_session_id() const;
+	Dictionary _touch_session_as_active(const String &p_session_id);
 	Array _project_and_get_messages(const String &p_session_id);
 	Dictionary _build_run_state(const String &p_session_id) const;
 	void _emit_error(const Dictionary &p_error_result);
@@ -58,7 +61,10 @@ public:
 
 	Dictionary create_session(const Dictionary &p_options = Dictionary());
 	Array list_sessions();
+	bool restore_active_session();
 	bool set_active_session(const String &p_session_id);
+	Dictionary archive_session(const String &p_session_id);
+	Dictionary delete_session(const String &p_session_id);
 	String get_active_session_id() const;
 	Dictionary get_active_session();
 

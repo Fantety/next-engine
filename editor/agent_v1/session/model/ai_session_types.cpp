@@ -51,6 +51,7 @@ Dictionary AISessionRow::to_dictionary() const {
 	result["directory"] = location.directory;
 	result["workspace_id"] = location.workspace_id;
 	result["title"] = title;
+	result["status"] = status;
 	result["metadata"] = metadata;
 	result["created_at"] = created_at;
 	result["updated_at"] = updated_at;
@@ -68,6 +69,10 @@ AISessionRow AISessionRow::from_dictionary(const Dictionary &p_dict) {
 		result.location.workspace_id = p_dict.get("workspace_id", p_dict.get("workspaceID", String()));
 	}
 	result.title = p_dict.get("title", String());
+	result.status = String(p_dict.get("status", "active")).strip_edges().to_lower();
+	if (result.status.is_empty()) {
+		result.status = "active";
+	}
 	result.metadata = _ai_session_dictionary_from_variant(p_dict.get("metadata", Dictionary())).duplicate(true);
 	result.created_at = uint64_t(p_dict.get("created_at", p_dict.get("createdAt", 0)));
 	result.updated_at = uint64_t(p_dict.get("updated_at", p_dict.get("updatedAt", 0)));

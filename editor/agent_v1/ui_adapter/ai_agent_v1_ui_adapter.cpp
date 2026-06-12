@@ -8,13 +8,35 @@
 
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/os/time.h"
+
+namespace {
+
+const char *UI_LAST_ACTIVE_AT_KEY = "ui_last_active_at";
+const char *UI_LAST_ACTIVE_SEQ_KEY = "ui_last_active_seq";
+
+uint64_t _ui_now_unix_time() {
+	return Time::get_singleton() ? Time::get_singleton()->get_unix_time_from_system() : 0;
+}
+
+Dictionary _ui_session_metadata(const Dictionary &p_session) {
+	if (p_session.get("metadata", Variant()).get_type() == Variant::DICTIONARY) {
+		return Dictionary(p_session["metadata"]);
+	}
+	return Dictionary();
+}
+
+} // namespace
 
 void AIAgentV1UIAdapter::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_session_service", "service"), &AIAgentV1UIAdapter::set_session_service);
 	ClassDB::bind_method(D_METHOD("get_session_service"), &AIAgentV1UIAdapter::get_session_service);
 	ClassDB::bind_method(D_METHOD("create_session", "options"), &AIAgentV1UIAdapter::create_session, DEFVAL(Dictionary()));
 	ClassDB::bind_method(D_METHOD("list_sessions"), &AIAgentV1UIAdapter::list_sessions);
+	ClassDB::bind_method(D_METHOD("restore_active_session"), &AIAgentV1UIAdapter::restore_active_session);
 	ClassDB::bind_method(D_METHOD("set_active_session", "session_id"), &AIAgentV1UIAdapter::set_active_session);
+	ClassDB::bind_method(D_METHOD("archive_session", "session_id"), &AIAgentV1UIAdapter::archive_session);
+	ClassDB::bind_method(D_METHOD("delete_session", "session_id"), &AIAgentV1UIAdapter::delete_session);
 	ClassDB::bind_method(D_METHOD("get_active_session_id"), &AIAgentV1UIAdapter::get_active_session_id);
 	ClassDB::bind_method(D_METHOD("get_active_session"), &AIAgentV1UIAdapter::get_active_session);
 	ClassDB::bind_method(D_METHOD("get_messages", "session_id"), &AIAgentV1UIAdapter::get_messages, DEFVAL(String()));
@@ -208,6 +230,10 @@ Dictionary AIAgentV1UIAdapter::_tool_content_to_ui_message(const AISessionMessag
 }
 
 void AIAgentV1UIAdapter::_append_ui_messages_from_session_message(const AISessionMessage &p_message, Array &r_messages) {
+	if (p_message.type == AI_SESSION_MESSAGE_SYSTEM) {
+		return;
+	}
+
 	PackedStringArray assistant_text;
 	Array tool_messages;
 	for (int i = 0; i < p_message.content.size(); i++) {
@@ -257,6 +283,92 @@ Dictionary AIAgentV1UIAdapter::_permission_request_to_view(const Dictionary &p_r
 String AIAgentV1UIAdapter::_resolve_session_id(const String &p_session_id) const {
 	const String session_id = p_session_id.strip_edges();
 	return session_id.is_empty() ? active_session_id : session_id;
+}
+
+int64_t AIAgentV1UIAdapter::_next_ui_last_active_seq() const {
+	int64_t next_seq = 1;
+	if (session_service.is_null() || session_service->get_session_store().is_null()) {
+		return next_seq;
+	}
+
+	const Array sessions = session_service->get_session_store()->list_sessions();
+	for (int i = 0; i < sessions.size(); i++) {
+		if (sessions[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary session_metadata = _ui_session_metadata(Dictionary(sessions[i]));
+		next_seq = MAX(next_seq, int64_t(session_metadata.get(UI_LAST_ACTIVE_SEQ_KEY, 0)) + 1);
+	}
+	return next_seq;
+}
+
+String AIAgentV1UIAdapter::_select_restorable_session_id() const {
+	if (session_service.is_null() || session_service->get_session_store().is_null()) {
+		return String();
+	}
+
+	String best_id;
+	int64_t best_seq = -1;
+	uint64_t best_time = 0;
+
+	const Array sessions = session_service->get_session_store()->list_sessions();
+	for (int i = 0; i < sessions.size(); i++) {
+		if (sessions[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary session = sessions[i];
+		const String session_id = String(session.get("id", String())).strip_edges();
+		if (session_id.is_empty()) {
+			continue;
+		}
+
+		const Dictionary session_metadata = _ui_session_metadata(session);
+		const int64_t seq = int64_t(session_metadata.get(UI_LAST_ACTIVE_SEQ_KEY, 0));
+		uint64_t time = uint64_t(session_metadata.get(UI_LAST_ACTIVE_AT_KEY, 0));
+		if (time == 0) {
+			time = uint64_t(session.get("updated_at", session.get("updatedAt", 0)));
+		}
+		if (time == 0) {
+			time = uint64_t(session.get("created_at", session.get("createdAt", 0)));
+		}
+
+		if (best_id.is_empty() || seq > best_seq || (seq == best_seq && time > best_time) || (seq == best_seq && time == best_time && session_id > best_id)) {
+			best_id = session_id;
+			best_seq = seq;
+			best_time = time;
+		}
+	}
+	return best_id;
+}
+
+Dictionary AIAgentV1UIAdapter::_touch_session_as_active(const String &p_session_id) {
+	Dictionary result;
+	if (session_service.is_null() || session_service->get_session_store().is_null()) {
+		return _make_error_result("Agent UI adapter dependencies are not available.");
+	}
+
+	AISessionRow session;
+	if (!session_service->get_session_store()->get_session_struct(p_session_id, session)) {
+		Dictionary details;
+		details["session_id"] = p_session_id;
+		return _make_error_result("Active session was not found.", details);
+	}
+
+	Dictionary session_metadata = session.metadata.duplicate(true);
+	session_metadata[UI_LAST_ACTIVE_AT_KEY] = _ui_now_unix_time();
+	session_metadata[UI_LAST_ACTIVE_SEQ_KEY] = _next_ui_last_active_seq();
+
+	AISessionRow updated_session;
+	String error;
+	if (!session_service->get_session_store()->update_metadata_struct(p_session_id, session_metadata, updated_session, error)) {
+		Dictionary details;
+		details["session_id"] = p_session_id;
+		return _make_error_result(error.is_empty() ? String("Failed to update active session metadata.") : error, details);
+	}
+
+	result = updated_session.to_dictionary();
+	result["success"] = true;
+	return result;
 }
 
 Array AIAgentV1UIAdapter::_project_and_get_messages(const String &p_session_id) {
@@ -499,16 +611,41 @@ Dictionary AIAgentV1UIAdapter::create_session(const Dictionary &p_options) {
 	}
 
 	active_session_id = created.get("id", String());
+	Dictionary active_session = created.duplicate(true);
+	const Dictionary touched = _touch_session_as_active(active_session_id);
+	if (bool(touched.get("success", false))) {
+		active_session = touched.duplicate(true);
+		active_session["created"] = created.get("created", true);
+	} else {
+		_emit_error(touched);
+	}
 	emit_signal(SNAME("sessions_changed"), list_sessions());
-	emit_signal(SNAME("active_session_changed"), created.duplicate(true));
+	emit_signal(SNAME("active_session_changed"), active_session.duplicate(true));
 	_emit_messages_changed(active_session_id);
 	_emit_run_state_changed(active_session_id);
-	return created.duplicate(true);
+	return active_session.duplicate(true);
 }
 
 Array AIAgentV1UIAdapter::list_sessions() {
 	_ensure_defaults();
 	return session_service->get_session_store()->list_sessions();
+}
+
+bool AIAgentV1UIAdapter::restore_active_session() {
+	_ensure_defaults();
+	if (!active_session_id.is_empty()) {
+		const Dictionary session = session_service->get_session_store()->get_session(active_session_id);
+		if (bool(session.get("success", false))) {
+			return true;
+		}
+		active_session_id.clear();
+	}
+
+	const String session_id = _select_restorable_session_id();
+	if (session_id.is_empty()) {
+		return false;
+	}
+	return set_active_session(session_id);
 }
 
 bool AIAgentV1UIAdapter::set_active_session(const String &p_session_id) {
@@ -525,10 +662,74 @@ bool AIAgentV1UIAdapter::set_active_session(const String &p_session_id) {
 	}
 
 	active_session_id = session_id;
+	const Dictionary touched = _touch_session_as_active(active_session_id);
+	if (bool(touched.get("success", false))) {
+		session = touched.duplicate(true);
+	} else {
+		_emit_error(touched);
+	}
 	emit_signal(SNAME("active_session_changed"), session.duplicate(true));
 	_emit_messages_changed(active_session_id);
 	_emit_run_state_changed(active_session_id);
 	return true;
+}
+
+Dictionary AIAgentV1UIAdapter::archive_session(const String &p_session_id) {
+	_ensure_defaults();
+	const String session_id = p_session_id.strip_edges();
+	if (session_id.is_empty()) {
+		Dictionary details;
+		details["field"] = "session_id";
+		const Dictionary result = _make_error_result("Session id is required.", details);
+		_emit_error(result);
+		return result;
+	}
+
+	const Dictionary result = session_service->get_session_store()->archive_session(session_id);
+	if (!bool(result.get("success", false))) {
+		_emit_error(result);
+		return result;
+	}
+
+	if (active_session_id == session_id) {
+		active_session_id.clear();
+		if (!restore_active_session()) {
+			emit_signal(SNAME("active_session_changed"), Dictionary());
+			emit_signal(SNAME("run_state_changed"), _build_run_state(String()));
+		}
+	}
+
+	emit_signal(SNAME("sessions_changed"), list_sessions());
+	return result.duplicate(true);
+}
+
+Dictionary AIAgentV1UIAdapter::delete_session(const String &p_session_id) {
+	_ensure_defaults();
+	const String session_id = p_session_id.strip_edges();
+	if (session_id.is_empty()) {
+		Dictionary details;
+		details["field"] = "session_id";
+		const Dictionary result = _make_error_result("Session id is required.", details);
+		_emit_error(result);
+		return result;
+	}
+
+	const Dictionary result = session_service->get_session_store()->delete_session(session_id);
+	if (!bool(result.get("success", false))) {
+		_emit_error(result);
+		return result;
+	}
+
+	if (active_session_id == session_id) {
+		active_session_id.clear();
+		if (!restore_active_session()) {
+			emit_signal(SNAME("active_session_changed"), Dictionary());
+			emit_signal(SNAME("run_state_changed"), _build_run_state(String()));
+		}
+	}
+
+	emit_signal(SNAME("sessions_changed"), list_sessions());
+	return result.duplicate(true);
 }
 
 String AIAgentV1UIAdapter::get_active_session_id() const {

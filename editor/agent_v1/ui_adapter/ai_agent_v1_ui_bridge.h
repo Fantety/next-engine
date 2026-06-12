@@ -101,7 +101,10 @@ public:
 
 	Dictionary create_session(const Dictionary &p_options = Dictionary());
 	Array list_sessions();
+	bool restore_active_session();
 	bool set_active_session(const String &p_session_id);
+	Dictionary archive_session(const String &p_session_id);
+	Dictionary delete_session(const String &p_session_id);
 	String get_active_session_id() const;
 	Dictionary get_active_session();
 	Array get_messages(const String &p_session_id = String());

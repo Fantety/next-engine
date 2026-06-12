@@ -19,6 +19,8 @@ void AISessionStore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("create_session", "input"), &AISessionStore::create_session);
 	ClassDB::bind_method(D_METHOD("get_session", "session_id"), &AISessionStore::get_session);
 	ClassDB::bind_method(D_METHOD("update_metadata", "session_id", "metadata"), &AISessionStore::update_metadata);
+	ClassDB::bind_method(D_METHOD("archive_session", "session_id"), &AISessionStore::archive_session);
+	ClassDB::bind_method(D_METHOD("delete_session", "session_id"), &AISessionStore::delete_session);
 	ClassDB::bind_method(D_METHOD("list_sessions"), &AISessionStore::list_sessions);
 	ClassDB::bind_method(D_METHOD("clear_memory"), &AISessionStore::clear_memory);
 }
@@ -120,6 +122,51 @@ bool AISessionStore::_append_snapshot_locked(const AISessionRow &p_session, Stri
 	return true;
 }
 
+bool AISessionStore::_is_active_status(const String &p_status) {
+	const String status = p_status.strip_edges().to_lower();
+	return status.is_empty() || status == "active";
+}
+
+bool AISessionStore::_set_session_status_struct(const String &p_session_id, const String &p_status, AISessionRow &r_session, String &r_error) {
+	const String session_id = p_session_id.strip_edges();
+	const String status = p_status.strip_edges().to_lower();
+	if (session_id.is_empty()) {
+		r_error = "AI session id cannot be empty.";
+		return false;
+	}
+	if (status.is_empty()) {
+		r_error = "AI session status cannot be empty.";
+		return false;
+	}
+
+	MutexLock lock(mutex);
+	if (!_ensure_loaded_locked(r_error)) {
+		return false;
+	}
+
+	HashMap<String, AISessionRow>::Iterator session = sessions_by_id.find(session_id);
+	if (!session) {
+		r_error = "AI session not found: " + session_id;
+		return false;
+	}
+
+	AISessionRow updated = session->value;
+	if (updated.status == "deleted") {
+		r_error = "AI session not found: " + session_id;
+		return false;
+	}
+
+	updated.status = status;
+	updated.updated_at = _now_unix_time();
+	if (!_append_snapshot_locked(updated, r_error)) {
+		return false;
+	}
+
+	sessions_by_id[session_id] = updated;
+	r_session = updated;
+	return true;
+}
+
 void AISessionStore::set_base_dir(const String &p_base_dir) {
 	MutexLock lock(mutex);
 	base_dir = p_base_dir.strip_edges();
@@ -141,6 +188,10 @@ bool AISessionStore::create_or_reuse(const Dictionary &p_input, AISessionRow &r_
 	const String requested_id = String(p_input.get("id", p_input.get("session_id", p_input.get("sessionID", String())))).strip_edges();
 	if (!requested_id.is_empty() && sessions_by_id.has(requested_id)) {
 		r_session = sessions_by_id[requested_id];
+		if (!_is_active_status(r_session.status)) {
+			r_error = "AI session is not active: " + requested_id;
+			return false;
+		}
 		r_created = false;
 		return true;
 	}
@@ -187,6 +238,9 @@ bool AISessionStore::get_session_struct(const String &p_session_id, AISessionRow
 	if (!session) {
 		return false;
 	}
+	if (!_is_active_status(session->value.status)) {
+		return false;
+	}
 
 	r_session = session->value;
 	return true;
@@ -209,6 +263,10 @@ bool AISessionStore::update_metadata_struct(const String &p_session_id, const Di
 		r_error = "AI session not found: " + session_id;
 		return false;
 	}
+	if (!_is_active_status(session->value.status)) {
+		r_error = "AI session not found: " + session_id;
+		return false;
+	}
 
 	AISessionRow updated = session->value;
 	updated.metadata = p_metadata.duplicate(true);
@@ -220,6 +278,14 @@ bool AISessionStore::update_metadata_struct(const String &p_session_id, const Di
 	sessions_by_id[session_id] = updated;
 	r_session = updated;
 	return true;
+}
+
+bool AISessionStore::archive_session_struct(const String &p_session_id, AISessionRow &r_session, String &r_error) {
+	return _set_session_status_struct(p_session_id, "archived", r_session, r_error);
+}
+
+bool AISessionStore::delete_session_struct(const String &p_session_id, AISessionRow &r_session, String &r_error) {
+	return _set_session_status_struct(p_session_id, "deleted", r_session, r_error);
 }
 
 Dictionary AISessionStore::create_session(const Dictionary &p_input) {
@@ -268,6 +334,36 @@ Dictionary AISessionStore::get_session(const String &p_session_id) {
 	return result;
 }
 
+Dictionary AISessionStore::archive_session(const String &p_session_id) {
+	AISessionRow session;
+	String error;
+	if (!archive_session_struct(p_session_id, session, error)) {
+		Dictionary result;
+		result["success"] = false;
+		result["error"] = error;
+		return result;
+	}
+
+	Dictionary result = session.to_dictionary();
+	result["success"] = true;
+	return result;
+}
+
+Dictionary AISessionStore::delete_session(const String &p_session_id) {
+	AISessionRow session;
+	String error;
+	if (!delete_session_struct(p_session_id, session, error)) {
+		Dictionary result;
+		result["success"] = false;
+		result["error"] = error;
+		return result;
+	}
+
+	Dictionary result = session.to_dictionary();
+	result["success"] = true;
+	return result;
+}
+
 Array AISessionStore::list_sessions() {
 	Array result;
 	MutexLock lock(mutex);
@@ -277,6 +373,9 @@ Array AISessionStore::list_sessions() {
 	}
 
 	for (const KeyValue<String, AISessionRow> &E : sessions_by_id) {
+		if (!_is_active_status(E.value.status)) {
+			continue;
+		}
 		result.push_back(E.value.to_dictionary());
 	}
 	return result;

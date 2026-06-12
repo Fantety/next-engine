@@ -46,7 +46,10 @@ void AIAgentV1UIBridge::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("create_session", "options"), &AIAgentV1UIBridge::create_session, DEFVAL(Dictionary()));
 	ClassDB::bind_method(D_METHOD("list_sessions"), &AIAgentV1UIBridge::list_sessions);
+	ClassDB::bind_method(D_METHOD("restore_active_session"), &AIAgentV1UIBridge::restore_active_session);
 	ClassDB::bind_method(D_METHOD("set_active_session", "session_id"), &AIAgentV1UIBridge::set_active_session);
+	ClassDB::bind_method(D_METHOD("archive_session", "session_id"), &AIAgentV1UIBridge::archive_session);
+	ClassDB::bind_method(D_METHOD("delete_session", "session_id"), &AIAgentV1UIBridge::delete_session);
 	ClassDB::bind_method(D_METHOD("get_active_session_id"), &AIAgentV1UIBridge::get_active_session_id);
 	ClassDB::bind_method(D_METHOD("get_active_session"), &AIAgentV1UIBridge::get_active_session);
 	ClassDB::bind_method(D_METHOD("get_messages", "session_id"), &AIAgentV1UIBridge::get_messages, DEFVAL(String()));
@@ -573,9 +576,24 @@ Array AIAgentV1UIBridge::list_sessions() {
 	return conversation_adapter->list_sessions();
 }
 
+bool AIAgentV1UIBridge::restore_active_session() {
+	_sync_adapters();
+	return conversation_adapter->restore_active_session();
+}
+
 bool AIAgentV1UIBridge::set_active_session(const String &p_session_id) {
 	_sync_adapters();
 	return conversation_adapter->set_active_session(p_session_id);
+}
+
+Dictionary AIAgentV1UIBridge::archive_session(const String &p_session_id) {
+	_sync_adapters();
+	return conversation_adapter->archive_session(p_session_id);
+}
+
+Dictionary AIAgentV1UIBridge::delete_session(const String &p_session_id) {
+	_sync_adapters();
+	return conversation_adapter->delete_session(p_session_id);
 }
 
 String AIAgentV1UIBridge::get_active_session_id() const {

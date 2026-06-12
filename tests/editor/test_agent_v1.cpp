@@ -3832,6 +3832,107 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter creates sessions and projects UI
 	CHECK_FALSE(bool(run_state.get("busy", true)));
 }
 
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter restores the last active session without creating a new one") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Dictionary first;
+	first["id"] = "ui-restore-first";
+	first["directory"] = "res://";
+	first["agent_id"] = "main";
+	first["title"] = "First";
+	REQUIRE(bool(adapter->create_session(first).get("success", false)));
+
+	Dictionary second;
+	second["id"] = "ui-restore-second";
+	second["directory"] = "res://";
+	second["agent_id"] = "main";
+	second["title"] = "Second";
+	REQUIRE(bool(adapter->create_session(second).get("success", false)));
+	REQUIRE(adapter->set_active_session("ui-restore-first"));
+
+	Ref<AIAgentV1UIAdapter> restarted_adapter;
+	restarted_adapter.instantiate();
+	restarted_adapter->set_session_service(service);
+
+	CHECK(restarted_adapter->restore_active_session());
+	CHECK(restarted_adapter->get_active_session_id() == "ui-restore-first");
+	CHECK(restarted_adapter->list_sessions().size() == 2);
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter archives and deletes sessions without leaving a stale active session") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Dictionary archive;
+	archive["id"] = "ui-session-archive";
+	archive["directory"] = "res://";
+	REQUIRE(bool(adapter->create_session(archive).get("success", false)));
+
+	Dictionary remove;
+	remove["id"] = "ui-session-delete";
+	remove["directory"] = "res://";
+	REQUIRE(bool(adapter->create_session(remove).get("success", false)));
+	REQUIRE(adapter->set_active_session("ui-session-archive"));
+
+	const Dictionary archived = adapter->archive_session("ui-session-archive");
+	REQUIRE(bool(archived.get("success", false)));
+	CHECK(adapter->get_active_session_id() == "ui-session-delete");
+	CHECK_FALSE(adapter->set_active_session("ui-session-archive"));
+
+	Array sessions = adapter->list_sessions();
+	REQUIRE(sessions.size() == 1);
+	CHECK(String(Dictionary(sessions[0]).get("id", String())) == "ui-session-delete");
+
+	const Dictionary deleted = adapter->delete_session("ui-session-delete");
+	REQUIRE(bool(deleted.get("success", false)));
+	CHECK(adapter->get_active_session_id().is_empty());
+	CHECK(adapter->list_sessions().is_empty());
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter does not expose system context as chat messages") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Dictionary create;
+	create["id"] = "ui-session-system-context";
+	create["directory"] = "res://";
+	REQUIRE(bool(adapter->create_session(create).get("success", false)));
+
+	Dictionary context;
+	context["message_id"] = "ui-system-context-message";
+	context["text"] = "You are running inside NextEngine editor agent infrastructure.";
+	context["baseline"] = "You are NextEngine Agent.";
+	context["agent_id"] = "main";
+
+	AIEventRow row;
+	String event_error;
+	REQUIRE(service->get_event_store()->append("ui-session-system-context", AIDomainEventTypes::context_updated(), context, false, row, event_error));
+
+	CHECK(adapter->get_messages("ui-session-system-context").is_empty());
+}
+
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter applies selected UI model profile per session without mutating runtime config") {
 	Ref<AIFakeLLMRuntime> runtime_a;
 	runtime_a.instantiate();

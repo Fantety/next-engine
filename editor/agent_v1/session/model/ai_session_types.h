@@ -23,6 +23,7 @@ struct AISessionRow {
 	String agent_id;
 	AILocationRef location;
 	String title;
+	String status = "active";
 	Dictionary metadata;
 	uint64_t created_at = 0;
 	uint64_t updated_at = 0;

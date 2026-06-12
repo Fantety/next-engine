@@ -24,6 +24,8 @@ class AISessionStore : public RefCounted {
 	bool _ensure_base_dir_locked(String &r_error) const;
 	bool _ensure_loaded_locked(String &r_error);
 	bool _append_snapshot_locked(const AISessionRow &p_session, String &r_error) const;
+	static bool _is_active_status(const String &p_status);
+	bool _set_session_status_struct(const String &p_session_id, const String &p_status, AISessionRow &r_session, String &r_error);
 
 protected:
 	static void _bind_methods();
@@ -37,10 +39,14 @@ public:
 	bool create_or_reuse(const Dictionary &p_input, AISessionRow &r_session, bool &r_created, String &r_error);
 	bool get_session_struct(const String &p_session_id, AISessionRow &r_session);
 	bool update_metadata_struct(const String &p_session_id, const Dictionary &p_metadata, AISessionRow &r_session, String &r_error);
+	bool archive_session_struct(const String &p_session_id, AISessionRow &r_session, String &r_error);
+	bool delete_session_struct(const String &p_session_id, AISessionRow &r_session, String &r_error);
 
 	Dictionary create_session(const Dictionary &p_input);
 	Dictionary get_session(const String &p_session_id);
 	Dictionary update_metadata(const String &p_session_id, const Dictionary &p_metadata);
+	Dictionary archive_session(const String &p_session_id);
+	Dictionary delete_session(const String &p_session_id);
 	Array list_sessions();
 	void clear_memory();
 };

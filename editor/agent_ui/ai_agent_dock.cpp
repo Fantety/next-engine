@@ -640,7 +640,16 @@ void AIAgentDock::_delete_session_pressed() {
 void AIAgentDock::_confirm_delete_session() {
 	_ensure_session();
 
+	const String session_id = pending_delete_session_id.strip_edges();
 	pending_delete_session_id.clear();
+	if (session_id.is_empty()) {
+		return;
+	}
+
+	const Dictionary result = _get_adapter()->delete_session(session_id);
+	if (bool(result.get("success", false))) {
+		_reload_messages_from_session();
+	}
 	_refresh_session_list();
 }
 
@@ -732,6 +741,9 @@ void AIAgentDock::_ensure_session() {
 			adapter->connect(SNAME("skill_status_changed"), skill_status_changed, CONNECT_DEFERRED);
 		}
 		if (adapter->get_active_session_id().is_empty()) {
+			(void)adapter->restore_active_session();
+		}
+		if (adapter->get_active_session_id().is_empty() && adapter->list_sessions().is_empty()) {
 			Dictionary create;
 			create["directory"] = "res://";
 			create["agent_id"] = "main";
@@ -810,7 +822,8 @@ void AIAgentDock::_refresh_session_list() {
 	}
 	_select_current_session();
 	if (delete_session_button) {
-		delete_session_button->set_disabled(true);
+		const bool no_selection = !session_selector || session_selector->get_item_count() == 0 || session_selector->get_selected() < 0;
+		delete_session_button->set_disabled(_is_run_busy() || no_selection);
 	}
 }
 

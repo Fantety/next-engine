@@ -128,9 +128,9 @@ Strictly isolate frame loops and setup code into their designated callbacks:
 
 
 
-## 8. Directory Layout & VCS Standards (Project Organization)
+## 8. Directory Layout
 
-### A. Project Structure
+### Project Structure
 
 Maintain a flat or modular root layout. Never drop stray files into the root folder. Choose one of the following two file directory philosophies and stick to it:
 
@@ -144,18 +144,3 @@ Maintain a flat or modular root layout. Never drop stray files into the root fol
 * Production exports (e.g., Linux, Android) are case-sensitive, while development environments like Windows are not.
 * **Enforced Convention**: Folder names and filenames must strictly use **snake_case** (lowercase with underscores), e.g., `main_menu.tscn`.
 * Inside code, script `class_name` definitions must use **PascalCase** (UpperCamelCase), while variables and functions use **snake_case**.
-
-
-
-### B. Version Control Systems (VCS / Git)
-
-To protect repository size and eliminate diff merge locks, maintain strict `.gitignore` configurations.
-
-* **Mandatory Git Exclusions**:
-* The `.godot/` folder: Contains local cache, imported asset metadata, and local engine state. **Never commit this directory.**
-* `*.translation`: Binary export artifacts generated automatically from localization sources.
-
-
-* **Large File Storage (Git LFS)**:
-Heavy assets such as `.wav`, `.ogg`, `.png`, `.jpg`, `.fbx`, `.gltf`, or `.blend` files must be managed by `git-lfs` rules to avoid repository explosion.
-* **Text Format Leverage**: Godot's `.tscn` (scenes) and `.tres` (resources) are native INI-like text structures. When the Agent generates or parses these, it must respect their text formatting so version control changes can be tracked easily line-by-line via standard Git Diff logs.
