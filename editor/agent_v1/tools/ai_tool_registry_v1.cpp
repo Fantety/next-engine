@@ -13,6 +13,7 @@
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/json.h"
+#include "core/math/math_funcs.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/variant/variant.h"
@@ -314,7 +315,14 @@ bool AIV1ToolRegistry::_validate_schema_type(const Variant &p_value, const Strin
 		return p_value.get_type() == Variant::BOOL;
 	}
 	if (type == "integer") {
-		return p_value.get_type() == Variant::INT;
+		if (p_value.get_type() == Variant::INT) {
+			return true;
+		}
+		if (p_value.get_type() == Variant::FLOAT) {
+			const double value = double(p_value);
+			return Math::is_finite(value) && Math::floor(value) == value;
+		}
+		return false;
 	}
 	if (type == "number") {
 		return p_value.get_type() == Variant::INT || p_value.get_type() == Variant::FLOAT;

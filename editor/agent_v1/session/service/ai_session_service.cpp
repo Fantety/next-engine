@@ -10,6 +10,9 @@
 #include "core/variant/variant.h"
 
 void AISessionService::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_project_scope", "project_id", "directory", "storage_root"), &AISessionService::set_project_scope, DEFVAL(String()), DEFVAL(String()));
+	ClassDB::bind_method(D_METHOD("get_project_scope_id"), &AISessionService::get_project_scope_id);
+	ClassDB::bind_method(D_METHOD("get_project_scope_directory"), &AISessionService::get_project_scope_directory);
 	ClassDB::bind_method(D_METHOD("set_session_store", "session_store"), &AISessionService::set_session_store);
 	ClassDB::bind_method(D_METHOD("get_session_store"), &AISessionService::get_session_store);
 	ClassDB::bind_method(D_METHOD("set_input_store", "input_store"), &AISessionService::set_input_store);
@@ -163,6 +166,14 @@ Dictionary AISessionService::_make_error_result(const AIError &p_error) {
 	return result;
 }
 
+String AISessionService::_sanitize_project_scope_id(const String &p_project_id) {
+	const String project_id = p_project_id.strip_edges();
+	if (project_id.is_empty()) {
+		return String();
+	}
+	return project_id.validate_filename();
+}
+
 void AISessionService::_ensure_defaults() {
 	if (session_store.is_null()) {
 		session_store.instantiate();
@@ -313,6 +324,31 @@ void AISessionService::_wire_dependencies() {
 	}
 }
 
+void AISessionService::_apply_project_scope_storage() {
+	if (project_scope_id.is_empty() || project_scope_storage_root.is_empty()) {
+		return;
+	}
+
+	const String project_root = project_scope_storage_root.path_join(project_scope_id);
+	const String session_dir = project_root.path_join("sessions");
+	const String input_dir = project_root.path_join("session_inputs");
+	const String event_dir = project_root.path_join("events");
+	const String attachment_dir = project_root.path_join("attachments");
+
+	if (session_store.is_valid() && session_store->get_base_dir() != session_dir) {
+		session_store->set_base_dir(session_dir);
+	}
+	if (input_store.is_valid() && input_store->get_base_dir() != input_dir) {
+		input_store->set_base_dir(input_dir);
+	}
+	if (event_store.is_valid() && event_store->get_base_dir() != event_dir) {
+		event_store->set_base_dir(event_dir);
+	}
+	if (attachment_blob_store.is_valid() && attachment_blob_store->get_base_dir() != attachment_dir) {
+		attachment_blob_store->set_base_dir(attachment_dir);
+	}
+}
+
 bool AISessionService::_resolve_session_for_prompt(const Dictionary &p_input, AISessionRow &r_session, bool &r_created, AIError &r_error) {
 	_ensure_defaults();
 	const String session_id = String(p_input.get("session_id", p_input.get("sessionID", String()))).strip_edges();
@@ -438,9 +474,31 @@ bool AISessionService::_append_interrupted_activity_events(const String &p_sessi
 	return AIStartupRecovery::cleanup_open_activity_struct(event_store, projector, p_session_id, reason, true, true, false, report, r_error);
 }
 
+void AISessionService::set_project_scope(const String &p_project_id, const String &p_directory, const String &p_storage_root) {
+	_ensure_defaults();
+	project_scope_id = _sanitize_project_scope_id(p_project_id);
+	project_scope_directory = p_directory.strip_edges();
+	const String storage_root = p_storage_root.strip_edges();
+	if (!storage_root.is_empty() || project_scope_storage_root.is_empty()) {
+		project_scope_storage_root = storage_root;
+	}
+
+	_apply_project_scope_storage();
+	_wire_dependencies();
+}
+
+String AISessionService::get_project_scope_id() const {
+	return project_scope_id;
+}
+
+String AISessionService::get_project_scope_directory() const {
+	return project_scope_directory;
+}
+
 void AISessionService::set_session_store(const Ref<AISessionStore> &p_session_store) {
 	session_store = p_session_store;
 	_ensure_defaults();
+	_apply_project_scope_storage();
 	_wire_dependencies();
 }
 
@@ -451,6 +509,7 @@ Ref<AISessionStore> AISessionService::get_session_store() const {
 void AISessionService::set_input_store(const Ref<AISessionInputStore> &p_input_store) {
 	input_store = p_input_store;
 	_ensure_defaults();
+	_apply_project_scope_storage();
 	_wire_dependencies();
 }
 
@@ -461,6 +520,7 @@ Ref<AISessionInputStore> AISessionService::get_input_store() const {
 void AISessionService::set_event_store(const Ref<AIEventStore> &p_event_store) {
 	event_store = p_event_store;
 	_ensure_defaults();
+	_apply_project_scope_storage();
 	_wire_dependencies();
 }
 
@@ -601,6 +661,7 @@ Ref<AIV1ToolRegistry> AISessionService::get_tool_registry() const {
 void AISessionService::set_attachment_blob_store(const Ref<AIAttachmentBlobStore> &p_blob_store) {
 	attachment_blob_store = p_blob_store;
 	_ensure_defaults();
+	_apply_project_scope_storage();
 	_wire_dependencies();
 }
 
@@ -650,10 +711,18 @@ Ref<AIAgentService> AISessionService::get_agent_service() const {
 
 Dictionary AISessionService::create(const Dictionary &p_input) {
 	_ensure_defaults();
+	Dictionary input = p_input.duplicate(true);
+	if (!project_scope_id.is_empty() && !input.has("workspace_id") && !input.has("workspaceID")) {
+		input["workspace_id"] = project_scope_id;
+	}
+	if (!project_scope_directory.is_empty() && !input.has("directory") && input.get("location", Variant()).get_type() != Variant::DICTIONARY) {
+		input["directory"] = project_scope_directory;
+	}
+
 	AISessionRow session;
 	bool created = false;
 	String error;
-	if (!session_store->create_or_reuse(p_input, session, created, error)) {
+	if (!session_store->create_or_reuse(input, session, created, error)) {
 		return _make_error_result(AIError::make(AI_ERROR_INTERNAL, error));
 	}
 

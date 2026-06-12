@@ -130,6 +130,7 @@ struct AISessionInfo {
 struct AISessionInput {
 	int64_t admitted_seq = 0;
 	String id;
+	String message_id;
 	String session_id;
 	AIPrompt prompt;
 	AISessionInputDelivery delivery = AI_SESSION_INPUT_DELIVERY_QUEUE;

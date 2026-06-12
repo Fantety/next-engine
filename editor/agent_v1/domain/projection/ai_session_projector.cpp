@@ -186,6 +186,7 @@ void AISessionProjector::_project_row_locked(const AIEventRow &p_row) {
 		AISessionInput input;
 		input.admitted_seq = p_row.seq;
 		input.id = _ai_projector_get_string(data, "id", "message_id", "messageID", _fallback_message_id("user", p_row.seq));
+		input.message_id = _ai_projector_get_string(data, "message_id", "messageID", "id", input.id);
 		input.session_id = _ai_projector_get_string(data, "session_id", "sessionID", String(), session_id);
 		input.prompt = AIPrompt::from_dictionary(_ai_projector_dictionary_from_variant(data.get("prompt", Dictionary())));
 		input.delivery = ai_session_input_delivery_from_string(data.get("delivery", "queue"));
@@ -203,6 +204,7 @@ void AISessionProjector::_project_row_locked(const AIEventRow &p_row) {
 		uint64_t promoted_time = time_created;
 		if (input_index >= 0) {
 			inputs.write[input_index].promoted_seq = p_row.seq;
+			inputs.write[input_index].message_id = _ai_projector_get_string(data, "message_id", "messageID", "id", inputs[input_index].message_id);
 			if (prompt.text.is_empty() && prompt.files.is_empty() && prompt.agents.is_empty() && prompt.references.is_empty()) {
 				prompt = inputs[input_index].prompt;
 			}

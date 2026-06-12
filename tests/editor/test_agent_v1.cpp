@@ -416,6 +416,29 @@ TEST_CASE("[Editor][AgentV1] Local persistence defaults stay under net.nextengin
 	CHECK(config->get_managed_config_path().begins_with("user://net.nextengine/"));
 }
 
+TEST_CASE("[Editor][AgentV1] Session service scopes durable stores by project") {
+	const String base = TestUtils::get_temp_path("agent_v1/project_scoped_storage");
+
+	Ref<AISessionService> project_a;
+	project_a.instantiate();
+	project_a->set_project_scope("project-a", "res://", base);
+
+	Ref<AISessionService> project_b;
+	project_b.instantiate();
+	project_b->set_project_scope("project-b", "res://", base);
+
+	CHECK(project_a->get_project_scope_id() == "project-a");
+	CHECK(project_b->get_project_scope_id() == "project-b");
+	CHECK(project_a->get_session_store()->get_base_dir().contains("project-a"));
+	CHECK(project_a->get_input_store()->get_base_dir().contains("project-a"));
+	CHECK(project_a->get_event_store()->get_base_dir().contains("project-a"));
+	CHECK(project_a->get_attachment_blob_store()->get_base_dir().contains("project-a"));
+	CHECK(project_b->get_session_store()->get_base_dir().contains("project-b"));
+	CHECK(project_a->get_session_store()->get_base_dir() != project_b->get_session_store()->get_base_dir());
+	CHECK(project_a->get_event_store()->get_base_dir() != project_b->get_event_store()->get_base_dir());
+	CHECK(project_a->get_attachment_blob_store()->get_base_dir() != project_b->get_attachment_blob_store()->get_base_dir());
+}
+
 TEST_CASE("[Editor][AgentV1] Attachment blob store separates metadata and bytes") {
 	Ref<AIAttachmentBlobStore> store;
 	store.instantiate();
@@ -2863,6 +2886,36 @@ TEST_CASE("[Editor][AgentV1] Session service registers migrated editor tools for
 	CHECK(String(settlement.metadata.get("legacy_tool_name", String())) == "project.list_tree");
 }
 
+TEST_CASE("[Editor][AgentV1] Project list tree accepts JSON number values for integer arguments") {
+	Ref<AISessionService> service;
+	service.instantiate();
+
+	Ref<AIV1ToolRegistry> registry = service->get_tool_registry();
+	REQUIRE(registry.is_valid());
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization.is_valid());
+	REQUIRE(materialization->has_tool("project_list_tree"));
+
+	Dictionary args;
+	args["max_depth"] = 2.0;
+	Dictionary list_call;
+	list_call["id"] = "call-project-list-tree-float-depth";
+	list_call["name"] = "project_list_tree";
+	list_call["input"] = args;
+
+	Dictionary settle_input;
+	settle_input["session_id"] = "session-project-list-tree-float-depth";
+	settle_input["assistant_message_id"] = "assistant-project-list-tree-float-depth";
+	settle_input["call"] = list_call;
+
+	AIV1ToolSettlement settlement;
+	AIError error;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	CHECK(settlement.success);
+	CHECK_FALSE(settlement.error.message.contains("Invalid tool argument type"));
+	CHECK(String(settlement.content).contains("Project tree under res://"));
+}
+
 TEST_CASE("[Editor][AgentV1] Tool materialization applies last matching permission visibility") {
 	Ref<AIV1ToolRegistry> registry;
 	registry.instantiate();
@@ -3832,6 +3885,64 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter creates sessions and projects UI
 	CHECK_FALSE(bool(run_state.get("busy", true)));
 }
 
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter keeps promoted user messages in chronological UI order") {
+	Ref<AIFakeLLMRuntime> runtime;
+	runtime.instantiate();
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("fake-ui-order", runtime);
+
+	Dictionary provider;
+	provider["type"] = "fake";
+	provider["model"] = "fake-model";
+	Dictionary providers;
+	providers["fake-ui-order"] = provider;
+	Dictionary main_agent;
+	main_agent["provider"] = "fake-ui-order";
+	main_agent["model"] = "fake-model";
+	Dictionary agents;
+	agents["main"] = main_agent;
+	Dictionary override_config;
+	override_config["default_provider"] = "fake-ui-order";
+	override_config["default_model"] = "fake-model";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Dictionary create;
+	create["id"] = "ui-session-order";
+	create["directory"] = "res://";
+	create["agent_id"] = "main";
+	REQUIRE(bool(adapter->create_session(create).get("success", false)));
+
+	REQUIRE(bool(adapter->send_message("first user message", String(), "main", Array(), false).get("success", false)));
+	runtime->set_response_text("first assistant message");
+	REQUIRE(bool(service->get_session_runner()->run("ui-session-order", false).get("success", false)));
+
+	REQUIRE(bool(adapter->send_message("second user message", String(), "main", Array(), false).get("success", false)));
+	runtime->set_response_text("second assistant message");
+	REQUIRE(bool(service->get_session_runner()->run("ui-session-order", false).get("success", false)));
+
+	const Array messages = adapter->get_messages("ui-session-order");
+	REQUIRE(messages.size() == 4);
+	CHECK(String(Dictionary(messages[0]).get("role", String())) == "user");
+	CHECK(String(Dictionary(messages[0]).get("content", String())) == "first user message");
+	CHECK(String(Dictionary(messages[1]).get("role", String())) == "assistant");
+	CHECK(String(Dictionary(messages[1]).get("content", String())) == "first assistant message");
+	CHECK(String(Dictionary(messages[2]).get("role", String())) == "user");
+	CHECK(String(Dictionary(messages[2]).get("content", String())) == "second user message");
+	CHECK(String(Dictionary(messages[3]).get("role", String())) == "assistant");
+	CHECK(String(Dictionary(messages[3]).get("content", String())) == "second assistant message");
+}
+
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter restores the last active session without creating a new one") {
 	Ref<AISessionService> service;
 	service.instantiate();
@@ -3865,6 +3976,55 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter restores the last active session
 	CHECK(restarted_adapter->restore_active_session());
 	CHECK(restarted_adapter->get_active_session_id() == "ui-restore-first");
 	CHECK(restarted_adapter->list_sessions().size() == 2);
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter isolates sessions by project scope") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> project_a_adapter;
+	project_a_adapter.instantiate();
+	project_a_adapter->set_session_service(service);
+	project_a_adapter->set_project_scope("project-a", "res://project-a");
+
+	Dictionary project_a_session;
+	project_a_session["id"] = "ui-project-a-session";
+	project_a_session["directory"] = "res://project-a";
+	project_a_session["workspace_id"] = "project-a";
+	project_a_session["title"] = "Project A";
+	REQUIRE(bool(project_a_adapter->create_session(project_a_session).get("success", false)));
+
+	Ref<AIAgentV1UIAdapter> project_b_adapter;
+	project_b_adapter.instantiate();
+	project_b_adapter->set_session_service(service);
+	project_b_adapter->set_project_scope("project-b", "res://project-b");
+
+	Dictionary project_b_session;
+	project_b_session["id"] = "ui-project-b-session";
+	project_b_session["directory"] = "res://project-b";
+	project_b_session["workspace_id"] = "project-b";
+	project_b_session["title"] = "Project B";
+	REQUIRE(bool(project_b_adapter->create_session(project_b_session).get("success", false)));
+
+	const Array project_a_sessions = project_a_adapter->list_sessions();
+	REQUIRE(project_a_sessions.size() == 1);
+	CHECK(String(Dictionary(project_a_sessions[0]).get("id", String())) == "ui-project-a-session");
+
+	const Array project_b_sessions = project_b_adapter->list_sessions();
+	REQUIRE(project_b_sessions.size() == 1);
+	CHECK(String(Dictionary(project_b_sessions[0]).get("id", String())) == "ui-project-b-session");
+
+	Ref<AIAgentV1UIAdapter> restarted_a_adapter;
+	restarted_a_adapter.instantiate();
+	restarted_a_adapter->set_session_service(service);
+	restarted_a_adapter->set_project_scope("project-a", "res://project-a");
+
+	CHECK(restarted_a_adapter->restore_active_session());
+	CHECK(restarted_a_adapter->get_active_session_id() == "ui-project-a-session");
+	CHECK_FALSE(restarted_a_adapter->set_active_session("ui-project-b-session"));
 }
 
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter archives and deletes sessions without leaving a stale active session") {

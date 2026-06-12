@@ -31,6 +31,9 @@ Dictionary _ui_session_metadata(const Dictionary &p_session) {
 void AIAgentV1UIAdapter::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_session_service", "service"), &AIAgentV1UIAdapter::set_session_service);
 	ClassDB::bind_method(D_METHOD("get_session_service"), &AIAgentV1UIAdapter::get_session_service);
+	ClassDB::bind_method(D_METHOD("set_project_scope", "project_id", "directory"), &AIAgentV1UIAdapter::set_project_scope, DEFVAL(String()));
+	ClassDB::bind_method(D_METHOD("get_project_scope_id"), &AIAgentV1UIAdapter::get_project_scope_id);
+	ClassDB::bind_method(D_METHOD("get_project_scope_directory"), &AIAgentV1UIAdapter::get_project_scope_directory);
 	ClassDB::bind_method(D_METHOD("create_session", "options"), &AIAgentV1UIAdapter::create_session, DEFVAL(Dictionary()));
 	ClassDB::bind_method(D_METHOD("list_sessions"), &AIAgentV1UIAdapter::list_sessions);
 	ClassDB::bind_method(D_METHOD("restore_active_session"), &AIAgentV1UIAdapter::restore_active_session);
@@ -150,6 +153,10 @@ Dictionary AIAgentV1UIAdapter::_input_to_ui_message(const AISessionInput &p_inpu
 	metadata["agent_v1_type"] = "user";
 	metadata["input_status"] = p_input.is_promoted() ? String("promoted") : String("admitted");
 	metadata["delivery"] = ai_session_input_delivery_to_string(p_input.delivery);
+	metadata["prompt_id"] = p_input.id;
+	if (!p_input.message_id.is_empty()) {
+		metadata["message_id"] = p_input.message_id;
+	}
 	if (!p_input.prompt.files.is_empty()) {
 		metadata["attachments"] = _files_to_ui_attachments(p_input.prompt.files);
 	}
@@ -158,7 +165,7 @@ Dictionary AIAgentV1UIAdapter::_input_to_ui_message(const AISessionInput &p_inpu
 	}
 
 	Dictionary message;
-	message["id"] = p_input.id;
+	message["id"] = p_input.message_id.is_empty() ? p_input.id : p_input.message_id;
 	message["session_id"] = p_input.session_id;
 	message["role"] = "user";
 	message["content"] = p_input.prompt.text;
@@ -285,6 +292,86 @@ String AIAgentV1UIAdapter::_resolve_session_id(const String &p_session_id) const
 	return session_id.is_empty() ? active_session_id : session_id;
 }
 
+String AIAgentV1UIAdapter::_get_effective_project_scope_id() const {
+	if (!project_scope_id.is_empty()) {
+		return project_scope_id;
+	}
+	if (session_service.is_valid()) {
+		return session_service->get_project_scope_id();
+	}
+	return String();
+}
+
+String AIAgentV1UIAdapter::_get_effective_project_scope_directory() const {
+	if (!project_scope_directory.is_empty()) {
+		return project_scope_directory;
+	}
+	if (session_service.is_valid()) {
+		return session_service->get_project_scope_directory();
+	}
+	return String();
+}
+
+String AIAgentV1UIAdapter::_session_workspace_id(const Dictionary &p_session) {
+	const String top_level_workspace = String(p_session.get("workspace_id", p_session.get("workspaceID", String()))).strip_edges();
+	if (!top_level_workspace.is_empty()) {
+		return top_level_workspace;
+	}
+	if (p_session.get("location", Variant()).get_type() == Variant::DICTIONARY) {
+		const Dictionary location = p_session["location"];
+		return String(location.get("workspace_id", location.get("workspaceID", String()))).strip_edges();
+	}
+	return String();
+}
+
+String AIAgentV1UIAdapter::_session_directory(const Dictionary &p_session) {
+	const String top_level_directory = String(p_session.get("directory", String())).strip_edges();
+	if (!top_level_directory.is_empty()) {
+		return top_level_directory;
+	}
+	if (p_session.get("location", Variant()).get_type() == Variant::DICTIONARY) {
+		const Dictionary location = p_session["location"];
+		return String(location.get("directory", String())).strip_edges();
+	}
+	return String();
+}
+
+bool AIAgentV1UIAdapter::_session_matches_project_scope(const Dictionary &p_session) const {
+	const String scope_id = _get_effective_project_scope_id();
+	const String scope_directory = _get_effective_project_scope_directory();
+	if (scope_id.is_empty() && scope_directory.is_empty()) {
+		return true;
+	}
+
+	const String workspace_id = _session_workspace_id(p_session);
+	if (!scope_id.is_empty()) {
+		if (!workspace_id.is_empty()) {
+			return workspace_id == scope_id;
+		}
+		const String session_directory = _session_directory(p_session);
+		if (!scope_directory.is_empty() && !session_directory.is_empty() && session_directory != "res://") {
+			return session_directory == scope_directory;
+		}
+		return false;
+	}
+
+	const String session_directory = _session_directory(p_session);
+	return !scope_directory.is_empty() && session_directory == scope_directory;
+}
+
+Dictionary AIAgentV1UIAdapter::_with_project_scope_defaults(const Dictionary &p_options) const {
+	Dictionary options = p_options.duplicate(true);
+	const String scope_id = _get_effective_project_scope_id();
+	const String scope_directory = _get_effective_project_scope_directory();
+	if (!scope_id.is_empty() && !options.has("workspace_id") && !options.has("workspaceID")) {
+		options["workspace_id"] = scope_id;
+	}
+	if (!scope_directory.is_empty() && !options.has("directory")) {
+		options["directory"] = scope_directory;
+	}
+	return options;
+}
+
 int64_t AIAgentV1UIAdapter::_next_ui_last_active_seq() const {
 	int64_t next_seq = 1;
 	if (session_service.is_null() || session_service->get_session_store().is_null()) {
@@ -296,7 +383,11 @@ int64_t AIAgentV1UIAdapter::_next_ui_last_active_seq() const {
 		if (sessions[i].get_type() != Variant::DICTIONARY) {
 			continue;
 		}
-		const Dictionary session_metadata = _ui_session_metadata(Dictionary(sessions[i]));
+		const Dictionary session = sessions[i];
+		if (!_session_matches_project_scope(session)) {
+			continue;
+		}
+		const Dictionary session_metadata = _ui_session_metadata(session);
 		next_seq = MAX(next_seq, int64_t(session_metadata.get(UI_LAST_ACTIVE_SEQ_KEY, 0)) + 1);
 	}
 	return next_seq;
@@ -319,6 +410,9 @@ String AIAgentV1UIAdapter::_select_restorable_session_id() const {
 		const Dictionary session = sessions[i];
 		const String session_id = String(session.get("id", String())).strip_edges();
 		if (session_id.is_empty()) {
+			continue;
+		}
+		if (!_session_matches_project_scope(session)) {
 			continue;
 		}
 
@@ -390,13 +484,33 @@ Array AIAgentV1UIAdapter::_project_and_get_messages(const String &p_session_id) 
 				projected_user_message_ids.insert(messages[i].id);
 			}
 		}
+
+		Vector<int> pending_input_indices;
 		for (int i = 0; i < inputs.size(); i++) {
-			if (!projected_user_message_ids.has(inputs[i].id)) {
-				result.push_back(_input_to_ui_message(inputs[i]));
+			if (inputs[i].is_promoted()) {
+				continue;
 			}
+			if (projected_user_message_ids.has(inputs[i].id) || (!inputs[i].message_id.is_empty() && projected_user_message_ids.has(inputs[i].message_id))) {
+				continue;
+			}
+			pending_input_indices.push_back(i);
 		}
+
+		int pending_input_cursor = 0;
 		for (int i = 0; i < messages.size(); i++) {
+			while (pending_input_cursor < pending_input_indices.size()) {
+				const AISessionInput &input = inputs[pending_input_indices[pending_input_cursor]];
+				if (input.admitted_seq > 0 && messages[i].seq > 0 && input.admitted_seq > messages[i].seq) {
+					break;
+				}
+				result.push_back(_input_to_ui_message(input));
+				pending_input_cursor++;
+			}
 			_append_ui_messages_from_session_message(messages[i], result);
+		}
+		while (pending_input_cursor < pending_input_indices.size()) {
+			result.push_back(_input_to_ui_message(inputs[pending_input_indices[pending_input_cursor]]));
+			pending_input_cursor++;
 		}
 	}
 	return result;
@@ -590,16 +704,41 @@ void AIAgentV1UIAdapter::_interrupt_requested(const String &p_session_id, const 
 void AIAgentV1UIAdapter::set_session_service(const Ref<AISessionService> &p_service) {
 	session_service = p_service;
 	_ensure_defaults();
+	if (session_service.is_valid() && (!project_scope_id.is_empty() || !project_scope_directory.is_empty())) {
+		session_service->set_project_scope(project_scope_id, project_scope_directory);
+	}
 }
 
 Ref<AISessionService> AIAgentV1UIAdapter::get_session_service() const {
 	return session_service;
 }
 
+void AIAgentV1UIAdapter::set_project_scope(const String &p_project_id, const String &p_directory) {
+	project_scope_id = p_project_id.strip_edges().validate_filename();
+	project_scope_directory = p_directory.strip_edges();
+	if (session_service.is_valid()) {
+		session_service->set_project_scope(project_scope_id, project_scope_directory);
+	}
+	if (!active_session_id.is_empty()) {
+		Dictionary session = session_service->get_session_store()->get_session(active_session_id);
+		if (!bool(session.get("success", false)) || !_session_matches_project_scope(session)) {
+			active_session_id.clear();
+		}
+	}
+}
+
+String AIAgentV1UIAdapter::get_project_scope_id() const {
+	return _get_effective_project_scope_id();
+}
+
+String AIAgentV1UIAdapter::get_project_scope_directory() const {
+	return _get_effective_project_scope_directory();
+}
+
 Dictionary AIAgentV1UIAdapter::create_session(const Dictionary &p_options) {
 	_ensure_defaults();
 
-	Dictionary options = p_options.duplicate(true);
+	Dictionary options = _with_project_scope_defaults(p_options);
 	if (!options.has("directory")) {
 		options["directory"] = "res://";
 	}
@@ -628,7 +767,18 @@ Dictionary AIAgentV1UIAdapter::create_session(const Dictionary &p_options) {
 
 Array AIAgentV1UIAdapter::list_sessions() {
 	_ensure_defaults();
-	return session_service->get_session_store()->list_sessions();
+	Array result;
+	const Array sessions = session_service->get_session_store()->list_sessions();
+	for (int i = 0; i < sessions.size(); i++) {
+		if (sessions[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary session = sessions[i];
+		if (_session_matches_project_scope(session)) {
+			result.push_back(session.duplicate(true));
+		}
+	}
+	return result;
 }
 
 bool AIAgentV1UIAdapter::restore_active_session() {
@@ -660,6 +810,13 @@ bool AIAgentV1UIAdapter::set_active_session(const String &p_session_id) {
 		_emit_error(session);
 		return false;
 	}
+	if (!_session_matches_project_scope(session)) {
+		Dictionary details;
+		details["session_id"] = session_id;
+		const Dictionary result = _make_error_result("Session not found in current project.", details);
+		_emit_error(result);
+		return false;
+	}
 
 	active_session_id = session_id;
 	const Dictionary touched = _touch_session_as_active(active_session_id);
@@ -681,6 +838,14 @@ Dictionary AIAgentV1UIAdapter::archive_session(const String &p_session_id) {
 		Dictionary details;
 		details["field"] = "session_id";
 		const Dictionary result = _make_error_result("Session id is required.", details);
+		_emit_error(result);
+		return result;
+	}
+	const Dictionary session = session_service->get_session_store()->get_session(session_id);
+	if (!bool(session.get("success", false)) || !_session_matches_project_scope(session)) {
+		Dictionary details;
+		details["session_id"] = session_id;
+		const Dictionary result = _make_error_result("Session not found in current project.", details);
 		_emit_error(result);
 		return result;
 	}
@@ -710,6 +875,14 @@ Dictionary AIAgentV1UIAdapter::delete_session(const String &p_session_id) {
 		Dictionary details;
 		details["field"] = "session_id";
 		const Dictionary result = _make_error_result("Session id is required.", details);
+		_emit_error(result);
+		return result;
+	}
+	const Dictionary session = session_service->get_session_store()->get_session(session_id);
+	if (!bool(session.get("success", false)) || !_session_matches_project_scope(session)) {
+		Dictionary details;
+		details["session_id"] = session_id;
+		const Dictionary result = _make_error_result("Session not found in current project.", details);
 		_emit_error(result);
 		return result;
 	}

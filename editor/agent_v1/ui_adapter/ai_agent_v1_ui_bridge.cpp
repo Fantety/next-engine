@@ -4,6 +4,7 @@
 
 #include "ai_agent_v1_ui_bridge.h"
 
+#include "core/config/project_settings.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 
@@ -88,6 +89,26 @@ void AIAgentV1UIBridge::clear_singleton_for_test() {
 
 AIAgentV1UIBridge::AIAgentV1UIBridge() {
 	_sync_adapters();
+}
+
+String AIAgentV1UIBridge::_default_project_storage_root() {
+	return "user://net.nextengine/agent_v1/projects";
+}
+
+String AIAgentV1UIBridge::_current_project_scope_id() {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	String resource_path;
+	if (project_settings) {
+		resource_path = project_settings->get_resource_path().strip_edges();
+	}
+	if (resource_path.is_empty()) {
+		return "project_global";
+	}
+	return "project_" + resource_path.md5_text();
+}
+
+String AIAgentV1UIBridge::_current_project_scope_directory() {
+	return "res://";
 }
 
 void AIAgentV1UIBridge::_ensure_backend_services() {
@@ -248,12 +269,24 @@ void AIAgentV1UIBridge::_wire_adapter_signals() {
 	}
 }
 
+void AIAgentV1UIBridge::_sync_project_scope() {
+	const String project_scope_id = _current_project_scope_id();
+	const String project_scope_directory = _current_project_scope_directory();
+	if (session_service.is_valid()) {
+		session_service->set_project_scope(project_scope_id, project_scope_directory, _default_project_storage_root());
+	}
+	if (conversation_adapter.is_valid()) {
+		conversation_adapter->set_project_scope(project_scope_id, project_scope_directory);
+	}
+}
+
 void AIAgentV1UIBridge::_sync_adapters() {
 	_ensure_backend_services();
 	_wire_backend_services();
 	_ensure_adapters();
 
 	conversation_adapter->set_session_service(session_service);
+	_sync_project_scope();
 	config_adapter->set_config_service(config_service);
 	config_adapter->set_mcp_service(mcp_service);
 	config_adapter->set_skill_service(skill_service);

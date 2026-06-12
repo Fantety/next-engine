@@ -49,6 +49,9 @@ class AISessionService : public RefCounted {
 	Ref<AIV1SkillService> skill_service;
 	Ref<AIAgentService> agent_service;
 	Ref<AIV1TaskTool> task_tool;
+	String project_scope_id;
+	String project_scope_directory;
+	String project_scope_storage_root;
 
 	static Array _parts_from_input(const Dictionary &p_input);
 	static AIPrompt _prompt_from_input(const Dictionary &p_input, const Array &p_parts);
@@ -56,9 +59,11 @@ class AISessionService : public RefCounted {
 	static bool _part_is_attachment(const Dictionary &p_part);
 	static bool _has_location_input(const Dictionary &p_input);
 	static Dictionary _make_error_result(const AIError &p_error);
+	static String _sanitize_project_scope_id(const String &p_project_id);
 
 	void _ensure_defaults();
 	void _wire_dependencies();
+	void _apply_project_scope_storage();
 	bool _resolve_session_for_prompt(const Dictionary &p_input, AISessionRow &r_session, bool &r_created, AIError &r_error);
 	bool _resolve_prompt_attachments(const Dictionary &p_input, const AISessionRow &p_session, const Array &p_parts, AIPrompt &r_prompt, AIError &r_error);
 	bool _append_admitted_event(AISessionInputRecord &r_input, AIError &r_error);
@@ -69,6 +74,10 @@ protected:
 
 public:
 	AISessionService();
+
+	void set_project_scope(const String &p_project_id, const String &p_directory = String(), const String &p_storage_root = String());
+	String get_project_scope_id() const;
+	String get_project_scope_directory() const;
 
 	void set_session_store(const Ref<AISessionStore> &p_session_store);
 	Ref<AISessionStore> get_session_store() const;

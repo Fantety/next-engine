@@ -16,6 +16,8 @@ class AIAgentV1UIAdapter : public RefCounted {
 
 	Ref<AISessionService> session_service;
 	String active_session_id;
+	String project_scope_id;
+	String project_scope_directory;
 	HashSet<String> emitted_permission_requests;
 
 	void _ensure_defaults();
@@ -33,6 +35,12 @@ class AIAgentV1UIAdapter : public RefCounted {
 	static Dictionary _permission_request_to_view(const Dictionary &p_request);
 
 	String _resolve_session_id(const String &p_session_id = String()) const;
+	String _get_effective_project_scope_id() const;
+	String _get_effective_project_scope_directory() const;
+	static String _session_workspace_id(const Dictionary &p_session);
+	static String _session_directory(const Dictionary &p_session);
+	bool _session_matches_project_scope(const Dictionary &p_session) const;
+	Dictionary _with_project_scope_defaults(const Dictionary &p_options) const;
 	int64_t _next_ui_last_active_seq() const;
 	String _select_restorable_session_id() const;
 	Dictionary _touch_session_as_active(const String &p_session_id);
@@ -58,6 +66,9 @@ public:
 
 	void set_session_service(const Ref<AISessionService> &p_service);
 	Ref<AISessionService> get_session_service() const;
+	void set_project_scope(const String &p_project_id, const String &p_directory = String());
+	String get_project_scope_id() const;
+	String get_project_scope_directory() const;
 
 	Dictionary create_session(const Dictionary &p_options = Dictionary());
 	Array list_sessions();

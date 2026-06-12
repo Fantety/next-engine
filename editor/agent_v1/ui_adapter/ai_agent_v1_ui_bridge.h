@@ -32,10 +32,14 @@ class AIAgentV1UIBridge : public RefCounted {
 	Ref<AIAgentV1UIAdapter> conversation_adapter;
 	Ref<AIAgentV1UIConfigAdapter> config_adapter;
 
+	static String _default_project_storage_root();
+	static String _current_project_scope_id();
+	static String _current_project_scope_directory();
 	void _ensure_backend_services();
 	void _wire_backend_services();
 	void _ensure_adapters();
 	void _wire_adapter_signals();
+	void _sync_project_scope();
 	void _sync_adapters();
 
 	void _sessions_changed(const Array &p_sessions);

@@ -326,6 +326,7 @@ Dictionary AISessionInput::to_dictionary() const {
 	Dictionary result;
 	result["admitted_seq"] = admitted_seq;
 	result["id"] = id;
+	result["message_id"] = message_id;
 	result["session_id"] = session_id;
 	result["prompt"] = prompt.to_dictionary();
 	result["delivery"] = ai_session_input_delivery_to_string(delivery);
@@ -340,6 +341,7 @@ AISessionInput AISessionInput::from_dictionary(const Dictionary &p_dict) {
 	AISessionInput result;
 	result.admitted_seq = int64_t(p_dict.get("admitted_seq", p_dict.get("admittedSeq", 0)));
 	result.id = p_dict.get("id", String());
+	result.message_id = p_dict.get("message_id", p_dict.get("messageID", String()));
 	result.session_id = p_dict.get("session_id", p_dict.get("sessionID", String()));
 	result.prompt = AIPrompt::from_dictionary(_ai_dictionary_from_variant(p_dict.get("prompt", Dictionary())));
 	result.delivery = ai_session_input_delivery_from_string(p_dict.get("delivery", "queue"));
