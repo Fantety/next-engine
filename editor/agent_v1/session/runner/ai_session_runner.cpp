@@ -38,7 +38,7 @@ class AISessionRunnerEventRecorder : public RefCounted {
 			error = AIError::make(AI_ERROR_INTERNAL, event_error);
 			return false;
 		}
-		if (!row.live_only && projector.is_valid()) {
+		if (projector.is_valid()) {
 			projector->project(row);
 		}
 		return true;
@@ -135,33 +135,7 @@ public:
 				return false;
 			}
 
-			Dictionary call;
-			call["id"] = call_id;
-			call["name"] = tool_name;
-			call["input"] = p_event.get("input", Variant());
-			call["provider_executed"] = false;
-
-			Dictionary settle_input;
-			settle_input["session_id"] = session_id;
-			settle_input["agent"] = agent_id;
-			settle_input["assistant_message_id"] = assistant_message_id;
-			settle_input["cancel_token"] = cancel_token;
-			if (data.has("registration_identity")) {
-				settle_input["registration_identity"] = data["registration_identity"];
-			}
-			settle_input["call"] = call;
-
-			AIV1ToolSettlement settlement;
-			AIError settlement_error;
-			if (!tool_materialization->settle_struct(settle_input, settlement, settlement_error)) {
-				error = settlement_error.is_error() ? settlement_error : AIError::make(AI_ERROR_INTERNAL, "Tool settlement failed.");
-				return true;
-			}
-			if (settlement.pending) {
-				waiting_permission = true;
-				return false;
-			}
-			needs_continuation = needs_continuation || settlement.needs_continuation;
+			needs_continuation = true;
 			return false;
 		}
 		if (type == "provider-error") {
@@ -1323,6 +1297,20 @@ bool AISessionRunner::_drain_struct_internal(const String &p_session_id, const R
 			return true;
 		}
 		if (!needs_continuation) {
+			return true;
+		}
+
+		bool settled_turn_tools = false;
+		bool turn_waiting_permission = false;
+		if (!_settle_open_tool_calls(session, agent_id, root_dir, rules, p_cancel_token, settled_turn_tools, turn_waiting_permission, r_error)) {
+			return false;
+		}
+		if (turn_waiting_permission) {
+			r_error = AIError::none();
+			return true;
+		}
+		if (!settled_turn_tools) {
+			r_error = AIError::none();
 			return true;
 		}
 	}

@@ -140,6 +140,16 @@ int AISessionProjector::_find_tool_content_index(const AISessionMessage &p_messa
 	return -1;
 }
 
+int AISessionProjector::_find_content_index(const AISessionMessage &p_message, const String &p_type, const String &p_content_id) {
+	for (int i = 0; i < p_message.content.size(); i++) {
+		const AIAssistantContent &content = p_message.content[i];
+		if (content.type == p_type && content.id == p_content_id) {
+			return i;
+		}
+	}
+	return -1;
+}
+
 String AISessionProjector::_fallback_message_id(const String &p_prefix, int64_t p_seq) {
 	return p_prefix + "_" + String::num_int64(p_seq);
 }
@@ -168,8 +178,75 @@ int AISessionProjector::_ensure_tool_content_locked(AISessionMessage &r_message,
 	return r_message.content.size() - 1;
 }
 
+void AISessionProjector::_upsert_text_content_locked(AISessionMessage &r_message, const String &p_type, const String &p_content_id, const String &p_text, const Dictionary &p_provider_metadata, bool p_delta, bool p_final) {
+	const int content_index = _find_content_index(r_message, p_type, p_content_id);
+	if (content_index >= 0) {
+		AIAssistantContent &content = r_message.content.write[content_index];
+		if (p_delta && bool(content.metadata.get("stream_finalized", false))) {
+			return;
+		}
+		content.text = p_delta ? content.text + p_text : p_text;
+		if (!p_provider_metadata.is_empty()) {
+			content.provider_metadata = p_provider_metadata.duplicate(true);
+		}
+		if (p_final) {
+			content.metadata.erase("stream_live");
+			content.metadata["stream_finalized"] = true;
+		} else {
+			content.metadata["stream_live"] = true;
+		}
+		return;
+	}
+
+	AIAssistantContent content = p_type == "reasoning" ? AIAssistantContent::reasoning_content(p_text, p_provider_metadata, p_content_id) : AIAssistantContent::text_content(p_text, p_content_id);
+	if (p_final) {
+		content.metadata["stream_finalized"] = true;
+	} else {
+		content.metadata["stream_live"] = true;
+	}
+	r_message.content.push_back(content);
+}
+
+void AISessionProjector::_project_live_row_locked(const AIEventRow &p_row) {
+	const String session_id = p_row.aggregate_id;
+	if (session_id.is_empty()) {
+		return;
+	}
+
+	const String type = p_row.type;
+	if (type != AIDomainEventTypes::text_delta() && type != AIDomainEventTypes::reasoning_delta()) {
+		return;
+	}
+
+	if (!p_row.id.is_empty()) {
+		HashSet<String> &projected_ids = live_projected_event_ids_by_session[session_id];
+		if (projected_ids.has(p_row.id)) {
+			return;
+		}
+		projected_ids.insert(p_row.id);
+	}
+
+	const Dictionary data = p_row.data;
+	const String assistant_id = _ai_projector_assistant_message_id(data);
+	const String message_id = assistant_id.is_empty() ? _fallback_message_id("assistant", p_row.seq) : assistant_id;
+	const int message_index = _ensure_assistant_message_locked(session_id, p_row.seq, message_id, Dictionary(), _ai_projector_get_time(data, p_row));
+	AISessionMessage &message = messages_by_session[session_id].write[message_index];
+	const String content_id = _ai_projector_get_string(data, "content_id", "contentID", "id");
+	const String text = data.get("text", data.get("delta", data.get("content", String())));
+	if (text.is_empty()) {
+		return;
+	}
+
+	const bool reasoning = type == AIDomainEventTypes::reasoning_delta();
+	_upsert_text_content_locked(message, reasoning ? String("reasoning") : String("text"), content_id, text, reasoning ? _ai_projector_provider_metadata(data) : Dictionary(), true, false);
+}
+
 void AISessionProjector::_project_row_locked(const AIEventRow &p_row) {
-	if (p_row.live_only || !AIDomainEventTypes::is_durable_event(p_row.type)) {
+	if (p_row.live_only) {
+		_project_live_row_locked(p_row);
+		return;
+	}
+	if (!AIDomainEventTypes::is_durable_event(p_row.type)) {
 		return;
 	}
 
@@ -237,14 +314,14 @@ void AISessionProjector::_project_row_locked(const AIEventRow &p_row) {
 		const int message_index = _ensure_assistant_message_locked(session_id, p_row.seq, message_id, Dictionary(), time_created);
 		const String content_id = _ai_projector_get_string(data, "content_id", "contentID", "id");
 		const String text = data.get("text", data.get("content", String()));
-		messages_by_session[session_id].write[message_index].content.push_back(AIAssistantContent::text_content(text, content_id));
+		_upsert_text_content_locked(messages_by_session[session_id].write[message_index], "text", content_id, text, Dictionary(), false, true);
 	} else if (type == AIDomainEventTypes::reasoning_ended()) {
 		const String assistant_id = _ai_projector_assistant_message_id(data);
 		const String message_id = assistant_id.is_empty() ? _fallback_message_id("assistant", p_row.seq) : assistant_id;
 		const int message_index = _ensure_assistant_message_locked(session_id, p_row.seq, message_id, Dictionary(), time_created);
 		const String content_id = _ai_projector_get_string(data, "content_id", "contentID", "id");
 		const String text = data.get("text", data.get("content", String()));
-		messages_by_session[session_id].write[message_index].content.push_back(AIAssistantContent::reasoning_content(text, _ai_projector_provider_metadata(data), content_id));
+		_upsert_text_content_locked(messages_by_session[session_id].write[message_index], "reasoning", content_id, text, _ai_projector_provider_metadata(data), false, true);
 	} else if (type == AIDomainEventTypes::tool_input_ended() || type == AIDomainEventTypes::tool_called()) {
 		const String call_id = _ai_projector_call_id(data);
 		if (!call_id.is_empty()) {
@@ -335,7 +412,7 @@ void AISessionProjector::_project_row_locked(const AIEventRow &p_row) {
 }
 
 bool AISessionProjector::project(const AIEventRow &p_row) {
-	if (p_row.live_only) {
+	if (p_row.aggregate_id.is_empty()) {
 		return false;
 	}
 
@@ -348,7 +425,7 @@ int AISessionProjector::project(const Vector<AIEventRow> &p_rows) {
 	int count = 0;
 	MutexLock lock(mutex);
 	for (int i = 0; i < p_rows.size(); i++) {
-		if (!p_rows[i].live_only) {
+		if (!p_rows[i].aggregate_id.is_empty()) {
 			_project_row_locked(p_rows[i]);
 			count++;
 		}
@@ -472,6 +549,7 @@ void AISessionProjector::clear_session(const String &p_session_id) {
 	messages_by_session.erase(p_session_id);
 	context_epochs_by_session.erase(p_session_id);
 	projected_seq_by_session.erase(p_session_id);
+	live_projected_event_ids_by_session.erase(p_session_id);
 }
 
 void AISessionProjector::clear() {
@@ -480,4 +558,5 @@ void AISessionProjector::clear() {
 	messages_by_session.clear();
 	context_epochs_by_session.clear();
 	projected_seq_by_session.clear();
+	live_projected_event_ids_by_session.clear();
 }

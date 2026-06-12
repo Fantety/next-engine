@@ -597,6 +597,72 @@ void AIAgentV1UIAdapter::_emit_run_state_changed(const String &p_session_id) {
 	emit_signal(SNAME("run_state_changed"), _build_run_state(p_session_id));
 }
 
+void AIAgentV1UIAdapter::_queue_messages_changed(const String &p_session_id) {
+	const String session_id = p_session_id.strip_edges();
+	if (session_id.is_empty()) {
+		return;
+	}
+	if (!queued_message_session_ids.has(session_id)) {
+		queued_message_session_ids.insert(session_id);
+		queued_message_sessions.push_back(session_id);
+	}
+	if (message_flush_queued) {
+		return;
+	}
+	message_flush_queued = true;
+	callable_mp(this, &AIAgentV1UIAdapter::_flush_queued_messages_changed).call_deferred();
+}
+
+void AIAgentV1UIAdapter::_queue_run_state_changed(const String &p_session_id) {
+	const String session_id = p_session_id.strip_edges();
+	if (session_id.is_empty()) {
+		return;
+	}
+	if (!queued_run_state_session_ids.has(session_id)) {
+		queued_run_state_session_ids.insert(session_id);
+		queued_run_state_sessions.push_back(session_id);
+	}
+	if (run_state_flush_queued) {
+		return;
+	}
+	run_state_flush_queued = true;
+	callable_mp(this, &AIAgentV1UIAdapter::_flush_queued_run_state_changed).call_deferred();
+}
+
+void AIAgentV1UIAdapter::_flush_queued_messages_changed() {
+	message_flush_queued = false;
+	const Vector<String> sessions = queued_message_sessions;
+	queued_message_sessions.clear();
+	queued_message_session_ids.clear();
+
+	for (int i = 0; i < sessions.size(); i++) {
+		_emit_messages_changed(sessions[i]);
+	}
+}
+
+void AIAgentV1UIAdapter::_flush_queued_run_state_changed() {
+	run_state_flush_queued = false;
+	const Vector<String> sessions = queued_run_state_sessions;
+	queued_run_state_sessions.clear();
+	queued_run_state_session_ids.clear();
+
+	for (int i = 0; i < sessions.size(); i++) {
+		_emit_run_state_changed(sessions[i]);
+	}
+}
+
+void AIAgentV1UIAdapter::_project_live_event_for_ui(const Dictionary &p_event) {
+	if (session_service.is_null() || session_service->get_projector().is_null()) {
+		return;
+	}
+
+	const AIEventRow row = AIEventRow::from_dictionary(p_event);
+	if (!row.live_only) {
+		return;
+	}
+	session_service->get_projector()->project(row);
+}
+
 Dictionary AIAgentV1UIAdapter::_apply_selected_model_profile(const String &p_model_id, const String &p_agent_id) {
 	(void)p_agent_id;
 
@@ -679,8 +745,9 @@ void AIAgentV1UIAdapter::_event_appended(const Dictionary &p_event) {
 	if (session_id.is_empty()) {
 		return;
 	}
-	_emit_messages_changed(session_id);
-	_emit_run_state_changed(session_id);
+	_project_live_event_for_ui(p_event);
+	_queue_messages_changed(session_id);
+	_queue_run_state_changed(session_id);
 }
 
 void AIAgentV1UIAdapter::_drain_requested(const String &p_session_id, const String &p_run_id, int64_t p_wake_seq) {

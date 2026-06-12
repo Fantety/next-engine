@@ -88,6 +88,7 @@ class AIV1ToolRegistry : public RefCounted {
 
 	static bool _is_valid_tool_name(const String &p_name);
 	static bool _validate_arguments(const Ref<AIV1Tool> &p_tool, const Dictionary &p_arguments, AIError &r_error);
+	static bool _coerce_arguments_for_schema(const Ref<AIV1Tool> &p_tool, Dictionary &r_arguments, AIError &r_error);
 	static bool _validate_schema_type(const Variant &p_value, const String &p_type);
 	static bool _wildcard_match(const String &p_pattern, const String &p_value);
 	static bool _is_tool_wholly_disabled(const String &p_name, const Ref<AIV1Tool> &p_tool, const Array &p_rules);

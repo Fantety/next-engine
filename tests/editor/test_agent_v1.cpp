@@ -9,6 +9,7 @@
 #include "core/io/image.h"
 #include "core/math/color.h"
 #include "core/object/callable_mp.h"
+#include "core/object/message_queue.h"
 #include "core/os/os.h"
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/config/ai_local_settings_store.h"
@@ -77,6 +78,12 @@ static int count_occurrences(const String &p_text, const String &p_pattern) {
 		}
 		count++;
 		from = found + p_pattern.length();
+	}
+}
+
+static void flush_deferred_calls() {
+	if (MessageQueue::get_singleton()) {
+		MessageQueue::get_singleton()->flush();
 	}
 }
 
@@ -217,6 +224,132 @@ public:
 		structured["text"] = payload;
 		structured["marker"] = "structured-full-output";
 		r_result = AIV1ToolExecutionResult::ok(structured, payload, structured);
+		return true;
+	}
+};
+
+class DeferredToolExecutionProbeTool : public AIV1Tool {
+	GDCLASS(DeferredToolExecutionProbeTool, AIV1Tool);
+
+public:
+	Ref<AIEventStore> event_store;
+	int execute_count = 0;
+	bool saw_text_ended_before_execute = false;
+	bool saw_step_ended_before_execute = false;
+
+	virtual bool execute_struct(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIV1ToolExecutionResult &r_result, AIError &r_error) override {
+		(void)p_arguments;
+		execute_count++;
+		saw_text_ended_before_execute = false;
+		saw_step_ended_before_execute = false;
+
+		if (event_store.is_valid()) {
+			const Vector<AIEventRow> events = event_store->list(p_context.session_id);
+			for (int i = 0; i < events.size(); i++) {
+				if (String(events[i].data.get("assistant_message_id", String())) != p_context.assistant_message_id) {
+					continue;
+				}
+				saw_text_ended_before_execute = saw_text_ended_before_execute || events[i].type == AIDomainEventTypes::text_ended();
+				saw_step_ended_before_execute = saw_step_ended_before_execute || events[i].type == AIDomainEventTypes::step_ended();
+			}
+		}
+
+		Dictionary structured;
+		structured["ok"] = true;
+		structured["execute_count"] = execute_count;
+		r_result = AIV1ToolExecutionResult::ok(structured, "deferred tool completed", structured);
+		r_error = AIError::none();
+		return true;
+	}
+};
+
+class CoercedIntegerProbeTool : public AIV1Tool {
+	GDCLASS(CoercedIntegerProbeTool, AIV1Tool);
+
+public:
+	bool saw_integer_argument = false;
+	int max_depth = 0;
+
+	virtual bool execute_struct(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIV1ToolExecutionResult &r_result, AIError &r_error) override {
+		(void)p_context;
+		saw_integer_argument = p_arguments.get("max_depth", Variant()).get_type() == Variant::INT;
+		max_depth = int(p_arguments.get("max_depth", 0));
+
+		Dictionary structured;
+		structured["max_depth"] = max_depth;
+		structured["saw_integer_argument"] = saw_integer_argument;
+		r_result = AIV1ToolExecutionResult::ok(structured, "ok", structured);
+		r_error = AIError::none();
+		return true;
+	}
+};
+
+class DeferredToolProbeRuntime : public AILLMRuntime {
+	GDCLASS(DeferredToolProbeRuntime, AILLMRuntime);
+
+	bool _push_event(const Ref<AIStreamSink> &p_sink, const AIStreamEvent &p_event, AIError &r_error) const {
+		bool stop_requested = false;
+		String sink_error;
+		if (!p_sink->push_event(p_event, stop_requested, sink_error)) {
+			r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+			return false;
+		}
+		if (stop_requested) {
+			r_error = AIError::make(AI_ERROR_CANCELLED, "Stream sink stopped deferred probe runtime.");
+			return false;
+		}
+		return true;
+	}
+
+public:
+	Ref<DeferredToolExecutionProbeTool> tool;
+	int64_t stream_call_count = 0;
+	int execute_count_after_tool_push = -1;
+
+	virtual String get_runtime_type() const override {
+		return "deferred-tool-probe";
+	}
+
+	virtual bool stream_struct(const AIModelRequest &p_request, const Ref<AIStreamSink> &p_sink, const Ref<AICancelToken> &p_cancel_token, AIError &r_error) override {
+		stream_call_count++;
+		if (p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested()) {
+			r_error = AIError::make(AI_ERROR_INTERRUPTED, p_cancel_token->get_cancel_message("Deferred probe runtime interrupted."));
+			return false;
+		}
+		if (p_sink.is_null()) {
+			r_error = AIError::make(AI_ERROR_VALIDATION, "Deferred probe runtime requires a stream sink.");
+			return false;
+		}
+
+		AIStreamEvent start = AIStreamEvent::step_start();
+		start.id = p_request.request_id;
+		if (!_push_event(p_sink, start, r_error)) {
+			return false;
+		}
+
+		if (stream_call_count == 1) {
+			if (!_push_event(p_sink, AIStreamEvent::text_delta("deferred-probe-text", "Need a tool."), r_error)) {
+				return false;
+			}
+			AIStreamEvent tool_call = AIStreamEvent::tool_call("deferred-probe-call", "deferred_probe", Dictionary());
+			if (!_push_event(p_sink, tool_call, r_error)) {
+				return false;
+			}
+			execute_count_after_tool_push = tool.is_valid() ? tool->execute_count : -1;
+		} else {
+			if (!_push_event(p_sink, AIStreamEvent::text_delta("deferred-probe-final", "Tool result consumed."), r_error)) {
+				return false;
+			}
+		}
+
+		AIStreamEvent end;
+		end.type = AI_STREAM_EVENT_STEP_END;
+		end.id = p_request.request_id;
+		if (!_push_event(p_sink, end, r_error)) {
+			return false;
+		}
+
+		r_error = AIError::none();
 		return true;
 	}
 };
@@ -2383,6 +2516,90 @@ TEST_CASE("[Editor][AgentV1] Fake runtime streams text and provider-neutral tool
 	CHECK(saw_tool);
 }
 
+TEST_CASE("[Editor][AgentV1] Session runner records assistant turn before settling local tools") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/deferred_tool_settlement");
+
+	Ref<DeferredToolExecutionProbeTool> tool;
+	tool.instantiate();
+	tool->configure("Records when it is executed relative to provider streaming.", Dictionary());
+
+	Ref<DeferredToolProbeRuntime> runtime;
+	runtime.instantiate();
+	runtime->tool = tool;
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("deferred-provider", runtime);
+	tool->event_store = service->get_event_store();
+	REQUIRE(service->get_tool_registry()->register_tool_struct("deferred_probe", tool, "test"));
+
+	Dictionary provider;
+	provider["type"] = "fake";
+	provider["model"] = "deferred-model";
+	Dictionary providers;
+	providers["deferred-provider"] = provider;
+
+	Dictionary main_agent;
+	main_agent["provider"] = "deferred-provider";
+	main_agent["model"] = "deferred-model";
+	Dictionary agents;
+	agents["main"] = main_agent;
+
+	Dictionary override_config;
+	override_config["default_provider"] = "deferred-provider";
+	override_config["default_model"] = "deferred-model";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "deferred-tool-session";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "deferred-tool-session";
+	prompt["message_id"] = "deferred-tool-prompt";
+	prompt["text"] = "Use a local tool.";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Dictionary run = service->get_session_runner()->run("deferred-tool-session", false);
+	REQUIRE(bool(run.get("success", false)));
+	CHECK(runtime->execute_count_after_tool_push == 0);
+	CHECK(tool->execute_count == 1);
+	CHECK(tool->saw_text_ended_before_execute);
+	CHECK(tool->saw_step_ended_before_execute);
+	CHECK(runtime->stream_call_count == 2);
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("deferred-tool-session");
+	int tool_called_index = -1;
+	int text_ended_index = -1;
+	int step_ended_index = -1;
+	int tool_success_index = -1;
+	for (int i = 0; i < events.size(); i++) {
+		if (events[i].type == AIDomainEventTypes::tool_called()) {
+			tool_called_index = i;
+		} else if (events[i].type == AIDomainEventTypes::text_ended() && text_ended_index < 0) {
+			text_ended_index = i;
+		} else if (events[i].type == AIDomainEventTypes::step_ended() && step_ended_index < 0) {
+			step_ended_index = i;
+		} else if (events[i].type == AIDomainEventTypes::tool_success()) {
+			tool_success_index = i;
+		}
+	}
+	REQUIRE(tool_called_index >= 0);
+	REQUIRE(text_ended_index >= 0);
+	REQUIRE(step_ended_index >= 0);
+	REQUIRE(tool_success_index >= 0);
+	CHECK(tool_called_index < text_ended_index);
+	CHECK(text_ended_index < tool_success_index);
+	CHECK(step_ended_index < tool_success_index);
+}
+
 TEST_CASE("[Editor][AgentV1] Session runner sends path attachments as blob-backed model parts") {
 	const String base = TestUtils::get_temp_path("agent_v1/phase7_runner");
 	const String workspace = base.path_join("workspace");
@@ -2944,6 +3161,47 @@ TEST_CASE("[Editor][AgentV1] Tool materialization applies last matching permissi
 	Ref<AIV1ToolMaterialization> hidden = registry->materialize_struct(String(), deny_after_allow);
 	CHECK_FALSE(hidden->has_tool("file_write"));
 	CHECK(hidden->has_tool("file_read"));
+}
+
+TEST_CASE("[Editor][AgentV1] Tool registry coerces numeric string arguments before validation") {
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+
+	Ref<CoercedIntegerProbeTool> tool;
+	tool.instantiate();
+	Dictionary schema;
+	schema["type"] = "object";
+	Dictionary properties;
+	Dictionary max_depth_property;
+	max_depth_property["type"] = "integer";
+	properties["max_depth"] = max_depth_property;
+	Array required;
+	required.push_back("max_depth");
+	schema["properties"] = properties;
+	schema["required"] = required;
+	tool->configure("Records whether max_depth was coerced to an integer.", schema);
+	REQUIRE(registry->register_tool_struct("coerce_integer_probe", tool, "test"));
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization->has_tool("coerce_integer_probe"));
+
+	Dictionary input;
+	input["max_depth"] = "3";
+	Dictionary call;
+	call["id"] = "call-coerce-integer";
+	call["name"] = "coerce_integer_probe";
+	call["input"] = input;
+	Dictionary settle_input;
+	settle_input["session_id"] = "session-coerce-integer";
+	settle_input["assistant_message_id"] = "assistant-coerce-integer";
+	settle_input["call"] = call;
+
+	AIV1ToolSettlement settlement;
+	AIError error;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	REQUIRE(settlement.success);
+	CHECK(tool->saw_integer_argument);
+	CHECK(tool->max_depth == 3);
 }
 
 TEST_CASE("[Editor][AgentV1] Tool settlement bounds oversized model output and retains the full result") {
@@ -3830,6 +4088,70 @@ TEST_CASE("[Editor][AgentV1] Startup recovery retains permission-pending tools b
 	CHECK(saw_tool_failed);
 }
 
+TEST_CASE("[Editor][AgentV1] Projector exposes live assistant text deltas without duplicating final text") {
+	Ref<AISessionProjector> projector;
+	projector.instantiate();
+
+	Dictionary started;
+	started["assistant_message_id"] = "assistant-live-stream";
+	started["request_id"] = "request-live-stream";
+	AIEventRow start_row;
+	start_row.id = "evt-live-stream-start";
+	start_row.aggregate_id = "projector-live-stream";
+	start_row.seq = 1;
+	start_row.type = AIDomainEventTypes::step_started();
+	start_row.data = started;
+	REQUIRE(projector->project(start_row));
+
+	Dictionary first_delta;
+	first_delta["assistant_message_id"] = "assistant-live-stream";
+	first_delta["content_id"] = "content-live-stream";
+	first_delta["text"] = "Hel";
+	AIEventRow first_row;
+	first_row.id = "live-projector-delta-a";
+	first_row.aggregate_id = "projector-live-stream";
+	first_row.seq = 1;
+	first_row.type = AIDomainEventTypes::text_delta();
+	first_row.data = first_delta;
+	first_row.live_only = true;
+	REQUIRE(projector->project(first_row));
+
+	Dictionary second_delta = first_delta.duplicate(true);
+	second_delta["text"] = "lo";
+	AIEventRow second_row = first_row;
+	second_row.id = "live-projector-delta-b";
+	second_row.data = second_delta;
+	REQUIRE(projector->project(second_row));
+
+	Vector<AISessionMessage> messages = projector->get_messages_struct("projector-live-stream");
+	REQUIRE(messages.size() == 1);
+	CHECK(messages[0].content.size() == 1);
+	if (messages[0].content.size() == 1) {
+		CHECK(messages[0].content[0].type == "text");
+		CHECK(messages[0].content[0].text == "Hello");
+	}
+
+	Dictionary ended;
+	ended["assistant_message_id"] = "assistant-live-stream";
+	ended["content_id"] = "content-live-stream";
+	ended["text"] = "Hello";
+	AIEventRow end_row;
+	end_row.id = "evt-live-stream-text-ended";
+	end_row.aggregate_id = "projector-live-stream";
+	end_row.seq = 2;
+	end_row.type = AIDomainEventTypes::text_ended();
+	end_row.data = ended;
+	REQUIRE(projector->project(end_row));
+
+	REQUIRE(projector->project(first_row));
+	messages = projector->get_messages_struct("projector-live-stream");
+	REQUIRE(messages.size() == 1);
+	CHECK(messages[0].content.size() == 1);
+	if (messages[0].content.size() == 1) {
+		CHECK(messages[0].content[0].text == "Hello");
+	}
+}
+
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter creates sessions and projects UI messages") {
 	Ref<AISessionService> service;
 	service.instantiate();
@@ -3941,6 +4263,68 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter keeps promoted user messages in 
 	CHECK(String(Dictionary(messages[2]).get("content", String())) == "second user message");
 	CHECK(String(Dictionary(messages[3]).get("role", String())) == "assistant");
 	CHECK(String(Dictionary(messages[3]).get("content", String())) == "second assistant message");
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter streams live assistant deltas through coalesced message snapshots") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Ref<AgentV1UIAdapterSignalCollector> collector;
+	collector.instantiate();
+	adapter->connect("messages_changed", callable_mp(collector.ptr(), &AgentV1UIAdapterSignalCollector::on_messages_changed));
+
+	Dictionary create;
+	create["id"] = "ui-session-live-stream";
+	create["directory"] = "res://";
+	REQUIRE(bool(adapter->create_session(create).get("success", false)));
+	collector->message_snapshots.clear();
+
+	AIEventRow row;
+	String event_error;
+	Dictionary started;
+	started["assistant_message_id"] = "assistant-ui-live-stream";
+	started["request_id"] = "request-ui-live-stream";
+	REQUIRE(service->get_event_store()->append("ui-session-live-stream", AIDomainEventTypes::step_started(), started, false, row, event_error));
+
+	Dictionary first_delta;
+	first_delta["assistant_message_id"] = "assistant-ui-live-stream";
+	first_delta["content_id"] = "content-ui-live-stream";
+	first_delta["text"] = "Hel";
+	REQUIRE(service->get_event_store()->append("ui-session-live-stream", AIDomainEventTypes::text_delta(), first_delta, true, row, event_error));
+
+	Dictionary second_delta = first_delta.duplicate(true);
+	second_delta["text"] = "lo";
+	REQUIRE(service->get_event_store()->append("ui-session-live-stream", AIDomainEventTypes::text_delta(), second_delta, true, row, event_error));
+
+	flush_deferred_calls();
+	flush_deferred_calls();
+
+	REQUIRE(collector->message_snapshots.size() == 1);
+	const Dictionary live_snapshot = collector->message_snapshots[0];
+	const Array live_messages = live_snapshot.get("messages", Array());
+	REQUIRE(live_messages.size() == 1);
+	CHECK(String(Dictionary(live_messages[0]).get("role", String())) == "assistant");
+	CHECK(String(Dictionary(live_messages[0]).get("content", String())) == "Hello");
+
+	Dictionary ended;
+	ended["assistant_message_id"] = "assistant-ui-live-stream";
+	ended["content_id"] = "content-ui-live-stream";
+	ended["text"] = "Hello";
+	REQUIRE(service->get_event_store()->append("ui-session-live-stream", AIDomainEventTypes::text_ended(), ended, false, row, event_error));
+
+	flush_deferred_calls();
+	flush_deferred_calls();
+
+	const Array final_messages = adapter->get_messages("ui-session-live-stream");
+	REQUIRE(final_messages.size() == 1);
+	CHECK(String(Dictionary(final_messages[0]).get("content", String())) == "Hello");
 }
 
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter restores the last active session without creating a new one") {

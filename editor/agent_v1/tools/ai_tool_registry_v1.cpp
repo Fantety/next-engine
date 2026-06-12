@@ -372,6 +372,46 @@ bool AIV1ToolRegistry::_validate_arguments(const Ref<AIV1Tool> &p_tool, const Di
 	return true;
 }
 
+bool AIV1ToolRegistry::_coerce_arguments_for_schema(const Ref<AIV1Tool> &p_tool, Dictionary &r_arguments, AIError &r_error) {
+	if (p_tool.is_null()) {
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "Tool is not available.");
+		return false;
+	}
+
+	const Dictionary schema = p_tool->get_input_schema();
+	const Dictionary properties = schema.get("properties", Dictionary());
+	for (const KeyValue<Variant, Variant> &kv : properties) {
+		const String key = String(kv.key);
+		if (!r_arguments.has(key) || kv.value.get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		const Dictionary property = kv.value;
+		const String type = String(property.get("type", String())).strip_edges().to_lower();
+		const Variant value = r_arguments[key];
+		if (value.get_type() != Variant::STRING) {
+			continue;
+		}
+
+		const String text = String(value).strip_edges();
+		if (type == "integer" && text.is_valid_int()) {
+			r_arguments[key] = int64_t(text.to_int());
+		} else if (type == "number" && text.is_valid_float()) {
+			r_arguments[key] = text.to_float();
+		} else if (type == "boolean" || type == "bool") {
+			const String lower = text.to_lower();
+			if (lower == "true" || lower == "1") {
+				r_arguments[key] = true;
+			} else if (lower == "false" || lower == "0") {
+				r_arguments[key] = false;
+			}
+		}
+	}
+
+	r_error = AIError::none();
+	return true;
+}
+
 bool AIV1ToolRegistry::_wildcard_match(const String &p_pattern, const String &p_value) {
 	const String pattern = p_pattern.strip_edges();
 	if (pattern.is_empty() || pattern == "*") {
@@ -705,6 +745,11 @@ bool AIV1ToolRegistry::settle_materialized_tool(const Ref<AIV1Tool> &p_tool, con
 	if (!is_identity_current(r_settlement.tool_name, p_identity)) {
 		r_settlement.stale = true;
 		r_settlement.error = AIError::make(AI_ERROR_CONFLICT, "Tool call was made against a stale materialization.");
+		return _append_settlement_event(r_settlement, false, r_error);
+	}
+
+	if (!_coerce_arguments_for_schema(p_tool, arguments, r_error)) {
+		r_settlement.error = r_error;
 		return _append_settlement_event(r_settlement, false, r_error);
 	}
 

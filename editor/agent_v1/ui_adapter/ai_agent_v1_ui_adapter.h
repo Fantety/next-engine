@@ -8,6 +8,7 @@
 
 #include "core/object/ref_counted.h"
 #include "core/templates/hash_set.h"
+#include "core/templates/vector.h"
 #include "core/variant/array.h"
 #include "core/variant/dictionary.h"
 
@@ -19,6 +20,12 @@ class AIAgentV1UIAdapter : public RefCounted {
 	String project_scope_id;
 	String project_scope_directory;
 	HashSet<String> emitted_permission_requests;
+	HashSet<String> queued_message_session_ids;
+	HashSet<String> queued_run_state_session_ids;
+	Vector<String> queued_message_sessions;
+	Vector<String> queued_run_state_sessions;
+	bool message_flush_queued = false;
+	bool run_state_flush_queued = false;
 
 	void _ensure_defaults();
 	void _wire_service_signals();
@@ -49,6 +56,11 @@ class AIAgentV1UIAdapter : public RefCounted {
 	void _emit_error(const Dictionary &p_error_result);
 	void _emit_messages_changed(const String &p_session_id);
 	void _emit_run_state_changed(const String &p_session_id);
+	void _queue_messages_changed(const String &p_session_id);
+	void _queue_run_state_changed(const String &p_session_id);
+	void _flush_queued_messages_changed();
+	void _flush_queued_run_state_changed();
+	void _project_live_event_for_ui(const Dictionary &p_event);
 	Dictionary _apply_selected_model_profile(const String &p_model_id, const String &p_agent_id);
 
 	void _permission_asked(const Dictionary &p_request);
