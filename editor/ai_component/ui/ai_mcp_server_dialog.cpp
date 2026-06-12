@@ -16,6 +16,20 @@
 
 namespace {
 
+Dictionary _dictionary_from_variant(const Variant &p_value) {
+	if (p_value.get_type() == Variant::DICTIONARY) {
+		return Dictionary(p_value).duplicate(true);
+	}
+	return Dictionary();
+}
+
+Array _array_from_variant(const Variant &p_value) {
+	if (p_value.get_type() == Variant::ARRAY) {
+		return Array(p_value).duplicate(true);
+	}
+	return Array();
+}
+
 Label *_make_field_label(const String &p_text) {
 	Label *label = memnew(Label);
 	label->set_text(p_text);
@@ -34,6 +48,86 @@ HBoxContainer *_make_field_row(VBoxContainer *p_root, const String &p_label, Con
 	p_editor->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	row->add_child(p_editor);
 	return row;
+}
+
+String _lines_from_dictionary(const Dictionary &p_dictionary) {
+	Vector<String> lines;
+	Array keys = p_dictionary.keys();
+	for (int i = 0; i < keys.size(); i++) {
+		const String key = String(keys[i]).strip_edges();
+		if (key.is_empty()) {
+			continue;
+		}
+		lines.push_back(key + "=" + String(p_dictionary[keys[i]]));
+	}
+	return String("\n").join(lines);
+}
+
+String _arguments_from_variant(const Variant &p_value) {
+	if (p_value.get_type() == Variant::ARRAY) {
+		const Array args = p_value;
+		Vector<String> parts;
+		for (int i = 0; i < args.size(); i++) {
+			parts.push_back(String(args[i]));
+		}
+		return String(" ").join(parts);
+	}
+	return String(p_value).strip_edges();
+}
+
+String _server_transport(const Dictionary &p_server) {
+	const Variant transport_value = p_server.get("transport", p_server.get("transport_type", String("stdio")));
+	if (transport_value.get_type() == Variant::DICTIONARY) {
+		return String(Dictionary(transport_value).get("type", "stdio")).strip_edges().to_lower().replace("-", "_");
+	}
+	String transport = String(transport_value).strip_edges().to_lower().replace("-", "_");
+	if (transport == "http") {
+		transport = "streamable_http";
+	}
+	return transport.is_empty() ? String("stdio") : transport;
+}
+
+String _server_command(const Dictionary &p_server) {
+	const Dictionary transport = _dictionary_from_variant(p_server.get("transport", Variant()));
+	if (transport.has("command")) {
+		const Variant command = transport["command"];
+		if (command.get_type() == Variant::ARRAY) {
+			const Array command_array = command;
+			return command_array.is_empty() ? String() : String(command_array[0]).strip_edges();
+		}
+		return String(command).strip_edges();
+	}
+	return String(p_server.get("command", String())).strip_edges();
+}
+
+String _server_arguments(const Dictionary &p_server) {
+	const Dictionary transport = _dictionary_from_variant(p_server.get("transport", Variant()));
+	if (transport.has("command") && transport["command"].get_type() == Variant::ARRAY) {
+		const Array command_array = transport["command"];
+		Vector<String> parts;
+		for (int i = 1; i < command_array.size(); i++) {
+			parts.push_back(String(command_array[i]));
+		}
+		return String(" ").join(parts);
+	}
+	if (transport.has("arguments")) {
+		return String(transport["arguments"]).strip_edges();
+	}
+	if (p_server.has("args")) {
+		return _arguments_from_variant(p_server["args"]);
+	}
+	return String(p_server.get("arguments", String())).strip_edges();
+}
+
+String _server_text_field(const Dictionary &p_server, const String &p_key, const String &p_alt_key = String()) {
+	Variant value = p_server.get(p_key, Variant());
+	if (value.get_type() == Variant::NIL && !p_alt_key.is_empty()) {
+		value = p_server.get(p_alt_key, Variant());
+	}
+	if (value.get_type() == Variant::DICTIONARY) {
+		return _lines_from_dictionary(value);
+	}
+	return String(value).strip_edges();
 }
 
 } // namespace
@@ -114,6 +208,7 @@ void AIMCPServerDialog::_build_ui() {
 void AIMCPServerDialog::_reset_form() {
 	_build_ui();
 	editing_server_id.clear();
+	editing_server_snapshot.clear();
 	name_edit->clear();
 	transport_option->select(0);
 	command_edit->clear();
@@ -161,24 +256,26 @@ void AIMCPServerDialog::popup_add_server() {
 	popup_centered();
 }
 
-void AIMCPServerDialog::popup_edit_server(const AIMCPServerConfig &p_server) {
+void AIMCPServerDialog::popup_edit_server(const Dictionary &p_server) {
 	_reset_form();
-	editing_server_id = p_server.id;
-	name_edit->set_text(p_server.display_name);
-	if (p_server.transport == "streamable_http") {
+	editing_server_snapshot = p_server.duplicate(true);
+	editing_server_id = String(p_server.get("id", String())).strip_edges();
+	name_edit->set_text(String(p_server.get("name", p_server.get("display_name", p_server.get("displayName", editing_server_id)))).strip_edges());
+	const String transport = _server_transport(p_server);
+	if (transport == "streamable_http") {
 		transport_option->select(1);
-	} else if (p_server.transport == "sse") {
+	} else if (transport == "sse") {
 		transport_option->select(2);
 	} else {
 		transport_option->select(0);
 	}
-	command_edit->set_text(p_server.command);
-	arguments_edit->set_text(p_server.arguments);
-	working_directory_edit->set_text(p_server.working_directory);
-	environment_edit->set_text(p_server.environment);
-	url_edit->set_text(p_server.url);
-	headers_edit->set_text(p_server.headers);
-	enabled_check->set_pressed(p_server.enabled);
+	command_edit->set_text(_server_command(p_server));
+	arguments_edit->set_text(_server_arguments(p_server));
+	working_directory_edit->set_text(_server_text_field(p_server, "working_directory", "cwd"));
+	environment_edit->set_text(_server_text_field(p_server, "environment", "env"));
+	url_edit->set_text(String(p_server.get("url", String())).strip_edges());
+	headers_edit->set_text(_server_text_field(p_server, "headers"));
+	enabled_check->set_pressed(bool(p_server.get("enabled", true)));
 	_sync_transport_fields();
 	set_title(TTR("Edit MCP Server"));
 	popup_centered();
@@ -192,22 +289,26 @@ String AIMCPServerDialog::get_editing_server_id() const {
 	return editing_server_id;
 }
 
-AIMCPServerConfig AIMCPServerDialog::get_submitted_server() const {
-	AIMCPServerConfig server;
+Dictionary AIMCPServerDialog::get_submitted_server() const {
+	Dictionary server = editing_server_snapshot.duplicate(true);
 	if (!name_edit || !transport_option || !command_edit || !arguments_edit || !working_directory_edit || !environment_edit || !url_edit || !headers_edit || !enabled_check) {
 		return server;
 	}
 
-	server.id = editing_server_id;
-	server.display_name = name_edit->get_text().strip_edges();
+	server["id"] = editing_server_id;
+	const String name = name_edit->get_text().strip_edges();
+	server["name"] = name;
+	server["display_name"] = name;
 	const int transport_index = transport_option->get_selected_id();
-	server.transport = transport_index == 1 ? String("streamable_http") : (transport_index == 2 ? String("sse") : String("stdio"));
-	server.command = command_edit->get_text().strip_edges();
-	server.arguments = arguments_edit->get_text().strip_edges();
-	server.working_directory = working_directory_edit->get_text().strip_edges();
-	server.environment = environment_edit->get_text().strip_edges();
-	server.url = url_edit->get_text().strip_edges();
-	server.headers = headers_edit->get_text().strip_edges();
-	server.enabled = enabled_check->is_pressed();
+	const String transport = transport_index == 1 ? String("streamable_http") : (transport_index == 2 ? String("sse") : String("stdio"));
+	server["transport"] = transport;
+	server["transport_type"] = transport;
+	server["command"] = command_edit->get_text().strip_edges();
+	server["arguments"] = arguments_edit->get_text().strip_edges();
+	server["working_directory"] = working_directory_edit->get_text().strip_edges();
+	server["environment"] = environment_edit->get_text().strip_edges();
+	server["url"] = url_edit->get_text().strip_edges();
+	server["headers"] = headers_edit->get_text().strip_edges();
+	server["enabled"] = enabled_check->is_pressed();
 	return server;
 }

@@ -4,7 +4,8 @@
 
 #pragma once
 
-#include "editor/ai_component/providers/ai_mcp_settings.h"
+#include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
+
 #include "scene/gui/margin_container.h"
 
 class AIMCPServerDialog;
@@ -23,16 +24,21 @@ class AISettingsMCPPage : public MarginContainer {
 	AcceptDialog *json_import_dialog = nullptr;
 	AcceptDialog *error_dialog = nullptr;
 	TextEdit *json_import_edit = nullptr;
-	Vector<AIMCPServerConfig> server_rows;
+	Vector<Dictionary> server_rows;
 
+	Ref<AIAgentV1UIBridge> _get_adapter() const;
 	void _build_ui();
 	void _refresh_server_table();
-	void _add_server_table_row(const AIMCPServerConfig &p_server, const Dictionary &p_status);
+	void _add_server_table_row(const Dictionary &p_server, const Dictionary &p_status);
 	Dictionary _get_server_status(const String &p_server_id) const;
+	Array _get_mcp_servers() const;
+	bool _patch_mcp_server(Dictionary p_server, const String &p_scope = "project");
+	bool _remove_mcp_server(const String &p_server_id, const String &p_scope = "project");
 	void _popup_add_server_dialog();
 	void _popup_import_json_dialog();
 	void _json_import_confirmed();
 	void _mcp_status_changed(const Array &p_statuses, const Dictionary &p_summary);
+	void _config_changed(const String &p_scope, const Dictionary &p_config);
 	void _server_submitted();
 	void _edit_server_pressed(const String &p_server_id);
 	void _remove_server_pressed(const String &p_server_id);

@@ -2798,6 +2798,71 @@ TEST_CASE("[Editor][AgentV1] Tool materialization captures root, filters denied 
 	CHECK(String(restored_identity.get("id", String())) == String(base_identity.get("id", String())));
 }
 
+TEST_CASE("[Editor][AgentV1] Session service registers migrated editor tools for agent calls") {
+	Ref<AISessionService> service;
+	service.instantiate();
+
+	Ref<AIV1ToolRegistry> registry = service->get_tool_registry();
+	REQUIRE(registry.is_valid());
+
+	const char *expected_tools[] = {
+		"project_list_tree",
+		"project_read_file",
+		"project_search_text",
+		"project_attach_multimodal_file",
+		"project_create_markdown",
+		"agent_collect_requirements",
+		"editor_get_context",
+		"docs_search",
+		"editor_run_scene",
+		"editor_stop_running_scene",
+		"editor_get_terminal_errors",
+		"project_create_folder",
+		"scene_describe_tree",
+		"scene_inspect_node",
+		"scene_list_properties",
+		"scene_apply_patch",
+		"scene_delete_node",
+		"script_inspect",
+		"script_create",
+		"script_write",
+		"script_patch_function",
+		"script_bind_to_node",
+		"script_unbind_from_node",
+		"script_delete",
+		"shader_create",
+		"shader_edit",
+		"shader_apply_to_node",
+		"shader_set_parameters",
+		"shader_delete",
+	};
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization.is_valid());
+	for (const char *expected_tool : expected_tools) {
+		CHECK(registry->has_tool(expected_tool));
+		CHECK(materialization->has_tool(expected_tool));
+	}
+
+	Dictionary list_call;
+	list_call["id"] = "call-project-list-tree";
+	list_call["name"] = "project_list_tree";
+	list_call["input"] = Dictionary();
+
+	Dictionary settle_input;
+	settle_input["session_id"] = "session-migrated-tools";
+	settle_input["assistant_message_id"] = "assistant-migrated-tools";
+	settle_input["call"] = list_call;
+
+	AIV1ToolSettlement settlement;
+	AIError error;
+	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
+	CHECK(settlement.success);
+	CHECK(String(settlement.content).contains("Project tree under res://"));
+	CHECK(String(settlement.metadata.get("tool_origin", String())) == "agent_v1");
+	CHECK(String(settlement.metadata.get("legacy_tool_name", String())) == "project.list_tree");
+}
+
 TEST_CASE("[Editor][AgentV1] Tool materialization applies last matching permission visibility") {
 	Ref<AIV1ToolRegistry> registry;
 	registry.instantiate();

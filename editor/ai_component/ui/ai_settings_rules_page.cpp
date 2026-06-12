@@ -10,9 +10,9 @@
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/button.h"
-#include "scene/gui/check_box.h"
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
+#include "scene/gui/option_button.h"
 #include "scene/gui/panel_container.h"
 #include "scene/gui/scroll_container.h"
 #include "scene/gui/separator.h"
@@ -29,6 +29,22 @@ void _clear_children(Node *p_node) {
 	}
 }
 
+Array _array_from_variant(const Variant &p_value) {
+	if (p_value.get_type() == Variant::ARRAY) {
+		return Array(p_value).duplicate(true);
+	}
+	return Array();
+}
+
+Label *_make_field_label(const String &p_text, int p_width) {
+	Label *label = memnew(Label);
+	label->set_text(p_text);
+	label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
+	label->set_custom_minimum_size(Size2(p_width, 0) * EDSCALE);
+	label->add_theme_color_override(SceneStringName(font_color), label->get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	return label;
+}
+
 Label *_make_table_label(const String &p_text, int p_width = 0) {
 	Label *label = memnew(Label);
 	label->set_text(p_text);
@@ -40,6 +56,78 @@ Label *_make_table_label(const String &p_text, int p_width = 0) {
 		label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	}
 	return label;
+}
+
+String _normalize_effect(const Variant &p_effect) {
+	const String effect = String(p_effect).strip_edges().to_lower();
+	if (effect == "allow" || effect == "ask" || effect == "deny") {
+		return effect;
+	}
+	return "ask";
+}
+
+String _effect_label(const String &p_effect) {
+	if (p_effect == "allow") {
+		return TTR("Allow");
+	}
+	if (p_effect == "deny") {
+		return TTR("Deny");
+	}
+	return TTR("Ask");
+}
+
+String _rule_action(const Dictionary &p_rule) {
+	return String(p_rule.get("action", String())).strip_edges().to_lower();
+}
+
+String _rule_resource(const Dictionary &p_rule) {
+	const String resource = String(p_rule.get("resource", "*")).strip_edges();
+	return resource.is_empty() ? String("*") : resource;
+}
+
+String _rule_effect(const Dictionary &p_rule) {
+	return _normalize_effect(p_rule.get("effect", "ask"));
+}
+
+String _rule_reason(const Dictionary &p_rule) {
+	return String(p_rule.get("reason", String())).strip_edges();
+}
+
+Dictionary _normalize_rule_for_patch(Dictionary p_rule) {
+	p_rule["action"] = _rule_action(p_rule);
+	p_rule["resource"] = _rule_resource(p_rule);
+	p_rule["effect"] = _rule_effect(p_rule);
+	const String reason = _rule_reason(p_rule);
+	if (reason.is_empty()) {
+		p_rule.erase("reason");
+	} else {
+		p_rule["reason"] = reason;
+	}
+	return p_rule;
+}
+
+int _effect_to_option_index(const String &p_effect) {
+	if (p_effect == "allow") {
+		return 0;
+	}
+	if (p_effect == "deny") {
+		return 2;
+	}
+	return 1;
+}
+
+String _effect_from_option(const OptionButton *p_option) {
+	if (!p_option) {
+		return "ask";
+	}
+	switch (p_option->get_selected_id()) {
+		case 0:
+			return "allow";
+		case 2:
+			return "deny";
+		default:
+			return "ask";
+	}
 }
 
 } // namespace
@@ -55,6 +143,10 @@ void AISettingsRulesPage::_notification(int p_what) {
 }
 
 AISettingsRulesPage::AISettingsRulesPage() {
+}
+
+Ref<AIAgentV1UIBridge> AISettingsRulesPage::_get_adapter() const {
+	return AIAgentV1UIBridge::get_singleton();
 }
 
 void AISettingsRulesPage::_build_ui() {
@@ -83,32 +175,65 @@ void AISettingsRulesPage::_build_ui() {
 	content->add_child(title);
 
 	Label *section_title = memnew(Label);
-	section_title->set_text(TTR("User Rules"));
+	section_title->set_text(TTR("Permission Rules"));
 	section_title->add_theme_font_size_override(SceneStringName(font_size), int(14 * EDSCALE));
 	content->add_child(section_title);
 
 	Label *description = memnew(Label);
-	description->set_text(TTR("Rules are short user instructions injected into every AI Agent context. Each rule is limited to 100 characters."));
+	description->set_text(TTR("agent_v1 evaluates permission rules by action, resource pattern, and effect. Later matching rules take precedence."));
 	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	content->add_child(description);
 
-	HBoxContainer *toolbar = memnew(HBoxContainer);
-	toolbar->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	toolbar->add_theme_constant_override("separation", 8 * EDSCALE);
-	content->add_child(toolbar);
+	VBoxContainer *form = memnew(VBoxContainer);
+	form->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	form->add_theme_constant_override("separation", 8 * EDSCALE);
+	content->add_child(form);
 
-	rule_input = memnew(LineEdit);
-	rule_input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	rule_input->set_max_length(AIRuleSettings::MAX_RULE_CHARS);
-	rule_input->set_placeholder(TTR("Add a rule, up to 100 characters."));
-	rule_input->connect(SceneStringName(text_submitted), callable_mp(this, &AISettingsRulesPage::_rule_text_submitted));
-	toolbar->add_child(rule_input);
+	HBoxContainer *first_row = memnew(HBoxContainer);
+	first_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	first_row->add_theme_constant_override("separation", 8 * EDSCALE);
+	form->add_child(first_row);
+
+	first_row->add_child(_make_field_label(TTR("Action"), 68));
+	action_input = memnew(LineEdit);
+	action_input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	action_input->set_placeholder(TTR("file.write"));
+	action_input->connect(SceneStringName(text_submitted), callable_mp(this, &AISettingsRulesPage::_rule_text_submitted));
+	first_row->add_child(action_input);
+
+	first_row->add_child(_make_field_label(TTR("Resource"), 78));
+	resource_input = memnew(LineEdit);
+	resource_input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	resource_input->set_placeholder(TTR("*"));
+	resource_input->connect(SceneStringName(text_submitted), callable_mp(this, &AISettingsRulesPage::_rule_text_submitted));
+	first_row->add_child(resource_input);
+
+	first_row->add_child(_make_field_label(TTR("Effect"), 62));
+	effect_option = memnew(OptionButton);
+	effect_option->set_custom_minimum_size(Size2(110, 0) * EDSCALE);
+	effect_option->add_item(TTR("Allow"), 0);
+	effect_option->add_item(TTR("Ask"), 1);
+	effect_option->add_item(TTR("Deny"), 2);
+	effect_option->select(1);
+	first_row->add_child(effect_option);
+
+	HBoxContainer *second_row = memnew(HBoxContainer);
+	second_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	second_row->add_theme_constant_override("separation", 8 * EDSCALE);
+	form->add_child(second_row);
+
+	second_row->add_child(_make_field_label(TTR("Reason"), 68));
+	reason_input = memnew(LineEdit);
+	reason_input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	reason_input->set_placeholder(TTR("Optional note shown with the decision."));
+	reason_input->connect(SceneStringName(text_submitted), callable_mp(this, &AISettingsRulesPage::_rule_text_submitted));
+	second_row->add_child(reason_input);
 
 	add_rule_button = memnew(Button);
 	add_rule_button->set_text(TTR("Add Rule"));
 	add_rule_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsRulesPage::_add_rule_pressed));
-	toolbar->add_child(add_rule_button);
+	second_row->add_child(add_rule_button);
 
 	status_label = memnew(Label);
 	status_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
@@ -125,7 +250,42 @@ void AISettingsRulesPage::_build_ui() {
 	rule_table->add_theme_constant_override("separation", 0);
 	table_panel->add_child(rule_table);
 
+	Ref<AIAgentV1UIBridge> bridge = _get_adapter();
+	if (bridge.is_valid()) {
+		const Callable rules_changed = callable_mp(this, &AISettingsRulesPage::_rules_changed);
+		if (!bridge->is_connected(SNAME("rules_changed"), rules_changed)) {
+			bridge->connect(SNAME("rules_changed"), rules_changed);
+		}
+		const Callable config_changed = callable_mp(this, &AISettingsRulesPage::_config_changed);
+		if (!bridge->is_connected(SNAME("config_changed"), config_changed)) {
+			bridge->connect(SNAME("config_changed"), config_changed);
+		}
+	}
+
 	_refresh_rule_table();
+}
+
+Array AISettingsRulesPage::_get_rules() const {
+	Ref<AIAgentV1UIBridge> bridge = _get_adapter();
+	if (bridge.is_null()) {
+		return Array();
+	}
+	const Dictionary snapshot = bridge->get_settings_snapshot();
+	return _array_from_variant(snapshot.get("rules", Array()));
+}
+
+bool AISettingsRulesPage::_patch_rules(const Array &p_rules, const String &p_scope) {
+	Ref<AIAgentV1UIBridge> bridge = _get_adapter();
+	if (bridge.is_null()) {
+		return false;
+	}
+
+	Dictionary permissions_patch;
+	permissions_patch["rules"] = p_rules.duplicate(true);
+	Dictionary patch;
+	patch["permissions"] = permissions_patch;
+	const Dictionary result = bridge->patch_settings(patch, p_scope);
+	return bool(result.get("success", false));
 }
 
 void AISettingsRulesPage::_refresh_rule_table() {
@@ -140,27 +300,37 @@ void AISettingsRulesPage::_refresh_rule_table() {
 	header->add_theme_constant_override("separation", 8 * EDSCALE);
 	rule_table->add_child(header);
 
-	Label *enabled_header = _make_table_label(TTR("Enabled"), 82);
-	enabled_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
-	header->add_child(enabled_header);
-
-	Label *rule_header = _make_table_label(TTR("Rule"));
-	rule_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
-	header->add_child(rule_header);
-
-	Label *action_header = _make_table_label(TTR("Actions"), 150);
+	Label *action_header = _make_table_label(TTR("Action"), 150);
 	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 	header->add_child(action_header);
+
+	Label *resource_header = _make_table_label(TTR("Resource"), 220);
+	resource_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	header->add_child(resource_header);
+
+	Label *effect_header = _make_table_label(TTR("Effect"), 90);
+	effect_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	header->add_child(effect_header);
+
+	Label *reason_header = _make_table_label(TTR("Reason"));
+	reason_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	header->add_child(reason_header);
+
+	Label *row_action_header = _make_table_label(TTR("Actions"), 150);
+	row_action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	header->add_child(row_action_header);
 
 	HSeparator *header_separator = memnew(HSeparator);
 	rule_table->add_child(header_separator);
 
-	Vector<AIRuleConfig> rules = AIRuleSettings::get_rules(false);
+	const Array rules = _get_rules();
 	for (int i = 0; i < rules.size(); i++) {
-		_add_rule_table_row(rules[i]);
+		if (rules[i].get_type() == Variant::DICTIONARY) {
+			_add_rule_table_row(rules[i], i);
+		}
 	}
 
-	if (rules.is_empty()) {
+	if (rule_rows.is_empty()) {
 		MarginContainer *empty_margin = memnew(MarginContainer);
 		empty_margin->add_theme_constant_override("margin_left", 28 * EDSCALE);
 		empty_margin->add_theme_constant_override("margin_top", 8 * EDSCALE);
@@ -168,14 +338,15 @@ void AISettingsRulesPage::_refresh_rule_table() {
 		rule_table->add_child(empty_margin);
 
 		Label *empty_label = memnew(Label);
-		empty_label->set_text(TTR("No rules yet. Add a short rule to include it in AI Agent context."));
+		empty_label->set_text(TTR("No permission rules yet."));
 		empty_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
 		empty_margin->add_child(empty_label);
 	}
 }
 
-void AISettingsRulesPage::_add_rule_table_row(const AIRuleConfig &p_rule) {
-	rule_rows.push_back(p_rule);
+void AISettingsRulesPage::_add_rule_table_row(const Dictionary &p_rule, int p_rule_index) {
+	Dictionary rule = _normalize_rule_for_patch(p_rule.duplicate(true));
+	rule_rows.push_back(rule);
 
 	HBoxContainer *row = memnew(HBoxContainer);
 	row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -183,15 +354,25 @@ void AISettingsRulesPage::_add_rule_table_row(const AIRuleConfig &p_rule) {
 	row->add_theme_constant_override("separation", 8 * EDSCALE);
 	rule_table->add_child(row);
 
-	CheckBox *enabled_check = memnew(CheckBox);
-	enabled_check->set_pressed(p_rule.enabled);
-	enabled_check->set_custom_minimum_size(Size2(82, 0) * EDSCALE);
-	enabled_check->connect(SceneStringName(toggled), callable_mp(this, &AISettingsRulesPage::_rule_enabled_toggled).bind(p_rule.id), CONNECT_DEFERRED);
-	row->add_child(enabled_check);
+	const String action = _rule_action(rule);
+	Label *action_label = _make_table_label(action, 150);
+	action_label->set_tooltip_text(action);
+	row->add_child(action_label);
 
-	Label *rule_label = _make_table_label(p_rule.content);
-	rule_label->set_tooltip_text(p_rule.content);
-	row->add_child(rule_label);
+	const String resource = _rule_resource(rule);
+	Label *resource_label = _make_table_label(resource, 220);
+	resource_label->set_tooltip_text(resource);
+	row->add_child(resource_label);
+
+	const String effect = _rule_effect(rule);
+	Label *effect_label = _make_table_label(_effect_label(effect), 90);
+	effect_label->set_tooltip_text(effect);
+	row->add_child(effect_label);
+
+	const String reason = _rule_reason(rule);
+	Label *reason_label = _make_table_label(reason);
+	reason_label->set_tooltip_text(reason);
+	row->add_child(reason_label);
 
 	HBoxContainer *action_cell = memnew(HBoxContainer);
 	action_cell->set_custom_minimum_size(Size2(150, 0) * EDSCALE);
@@ -200,12 +381,12 @@ void AISettingsRulesPage::_add_rule_table_row(const AIRuleConfig &p_rule) {
 
 	Button *edit_button = memnew(Button);
 	edit_button->set_text(TTR("Edit"));
-	edit_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsRulesPage::_edit_rule_pressed).bind(p_rule.id), CONNECT_DEFERRED);
+	edit_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsRulesPage::_edit_rule_pressed).bind(p_rule_index), CONNECT_DEFERRED);
 	action_cell->add_child(edit_button);
 
 	Button *remove_button = memnew(Button);
 	remove_button->set_text(TTR("Remove"));
-	remove_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsRulesPage::_remove_rule_pressed).bind(p_rule.id), CONNECT_DEFERRED);
+	remove_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsRulesPage::_remove_rule_pressed).bind(p_rule_index), CONNECT_DEFERRED);
 	action_cell->add_child(remove_button);
 
 	HSeparator *row_separator = memnew(HSeparator);
@@ -213,31 +394,46 @@ void AISettingsRulesPage::_add_rule_table_row(const AIRuleConfig &p_rule) {
 }
 
 void AISettingsRulesPage::_add_rule_pressed() {
-	if (!rule_input) {
+	if (!action_input || !resource_input || !effect_option || !reason_input) {
 		return;
 	}
-	const String content = AIRuleSettings::normalize_rule_content(rule_input->get_text());
-	if (content.is_empty()) {
-		_set_status(TTR("Rule cannot be empty."), true);
+
+	Dictionary rule;
+	rule["action"] = action_input->get_text();
+	rule["resource"] = resource_input->get_text();
+	rule["effect"] = _effect_from_option(effect_option);
+	rule["reason"] = reason_input->get_text();
+	rule = _normalize_rule_for_patch(rule);
+
+	if (_rule_action(rule).is_empty()) {
+		_set_status(TTR("Permission action cannot be empty."), true);
 		return;
 	}
-	if (!editing_rule_id.is_empty()) {
-		AIRuleConfig existing = AIRuleSettings::get_rule(editing_rule_id);
-		if (existing.id.is_empty() || !AIRuleSettings::update_rule(editing_rule_id, content, existing.enabled)) {
-			_set_status(TTR("Could not save rule."), true);
+
+	Array rules = _get_rules();
+	if (editing_rule_index >= 0) {
+		if (editing_rule_index >= rules.size()) {
+			_set_status(TTR("Rule is no longer available."), true);
 			return;
 		}
-		editing_rule_id.clear();
-		if (add_rule_button) {
-			add_rule_button->set_text(TTR("Add Rule"));
-		}
+		rules[editing_rule_index] = rule;
 	} else {
-		if (AIRuleSettings::add_rule(content, true).is_empty()) {
-			_set_status(TTR("Could not add rule."), true);
-			return;
-		}
+		rules.push_back(rule);
 	}
-	rule_input->clear();
+
+	if (!_patch_rules(rules)) {
+		_set_status(TTR("Could not save permission rule."), true);
+		return;
+	}
+
+	editing_rule_index = -1;
+	action_input->clear();
+	resource_input->clear();
+	reason_input->clear();
+	effect_option->select(1);
+	if (add_rule_button) {
+		add_rule_button->set_text(TTR("Add Rule"));
+	}
 	_set_status(String(), false);
 	_refresh_rule_table();
 	emit_signal(SNAME("settings_changed"));
@@ -248,43 +444,70 @@ void AISettingsRulesPage::_rule_text_submitted(const String &p_text) {
 	_add_rule_pressed();
 }
 
-void AISettingsRulesPage::_edit_rule_pressed(const String &p_rule_id) {
-	if (!rule_input) {
+void AISettingsRulesPage::_edit_rule_pressed(int p_rule_index) {
+	if (!action_input || !resource_input || !effect_option || !reason_input) {
 		return;
 	}
-	AIRuleConfig rule = AIRuleSettings::get_rule(p_rule_id);
-	if (rule.id.is_empty()) {
+
+	const Array rules = _get_rules();
+	if (p_rule_index < 0 || p_rule_index >= rules.size() || rules[p_rule_index].get_type() != Variant::DICTIONARY) {
 		return;
 	}
-	editing_rule_id = p_rule_id;
-	rule_input->set_text(rule.content);
-	rule_input->grab_focus();
+
+	const Dictionary rule = _normalize_rule_for_patch(Dictionary(rules[p_rule_index]).duplicate(true));
+	editing_rule_index = p_rule_index;
+	action_input->set_text(_rule_action(rule));
+	resource_input->set_text(_rule_resource(rule));
+	reason_input->set_text(_rule_reason(rule));
+	effect_option->select(_effect_to_option_index(_rule_effect(rule)));
+	action_input->grab_focus();
 	if (add_rule_button) {
 		add_rule_button->set_text(TTR("Save Rule"));
 	}
 }
 
-void AISettingsRulesPage::_remove_rule_pressed(const String &p_rule_id) {
-	if (AIRuleSettings::remove_rule(p_rule_id)) {
-		if (editing_rule_id == p_rule_id) {
-			editing_rule_id.clear();
-			if (rule_input) {
-				rule_input->clear();
+void AISettingsRulesPage::_remove_rule_pressed(int p_rule_index) {
+	Array rules = _get_rules();
+	if (p_rule_index < 0 || p_rule_index >= rules.size()) {
+		return;
+	}
+
+	rules.remove_at(p_rule_index);
+	if (_patch_rules(rules)) {
+		if (editing_rule_index == p_rule_index) {
+			editing_rule_index = -1;
+			if (action_input) {
+				action_input->clear();
+			}
+			if (resource_input) {
+				resource_input->clear();
+			}
+			if (reason_input) {
+				reason_input->clear();
+			}
+			if (effect_option) {
+				effect_option->select(1);
 			}
 			if (add_rule_button) {
 				add_rule_button->set_text(TTR("Add Rule"));
 			}
+		} else if (editing_rule_index > p_rule_index) {
+			editing_rule_index--;
 		}
 		_refresh_rule_table();
 		emit_signal(SNAME("settings_changed"));
 	}
 }
 
-void AISettingsRulesPage::_rule_enabled_toggled(bool p_enabled, const String &p_rule_id) {
-	if (AIRuleSettings::set_rule_enabled(p_rule_id, p_enabled)) {
-		_refresh_rule_table();
-		emit_signal(SNAME("settings_changed"));
-	}
+void AISettingsRulesPage::_rules_changed(const Array &p_rules) {
+	(void)p_rules;
+	_refresh_rule_table();
+}
+
+void AISettingsRulesPage::_config_changed(const String &p_scope, const Dictionary &p_config) {
+	(void)p_scope;
+	(void)p_config;
+	_refresh_rule_table();
 }
 
 void AISettingsRulesPage::_set_status(const String &p_status, bool p_error) {
@@ -305,11 +528,33 @@ int AISettingsRulesPage::get_rule_table_row_count_for_test() const {
 }
 
 void AISettingsRulesPage::add_rule_for_test(const String &p_content, bool p_enabled) {
-	(void)AIRuleSettings::add_rule(p_content, p_enabled);
+	const String action = p_content.strip_edges().to_lower();
+	if (action.is_empty()) {
+		return;
+	}
+
+	Dictionary rule;
+	rule["action"] = action;
+	rule["resource"] = "*";
+	rule["effect"] = p_enabled ? String("allow") : String("deny");
+
+	Array rules = _get_rules();
+	rules.push_back(rule);
+	(void)_patch_rules(rules, "runtime");
 	_refresh_rule_table();
 }
 
 void AISettingsRulesPage::set_rule_enabled_for_test(const String &p_rule_id, bool p_enabled) {
-	AIRuleSettings::set_rule_enabled(p_rule_id, p_enabled);
+	const int index = p_rule_id.is_valid_int() ? p_rule_id.to_int() : -1;
+	Array rules = _get_rules();
+	if (index < 0 || index >= rules.size() || rules[index].get_type() != Variant::DICTIONARY) {
+		_refresh_rule_table();
+		return;
+	}
+
+	Dictionary rule = Dictionary(rules[index]).duplicate(true);
+	rule["effect"] = p_enabled ? String("allow") : String("deny");
+	rules[index] = _normalize_rule_for_patch(rule);
+	(void)_patch_rules(rules, "runtime");
 	_refresh_rule_table();
 }

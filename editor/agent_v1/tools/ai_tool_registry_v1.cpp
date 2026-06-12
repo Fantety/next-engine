@@ -7,6 +7,7 @@
 #include "editor/agent_v1/core/base/ai_id.h"
 #include "editor/agent_v1/domain/events/ai_event_types.h"
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
+#include "editor/agent_v1/tools/ai_editor_tools_v1.h"
 
 #include "core/crypto/crypto_core.h"
 #include "core/io/dir_access.h"
@@ -575,6 +576,7 @@ void AIV1ToolRegistry::register_builtin_tools() {
 		shell_tool.instantiate();
 		register_tool_struct("shell_run", shell_tool, "builtin");
 	}
+	AIV1EditorTools::register_editor_tools(Ref<AIV1ToolRegistry>(this));
 }
 
 bool AIV1ToolRegistry::has_tool(const String &p_name) const {

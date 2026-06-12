@@ -4,7 +4,8 @@
 
 #pragma once
 
-#include "editor/ai_component/providers/ai_mcp_settings.h"
+#include "core/variant/dictionary.h"
+
 #include "scene/gui/dialogs.h"
 
 class CheckBox;
@@ -25,6 +26,7 @@ class AIMCPServerDialog : public ConfirmationDialog {
 	LineEdit *url_edit = nullptr;
 	TextEdit *headers_edit = nullptr;
 	CheckBox *enabled_check = nullptr;
+	Dictionary editing_server_snapshot;
 
 	void _build_ui();
 	void _reset_form();
@@ -40,8 +42,8 @@ public:
 	AIMCPServerDialog();
 
 	void popup_add_server();
-	void popup_edit_server(const AIMCPServerConfig &p_server);
+	void popup_edit_server(const Dictionary &p_server);
 	bool is_editing_server() const;
 	String get_editing_server_id() const;
-	AIMCPServerConfig get_submitted_server() const;
+	Dictionary get_submitted_server() const;
 };

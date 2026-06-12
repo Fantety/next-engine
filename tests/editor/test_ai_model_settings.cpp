@@ -436,34 +436,61 @@ TEST_CASE("[Editor][AI] Agent settings dialog exposes skill rows") {
 	EditorSettings *settings = EditorSettings::get_singleton();
 	REQUIRE(settings != nullptr);
 
+	Ref<AIAgentV1UIBridge> bridge = setup_agent_v1_model_bridge_for_test();
 	Array original_skills = AISkillSettings::get_skill_storage_for_test();
 	AISkillSettings::clear_skills_for_test();
 
 	AIAgentSettingsDialog dialog;
 	dialog.build_for_test();
 	CHECK(dialog.get_skill_table_row_count_for_test() == 0);
-	dialog.add_skill_for_test("Fixture Skill", "Use in settings tests.", "Fixture skill body.", true);
+	dialog.add_skill_for_test("Fixture Skill Source", "res://.agents/skills", String(), true);
 	CHECK(dialog.get_skill_table_row_count_for_test() == 1);
+
+	const Dictionary snapshot = bridge->get_settings_snapshot();
+	const Array skills = snapshot.get("skills", Array());
+	CHECK(skills.size() == 1);
+	if (skills.size() == 1) {
+		const Dictionary source = skills[0];
+		CHECK(String(source.get("kind", String())) == "source");
+		CHECK(String(source.get("source", String())) == "res://.agents/skills");
+	}
+	CHECK(AISkillSettings::get_skills(false).is_empty());
 	dialog.save_settings_for_test();
 
 	AISkillSettings::set_skill_storage_for_test(original_skills);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+	bridge.unref();
 }
 
 TEST_CASE("[Editor][AI] Agent settings dialog exposes rule rows") {
 	EditorSettings *settings = EditorSettings::get_singleton();
 	REQUIRE(settings != nullptr);
 
+	Ref<AIAgentV1UIBridge> bridge = setup_agent_v1_model_bridge_for_test();
 	Array original_rules = AIRuleSettings::get_rule_storage_for_test();
 	AIRuleSettings::clear_rules_for_test();
 
 	AIAgentSettingsDialog dialog;
 	dialog.build_for_test();
 	CHECK(dialog.get_rule_table_row_count_for_test() == 0);
-	dialog.add_rule_for_test("Always inspect errors before changing code.", true);
+	dialog.add_rule_for_test("file.write", true);
 	CHECK(dialog.get_rule_table_row_count_for_test() == 1);
+
+	const Dictionary snapshot = bridge->get_settings_snapshot();
+	const Array rules = snapshot.get("rules", Array());
+	CHECK(rules.size() == 1);
+	if (rules.size() == 1) {
+		const Dictionary rule = rules[0];
+		CHECK(String(rule.get("action", String())) == "file.write");
+		CHECK(String(rule.get("resource", String())) == "*");
+		CHECK(String(rule.get("effect", String())) == "allow");
+	}
+	CHECK(AIRuleSettings::get_rules(false).is_empty());
 	dialog.save_settings_for_test();
 
 	AIRuleSettings::set_rule_storage_for_test(original_rules);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+	bridge.unref();
 }
 
 TEST_CASE("[Editor][AI] NEXT marquee settings provide read-only presets and multiple custom shaders") {
@@ -866,6 +893,7 @@ TEST_CASE("[Editor][AI] Settings models page adds enabled provider and custom mo
 }
 
 TEST_CASE("[Editor][AI] Settings dialog adds MCP servers") {
+	Ref<AIAgentV1UIBridge> bridge = setup_agent_v1_model_bridge_for_test();
 	Array original_servers = AIMCPSettings::get_server_storage_for_test();
 	AIMCPSettings::clear_servers_for_test();
 
@@ -876,15 +904,23 @@ TEST_CASE("[Editor][AI] Settings dialog adds MCP servers") {
 	dialog->add_mcp_server_for_test("Filesystem", "npx", true);
 	CHECK(dialog->get_mcp_server_table_row_count_for_test() == 1);
 
-	Vector<AIMCPServerConfig> servers = AIMCPSettings::get_servers(false);
-	REQUIRE(servers.size() == 1);
-	CHECK(servers[0].display_name == "Filesystem");
-	CHECK(servers[0].command == "npx");
-	CHECK(servers[0].enabled);
+	const Dictionary snapshot = bridge->get_settings_snapshot();
+	const Array servers = snapshot.get("mcp_servers", Array());
+	CHECK(servers.size() == 1);
+	if (servers.size() == 1) {
+		const Dictionary server = servers[0];
+		CHECK(String(server.get("name", server.get("display_name", String()))) == "Filesystem");
+		CHECK(String(server.get("transport", server.get("transport_type", String()))) == "stdio");
+		CHECK(String(server.get("command", String())) == "npx");
+		CHECK(bool(server.get("enabled", false)));
+	}
+	CHECK(AIMCPSettings::get_servers(false).is_empty());
 
 	memdelete(dialog);
 
 	AIMCPSettings::set_server_storage_for_test(original_servers);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+	bridge.unref();
 }
 
 TEST_CASE("[Editor][AI] Settings models page edits added provider model credentials") {
