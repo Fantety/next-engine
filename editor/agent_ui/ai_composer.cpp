@@ -8,11 +8,11 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
-#include "editor/agent_ui/component/ai_reference_resolver.h"
-#include "editor/agent_ui/component/ai_reference_text_edit.h"
+#include "editor/agent_ui/component/ai_composer_input.h"
 #include "editor/gui/editor_file_dialog.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/label.h"
+#include "scene/gui/text_edit.h"
 #include "servers/display/display_server.h"
 #include "servers/text/text_server.h"
 
@@ -43,14 +43,9 @@ AIComposer::AIComposer() {
 	set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	set_v_size_flags(Control::SIZE_SHRINK_END);
 
-	input = memnew(AIReferenceTextEdit);
-	input->set_custom_minimum_size(Size2(0, 80) * EDSCALE);
-	input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	input->set_line_wrapping_mode(TextEdit::LINE_WRAPPING_BOUNDARY);
-	input->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
-	input->set_placeholder(TTR("Ask about this project..."));
-	input->connect("text_changed", callable_mp(this, &AIComposer::_input_text_changed));
-	input->connect("gui_input", callable_mp(this, &AIComposer::_input_gui_input));
+	input = memnew(AIComposerInput);
+	input->set_changed_callback(callable_mp(this, &AIComposer::_input_text_changed));
+	input->get_text_edit()->connect("gui_input", callable_mp(this, &AIComposer::_input_gui_input));
 	add_child(input);
 
 	HBoxContainer *bar = memnew(HBoxContainer);
@@ -126,7 +121,7 @@ String AIComposer::get_selected_agent_profile_id() const {
 }
 
 Array AIComposer::get_attachments_for_send() const {
-	return AIReferenceResolver::resolve_attachments(get_input_text());
+	return input->get_attachments_for_send();
 }
 
 void AIComposer::_mode_selected(int p_index) {
@@ -197,17 +192,21 @@ void AIComposer::_input_gui_input(const Ref<InputEvent> &p_event) {
 	if (key_event.is_null() || !key_event->is_pressed()) {
 		return;
 	}
+	TextEdit *text_edit = input ? input->get_text_edit() : nullptr;
+	if (!text_edit) {
+		return;
+	}
 	if (!running && key_event->get_unicode() == '@' && !key_event->is_ctrl_pressed() && !key_event->is_alt_pressed() && !key_event->is_meta_pressed()) {
-		reference_trigger_line = input->get_caret_line();
-		reference_trigger_column = input->get_caret_column();
+		reference_trigger_line = text_edit->get_caret_line();
+		reference_trigger_column = text_edit->get_caret_column();
 		callable_mp(this, &AIComposer::_show_reference_menu).call_deferred();
 		return;
 	}
 	if (!running && key_event->is_action("ui_paste", true)) {
 		DisplayServer *display_server = DisplayServer::get_singleton();
 		if (display_server && display_server->clipboard_has_image()) {
-			input->accept_event();
-			_insert_reference_token("@clipboard");
+			text_edit->accept_event();
+			_add_clipboard_reference();
 			_update_action_button();
 			return;
 		}
@@ -219,7 +218,7 @@ void AIComposer::_input_gui_input(const Ref<InputEvent> &p_event) {
 	if (key_event->is_shift_pressed() || key_event->is_ctrl_pressed()) {
 		return;
 	}
-	input->accept_event();
+	text_edit->accept_event();
 	_action_pressed();
 }
 
@@ -229,12 +228,18 @@ void AIComposer::_action_pressed() {
 		return;
 	}
 
-	String message = get_input_text().strip_edges();
+	const String raw_message = get_input_text();
+	String message = raw_message.strip_edges();
 	const Array attachments = get_attachments_for_send();
-	if (!has_model || message.is_empty()) {
+	if (!has_model || (message.is_empty() && attachments.is_empty())) {
 		return;
 	}
-	emit_signal(SNAME("send_requested"), get_input_text(), get_selected_model(), get_selected_agent_profile_id(), attachments);
+	if (message.is_empty()) {
+		message = TTR("Please review the attached references.");
+	} else {
+		message = raw_message;
+	}
+	emit_signal(SNAME("send_requested"), message, get_selected_model(), get_selected_agent_profile_id(), attachments);
 }
 
 void AIComposer::_input_text_changed() {
@@ -244,10 +249,10 @@ void AIComposer::_input_text_changed() {
 void AIComposer::_reference_menu_id_pressed(int p_id) {
 	switch (p_id) {
 		case REFERENCE_MENU_CLIPBOARD: {
-			_insert_reference_token("@clipboard");
+			_add_clipboard_reference();
 		} break;
 		case REFERENCE_MENU_CANVAS: {
-			_insert_reference_token("@canvas");
+			_add_canvas_reference();
 		} break;
 		case REFERENCE_MENU_FILE: {
 			if (reference_file_dialog) {
@@ -265,7 +270,7 @@ void AIComposer::_reference_menu_id_pressed(int p_id) {
 }
 
 void AIComposer::_reference_file_selected(const String &p_path) {
-	_insert_reference_token(AIReferenceResolver::make_reference_token_for_path(p_path));
+	_add_reference_path(p_path);
 }
 
 void AIComposer::_reference_file_dialog_canceled() {
@@ -277,7 +282,11 @@ void AIComposer::_show_reference_menu() {
 		return;
 	}
 
-	reference_menu->set_position(input->get_screen_position() + input->get_caret_draw_pos());
+	TextEdit *text_edit = input->get_text_edit();
+	if (!text_edit) {
+		return;
+	}
+	reference_menu->set_position(text_edit->get_screen_position() + text_edit->get_caret_draw_pos());
 	reference_menu->reset_size();
 	reference_menu->popup();
 }
@@ -287,24 +296,55 @@ void AIComposer::_clear_reference_trigger() {
 	reference_trigger_column = -1;
 }
 
-void AIComposer::_insert_reference_token(const String &p_token) {
-	if (!input || p_token.is_empty()) {
+void AIComposer::_remove_reference_trigger() {
+	TextEdit *text_edit = input ? input->get_text_edit() : nullptr;
+	if (!text_edit) {
 		_clear_reference_trigger();
 		return;
 	}
 
-	if (reference_trigger_line >= 0 && reference_trigger_column >= 0 && reference_trigger_line < input->get_line_count()) {
-		const String line = input->get_line(reference_trigger_line);
+	if (reference_trigger_line >= 0 && reference_trigger_column >= 0 && reference_trigger_line < text_edit->get_line_count()) {
+		const String line = text_edit->get_line(reference_trigger_line);
 		if (reference_trigger_column < line.length() && line[reference_trigger_column] == '@') {
-			input->remove_text(reference_trigger_line, reference_trigger_column, reference_trigger_line, reference_trigger_column + 1);
-			input->set_caret_line(reference_trigger_line, false, true);
-			input->set_caret_column(reference_trigger_column, false);
+			text_edit->remove_text(reference_trigger_line, reference_trigger_column, reference_trigger_line, reference_trigger_column + 1);
+			text_edit->set_caret_line(reference_trigger_line, false, true);
+			text_edit->set_caret_column(reference_trigger_column, false);
 		}
 	}
 
-	input->insert_text_at_caret(p_token);
-	input->grab_focus();
 	_clear_reference_trigger();
+}
+
+void AIComposer::_add_clipboard_reference() {
+	if (!input) {
+		_clear_reference_trigger();
+		return;
+	}
+	_remove_reference_trigger();
+	input->add_clipboard_reference();
+	input->get_text_edit()->grab_focus();
+	_update_action_button();
+}
+
+void AIComposer::_add_canvas_reference() {
+	if (!input) {
+		_clear_reference_trigger();
+		return;
+	}
+	_remove_reference_trigger();
+	input->add_canvas_reference();
+	input->get_text_edit()->grab_focus();
+	_update_action_button();
+}
+
+void AIComposer::_add_reference_path(const String &p_path) {
+	if (!input) {
+		_clear_reference_trigger();
+		return;
+	}
+	_remove_reference_trigger();
+	input->add_reference_path(p_path);
+	input->get_text_edit()->grab_focus();
 	_update_action_button();
 }
 
@@ -322,5 +362,5 @@ void AIComposer::_update_action_button() {
 
 	send_button->set_button_icon(get_editor_theme_icon(SNAME("Send")));
 	send_button->set_tooltip_text(TTR("Send"));
-	send_button->set_disabled(!has_model || get_input_text().strip_edges().is_empty());
+	send_button->set_disabled(!has_model || (get_input_text().strip_edges().is_empty() && get_attachments_for_send().is_empty()));
 }

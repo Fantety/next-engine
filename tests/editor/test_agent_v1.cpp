@@ -37,6 +37,7 @@
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_adapter.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
+#include "editor/agent_ui/component/ai_reference_resolver.h"
 #include "tests/test_utils.h"
 
 TEST_FORCE_LINK(test_agent_v1);
@@ -596,6 +597,30 @@ TEST_CASE("[Editor][AgentV1] Attachment blob store separates metadata and bytes"
 	PackedByteArray loaded_bytes;
 	REQUIRE(store->read_bytes_struct(record.id, loaded_bytes, error));
 	CHECK(loaded_bytes == bytes);
+}
+
+TEST_CASE("[Editor][AgentUI] Inline file references resolve to attachments") {
+	const Array attachments = AIReferenceResolver::resolve_attachments("Use @res://icon.png, @\"res://docs/my note.md\" and again @res://icon.png.");
+	REQUIRE(attachments.size() == 2);
+
+	REQUIRE(Variant(attachments[0]).get_type() == Variant::DICTIONARY);
+	const Dictionary image = attachments[0];
+	CHECK(String(image.get("type", String())) == "image");
+	CHECK(String(image.get("source", String())) == "file");
+	CHECK(String(image.get("path", String())) == "res://icon.png");
+	CHECK(String(image.get("mime_type", String())) == "image/png");
+	CHECK(String(image.get("detail", String())) == "auto");
+	CHECK(bool(image.get("inline_reference", false)));
+
+	REQUIRE(Variant(attachments[1]).get_type() == Variant::DICTIONARY);
+	const Dictionary text = attachments[1];
+	CHECK(String(text.get("type", String())) == "text");
+	CHECK(String(text.get("source", String())) == "file");
+	CHECK(String(text.get("path", String())) == "res://docs/my note.md");
+	CHECK(String(text.get("mime_type", String())) == "text/markdown");
+	CHECK(bool(text.get("inline_reference", false)));
+
+	CHECK(AIReferenceResolver::make_reference_token_for_path("res://docs/my note.md") == "@\"res://docs/my note.md\"");
 }
 
 TEST_CASE("[Editor][AgentV1] Prompt admission resolves data URL attachments into durable blobs") {

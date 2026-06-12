@@ -20,8 +20,6 @@ public:
 class AIReferenceTextEdit : public TextEdit {
 	GDCLASS(AIReferenceTextEdit, TextEdit);
 
-	void _draw_reference_blocks();
-
 protected:
 	static void _bind_methods() {}
 	void _notification(int p_what);

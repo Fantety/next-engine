@@ -200,6 +200,7 @@
 #include "editor/agent_ui/component/ai_message_bubble.h"
 #include "editor/agent_ui/component/ai_message_list.h"
 #include "editor/agent_ui/component/ai_model_profile_dialog.h"
+#include "editor/agent_ui/component/ai_composer_input.h"
 #include "editor/agent_ui/component/ai_reference_text_edit.h"
 #include "editor/agent_ui/component/ai_requirement_form_dialog.h"
 #include "editor/agent_ui/component/ai_skill_dialog.h"
@@ -357,6 +358,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIMessageBubble);
 	GDREGISTER_CLASS(AIMessageList);
 	GDREGISTER_CLASS(AIRequirementFormDialog);
+	GDREGISTER_CLASS(AIComposerInput);
 	GDREGISTER_CLASS(AIReferenceSyntaxHighlighter);
 	GDREGISTER_CLASS(AIReferenceTextEdit);
 	GDREGISTER_CLASS(AISkillDialog);

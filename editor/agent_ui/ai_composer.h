@@ -9,14 +9,15 @@
 #include "scene/gui/line_edit.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/popup_menu.h"
-#include "scene/gui/text_edit.h"
 
+class AIComposerInput;
 class EditorFileDialog;
+class TextEdit;
 
 class AIComposer : public VBoxContainer {
 	GDCLASS(AIComposer, VBoxContainer);
 
-	TextEdit *input = nullptr;
+	AIComposerInput *input = nullptr;
 	OptionButton *model_selector = nullptr;
 	OptionButton *mode_selector = nullptr;
 	Button *send_button = nullptr;
@@ -36,7 +37,10 @@ class AIComposer : public VBoxContainer {
 	void _reference_file_dialog_canceled();
 	void _show_reference_menu();
 	void _clear_reference_trigger();
-	void _insert_reference_token(const String &p_token);
+	void _remove_reference_trigger();
+	void _add_clipboard_reference();
+	void _add_canvas_reference();
+	void _add_reference_path(const String &p_path);
 	void _update_action_button();
 
 protected:
