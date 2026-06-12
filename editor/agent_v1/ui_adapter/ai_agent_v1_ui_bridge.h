@@ -6,6 +6,7 @@
 
 #include "editor/agent_v1/runtime/ai_llm_runtime_registry.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
+#include "editor/agent_v1/tools/editor/ai_change_set_store.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_adapter.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
 
@@ -26,6 +27,7 @@ class AIAgentV1UIBridge : public RefCounted {
 	Ref<AIV1MCPService> mcp_service;
 	Ref<AIV1SkillService> skill_service;
 	Ref<AIAgentService> agent_service;
+	Ref<AIChangeSetStore> change_set_store;
 
 	Ref<AIAgentV1UIAdapter> conversation_adapter;
 	Ref<AIAgentV1UIConfigAdapter> config_adapter;
@@ -48,6 +50,7 @@ class AIAgentV1UIBridge : public RefCounted {
 	void _skill_status_changed(const Array &p_statuses, const Dictionary &p_summary);
 	void _rules_changed(const Array &p_rules);
 	void _marquee_changed(const Array &p_marquees, const String &p_active_id);
+	void _change_sets_changed();
 	void _error_reported(const Dictionary &p_error);
 
 protected:
@@ -89,6 +92,12 @@ public:
 	Dictionary remove_model_profile(const String &p_profile_id, const String &p_scope = "project");
 	Array list_agents();
 	Dictionary patch_settings(const Dictionary &p_patch, const String &p_scope = "project");
+	Dictionary refresh_mcp_status();
+	Array list_change_sets(const String &p_status = "pending");
+	Dictionary get_change_set(const String &p_change_set_id);
+	int get_pending_change_set_count();
+	Dictionary keep_change_set(const String &p_change_set_id);
+	Dictionary revert_change_set(const String &p_change_set_id);
 
 	Dictionary create_session(const Dictionary &p_options = Dictionary());
 	Array list_sessions();

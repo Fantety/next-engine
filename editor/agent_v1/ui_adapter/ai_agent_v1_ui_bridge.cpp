@@ -37,6 +37,12 @@ void AIAgentV1UIBridge::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("remove_model_profile", "profile_id", "scope"), &AIAgentV1UIBridge::remove_model_profile, DEFVAL("project"));
 	ClassDB::bind_method(D_METHOD("list_agents"), &AIAgentV1UIBridge::list_agents);
 	ClassDB::bind_method(D_METHOD("patch_settings", "patch", "scope"), &AIAgentV1UIBridge::patch_settings, DEFVAL("project"));
+	ClassDB::bind_method(D_METHOD("refresh_mcp_status"), &AIAgentV1UIBridge::refresh_mcp_status);
+	ClassDB::bind_method(D_METHOD("list_change_sets", "status"), &AIAgentV1UIBridge::list_change_sets, DEFVAL("pending"));
+	ClassDB::bind_method(D_METHOD("get_change_set", "change_set_id"), &AIAgentV1UIBridge::get_change_set);
+	ClassDB::bind_method(D_METHOD("get_pending_change_set_count"), &AIAgentV1UIBridge::get_pending_change_set_count);
+	ClassDB::bind_method(D_METHOD("keep_change_set", "change_set_id"), &AIAgentV1UIBridge::keep_change_set);
+	ClassDB::bind_method(D_METHOD("revert_change_set", "change_set_id"), &AIAgentV1UIBridge::revert_change_set);
 
 	ClassDB::bind_method(D_METHOD("create_session", "options"), &AIAgentV1UIBridge::create_session, DEFVAL(Dictionary()));
 	ClassDB::bind_method(D_METHOD("list_sessions"), &AIAgentV1UIBridge::list_sessions);
@@ -61,6 +67,7 @@ void AIAgentV1UIBridge::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("skill_status_changed", PropertyInfo(Variant::ARRAY, "statuses"), PropertyInfo(Variant::DICTIONARY, "summary")));
 	ADD_SIGNAL(MethodInfo("rules_changed", PropertyInfo(Variant::ARRAY, "rules")));
 	ADD_SIGNAL(MethodInfo("marquee_changed", PropertyInfo(Variant::ARRAY, "marquees"), PropertyInfo(Variant::STRING, "active_id")));
+	ADD_SIGNAL(MethodInfo("change_sets_changed"));
 	ADD_SIGNAL(MethodInfo("error_reported", PropertyInfo(Variant::DICTIONARY, "error")));
 }
 
@@ -73,6 +80,7 @@ Ref<AIAgentV1UIBridge> AIAgentV1UIBridge::get_singleton() {
 
 void AIAgentV1UIBridge::clear_singleton_for_test() {
 	singleton.unref();
+	AIChangeSetStore::clear_singleton_for_test();
 }
 
 AIAgentV1UIBridge::AIAgentV1UIBridge() {
@@ -122,6 +130,9 @@ void AIAgentV1UIBridge::_ensure_backend_services() {
 	}
 	if (mcp_service.is_null()) {
 		mcp_service.instantiate();
+	}
+	if (change_set_store.is_null()) {
+		change_set_store = AIChangeSetStore::get_singleton();
 	}
 }
 
@@ -218,6 +229,13 @@ void AIAgentV1UIBridge::_wire_adapter_signals() {
 		config_adapter->connect(SNAME("marquee_changed"), marquee_changed);
 	}
 
+	if (change_set_store.is_valid()) {
+		const Callable change_sets_changed = callable_mp(this, &AIAgentV1UIBridge::_change_sets_changed);
+		if (!change_set_store->is_connected(SNAME("changed"), change_sets_changed)) {
+			change_set_store->connect(SNAME("changed"), change_sets_changed, CONNECT_DEFERRED);
+		}
+	}
+
 	const Callable error_reported = callable_mp(this, &AIAgentV1UIBridge::_error_reported);
 	if (!conversation_adapter->is_connected(SNAME("error_reported"), error_reported)) {
 		conversation_adapter->connect(SNAME("error_reported"), error_reported);
@@ -286,6 +304,10 @@ void AIAgentV1UIBridge::_rules_changed(const Array &p_rules) {
 
 void AIAgentV1UIBridge::_marquee_changed(const Array &p_marquees, const String &p_active_id) {
 	emit_signal(SNAME("marquee_changed"), p_marquees.duplicate(true), p_active_id);
+}
+
+void AIAgentV1UIBridge::_change_sets_changed() {
+	emit_signal(SNAME("change_sets_changed"));
 }
 
 void AIAgentV1UIBridge::_error_reported(const Dictionary &p_error) {
@@ -440,6 +462,105 @@ Array AIAgentV1UIBridge::list_agents() {
 Dictionary AIAgentV1UIBridge::patch_settings(const Dictionary &p_patch, const String &p_scope) {
 	_sync_adapters();
 	return config_adapter->patch_settings(p_patch, p_scope);
+}
+
+Dictionary AIAgentV1UIBridge::refresh_mcp_status() {
+	_sync_adapters();
+	Dictionary result;
+	if (mcp_service.is_null() || config_service.is_null()) {
+		result["success"] = false;
+		Dictionary error;
+		error["kind"] = "unavailable";
+		error["message"] = "MCP service is not available.";
+		result["error"] = error;
+		return result;
+	}
+
+	const Dictionary config = config_service->get_config();
+	const Dictionary import_result = mcp_service->import_config(config);
+	if (!bool(import_result.get("success", false))) {
+		return import_result;
+	}
+
+	result = mcp_service->refresh();
+	const Array statuses = mcp_service->get_statuses();
+	const Dictionary summary = mcp_service->get_status_summary();
+	result["statuses"] = statuses.duplicate(true);
+	result["summary"] = summary.duplicate(true);
+	_mcp_status_changed(statuses, summary);
+	return result;
+}
+
+Array AIAgentV1UIBridge::list_change_sets(const String &p_status) {
+	_sync_adapters();
+	if (change_set_store.is_null()) {
+		return Array();
+	}
+	return change_set_store->list_change_sets(p_status);
+}
+
+Dictionary AIAgentV1UIBridge::get_change_set(const String &p_change_set_id) {
+	_sync_adapters();
+	if (change_set_store.is_null()) {
+		return Dictionary();
+	}
+	return change_set_store->get_change_set(p_change_set_id);
+}
+
+int AIAgentV1UIBridge::get_pending_change_set_count() {
+	_sync_adapters();
+	if (change_set_store.is_null()) {
+		return 0;
+	}
+	return change_set_store->get_pending_count();
+}
+
+Dictionary AIAgentV1UIBridge::keep_change_set(const String &p_change_set_id) {
+	_sync_adapters();
+	Dictionary result;
+	if (change_set_store.is_null()) {
+		result["success"] = false;
+		Dictionary error;
+		error["kind"] = "unavailable";
+		error["message"] = "AI change review store is not available.";
+		result["error"] = error;
+		return result;
+	}
+
+	String error;
+	const bool ok = change_set_store->keep_change_set(p_change_set_id, error);
+	result["success"] = ok;
+	if (!ok) {
+		Dictionary error_dict;
+		error_dict["kind"] = "unavailable";
+		error_dict["message"] = error;
+		result["error"] = error_dict;
+	}
+	return result;
+}
+
+Dictionary AIAgentV1UIBridge::revert_change_set(const String &p_change_set_id) {
+	_sync_adapters();
+	Dictionary result;
+	if (change_set_store.is_null()) {
+		result["success"] = false;
+		Dictionary error;
+		error["kind"] = "unavailable";
+		error["message"] = "AI change review store is not available.";
+		result["error"] = error;
+		return result;
+	}
+
+	String error;
+	const bool ok = change_set_store->revert_change_set(p_change_set_id, error);
+	result["success"] = ok;
+	if (!ok) {
+		Dictionary error_dict;
+		error_dict["kind"] = "unavailable";
+		error_dict["message"] = error;
+		result["error"] = error_dict;
+	}
+	return result;
 }
 
 Dictionary AIAgentV1UIBridge::create_session(const Dictionary &p_options) {

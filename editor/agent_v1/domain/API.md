@@ -2,7 +2,7 @@
 
 本文档描述 `editor/agent_v1/domain` 中已经建立的 Domain Model 与 Event Log 基础契约。该层对应 `.devdocs/opencode-agent-architecture/01-domain-model-and-event-log.zh.md`，用于承载可恢复会话状态的源头：durable event log、`session_input`、`session_message` 投影和 Session 级 Context Epoch。
 
-后续 Runner、Session service、ToolRegistry、Permission、UI bridge、Provider stream adapter 都应围绕这里的事件和投影契约接入，而不是直接从 provider 增量、UI 临时状态或旧 `editor/ai_component` 消息结构恢复会话。
+后续 Runner、Session service、ToolRegistry、Permission、UI bridge、Provider stream adapter 都应围绕这里的事件和投影契约接入，而不是直接从 provider 增量或 `editor/agent_ui` 临时界面状态恢复会话。
 
 ## 设计定位
 
@@ -1143,6 +1143,6 @@ SessionHistory.entries_for_runner(...)
 - 是否会让 Runner 绕过 projected history。
 - 是否会让 tool settlement 退化为只按 callID 定位。
 - 是否会把 Context Epoch 误建成 provider turn snapshot。
-- 是否能在不影响旧 `editor/ai_component` 单 MainAgent 工作流的前提下演进。
+- 是否会把 `editor/agent_ui` 重新变成会话核心或 Agent 后端。
 
 如果答案不明确，优先把新能力放到后续 `session`、`runtime`、`tools`、`permission` 或 `mcp` 子目录，而不是扩张 Domain 基础契约。

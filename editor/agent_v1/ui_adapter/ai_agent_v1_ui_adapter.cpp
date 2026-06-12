@@ -580,7 +580,7 @@ Dictionary AIAgentV1UIAdapter::send_message(const String &p_text, const String &
 	}
 
 	Dictionary prompt_metadata;
-	prompt_metadata["source"] = "ai_component_ui";
+	prompt_metadata["source"] = "agent_ui";
 	if (!p_model_id.strip_edges().is_empty()) {
 		prompt_metadata["ui_model_id"] = p_model_id.strip_edges();
 	}

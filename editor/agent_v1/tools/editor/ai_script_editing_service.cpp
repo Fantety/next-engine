@@ -16,8 +16,8 @@
 #include "core/os/thread.h"
 #include "core/variant/variant.h"
 
-#include "editor/ai_component/review/ai_change_set_store.h"
-#include "editor/ai_component/review/ai_diff_service.h"
+#include "editor/agent_v1/tools/editor/ai_change_set_store.h"
+#include "editor/agent_v1/tools/editor/ai_diff_service.h"
 #include "editor/agent_v1/tools/project/ai_project_tool_utils.h"
 #include "editor/docks/inspector_dock.h"
 #include "editor/docks/scene_tree_dock.h"

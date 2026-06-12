@@ -1,0 +1,96 @@
+/**************************************************************************/
+/*  ai_mcp_client.cpp                                                     */
+/**************************************************************************/
+
+#include "ai_mcp_client.h"
+
+#include "core/math/math_funcs.h"
+
+#include "editor/agent_v1/mcp/ai_mcp_http_client.h"
+#include "editor/agent_v1/mcp/ai_mcp_stdio_client.h"
+#include "editor/agent_v1/tools/ai_editor_tools_v1.h"
+
+void AIMCPClient::_bind_methods() {
+}
+
+void AIMCPClient::set_server_config(const AIMCPServerConfig &p_server) {
+	server = p_server;
+}
+
+AIMCPServerConfig AIMCPClient::get_server_config() const {
+	return server;
+}
+
+void AIMCPClient::set_timeout_msec(int p_timeout_msec) {
+	timeout_msec = MAX(1000, p_timeout_msec);
+}
+
+int AIMCPClient::get_timeout_msec() const {
+	return timeout_msec;
+}
+
+bool AIMCPClient::_is_cancel_requested() const {
+	return AIV1ToolExecutionState::is_current_cancel_requested();
+}
+
+bool AIMCPClient::initialize(String &r_error) {
+	r_error = "MCP client transport is not implemented.";
+	return false;
+}
+
+bool AIMCPClient::list_tools(Vector<AIMCPToolDescriptor> &r_tools, String &r_error) {
+	r_tools.clear();
+	r_error = "MCP client transport is not implemented.";
+	return false;
+}
+
+AIMCPToolCallResult AIMCPClient::call_tool(const String &p_tool_name, const Dictionary &p_arguments) {
+	(void)p_tool_name;
+	(void)p_arguments;
+	AIMCPToolCallResult result;
+	result.error = "MCP client transport is not implemented.";
+	return result;
+}
+
+bool AIMCPClient::list_resources(Vector<AIMCPResourceDescriptor> &r_resources, String &r_error) {
+	r_resources.clear();
+	r_error = "MCP client transport is not implemented.";
+	return false;
+}
+
+AIMCPResourceReadResult AIMCPClient::read_resource(const String &p_uri) {
+	(void)p_uri;
+	AIMCPResourceReadResult result;
+	result.error = "MCP client transport is not implemented.";
+	return result;
+}
+
+bool AIMCPClient::list_prompts(Vector<AIMCPPromptDescriptor> &r_prompts, String &r_error) {
+	r_prompts.clear();
+	r_error = "MCP client transport is not implemented.";
+	return false;
+}
+
+AIMCPPromptRenderResult AIMCPClient::render_prompt(const String &p_prompt_name, const Dictionary &p_arguments) {
+	(void)p_prompt_name;
+	(void)p_arguments;
+	AIMCPPromptRenderResult result;
+	result.error = "MCP client transport is not implemented.";
+	return result;
+}
+
+Ref<AIMCPClient> AIMCPClientFactory::create_client(const AIMCPServerConfig &p_server) {
+	Ref<AIMCPClient> client;
+	if (p_server.transport == "streamable_http" || p_server.transport == "sse") {
+		Ref<AIMCPHTTPClient> http_client;
+		http_client.instantiate();
+		client = http_client;
+	} else {
+		Ref<AIMCPStdioClient> stdio_client;
+		stdio_client.instantiate();
+		client = stdio_client;
+	}
+
+	client->set_server_config(p_server);
+	return client;
+}

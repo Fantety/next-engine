@@ -183,8 +183,8 @@
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server.h"
 
-#include "editor/ai_component/ui/ai_agent_settings_dialog.h"
-#include "editor/ai_component/ui/ai_agent_dock.h"
+#include "editor/agent_ui/ai_agent_settings_dialog.h"
+#include "editor/agent_ui/ai_agent_dock.h"
 
 #ifdef VULKAN_ENABLED
 #include "editor/shader/shader_baker/shader_baker_export_plugin_platform_vulkan.h"

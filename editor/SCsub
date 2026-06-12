@@ -114,7 +114,7 @@ if env.editor_build:
     SConscript("agent_v1/runtime/SCsub")
     SConscript("agent_v1/session/SCsub")
     SConscript("agent_v1/ui_adapter/SCsub")
-    SConscript("ai_component/SCsub")
+    SConscript("agent_ui/SCsub")
     SConscript("user_system/SCsub")
     SConscript("translations/SCsub")
     SConscript("version_control/SCsub")

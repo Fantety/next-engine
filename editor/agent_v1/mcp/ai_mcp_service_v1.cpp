@@ -4,7 +4,7 @@
 
 #include "ai_mcp_service_v1.h"
 
-#include "editor/ai_component/providers/ai_mcp_client.h"
+#include "editor/agent_v1/mcp/ai_mcp_client.h"
 #include "editor/agent_v1/core/base/ai_id.h"
 #include "editor/agent_v1/core/testing/ai_fake_mcp_server.h"
 

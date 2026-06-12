@@ -138,18 +138,6 @@
 #include "editor/translations/editor_translation_parser.h"
 #include "editor/version_control/editor_vcs_interface.h"
 
-#include "editor/ai_component/agent/ai_agent_base.h"
-#include "editor/ai_component/agent/ai_agent_session.h"
-#include "editor/ai_component/agent/ai_context_manager.h"
-#include "editor/ai_component/agent/ai_main_agent.h"
-#include "editor/ai_component/agent/ai_mcp_service.h"
-#include "editor/ai_component/agent/ai_mcp_tool_discovery.h"
-#include "editor/ai_component/agent/ai_mcp_tool_discovery_runner.h"
-#include "editor/ai_component/context/ai_best_practices_context_provider.h"
-#include "editor/ai_component/context/ai_context_provider.h"
-#include "editor/ai_component/context/ai_editor_context_provider.h"
-#include "editor/ai_component/context/ai_file_context_provider.h"
-#include "editor/ai_component/context/ai_project_tree_context_provider.h"
 #include "editor/agent_v1/agents/ai_agent_service_v1.h"
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/config/ai_local_settings_store.h"
@@ -170,7 +158,10 @@
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
 #include "editor/agent_v1/domain/projection/ai_session_projector.h"
 #include "editor/agent_v1/domain/projection/ai_token_estimator.h"
+#include "editor/agent_v1/mcp/ai_mcp_client.h"
+#include "editor/agent_v1/mcp/ai_mcp_http_client.h"
 #include "editor/agent_v1/mcp/ai_mcp_service_v1.h"
+#include "editor/agent_v1/mcp/ai_mcp_stdio_client.h"
 #include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
 #include "editor/agent_v1/runtime/ai_llm_runtime.h"
@@ -189,43 +180,30 @@
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 #include "editor/agent_v1/tools/ai_tool_v1.h"
+#include "editor/agent_v1/tools/editor/ai_change_set_store.h"
+#include "editor/agent_v1/tools/editor/ai_editor_context_snapshot.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_adapter.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
-#include "editor/ai_component/planning/ai_plan_manager.h"
-#include "editor/ai_component/providers/ai_mcp_client.h"
-#include "editor/ai_component/providers/ai_mcp_http_client.h"
-#include "editor/ai_component/providers/ai_mcp_stdio_client.h"
-#include "editor/ai_component/providers/ai_mcp_status_tracker.h"
-#include "editor/ai_component/review/ai_change_set_store.h"
-#include "editor/ai_component/rules/ai_rules_context_provider.h"
-#include "editor/ai_component/skills/ai_skill_context_provider.h"
-#include "editor/ai_component/storage/ai_conversation_store.h"
-#include "editor/ai_component/tools/ai_tool_execution_context.h"
-#include "editor/ai_component/tools/editor/ai_scene_editing_service.h"
-#include "editor/ai_component/tools/editor/ai_script_editing_service.h"
-#include "editor/ai_component/tools/editor/ai_shader_editing_service.h"
-#include "editor/ai_component/tools/project/ai_requirement_form_tool.h"
-#include "editor/ai_component/ui/ai_agent_dock.h"
-#include "editor/ai_component/ui/ai_agent_settings_dialog.h"
-#include "editor/ai_component/ui/ai_change_review_panel.h"
-#include "editor/ai_component/ui/ai_composer.h"
-#include "editor/ai_component/ui/ai_settings_next_marquee_page.h"
-#include "editor/ai_component/ui/ai_mcp_server_dialog.h"
-#include "editor/ai_component/ui/ai_model_profile_dialog.h"
-#include "editor/ai_component/ui/ai_markdown_label.h"
-#include "editor/ai_component/ui/ai_message_bubble.h"
-#include "editor/ai_component/ui/ai_message_list.h"
-#include "editor/ai_component/ui/ai_requirement_form_dialog.h"
-#include "editor/ai_component/ui/ai_plan_panel.h"
-#include "editor/ai_component/ui/ai_reference_text_edit.h"
-#include "editor/ai_component/ui/ai_skill_dialog.h"
-#include "editor/ai_component/ui/ai_settings_mcp_page.h"
-#include "editor/ai_component/ui/ai_settings_models_page.h"
-#include "editor/ai_component/ui/ai_settings_placeholder_page.h"
-#include "editor/ai_component/ui/ai_settings_rules_page.h"
-#include "editor/ai_component/ui/ai_settings_skills_page.h"
-#include "editor/ai_component/ui/ai_text_diff_viewer.h"
+#include "editor/agent_ui/ai_agent_dock.h"
+#include "editor/agent_ui/ai_agent_settings_dialog.h"
+#include "editor/agent_ui/ai_change_review_panel.h"
+#include "editor/agent_ui/ai_composer.h"
+#include "editor/agent_ui/ai_settings_next_marquee_page.h"
+#include "editor/agent_ui/ai_settings_mcp_page.h"
+#include "editor/agent_ui/ai_settings_models_page.h"
+#include "editor/agent_ui/ai_settings_placeholder_page.h"
+#include "editor/agent_ui/ai_settings_rules_page.h"
+#include "editor/agent_ui/ai_settings_skills_page.h"
+#include "editor/agent_ui/component/ai_markdown_label.h"
+#include "editor/agent_ui/component/ai_mcp_server_dialog.h"
+#include "editor/agent_ui/component/ai_message_bubble.h"
+#include "editor/agent_ui/component/ai_message_list.h"
+#include "editor/agent_ui/component/ai_model_profile_dialog.h"
+#include "editor/agent_ui/component/ai_reference_text_edit.h"
+#include "editor/agent_ui/component/ai_requirement_form_dialog.h"
+#include "editor/agent_ui/component/ai_skill_dialog.h"
+#include "editor/agent_ui/component/ai_text_diff_viewer.h"
 #include "editor/user_system/auth_client.h"
 #include "editor/user_system/editor_user_avatar.h"
 #include "editor/user_system/editor_user_login_dialog.h"
@@ -365,32 +343,11 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIAgentV1UIAdapter);
 	GDREGISTER_CLASS(AIAgentV1UIBridge);
 	GDREGISTER_CLASS(AIAgentV1UIConfigAdapter);
-	GDREGISTER_CLASS(AIAgentBase);
-	GDREGISTER_CLASS(AIAgentSession);
-	GDREGISTER_CLASS(AIContextManager);
-	GDREGISTER_CLASS(AIMainAgent);
-	GDREGISTER_CLASS(AIMCPService);
-	GDREGISTER_CLASS(AIBestPracticesContextProvider);
-	GDREGISTER_CLASS(AIContextProvider);
-	GDREGISTER_CLASS(AIEditorContextProvider);
-	GDREGISTER_CLASS(AIFileContextProvider);
-	GDREGISTER_CLASS(AIProjectTreeContextProvider);
-	GDREGISTER_CLASS(AIRulesContextProvider);
-	GDREGISTER_CLASS(AIPlanManager);
-	GDREGISTER_CLASS(AISkillIndexContextProvider);
 	GDREGISTER_CLASS(AIChangeSetStore);
-	GDREGISTER_CLASS(AIConversationStore);
 	GDREGISTER_CLASS(AIMCPClient);
 	GDREGISTER_CLASS(AIMCPHTTPClient);
 	GDREGISTER_CLASS(AIMCPStdioClient);
-	GDREGISTER_CLASS(AIMCPStatusTracker);
-	GDREGISTER_CLASS(AIMCPToolDiscovery);
-	GDREGISTER_CLASS(AIMCPToolDiscoveryRunner);
-	GDREGISTER_CLASS(AIToolExecutionContext);
-	GDREGISTER_CLASS(AIRequirementFormTool);
-	GDREGISTER_CLASS(AISceneEditingService);
-	GDREGISTER_CLASS(AIScriptEditingService);
-	GDREGISTER_CLASS(AIShaderEditingService);
+	GDREGISTER_CLASS(AIV1EditorContextSnapshotService);
 	GDREGISTER_CLASS(AIAgentSettingsDialog);
 	GDREGISTER_CLASS(AIChangeReviewPanel);
 	GDREGISTER_CLASS(AIComposer);
@@ -400,7 +357,6 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIMessageBubble);
 	GDREGISTER_CLASS(AIMessageList);
 	GDREGISTER_CLASS(AIRequirementFormDialog);
-	GDREGISTER_CLASS(AIPlanPanel);
 	GDREGISTER_CLASS(AIReferenceSyntaxHighlighter);
 	GDREGISTER_CLASS(AIReferenceTextEdit);
 	GDREGISTER_CLASS(AISkillDialog);
