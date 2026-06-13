@@ -45,6 +45,7 @@
 #include "editor/agent_ui/component/ai_reference_resolver.h"
 #include "editor/agent_ui/component/ai_status_panel.h"
 #include "editor/agent_ui/component/ai_todo_list_panel.h"
+#include "editor/editor_node.h"
 #include "scene/gui/button.h"
 #include "scene/gui/control.h"
 #include "scene/gui/item_list.h"
@@ -105,6 +106,16 @@ static void flush_deferred_calls() {
 	if (MessageQueue::get_singleton()) {
 		MessageQueue::get_singleton()->flush();
 	}
+}
+
+static bool editor_progress_flush_callable_ran = false;
+static bool editor_progress_flush_callable_used_background = false;
+
+static void create_editor_progress_during_message_queue_flush() {
+	editor_progress_flush_callable_ran = true;
+	EditorProgress progress("agent_v1_flush_progress", "Agent V1 Flush Progress", 2);
+	editor_progress_flush_callable_used_background = progress.force_background;
+	progress.step("Running during flush", 1);
 }
 
 static Label *find_first_label(Node *p_node) {
@@ -3330,6 +3341,19 @@ TEST_CASE("[Editor][AgentV1] Fake runtime streams text and provider-neutral tool
 	CHECK(saw_tool);
 }
 
+TEST_CASE("[Editor][AgentV1] EditorProgress uses background mode during message queue flush") {
+	editor_progress_flush_callable_ran = false;
+	editor_progress_flush_callable_used_background = false;
+
+	REQUIRE(MessageQueue::get_singleton());
+	REQUIRE(MessageQueue::get_singleton()->push_callable(callable_mp_static(&create_editor_progress_during_message_queue_flush)) == OK);
+	MessageQueue::get_singleton()->flush();
+	flush_deferred_calls();
+
+	CHECK(editor_progress_flush_callable_ran);
+	CHECK(editor_progress_flush_callable_used_background);
+}
+
 TEST_CASE("[Editor][AgentV1] Model request parses OpenAI-style assistant tool calls") {
 	Dictionary function;
 	function["name"] = "file_read";
@@ -5863,6 +5887,44 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter keeps tool output out of assista
 	REQUIRE(tool_only_ui_messages.size() == 1);
 	CHECK(String(Dictionary(tool_only_ui_messages[0]).get("role", String())) == "tool");
 	CHECK_FALSE(String(Dictionary(tool_only_ui_messages[0]).get("content", String())).contains("LEGACY_TOOL_ONLY_OUTPUT"));
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter hides reasoning content from assistant bubbles") {
+	Dictionary reasoning_metadata;
+	reasoning_metadata["provider"] = "unit-test";
+
+	AISessionMessage message = AISessionMessage::assistant_shell("ui-session-reasoning", 44, "assistant-reasoning");
+	message.text = "LEGACY_REASONING_SHOULD_NOT_RENDER";
+	message.content.push_back(AIAssistantContent::reasoning_content("INTERNAL_REASONING_SHOULD_NOT_RENDER", reasoning_metadata, "assistant-reasoning-content"));
+	message.content.push_back(AIAssistantContent::text_content("Visible assistant answer.", "assistant-visible-text"));
+
+	Vector<AISessionMessage> projected;
+	projected.push_back(message);
+	const Array ui_messages = AIAgentV1UIAdapter::project_session_messages_for_test(projected);
+
+	REQUIRE(ui_messages.size() == 1);
+	const Dictionary assistant = ui_messages[0];
+	CHECK(String(assistant.get("role", String())) == "assistant");
+	CHECK(String(assistant.get("content", String())) == "Visible assistant answer.");
+	CHECK_FALSE(String(assistant.get("content", String())).contains("INTERNAL_REASONING"));
+	CHECK_FALSE(String(assistant.get("content", String())).contains("LEGACY_REASONING"));
+
+	const Dictionary serialized = message.to_dictionary();
+	const Array preserved_content = serialized.get("content", Array());
+	REQUIRE(preserved_content.size() == 2);
+	CHECK(String(Dictionary(preserved_content[0]).get("type", String())) == "reasoning");
+	CHECK(String(Dictionary(preserved_content[0]).get("text", String())) == "INTERNAL_REASONING_SHOULD_NOT_RENDER");
+	CHECK(String(Dictionary(preserved_content[1]).get("type", String())) == "text");
+	CHECK(String(Dictionary(preserved_content[1]).get("text", String())) == "Visible assistant answer.");
+
+	AISessionMessage reasoning_only = AISessionMessage::assistant_shell("ui-session-reasoning-only", 45, "assistant-reasoning-only");
+	reasoning_only.text = "LEGACY_REASONING_ONLY_SHOULD_NOT_RENDER";
+	reasoning_only.content.push_back(AIAssistantContent::reasoning_content("INTERNAL_REASONING_ONLY_SHOULD_NOT_RENDER", reasoning_metadata, "assistant-reasoning-only-content"));
+
+	Vector<AISessionMessage> reasoning_only_projected;
+	reasoning_only_projected.push_back(reasoning_only);
+	const Array reasoning_only_ui_messages = AIAgentV1UIAdapter::project_session_messages_for_test(reasoning_only_projected);
+	CHECK(reasoning_only_ui_messages.is_empty());
 }
 
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter restores the last active session without creating a new one") {

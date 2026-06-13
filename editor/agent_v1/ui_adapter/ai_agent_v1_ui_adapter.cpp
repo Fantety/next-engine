@@ -257,7 +257,7 @@ void AIAgentV1UIAdapter::_append_ui_messages_from_session_message(const AISessio
 		const AIAssistantContent &content = p_message.content[i];
 		if (content.type == "tool") {
 			tool_messages.push_back(_tool_content_to_ui_message(p_message, content));
-		} else if (!content.text.is_empty()) {
+		} else if (content.type == "text" && !content.text.is_empty()) {
 			assistant_text.push_back(content.text);
 		}
 	}
@@ -265,11 +265,11 @@ void AIAgentV1UIAdapter::_append_ui_messages_from_session_message(const AISessio
 	String text;
 	if (!assistant_text.is_empty()) {
 		text = String("\n\n").join(assistant_text);
-	} else if (p_message.type != AI_SESSION_MESSAGE_ASSISTANT || tool_messages.is_empty()) {
+	} else if (p_message.type != AI_SESSION_MESSAGE_ASSISTANT || p_message.content.is_empty()) {
 		text = p_message.text;
 	}
 
-	const bool should_emit_base_message = p_message.type != AI_SESSION_MESSAGE_ASSISTANT || !text.strip_edges().is_empty() || tool_messages.is_empty();
+	const bool should_emit_base_message = p_message.type != AI_SESSION_MESSAGE_ASSISTANT || !text.strip_edges().is_empty() || (tool_messages.is_empty() && p_message.content.is_empty());
 	if (should_emit_base_message) {
 		Dictionary message;
 		message["id"] = p_message.id;

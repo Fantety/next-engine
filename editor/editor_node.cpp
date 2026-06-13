@@ -223,30 +223,33 @@ static const String INSTALL_ANDROID_BUILD_TEMPLATE_MESSAGE = TTRC("This will set
 
 constexpr int LARGE_RESOURCE_WARNING_SIZE_THRESHOLD = 512'000; // 500 KB
 
+static bool _editor_progress_should_use_background(bool p_force_background) {
+	return p_force_background || !Thread::is_main_thread() || (MessageQueue::get_singleton() && MessageQueue::get_singleton()->is_flushing());
+}
+
 bool EditorProgress::step(const String &p_state, int p_step, bool p_force_refresh) {
-	if (!force_background && Thread::is_main_thread()) {
-		return EditorNode::progress_task_step(task, p_state, p_step, p_force_refresh);
-	} else {
+	if (force_background) {
 		EditorNode::progress_task_step_bg(task, p_step);
 		return false;
 	}
+	return EditorNode::progress_task_step(task, p_state, p_step, p_force_refresh);
 }
 
 EditorProgress::EditorProgress(const String &p_task, const String &p_label, int p_amount, bool p_can_cancel, bool p_force_background) {
-	if (!p_force_background && Thread::is_main_thread()) {
+	force_background = _editor_progress_should_use_background(p_force_background);
+	if (!force_background) {
 		EditorNode::progress_add_task(p_task, p_label, p_amount, p_can_cancel);
 	} else {
 		EditorNode::progress_add_task_bg(p_task, p_label, p_amount);
 	}
 	task = p_task;
-	force_background = p_force_background;
 }
 
 EditorProgress::~EditorProgress() {
-	if (!force_background && Thread::is_main_thread()) {
-		EditorNode::progress_end_task(task);
-	} else {
+	if (force_background) {
 		EditorNode::progress_end_task_bg(task);
+	} else {
+		EditorNode::progress_end_task(task);
 	}
 }
 
@@ -5981,14 +5984,23 @@ void EditorNode::progress_end_task(const String &p_task) {
 }
 
 void EditorNode::progress_add_task_bg(const String &p_task, const String &p_label, int p_steps) {
+	if (!singleton || !singleton->progress_hb) {
+		return;
+	}
 	singleton->progress_hb->add_task(p_task, p_label, p_steps);
 }
 
 void EditorNode::progress_task_step_bg(const String &p_task, int p_step) {
+	if (!singleton || !singleton->progress_hb) {
+		return;
+	}
 	singleton->progress_hb->task_step(p_task, p_step);
 }
 
 void EditorNode::progress_end_task_bg(const String &p_task) {
+	if (!singleton || !singleton->progress_hb) {
+		return;
+	}
 	singleton->progress_hb->end_task(p_task);
 }
 
