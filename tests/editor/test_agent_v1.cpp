@@ -228,6 +228,231 @@ static AIMessageBubble *find_last_message_bubble(Node *p_node) {
 	return last;
 }
 
+static AIMessageList *find_first_message_list(Node *p_node) {
+	if (!p_node) {
+		return nullptr;
+	}
+
+	if (AIMessageList *list = Object::cast_to<AIMessageList>(p_node)) {
+		return list;
+	}
+
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (AIMessageList *child_list = find_first_message_list(p_node->get_child(i))) {
+			return child_list;
+		}
+	}
+	return nullptr;
+}
+
+static AIComposer *find_first_composer(Node *p_node) {
+	if (!p_node) {
+		return nullptr;
+	}
+
+	if (AIComposer *composer = Object::cast_to<AIComposer>(p_node)) {
+		return composer;
+	}
+
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (AIComposer *child_composer = find_first_composer(p_node->get_child(i))) {
+			return child_composer;
+		}
+	}
+	return nullptr;
+}
+
+static Label *find_token_usage_label(Node *p_node) {
+	if (!p_node) {
+		return nullptr;
+	}
+
+	if (Label *label = Object::cast_to<Label>(p_node)) {
+		if (label->get_text().begins_with("Tokens")) {
+			return label;
+		}
+	}
+
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (Label *child_label = find_token_usage_label(p_node->get_child(i))) {
+			return child_label;
+		}
+	}
+	return nullptr;
+}
+
+static VBoxContainer *find_message_list_box(AIMessageList *p_list) {
+	if (!p_list) {
+		return nullptr;
+	}
+
+	for (int i = 0; i < p_list->get_child_count(); i++) {
+		if (VBoxContainer *box = Object::cast_to<VBoxContainer>(p_list->get_child(i))) {
+			return box;
+		}
+	}
+	return nullptr;
+}
+
+static real_t get_message_list_content_bottom(AIMessageList *p_list) {
+	VBoxContainer *message_box = find_message_list_box(p_list);
+	if (!message_box) {
+		return 0.0;
+	}
+
+	real_t content_bottom = 0.0;
+	for (int i = 0; i < message_box->get_child_count(); i++) {
+		AIMessageBubble *child = Object::cast_to<AIMessageBubble>(message_box->get_child(i));
+		if (!child || !child->is_visible()) {
+			continue;
+		}
+
+		content_bottom = MAX(content_bottom, child->get_position().y + child->get_size().y);
+	}
+	return content_bottom;
+}
+
+static void settle_gui_layout(int p_passes) {
+	for (int i = 0; i < p_passes; i++) {
+		flush_deferred_calls();
+		if (SceneTree::get_singleton()) {
+			SceneTree::get_singleton()->process(0.0);
+		}
+	}
+}
+
+static String make_heavy_markdown_message(int p_index) {
+	String content = "# Markdown response " + itos(p_index) + "\n\n";
+	for (int i = 0; i < 5; i++) {
+		content += "This paragraph is deliberately wide and detailed so MarkdownViewer has to wrap it across multiple visual lines inside the narrow agent message column. ";
+		content += "It includes **strong text**, *emphasis*, `inline_code`, and a [local link](res://docs/example.md) to exercise inline layout measurement. ";
+		content += "Message index " + itos(p_index) + ", paragraph " + itos(i) + ".\n\n";
+	}
+	content += "- First bullet keeps list indentation active.\n";
+	content += "- Second bullet has **bold** text and `inline code`.\n";
+	content += "- Third bullet is long enough to wrap and add another measured visual line in the bubble.\n\n";
+	content += "| Column | Value |\n";
+	content += "| --- | --- |\n";
+	content += "| Message | " + itos(p_index) + " |\n";
+	content += "| Wrapped | A table cell with enough words to participate in markdown layout. |\n\n";
+	content += "```gdscript\n";
+	content += "func run_markdown_stress_" + itos(p_index) + "():\n";
+	content += "\tprint(\"message " + itos(p_index) + "\")\n";
+	content += "```\n";
+	return content;
+}
+
+static String make_async_sized_streaming_markdown_message(int p_index, int p_revision) {
+	String content = "# Streaming Markdown response " + itos(p_index) + "\n\n";
+	content += "| Column | Value |\n";
+	content += "| --- | --- |\n";
+	content += "| Revision | " + itos(p_revision) + " |\n";
+	content += "| Width | The cell is deliberately verbose so table layout has to measure wrapped markdown in the dock message column. |\n\n";
+	content += "```gdscript\n";
+	content += "func streamed_markdown_revision_" + itos(p_revision) + "():\n";
+	content += "\tprint(\"layout keeps following async markdown height\")\n";
+	content += "```\n\n";
+
+	const int target_length = 4600 + (p_revision % 7) * 130;
+	int paragraph = 0;
+	while (content.length() < target_length) {
+		content += "Paragraph " + itos(paragraph++) + " keeps growing the same assistant bubble during streaming. ";
+		content += "It has **bold text**, *emphasis*, `inline_code`, a [link](res://agent/stress.md), and enough words to wrap several times in the AI Dock. ";
+		content += "Revision " + itos(p_revision) + " remains below the assistant collapse threshold while still exceeding the async markdown parse threshold.\n\n";
+	}
+	return content;
+}
+
+static void force_markdown_viewer_layouts(Node *p_node) {
+	if (!p_node) {
+		return;
+	}
+
+	if (MarkdownViewer *viewer = Object::cast_to<MarkdownViewer>(p_node)) {
+		viewer->force_layout_for_test();
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		force_markdown_viewer_layouts(p_node->get_child(i));
+	}
+}
+
+static int count_markdown_viewer_content_overflows(Node *p_node) {
+	if (!p_node) {
+		return 0;
+	}
+
+	int overflows = 0;
+	if (MarkdownViewer *viewer = Object::cast_to<MarkdownViewer>(p_node)) {
+		viewer->force_layout_for_test();
+		if (viewer->get_content_height() > viewer->get_size().y + 2.0) {
+			overflows++;
+		}
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		overflows += count_markdown_viewer_content_overflows(p_node->get_child(i));
+	}
+	return overflows;
+}
+
+static int count_markdown_viewer_bubble_rect_escapes(Node *p_node) {
+	if (!p_node) {
+		return 0;
+	}
+
+	int escapes = 0;
+	if (MarkdownViewer *viewer = Object::cast_to<MarkdownViewer>(p_node)) {
+		AIMessageBubble *bubble = nullptr;
+		for (Node *ancestor = viewer->get_parent(); ancestor; ancestor = ancestor->get_parent()) {
+			if (!bubble) {
+				bubble = Object::cast_to<AIMessageBubble>(ancestor);
+			}
+		}
+
+		const Rect2 viewer_rect = viewer->get_global_rect();
+		if (bubble) {
+			const Rect2 bubble_rect = bubble->get_global_rect();
+			if (viewer_rect.position.y < bubble_rect.position.y - 2.0 || viewer_rect.position.y + viewer_rect.size.y > bubble_rect.position.y + bubble_rect.size.y + 2.0) {
+				escapes++;
+			}
+		}
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		escapes += count_markdown_viewer_bubble_rect_escapes(p_node->get_child(i));
+	}
+	return escapes;
+}
+
+static int count_pending_markdown_viewer_async_parses(Node *p_node) {
+	if (!p_node) {
+		return 0;
+	}
+
+	int pending = 0;
+	if (MarkdownViewer *viewer = Object::cast_to<MarkdownViewer>(p_node)) {
+		if (viewer->is_async_parse_pending_for_test()) {
+			pending++;
+		}
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		pending += count_pending_markdown_viewer_async_parses(p_node->get_child(i));
+	}
+	return pending;
+}
+
+static void settle_markdown_viewer_async_layouts(Node *p_node, int p_attempts) {
+	for (int i = 0; i < p_attempts; i++) {
+		settle_gui_layout(1);
+		if (count_pending_markdown_viewer_async_parses(p_node) == 0) {
+			settle_gui_layout(4);
+			return;
+		}
+		if (OS::get_singleton()) {
+			OS::get_singleton()->delay_usec(1000);
+		}
+	}
+	settle_gui_layout(4);
+}
+
 static AIMarkdownLabel *find_first_markdown_label(Node *p_node) {
 	if (!p_node) {
 		return nullptr;
@@ -877,6 +1102,148 @@ TEST_CASE("[Editor][AgentUI] Message list reuses unchanged bubbles across set_me
 
 	root->remove_child(list);
 	memdelete(list);
+}
+
+TEST_CASE("[Editor][AgentUI] Message list scroll range covers fractional bubble heights") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AIMessageList *list = memnew(AIMessageList);
+	root->add_child(list);
+	list->set_size(Size2(320, 240));
+
+	Array messages;
+	const int message_count = 180;
+	for (int i = 0; i < message_count; i++) {
+		Dictionary message;
+		message["id"] = "fractional-scroll-message-" + itos(i);
+		message["role"] = "assistant";
+		message["content"] = "Small message " + itos(i);
+		messages.push_back(message);
+	}
+
+	list->set_messages(messages);
+	settle_gui_layout(8);
+
+	VBoxContainer *message_box = find_message_list_box(list);
+	REQUIRE(message_box);
+	for (int i = 0; i < message_box->get_child_count(); i++) {
+		AIMessageBubble *bubble = Object::cast_to<AIMessageBubble>(message_box->get_child(i));
+		if (!bubble) {
+			continue;
+		}
+		bubble->set_custom_minimum_size(Size2(0, 83.5));
+		bubble->update_minimum_size();
+	}
+
+	message_box->update_minimum_size();
+	list->scroll_to_bottom();
+	settle_gui_layout(12);
+
+	VScrollBar *scroll_bar = list->get_v_scroll_bar();
+	REQUIRE(scroll_bar);
+	const real_t viewport_height = list->get_size().y;
+	const real_t content_bottom = get_message_list_content_bottom(list);
+	CHECK_MESSAGE(scroll_bar->get_max() - scroll_bar->get_page() >= content_bottom - viewport_height - 2.0,
+			"scroll_max=", scroll_bar->get_max(),
+			" page=", scroll_bar->get_page(),
+			" content_bottom=", content_bottom,
+			" viewport_height=", viewport_height,
+			" message_box_minimum=", message_box->get_combined_minimum_size().y,
+			" message_box_size=", message_box->get_size().y);
+
+	root->remove_child(list);
+	memdelete(list);
+}
+
+TEST_CASE("[Editor][AgentUI] Dock message list keeps heavy markdown bubbles inside scroll range") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AIAgentV1UIBridge::clear_singleton_for_test();
+
+	AIAgentDock *dock = memnew(AIAgentDock);
+	root->add_child(dock);
+	dock->set_size(Size2(360, 620));
+	settle_gui_layout(8);
+
+	AIMessageList *list = find_first_message_list(dock);
+	REQUIRE(list);
+	AIComposer *composer = find_first_composer(dock);
+	REQUIRE(composer);
+
+	Array messages;
+	const int message_count = 520;
+	for (int i = 0; i < message_count; i++) {
+		Dictionary message;
+		message["id"] = "markdown-overflow-message-" + itos(i);
+		message["role"] = "assistant";
+		message["content"] = make_heavy_markdown_message(i);
+		messages.push_back(message);
+
+		list->set_messages(messages);
+		list->scroll_to_bottom();
+		if (i % 8 == 0) {
+			settle_gui_layout(1);
+		}
+	}
+	settle_gui_layout(8);
+
+	Dictionary streaming_message;
+	streaming_message["id"] = "markdown-overflow-streaming-message";
+	streaming_message["role"] = "assistant";
+	streaming_message["content"] = make_async_sized_streaming_markdown_message(message_count, 0);
+	CHECK(String(streaming_message["content"]).length() > 4096);
+	CHECK(String(streaming_message["content"]).length() < 6000);
+	messages.push_back(streaming_message);
+	list->set_messages(messages);
+	list->scroll_to_bottom();
+
+	const int streaming_revision_count = 70;
+	for (int i = 1; i < streaming_revision_count; i++) {
+		Dictionary updated_streaming_message = messages[messages.size() - 1];
+		updated_streaming_message["content"] = make_async_sized_streaming_markdown_message(message_count, i);
+		messages[messages.size() - 1] = updated_streaming_message;
+
+		list->set_messages(messages);
+		list->scroll_to_bottom();
+		if (i % 3 == 0) {
+			settle_gui_layout(1);
+		}
+	}
+	settle_markdown_viewer_async_layouts(list, 500);
+
+	AIMessageBubble *last_bubble = find_last_message_bubble(list);
+	REQUIRE(last_bubble);
+	VBoxContainer *message_box = find_message_list_box(list);
+	REQUIRE(message_box);
+	Label *token_label = find_token_usage_label(dock);
+	REQUIRE(token_label);
+
+	const real_t viewport_height = list->get_size().y;
+	const real_t content_bottom = get_message_list_content_bottom(list);
+	VScrollBar *scroll_bar = list->get_v_scroll_bar();
+	REQUIRE(scroll_bar);
+	const Rect2 list_rect = list->get_global_rect();
+	const Rect2 token_rect = token_label->get_global_rect();
+	const Rect2 composer_rect = composer->get_global_rect();
+
+	CHECK_MESSAGE(count_pending_markdown_viewer_async_parses(list) == 0, "async markdown parsing should have settled before measuring dock scroll geometry");
+	CHECK_MESSAGE(content_bottom > viewport_height * 20.0, "content_bottom=", content_bottom, " viewport_height=", viewport_height);
+	CHECK_MESSAGE(message_box->get_size().y > viewport_height, "message_box_height=", message_box->get_size().y, " viewport_height=", viewport_height);
+	CHECK_MESSAGE(scroll_bar->get_max() - scroll_bar->get_page() >= content_bottom - viewport_height - 2.0, "scroll_max=", scroll_bar->get_max(), " page=", scroll_bar->get_page(), " content_bottom=", content_bottom, " viewport_height=", viewport_height);
+	CHECK_MESSAGE(scroll_bar->get_value() + scroll_bar->get_page() >= content_bottom - 2.0, "scroll_value=", scroll_bar->get_value(), " page=", scroll_bar->get_page(), " content_bottom=", content_bottom);
+	CHECK_MESSAGE(message_box->get_position().y + last_bubble->get_position().y + last_bubble->get_size().y <= viewport_height + 2.0, "message_box_y=", message_box->get_position().y, " last_bubble_y=", last_bubble->get_position().y, " last_bubble_h=", last_bubble->get_size().y, " viewport_height=", viewport_height);
+	CHECK_MESSAGE(list_rect.position.y + list_rect.size.y <= token_rect.position.y + 2.0, "list_bottom=", list_rect.position.y + list_rect.size.y, " token_top=", token_rect.position.y);
+	CHECK_MESSAGE(list_rect.position.y + list_rect.size.y <= composer_rect.position.y + 2.0, "list_bottom=", list_rect.position.y + list_rect.size.y, " composer_top=", composer_rect.position.y);
+	CHECK_MESSAGE(count_markdown_viewer_bubble_rect_escapes(list) == 0, "markdown viewer controls should stay inside their owning bubble rect");
+	CHECK_MESSAGE(count_markdown_viewer_content_overflows(list) == 0, "markdown viewer content should not exceed its assigned bubble height");
+
+	root->remove_child(dock);
+	memdelete(dock);
+	AIAgentV1UIBridge::clear_singleton_for_test();
 }
 
 TEST_CASE("[Editor][AgentUI] Message bubble collapses oversized assistant content before rendering") {
