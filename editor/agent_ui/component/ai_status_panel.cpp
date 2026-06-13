@@ -14,6 +14,7 @@
 #include "scene/gui/popup.h"
 #include "scene/gui/tab_container.h"
 #include "scene/resources/image_texture.h"
+#include "scene/resources/style_box.h"
 #include "scene/resources/texture.h"
 #include "servers/text/text_server.h"
 
@@ -195,6 +196,7 @@ AIStatusPanel::AIStatusPanel() {
 	status_popup = memnew(PopupPanel);
 	status_popup->set_name("AIStatusPopup");
 	status_popup->set_min_size(Size2(420, 300) * EDSCALE);
+	status_popup->add_theme_style_override(SceneStringName(panel), memnew(StyleBoxEmpty));
 	add_child(status_popup);
 
 	MarginContainer *status_margin = memnew(MarginContainer);

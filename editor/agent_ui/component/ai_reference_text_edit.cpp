@@ -30,10 +30,27 @@ Dictionary AIReferenceSyntaxHighlighter::_get_line_syntax_highlighting_impl(int 
 	return color_map;
 }
 
+void AIReferenceTextEdit::_ensure_syntax_highlighter() {
+	if (get_syntax_highlighter().is_valid()) {
+		return;
+	}
+
+	Ref<AIReferenceSyntaxHighlighter> highlighter;
+	highlighter.instantiate();
+	set_syntax_highlighter(highlighter);
+}
+
 void AIReferenceTextEdit::_notification(int p_what) {
 	TextEdit::_notification(p_what);
 
+	if (p_what == NOTIFICATION_ENTER_TREE) {
+		_ensure_syntax_highlighter();
+	}
+
 	if (p_what == NOTIFICATION_THEME_CHANGED) {
+		if (is_inside_tree()) {
+			_ensure_syntax_highlighter();
+		}
 		Ref<SyntaxHighlighter> highlighter = get_syntax_highlighter();
 		if (highlighter.is_valid()) {
 			highlighter->clear_highlighting_cache();
@@ -42,7 +59,4 @@ void AIReferenceTextEdit::_notification(int p_what) {
 }
 
 AIReferenceTextEdit::AIReferenceTextEdit() {
-	Ref<AIReferenceSyntaxHighlighter> highlighter;
-	highlighter.instantiate();
-	set_syntax_highlighter(highlighter);
 }

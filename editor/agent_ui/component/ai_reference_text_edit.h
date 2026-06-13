@@ -20,6 +20,8 @@ public:
 class AIReferenceTextEdit : public TextEdit {
 	GDCLASS(AIReferenceTextEdit, TextEdit);
 
+	void _ensure_syntax_highlighter();
+
 protected:
 	static void _bind_methods() {}
 	void _notification(int p_what);

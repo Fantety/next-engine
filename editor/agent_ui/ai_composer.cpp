@@ -34,7 +34,8 @@ void AIComposer::_bind_methods() {
 }
 
 void AIComposer::_notification(int p_what) {
-	if (p_what == NOTIFICATION_THEME_CHANGED) {
+	if (p_what == NOTIFICATION_POSTINITIALIZE || p_what == NOTIFICATION_THEME_CHANGED) {
+		action_button_theme_ready = true;
 		_update_action_button();
 	}
 }
@@ -78,7 +79,6 @@ AIComposer::AIComposer() {
 	bar->add_child(model_selector);
 
 	send_button = memnew(Button);
-	send_button->set_button_icon(get_editor_theme_icon(SNAME("Send")));
 	send_button->set_tooltip_text(TTR("Send"));
 	send_button->connect("pressed", callable_mp(this, &AIComposer::_action_pressed));
 	bar->add_child(send_button);
@@ -354,13 +354,17 @@ void AIComposer::_update_action_button() {
 	}
 
 	if (running) {
-		send_button->set_button_icon(get_editor_theme_icon(SNAME("Stop")));
+		if (action_button_theme_ready) {
+			send_button->set_button_icon(get_editor_theme_icon(SNAME("Stop")));
+		}
 		send_button->set_tooltip_text(TTR("Cancel"));
 		send_button->set_disabled(false);
 		return;
 	}
 
-	send_button->set_button_icon(get_editor_theme_icon(SNAME("Send")));
+	if (action_button_theme_ready) {
+		send_button->set_button_icon(get_editor_theme_icon(SNAME("Send")));
+	}
 	send_button->set_tooltip_text(TTR("Send"));
 	send_button->set_disabled(!has_model || (get_input_text().strip_edges().is_empty() && get_attachments_for_send().is_empty()));
 }

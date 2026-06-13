@@ -25,6 +25,7 @@ class AIComposer : public VBoxContainer {
 	EditorFileDialog *reference_file_dialog = nullptr;
 	bool has_model = false;
 	bool running = false;
+	bool action_button_theme_ready = false;
 	int reference_trigger_line = -1;
 	int reference_trigger_column = -1;
 

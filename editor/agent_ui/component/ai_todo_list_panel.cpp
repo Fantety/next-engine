@@ -25,9 +25,9 @@ constexpr int TODO_TITLE_FONT_SIZE = 12;
 constexpr int TODO_ROW_FONT_SIZE = 12;
 constexpr int TODO_ROW_HEIGHT = 22;
 constexpr int TODO_TOGGLE_SIZE = 20;
-constexpr int TODO_STATUS_WIDTH = 16;
-constexpr int TODO_STATUS_DOT_SIZE = 8;
-constexpr int TODO_STATUS_TEXT_GAP = 7;
+constexpr int TODO_ROW_RADIUS = 6;
+constexpr int TODO_ROW_MARGIN_X = 8;
+constexpr int TODO_ROW_MARGIN_Y = 3;
 
 String _todo_status(const Dictionary &p_todo) {
 	return String(p_todo.get("status", String())).strip_edges().to_lower();
@@ -80,59 +80,64 @@ Ref<StyleBoxFlat> _make_panel_style(const Control *p_control) {
 	return style;
 }
 
-class AITodoStatusDot : public Control {
-	String status;
-
-	Color _status_color() const {
-		if (status == "completed") {
-			return Color(0.24, 0.78, 0.43);
-		}
-		if (status == "in_progress") {
-			return Color(0.96, 0.69, 0.20);
-		}
-		return _font_color(this);
+Color _todo_status_accent_color(const Control *p_control, const String &p_status) {
+	if (p_status == "completed") {
+		return Color(0.24, 0.78, 0.43);
 	}
-
-protected:
-	void _notification(int p_what) {
-		if (p_what == NOTIFICATION_DRAW) {
-			const Size2 size = get_size();
-			const real_t radius = MIN(MIN(size.x, size.y) * 0.5, (TODO_STATUS_DOT_SIZE * EDSCALE) * 0.5);
-			draw_circle(Vector2(size.x * 0.5, size.y * 0.5), radius, _status_color(), true, -1.0, true);
-		}
-		if (p_what == NOTIFICATION_THEME_CHANGED) {
-			queue_redraw();
-		}
+	if (p_status == "in_progress") {
+		return Color(0.96, 0.69, 0.20);
 	}
-
-public:
-	AITodoStatusDot() {
-		set_custom_minimum_size(Size2(TODO_STATUS_WIDTH * EDSCALE, TODO_ROW_HEIGHT * EDSCALE));
-		set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+	if (p_status == "cancelled") {
+		return Color(0.84, 0.36, 0.36);
 	}
+	return _font_color(p_control);
+}
 
-	void set_status(const String &p_status) {
-		status = p_status;
-		queue_redraw();
+Ref<StyleBoxFlat> _make_todo_row_style(const Control *p_control, const String &p_status) {
+	const Color accent = _todo_status_accent_color(p_control, p_status);
+	Ref<StyleBoxFlat> style;
+	style.instantiate();
+	style->set_bg_color(_with_alpha(accent, p_status == "in_progress" ? 0.18 : 0.12));
+	style->set_border_color(_with_alpha(accent, p_status == "in_progress" ? 0.48 : 0.34));
+	style->set_border_width_all(MAX(1, int(EDSCALE)));
+	style->set_corner_radius_all(TODO_ROW_RADIUS * EDSCALE);
+	style->set_content_margin(SIDE_LEFT, TODO_ROW_MARGIN_X * EDSCALE);
+	style->set_content_margin(SIDE_RIGHT, TODO_ROW_MARGIN_X * EDSCALE);
+	style->set_content_margin(SIDE_TOP, TODO_ROW_MARGIN_Y * EDSCALE);
+	style->set_content_margin(SIDE_BOTTOM, TODO_ROW_MARGIN_Y * EDSCALE);
+	return style;
+}
+
+Color _todo_row_text_color(const Control *p_control, const String &p_status) {
+	if (p_status == "completed" || p_status == "cancelled") {
+		return _with_alpha(_font_color(p_control), 0.72);
 	}
-};
+	return _font_color(p_control);
+}
 
-class AITodoListItemRow : public HBoxContainer {
+class AITodoListItemRow : public PanelContainer {
 	String content;
 	String status;
-	AITodoStatusDot *status_dot = nullptr;
 	Label *content_label = nullptr;
 
 public:
-	AITodoListItemRow() {
-		set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	void apply_theme() {
+		add_theme_style_override(SceneStringName(panel), _make_todo_row_style(this, status));
+		if (content_label) {
+			content_label->add_theme_color_override(SceneStringName(font_color), _todo_row_text_color(this, status));
+			content_label->add_theme_font_size_override(SceneStringName(font_size), TODO_ROW_FONT_SIZE * EDSCALE);
+		}
 		set_custom_minimum_size(Size2(0, TODO_ROW_HEIGHT * EDSCALE));
-		add_theme_constant_override(SNAME("separation"), TODO_STATUS_TEXT_GAP * EDSCALE);
+		update_minimum_size();
+	}
 
-		status_dot = memnew(AITodoStatusDot);
-		add_child(status_dot);
+	AITodoListItemRow() {
+		set_name(SNAME("AITodoListItemRow"));
+		set_h_size_flags(Control::SIZE_EXPAND_FILL);
+		set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
 
 		content_label = memnew(Label);
+		content_label->set_name(SNAME("AITodoListItemContent"));
 		content_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 		content_label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
 		content_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
@@ -143,14 +148,13 @@ public:
 	void set_todo(const Dictionary &p_todo) {
 		content = String(p_todo.get("content", String())).strip_edges();
 		status = _todo_status(p_todo);
-		if (status_dot) {
-			status_dot->set_status(status);
-		}
 		if (content_label) {
 			content_label->set_text(content);
 			content_label->set_tooltip_text(content);
 		}
-		update_minimum_size();
+		if (is_inside_tree()) {
+			apply_theme();
+		}
 	}
 };
 
@@ -213,7 +217,7 @@ AITodoListPanel::AITodoListPanel() {
 
 	items_box = memnew(VBoxContainer);
 	items_box->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	items_box->add_theme_constant_override(SNAME("separation"), 0);
+	items_box->add_theme_constant_override(SNAME("separation"), 4 * EDSCALE);
 	content_box->add_child(items_box);
 }
 
@@ -229,6 +233,12 @@ void AITodoListPanel::_apply_theme() {
 	}
 	if (current_task_label) {
 		current_task_label->add_theme_color_override(SceneStringName(font_color), _font_color(this));
+	}
+	if (items_box) {
+		for (int i = 0; i < items_box->get_child_count(); i++) {
+			AITodoListItemRow *row = static_cast<AITodoListItemRow *>(items_box->get_child(i));
+			row->apply_theme();
+		}
 	}
 	_update_toggle_button();
 	applying_theme = false;
@@ -310,9 +320,13 @@ void AITodoListPanel::_refresh() {
 
 	for (int i = 0; i < visible_todos.size(); i++) {
 		AITodoListItemRow *row = memnew(AITodoListItemRow);
+		row->set_name(vformat("AITodoListItemRow%d", i));
 		row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 		row->set_todo(visible_todos[i]);
 		items_box->add_child(row);
+		if (row->is_inside_tree()) {
+			row->apply_theme();
+		}
 	}
 
 	current_task_label->set_visible(collapsed);

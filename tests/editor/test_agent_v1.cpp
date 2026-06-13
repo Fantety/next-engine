@@ -38,16 +38,22 @@
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
 #include "editor/agent_ui/ai_agent_dock.h"
+#include "editor/agent_ui/ai_composer.h"
+#include "editor/agent_ui/component/ai_reference_text_edit.h"
 #include "editor/agent_ui/component/ai_reference_resolver.h"
 #include "editor/agent_ui/component/ai_status_panel.h"
 #include "editor/agent_ui/component/ai_todo_list_panel.h"
 #include "scene/gui/button.h"
+#include "scene/gui/control.h"
 #include "scene/gui/item_list.h"
 #include "scene/gui/label.h"
 #include "scene/gui/popup.h"
 #include "scene/gui/tab_container.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
+#include "scene/resources/style_box.h"
+#include "scene/resources/style_box_flat.h"
+#include "tests/test_tools.h"
 #include "tests/test_utils.h"
 
 TEST_FORCE_LINK(test_agent_v1);
@@ -161,6 +167,31 @@ static int count_visible_non_empty_labels(Node *p_node) {
 		count += count_visible_non_empty_labels(p_node->get_child(i));
 	}
 	return count;
+}
+
+static bool has_descendant_named(Node *p_node, const StringName &p_name) {
+	if (!p_node) {
+		return false;
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		Node *child = p_node->get_child(i);
+		if (child->get_name() == p_name || has_descendant_named(child, p_name)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static Control *find_todo_row_for_label(Node *p_root, const String &p_text) {
+	Label *label = find_label_with_text(p_root, p_text);
+	if (!label || !label->get_parent()) {
+		return nullptr;
+	}
+	Control *row = Object::cast_to<Control>(label->get_parent());
+	if (row && row->get_name() == SNAME("AITodoListItemContent") && row->get_parent()) {
+		row = Object::cast_to<Control>(row->get_parent());
+	}
+	return row;
 }
 
 static void write_bytes_file(const String &p_path, const PackedByteArray &p_bytes) {
@@ -704,6 +735,39 @@ TEST_CASE("[Editor][AgentUI] Inline file references resolve to attachments") {
 	CHECK(bool(text.get("inline_reference", false)));
 
 	CHECK(AIReferenceResolver::make_reference_token_for_path("res://docs/my note.md") == "@\"res://docs/my note.md\"");
+}
+
+TEST_CASE("[Editor][AgentUI] Composer defers theme icon lookup until theme is initialized") {
+	AIAgentV1UIBridge::clear_singleton_for_test();
+	ErrorDetector error_detector;
+
+	AIComposer *composer = memnew(AIComposer);
+	CHECK_FALSE(error_detector.has_error);
+
+	memdelete(composer);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+}
+
+TEST_CASE("[Editor][AgentUI] Reference text edit installs syntax highlighter after entering tree") {
+	ErrorDetector error_detector;
+
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AIReferenceTextEdit *edit = memnew(AIReferenceTextEdit);
+	CHECK(edit->get_syntax_highlighter().is_null());
+	CHECK_FALSE(error_detector.has_error);
+
+	root->add_child(edit);
+	flush_deferred_calls();
+
+	Ref<SyntaxHighlighter> highlighter = edit->get_syntax_highlighter();
+	REQUIRE(highlighter.is_valid());
+	CHECK(Object::cast_to<AIReferenceSyntaxHighlighter>(highlighter.ptr()) != nullptr);
+
+	root->remove_child(edit);
+	memdelete(edit);
 }
 
 TEST_CASE("[Editor][AgentV1] Prompt admission resolves data URL attachments into durable blobs") {
@@ -4735,7 +4799,7 @@ TEST_CASE("[Editor][AgentUI] Todo list panel accepts multi-item snapshots") {
 	CHECK(panel->get_todos().size() == 3);
 	Label *summary_label = find_first_label(panel);
 	REQUIRE(summary_label);
-	CHECK(summary_label->get_text() == TTR("已完成 1 个任务（共 3 个）"));
+	CHECK(summary_label->get_text() == vformat(TTR("Completed %d out of %d tasks."), 1, 3));
 	CHECK_FALSE(summary_label->get_text().contains("å"));
 	CHECK(find_label_with_text(panel, "Inspect current changes") != nullptr);
 	CHECK(find_label_with_text(panel, "Update todo panel") != nullptr);
@@ -4747,6 +4811,74 @@ TEST_CASE("[Editor][AgentUI] Todo list panel accepts multi-item snapshots") {
 
 	panel->set_todos(Array());
 	CHECK_FALSE(panel->is_visible());
+
+	root->remove_child(panel);
+	memdelete(panel);
+}
+
+TEST_CASE("[Editor][AgentUI] Todo list panel uses colored rounded row backgrounds for statuses") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AITodoListPanel *panel = memnew(AITodoListPanel);
+	root->add_child(panel);
+	panel->set_size(Size2(360, 160));
+
+	Array todos;
+	Dictionary first;
+	first["content"] = "Inspect current changes";
+	first["status"] = "completed";
+	first["priority"] = "high";
+	todos.push_back(first);
+	Dictionary second;
+	second["content"] = "Update todo panel";
+	second["status"] = "in_progress";
+	second["priority"] = "high";
+	todos.push_back(second);
+	Dictionary third;
+	third["content"] = "Run focused tests";
+	third["status"] = "pending";
+	third["priority"] = "medium";
+	todos.push_back(third);
+
+	panel->set_todos(todos);
+	flush_deferred_calls();
+
+	Control *first_row = find_todo_row_for_label(panel, "Inspect current changes");
+	REQUIRE(first_row);
+	CHECK(String(first_row->get_name()).begins_with("AITodoListItemRow"));
+	CHECK_FALSE(has_descendant_named(first_row, SNAME("AITodoStatusDot")));
+	CHECK(first_row->has_theme_stylebox_override(SceneStringName(panel)));
+	Ref<StyleBoxFlat> first_style = first_row->get_theme_stylebox(SceneStringName(panel));
+	REQUIRE(first_style.is_valid());
+	CHECK(first_style->get_bg_color().a > 0.05);
+	CHECK(first_style->get_border_color().a > 0.05);
+	CHECK(first_style->get_corner_radius(CORNER_TOP_LEFT) > 0);
+
+	Control *second_row = find_todo_row_for_label(panel, "Update todo panel");
+	REQUIRE(second_row);
+	CHECK(String(second_row->get_name()).begins_with("AITodoListItemRow"));
+	CHECK_FALSE(has_descendant_named(second_row, SNAME("AITodoStatusDot")));
+	CHECK(second_row->has_theme_stylebox_override(SceneStringName(panel)));
+	Ref<StyleBoxFlat> second_style = second_row->get_theme_stylebox(SceneStringName(panel));
+	REQUIRE(second_style.is_valid());
+	CHECK(second_style->get_bg_color().a > 0.05);
+	CHECK(second_style->get_border_color().a > 0.05);
+	CHECK(second_style->get_corner_radius(CORNER_TOP_LEFT) > 0);
+
+	Control *third_row = find_todo_row_for_label(panel, "Run focused tests");
+	REQUIRE(third_row);
+	CHECK(String(third_row->get_name()).begins_with("AITodoListItemRow"));
+	CHECK_FALSE(has_descendant_named(third_row, SNAME("AITodoStatusDot")));
+	CHECK(third_row->has_theme_stylebox_override(SceneStringName(panel)));
+	Ref<StyleBoxFlat> third_style = third_row->get_theme_stylebox(SceneStringName(panel));
+	REQUIRE(third_style.is_valid());
+	CHECK(third_style->get_bg_color().a > 0.05);
+	CHECK(third_style->get_border_color().a > 0.05);
+	CHECK(third_style->get_corner_radius(CORNER_TOP_LEFT) > 0);
+	CHECK_FALSE(first_style->get_bg_color().is_equal_approx(second_style->get_bg_color()));
+	CHECK_FALSE(second_style->get_bg_color().is_equal_approx(third_style->get_bg_color()));
 
 	root->remove_child(panel);
 	memdelete(panel);
@@ -4785,8 +4917,8 @@ TEST_CASE("[Editor][AgentUI] Todo list panel collapses to current task and progr
 
 	panel->set_collapsed(true);
 	CHECK(panel->is_collapsed());
-	CHECK(find_visible_label_with_text(panel, TTR("已完成 1 个任务（共 3 个）")) != nullptr);
-	CHECK(find_visible_label_with_text(panel, vformat(TTR("当前任务：%s"), "Update todo panel")) != nullptr);
+	CHECK(find_visible_label_with_text(panel, vformat(TTR("Completed %d out of %d tasks."), 1, 3)) != nullptr);
+	CHECK(find_visible_label_with_text(panel, vformat(TTR("Current task: %s"), "Update todo panel")) != nullptr);
 	CHECK(find_visible_label_with_text(panel, "Inspect current changes") == nullptr);
 	CHECK(find_visible_label_with_text(panel, "Update todo panel") == nullptr);
 	CHECK(find_visible_label_with_text(panel, "Run focused tests") == nullptr);
@@ -4796,7 +4928,7 @@ TEST_CASE("[Editor][AgentUI] Todo list panel collapses to current task and progr
 	CHECK(find_visible_label_with_text(panel, "Inspect current changes") != nullptr);
 	CHECK(find_visible_label_with_text(panel, "Update todo panel") != nullptr);
 	CHECK(find_visible_label_with_text(panel, "Run focused tests") != nullptr);
-	CHECK(find_visible_label_with_text(panel, vformat(TTR("当前任务：%s"), "Update todo panel")) == nullptr);
+	CHECK(find_visible_label_with_text(panel, vformat(TTR("Current task: %s"), "Update todo panel")) == nullptr);
 
 	root->remove_child(panel);
 	memdelete(panel);
@@ -4822,6 +4954,9 @@ TEST_CASE("[Editor][AgentUI] Dock combines MCP and Skill status in server popup 
 
 	PopupPanel *status_popup = Object::cast_to<PopupPanel>(dock->find_child("AIStatusPopup", true, false));
 	REQUIRE(status_popup);
+	CHECK(status_popup->has_theme_stylebox_override(SceneStringName(panel)));
+	Ref<StyleBox> popup_panel_style = status_popup->get_theme_stylebox(SceneStringName(panel));
+	CHECK(Object::cast_to<StyleBoxEmpty>(popup_panel_style.ptr()) != nullptr);
 
 	TabContainer *tabs = Object::cast_to<TabContainer>(status_popup->find_child("AIStatusTabs", true, false));
 	REQUIRE(tabs);
