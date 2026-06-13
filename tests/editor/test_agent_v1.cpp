@@ -37,9 +37,15 @@
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_adapter.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
+#include "editor/agent_ui/ai_agent_dock.h"
 #include "editor/agent_ui/component/ai_reference_resolver.h"
+#include "editor/agent_ui/component/ai_status_panel.h"
 #include "editor/agent_ui/component/ai_todo_list_panel.h"
+#include "scene/gui/button.h"
+#include "scene/gui/item_list.h"
 #include "scene/gui/label.h"
+#include "scene/gui/popup.h"
+#include "scene/gui/tab_container.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
 #include "tests/test_utils.h"
@@ -122,6 +128,39 @@ static Label *find_label_with_text(Node *p_node, const String &p_text) {
 		}
 	}
 	return nullptr;
+}
+
+static Label *find_visible_label_with_text(Node *p_node, const String &p_text) {
+	if (!p_node) {
+		return nullptr;
+	}
+	if (Label *label = Object::cast_to<Label>(p_node)) {
+		if (label->get_text() == p_text && label->is_visible_in_tree()) {
+			return label;
+		}
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (Label *label = find_visible_label_with_text(p_node->get_child(i), p_text)) {
+			return label;
+		}
+	}
+	return nullptr;
+}
+
+static int count_visible_non_empty_labels(Node *p_node) {
+	if (!p_node) {
+		return 0;
+	}
+	int count = 0;
+	if (Label *label = Object::cast_to<Label>(p_node)) {
+		if (label->is_visible_in_tree() && !label->get_text().is_empty()) {
+			count++;
+		}
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		count += count_visible_non_empty_labels(p_node->get_child(i));
+	}
+	return count;
 }
 
 static void write_bytes_file(const String &p_path, const PackedByteArray &p_bytes) {
@@ -4562,17 +4601,106 @@ TEST_CASE("[Editor][AgentUI] Todo list panel accepts multi-item snapshots") {
 	CHECK(panel->get_todos().size() == 3);
 	Label *summary_label = find_first_label(panel);
 	REQUIRE(summary_label);
-	CHECK(summary_label->get_text() == String::utf8(u8"已完成 1 个任务（共 3 个）"));
+	CHECK(summary_label->get_text() == TTR("已完成 1 个任务（共 3 个）"));
 	CHECK_FALSE(summary_label->get_text().contains("å"));
 	CHECK(find_label_with_text(panel, "Inspect current changes") != nullptr);
 	CHECK(find_label_with_text(panel, "Update todo panel") != nullptr);
 	CHECK(find_label_with_text(panel, "Run focused tests") != nullptr);
+	CHECK(count_visible_non_empty_labels(panel) == 4);
+	CHECK(find_label_with_text(panel, String::chr(0x2713)) == nullptr);
+	CHECK(find_label_with_text(panel, String::chr(0x2022)) == nullptr);
+	CHECK(find_label_with_text(panel, String::chr(0x25CB)) == nullptr);
 
 	panel->set_todos(Array());
 	CHECK_FALSE(panel->is_visible());
 
 	root->remove_child(panel);
 	memdelete(panel);
+}
+
+TEST_CASE("[Editor][AgentUI] Todo list panel collapses to current task and progress") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AITodoListPanel *panel = memnew(AITodoListPanel);
+	root->add_child(panel);
+
+	Array todos;
+	Dictionary first;
+	first["content"] = "Inspect current changes";
+	first["status"] = "completed";
+	first["priority"] = "high";
+	todos.push_back(first);
+	Dictionary second;
+	second["content"] = "Update todo panel";
+	second["status"] = "in_progress";
+	second["priority"] = "high";
+	todos.push_back(second);
+	Dictionary third;
+	third["content"] = "Run focused tests";
+	third["status"] = "pending";
+	third["priority"] = "medium";
+	todos.push_back(third);
+
+	panel->set_todos(todos);
+	CHECK_FALSE(panel->is_collapsed());
+	CHECK(find_visible_label_with_text(panel, "Inspect current changes") != nullptr);
+	CHECK(find_visible_label_with_text(panel, "Update todo panel") != nullptr);
+	CHECK(find_visible_label_with_text(panel, "Run focused tests") != nullptr);
+
+	panel->set_collapsed(true);
+	CHECK(panel->is_collapsed());
+	CHECK(find_visible_label_with_text(panel, TTR("已完成 1 个任务（共 3 个）")) != nullptr);
+	CHECK(find_visible_label_with_text(panel, vformat(TTR("当前任务：%s"), "Update todo panel")) != nullptr);
+	CHECK(find_visible_label_with_text(panel, "Inspect current changes") == nullptr);
+	CHECK(find_visible_label_with_text(panel, "Update todo panel") == nullptr);
+	CHECK(find_visible_label_with_text(panel, "Run focused tests") == nullptr);
+
+	panel->set_collapsed(false);
+	CHECK_FALSE(panel->is_collapsed());
+	CHECK(find_visible_label_with_text(panel, "Inspect current changes") != nullptr);
+	CHECK(find_visible_label_with_text(panel, "Update todo panel") != nullptr);
+	CHECK(find_visible_label_with_text(panel, "Run focused tests") != nullptr);
+	CHECK(find_visible_label_with_text(panel, vformat(TTR("当前任务：%s"), "Update todo panel")) == nullptr);
+
+	root->remove_child(panel);
+	memdelete(panel);
+}
+
+TEST_CASE("[Editor][AgentUI] Dock combines MCP and Skill status in server popup tabs") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AIAgentV1UIBridge::clear_singleton_for_test();
+
+	AIAgentDock *dock = memnew(AIAgentDock);
+	root->add_child(dock);
+
+	Button *status_button = Object::cast_to<Button>(dock->find_child("AIStatusButton", true, false));
+	REQUIRE(status_button);
+	CHECK(Object::cast_to<AIStatusPanel>(status_button) != nullptr);
+	CHECK(status_button->get_tooltip_text().contains("MCP"));
+	CHECK(status_button->get_tooltip_text().contains("AgentSkill"));
+	CHECK(dock->find_child("AIMCPStatusButton", true, false) == nullptr);
+	CHECK(dock->find_child("AISkillStatusButton", true, false) == nullptr);
+
+	PopupPanel *status_popup = Object::cast_to<PopupPanel>(dock->find_child("AIStatusPopup", true, false));
+	REQUIRE(status_popup);
+
+	TabContainer *tabs = Object::cast_to<TabContainer>(status_popup->find_child("AIStatusTabs", true, false));
+	REQUIRE(tabs);
+	CHECK(tabs->get_tab_count() == 2);
+	CHECK(tabs->get_tab_title(0) == TTR("MCP"));
+	CHECK(tabs->get_tab_title(1) == TTR("Skill"));
+
+	CHECK(Object::cast_to<ItemList>(tabs->find_child("AIMCPStatusList", true, false)) != nullptr);
+	CHECK(Object::cast_to<ItemList>(tabs->find_child("AISkillStatusList", true, false)) != nullptr);
+
+	root->remove_child(dock);
+	memdelete(dock);
+	AIAgentV1UIBridge::clear_singleton_for_test();
 }
 
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter keeps promoted user messages in chronological UI order") {

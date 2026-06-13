@@ -205,6 +205,7 @@
 #include "editor/agent_ui/component/ai_reference_text_edit.h"
 #include "editor/agent_ui/component/ai_requirement_form_dialog.h"
 #include "editor/agent_ui/component/ai_skill_dialog.h"
+#include "editor/agent_ui/component/ai_status_panel.h"
 #include "editor/agent_ui/component/ai_text_diff_viewer.h"
 #include "editor/agent_ui/component/ai_todo_list_panel.h"
 #include "editor/user_system/auth_client.h"
@@ -367,6 +368,7 @@ void register_editor_types() {
 	GDREGISTER_CLASS(AIReferenceSyntaxHighlighter);
 	GDREGISTER_CLASS(AIReferenceTextEdit);
 	GDREGISTER_CLASS(AISkillDialog);
+	GDREGISTER_CLASS(AIStatusPanel);
 	GDREGISTER_CLASS(AISettingsMCPPage);
 	GDREGISTER_CLASS(AISettingsModelsPage);
 	GDREGISTER_CLASS(AISettingsNextMarqueePage);

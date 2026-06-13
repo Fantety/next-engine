@@ -10,6 +10,7 @@
 #include "editor/agent_ui/ai_change_review_panel.h"
 #include "editor/agent_ui/ai_composer.h"
 #include "editor/agent_ui/component/ai_message_list.h"
+#include "editor/agent_ui/component/ai_status_panel.h"
 #include "editor/agent_ui/component/ai_todo_list_panel.h"
 #include "scene/gui/button.h"
 #include "scene/gui/label.h"
@@ -19,8 +20,6 @@ class ConfirmationDialog;
 class HBoxContainer;
 class ColorRect;
 class AIRequirementFormDialog;
-class ItemList;
-class PopupPanel;
 class VBoxContainer;
 
 class AIAgentDock : public EditorDock {
@@ -29,12 +28,7 @@ class AIAgentDock : public EditorDock {
 	OptionButton *session_selector = nullptr;
 	Button *new_session_button = nullptr;
 	Button *delete_session_button = nullptr;
-	Button *mcp_status_button = nullptr;
-	Button *skill_status_button = nullptr;
-	PopupPanel *mcp_status_popup = nullptr;
-	ItemList *mcp_status_list = nullptr;
-	PopupPanel *skill_status_popup = nullptr;
-	ItemList *skill_status_list = nullptr;
+	AIStatusPanel *status_panel = nullptr;
 	ConfirmationDialog *delete_session_dialog = nullptr;
 	ConfirmationDialog *tool_approval_dialog = nullptr;
 	AIRequirementFormDialog *requirement_form_dialog = nullptr;
@@ -74,9 +68,7 @@ class AIAgentDock : public EditorDock {
 	void _settings_changed();
 	void _next_marquee_settings_changed();
 	void _mcp_settings_changed();
-	void _mcp_status_pressed();
 	void _skill_settings_changed();
-	void _skill_status_pressed();
 	void _new_session_pressed();
 	void _delete_session_pressed();
 	void _confirm_delete_session();
@@ -94,10 +86,7 @@ class AIAgentDock : public EditorDock {
 	void _reload_messages_from_session();
 	void _reload_todos_from_session();
 	void _refresh_todo_panel(const Array &p_todos);
-	void _refresh_mcp_status_button();
-	void _refresh_mcp_status_popup();
-	void _refresh_skill_status_button();
-	void _refresh_skill_status_popup();
+	void _refresh_status_panel();
 	void _refresh_token_usage();
 	void _ensure_request_progress_material();
 	void _refresh_request_progress_material();

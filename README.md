@@ -1,216 +1,178 @@
 # NEXT Engine
 
-NEXT Engine 是基于 Godot Engine 深度定制的 AI 游戏开发编辑器。它保留 Godot 成熟的 2D/3D 编辑、节点系统、资源管理、脚本编辑和运行调试能力，并把 AI Agent 融入编辑器工作流，让项目理解、对话协作、场景编辑、脚本修改、Shader 编写和变更审查都可以在同一个开发环境中完成。
+NEXT Engine 是一款基于 Godot Engine 深度定制的 AI 游戏开发编辑器。它保留 Godot 熟悉的 2D/3D 场景编辑、节点系统、资源管理、脚本编辑和运行调试能力，同时把 AI Agent 放进编辑器工作流里，让你可以在同一个环境中理解项目、讨论方案、修改场景、生成脚本、编辑 Shader、审查改动并继续调试。
 
 <p align="center">
   <img src="logo.png" width="400" alt="NEXT Engine logo">
 </p>
 
-## 项目愿景
+## 它想解决什么
 
-NEXT Engine 希望把 AI 从一个外部聊天窗口变成编辑器内部的开发伙伴。它可以读取项目结构、理解当前编辑器状态、调用受控工具完成具体操作，并把高风险写入纳入可确认、可审查、可撤销的流程中。
+游戏开发里的 AI 助手不应该只是一个复制粘贴代码的聊天框。NEXT Engine 希望让 AI 真正理解你正在编辑的项目：它可以读取项目结构、查看当前编辑器状态、理解场景树和脚本文件，并在你允许的范围内调用编辑器工具完成具体操作。
 
-当前开发线基于 Godot upstream `master` 持续合并更新。Agent 功能先在 master 线上维护，后续等待 Godot 4.7 stable 发布后再合入对应稳定分支，减少 master 与稳定分支之间的渲染、平台和 thirdparty 差异带来的维护成本。
+你仍然在熟悉的 Godot 编辑器里工作；AI 只是多了一个能够看见项目、执行任务、留下记录、等待你确认的开发伙伴。
 
-核心方向：
-- 保留 Godot 原有编辑器体验和项目兼容性。
-- 让 AI Agent 直接理解游戏项目、场景、脚本和资源上下文。
-- 用工具调用连接模型能力与真实编辑器能力。
-- 对文件写入、场景修改和外部工具调用提供权限控制。
-- 通过变更审查面板让 AI 修改可追踪、可比较、可回退。
-- 以解耦架构持续扩展模型、工具、MCP、Skill、Rules、上下文和 Agent 工作流。
+## 适合谁
 
-## AI Agent 架构
+- 正在使用 Godot / NEXT Engine 制作游戏的开发者。
+- 想让 AI 帮忙理解项目结构、定位文件、解释场景和脚本的人。
+- 希望 AI 能辅助创建节点、修改脚本、编写 Shader，而不是只给出文字建议的人。
+- 需要对 AI 改动进行 diff 审查、保留或回退的团队。
+- 想接入自定义模型、MCP 工具、Skill 工作流和项目规则的高级用户。
 
-AI 功能当前采用单 MainAgent 工作流。MainAgent 挂载项目上下文、场景编辑、脚本编辑、Shader 编辑、运行控制、计划管理和变更审查等工具，用户通过右侧 AI Dock 发送消息，Agent 通过 OpenAI-compatible function calling 调用工具执行操作，结果实时流式返回。
+## 你可以用它做什么
 
-这种结构适合快速问答、小型代码生成、场景操作、资产建议和需要多步计划的编辑器任务。复杂任务通过 `agent.manage_plan` 维护当前计划，AI Dock 会在输入框上方同步显示任务状态。
+### 和项目对话
 
-## 功能亮点
+你可以直接在 AI Dock 里询问当前项目：
 
-### Godot 编辑器基础
+- 这个项目有哪些主要场景和脚本？
+- 当前打开的场景里有哪些节点？
+- 某个脚本负责什么逻辑？
+- 帮我找出和角色移动、背包、UI 或 Shader 相关的文件。
+- 根据当前项目结构，给我一个实现某个功能的步骤。
 
-NEXT Engine 继承 Godot Engine 的核心开发能力：
-- 2D / 3D 场景编辑。
-- 节点树、Inspector、资源文件系统和脚本编辑器。
-- 项目管理、运行调试和编辑器 Dock 工作流。
-- Windows 平台编辑器构建与运行。
+AI 可以读取项目文件、搜索文本、查看当前编辑器上下文和 Godot 文档，从而减少你在文件树、Inspector、脚本和网页文档之间来回切换的时间。
 
-AI 功能作为编辑器侧增强接入，不替代 Godot 原生工作流，也不要求开发者离开熟悉的编辑器环境。
+### 辅助编辑场景
 
-### AI Agent Dock
+AI 可以围绕当前场景树做一些受控操作，例如：
 
-右侧 AI Dock 提供面向项目开发的对话入口：
-- 选择模型并发送消息。
-- 支持 OpenAI-compatible Provider。
-- 支持流式文本返回。
-- 支持 Markdown 消息渲染。
-- 支持历史会话管理。
-- 会话按项目隔离，打开项目后自动恢复最近会话。
-- 展示当前会话 token 使用和上下文估算信息。
-- 工具调用、审批和执行结果进入统一消息链路。
-- 顶部提供 MCP 和 Skill 状态入口，以轻量列表展示名称和状态色标。
-- 复杂任务执行时可在输入框上方显示可展开/收起的计划列表。
+- 描述当前场景结构。
+- 检查某个节点的属性。
+- 列出节点可编辑属性。
+- 对场景应用结构化 patch。
+- 删除指定节点。
 
-AI Dock 不只是问答窗口，它是 Agent Runtime、项目上下文、工具调用和变更审查的入口。
+这些操作会通过编辑器内的工具执行，而不是把场景文件当成普通文本随手改掉。
 
-### 模型配置
+### 编写脚本和 Shader
 
-AI Settings 提供模型配置管理：
-- 添加自定义模型供应商。
-- 配置 Provider、Base URL、API Key、模型 ID 和显示名称。
-- 同一供应商和同一模型可以保存多个配置。
-- 支持新增、编辑、删除模型配置。
-- 高级配置支持模型请求超时、输入上下文预算、上下文文档预算、历史消息预算、工具结果预算、最少保留最近消息数、工具调用轮次和最大输出 token。
-- 模型高级配置会进入 `AIProviderConfig`，并在会话运行时绑定到 Agent Runtime 与 Context Manager。
-- 预留并接入 MCP、Skill、Rules 等 Agent Coding 常见配置入口。
+AI 可以帮助完成常见的 GDScript 和 Shader 工作：
 
-### MCP 工具接入
-
-NEXT Engine 支持通过 MCP 扩展 Agent 能力，让外部工具以受控方式进入编辑器中的 AI 工作流。
-
-当前 MCP 能力包括：
-- 支持 `stdio`、`streamable_http`、`sse` 三类 transport。
-- 支持从 JSON 导入 MCP server 配置。
-- 支持在 AI Settings 中添加、编辑、启用、禁用和删除 MCP server。
-- AI Dock 顶部提供轻量 MCP 状态按钮，点击后展开 server 列表。
-- 设置页 MCP 列表显示状态色标：可用、不可用、检查中、禁用。
-- 启动和配置变更时异步检查 MCP server，不阻塞 UI。
-- 初始化失败会显示非阻塞提示，并跳过不可用 server。
-- MCP tool 进入模型前会去重，避免上下文中出现重复工具。
-- MCP tool 默认需要用户确认后执行。
-
-MCP discovery、状态管理和工具快照由独立服务负责，Session 只消费可用工具快照，避免多会话重复发现和重复注册。
-
-### AgentSkill
-
-NEXT Engine 支持 Prompt/Context 类型的 AgentSkill，用于把可复用的工作流说明、项目约定和专业提示接入 Agent 上下文。当前 Skill 采用渐进披露流程：
-- AI Settings 中可以添加、编辑、启用、禁用和删除 Skill。
-- 支持选择本地 Skill 文件夹导入，系统会扫描其中的 `SKILL.md` 并生成 Skill 配置。
-- 会话上下文只注入启用 Skill 的名称和描述列表，不默认注入全文。
-- Agent 可通过只读工具 `agent.activate_skill` 按 `skill_id` 激活某个 Skill，并读取完整内容。
-- 当前 Skill 只提供 prompt/context 指令，不执行脚本、不启动进程、不读取任意资源，也不会自动授予工具权限。
-- AI Dock 顶部 Skill 列表展示 AI Settings 中已添加的 Skill，而不是仅展示本次会话激活过的 Skill。
-
-后续可以在保持安全边界的前提下扩展 tool bundle、资源引用或更强 Skill 类型，但这些能力不会复用当前 prompt/context 激活路径作为执行入口。
-
-### Rules
-
-Rules 用于把用户配置的短规则稳定注入 Agent 上下文，适合保存项目偏好、回答约束和团队约定。
-- AI Settings 中提供 Rules 表格，可添加、编辑、启用、禁用和删除 Rule。
-- 每条 Rule 限制在 100 字以内，避免把规则系统变成大段提示词存储。
-- 启用的 Rule 会由 Rules Context Provider 汇总为 `User Rules` 上下文文档。
-- Context Manager 会在构建模型消息时自动拼接 Rules，使 Agent 在回答和工具调用时遵守这些约束。
-
-### Agent 计划管理
-
-Agent 计划管理用于复杂多步任务。模型可调用 `agent.manage_plan` 创建和更新当前任务计划，AI Dock 会在 Composer 上方同步展示计划状态。
-- 同一时刻只允许一个 active plan。
-- 计划由标题和任务列表组成，任务状态支持 `pending`、`in_progress`、`completed`。
-- Agent 应在复杂任务开始前创建计划，并在完成具体任务后及时标记完成。
-- 所有任务完成后，计划会自动归档并释放 active plan。
-- 简单的一步任务不需要创建计划。
-- 系统提示词会要求 Agent 在需求不明确时先追问用户确认，再继续执行。
-
-### Agent Runtime
-
-Agent Runtime 使用 OpenAI-compatible function calling 架构：
-- Runtime 负责多轮模型请求和工具调用循环。
-- Provider 层负责模型配置、HTTP 请求、流式响应解析和协议转换。
-- Tool Registry 统一管理工具 schema、权限和执行入口。
-- Context Manager 负责整理系统提示、历史消息和项目上下文，并控制上下文预算。
-- Session 层负责 UI 状态、消息持久化、会话切换和运行结果回写。
-- 计划管理工具与普通工具共用权限、执行和消息链路，但计划状态由独立 Plan Manager 维护。
-
-这种结构让模型请求、上下文、工具、权限和 UI 解耦，便于持续扩展新的工具和新的 Agent 行为。
-
-### 项目上下文工具
-
-AI Agent 可以读取项目上下文，更准确地理解当前开发任务：
-- 查看项目文件树。
-- 读取项目文件。
-- 搜索项目文本。
-- 获取当前编辑器上下文。
-
-这些只读工具帮助模型理解项目结构、当前场景、相关脚本和编辑器状态，是后续自动化编辑的基础。
-
-### 场景编辑工具
-
-NEXT Engine 已提供一组编辑器内场景操作工具：
-- 创建场景。
-- 打开场景。
-- 保存当前场景。
-- 创建节点。
-- 删除节点。
-- 重命名节点。
-- 移动节点。
-- 设置节点属性。
-- 列出节点属性。
-- 创建文件夹。
-
-场景编辑工具优先封装 Godot 编辑器内部接口和 Undo/Redo 能力，避免把场景文件当作普通文本直接修改。
-
-### 脚本与 Shader 工具
-
-AI Agent 可以辅助完成基础 GDScript 和 GDShader 编辑任务：
 - 创建脚本。
-- 删除脚本。
-- 编写或覆盖脚本。
-- 基于函数级定位修改 GDScript 函数。
-- 将脚本绑定到节点。
-- 从节点解绑脚本。
-- 创建并应用 ShaderMaterial。
-- 创建或修改 GDShader。
+- 写入或修改脚本。
+- 按函数粒度 patch GDScript。
+- 将脚本绑定到节点，或从节点解绑。
+- 创建、编辑、删除 Shader。
+- 将 Shader 应用到节点。
+- 设置 Shader 参数。
 
-脚本和 Shader 写入会进入权限与审查流程，让开发者在享受自动化效率的同时保留确认权。
+你可以把它当成“懂 Godot 项目上下文的结对助手”：先让它解释和规划，再让它改动，最后你审查结果。
 
-### AI 变更审查
+### 管理复杂任务
 
-AI Changes 面板用于集中审查 AI 产生的文件改动：
-- 展示待处理的 AI 文件变更。
-- 支持 Before / After 双栏 diff。
-- 新增内容以绿色标识，删除内容以红色标识。
-- GDScript diff 支持语法高亮。
-- 支持保留变更。
-- 支持撤销变更。
-- 同一个文件被多次修改时，会合并为最终内容与原始内容之间的 diff。
+复杂任务可以拆成 todo。AI 在执行多步工作时可以更新当前会话的任务列表，Dock 中会显示任务摘要、当前任务和完成状态，方便你知道它正在做哪一步。
 
-这让 AI 文件写入不再是黑盒操作，开发者可以逐条理解、确认和回退。
+### 审查 AI 改动
+
+AI 产生的文件修改可以进入变更审查面板。你可以：
+
+- 查看待处理改动。
+- 打开 Before / After 双栏 diff。
+- 对 GDScript 和 GDShader 查看带语法高亮的差异。
+- 保留改动。
+- 回退改动。
+
+同一个文件被多次修改时，系统会尽量合并为最终内容与原始内容之间的差异，便于一次性审查。
+
+## AI Dock
+
+AI Dock 是 NEXT Engine 中和 AI 协作的主要入口。
+
+它提供：
+
+- 会话选择、新建和删除。
+- 模型选择。
+- Agent/Profile 模式选择。
+- 支持 Markdown 的消息展示。
+- 文件、剪贴板和画布引用。
+- 附件发送。
+- 运行状态和 token 使用提示。
+- MCP 与 Skill 状态入口。
+- 工具审批弹窗。
+- 需求确认表单。
+- 任务 todo 展示。
+- AI 变更审查入口。
+
+你可以把相关文件、剪贴板内容或当前画布作为引用发给 AI，让它回答时带上更具体的上下文。
+
+## 模型配置
+
+NEXT Engine 支持 OpenAI-compatible 模型配置。你可以在 AI Settings 中管理：
+
+- 预设 provider 模型。
+- 自定义模型。
+- Base URL。
+- API Key。
+- 模型 ID 和显示名称。
+- 是否支持多模态。
+- 最大输出 token。
+- 请求超时。
+
+同一个项目可以保存自己的模型配置，方便不同项目使用不同模型或不同 API 端点。
+
+## MCP、Skill 和 Rules
+
+NEXT Engine 支持把 AI 能力扩展到更贴近你的工作方式。
+
+- MCP：接入外部工具服务，让 AI 可以发现并调用额外工具。
+- Skill：导入本地 Skill 文件夹，把可复用的工作流、项目约定或专业提示提供给 AI。
+- Rules：配置权限和行为规则，例如哪些操作允许、哪些操作需要询问、为什么需要限制。
+
+这些扩展都从设置页管理，不需要你把所有约定都写进每次对话里。
+
+## 权限与安全感
+
+NEXT Engine 的设计目标是让 AI 能做事，但不要让它悄悄做危险的事。
+
+- 工具调用会带有明确的操作类型和资源目标。
+- 一些操作可以直接允许，一些操作会要求你确认，一些操作可以被规则拒绝。
+- 需要确认的工具调用会在 Dock 中弹出审批。
+- 文件修改可以进入变更审查，而不是直接变成不可追踪的结果。
+- 长任务可以被取消。
+- 工具执行结果会写回会话，方便追踪 AI 做过什么。
+
+你始终保留最终控制权。
+
+## 典型使用流程
+
+1. 打开项目。
+2. 在 AI Settings 中配置可用模型。
+3. 打开 AI Dock，选择模型和模式。
+4. 描述你想做的事，必要时附加文件、剪贴板或画布引用。
+5. 让 AI 先解释、查找、规划或提出方案。
+6. 对需要执行的工具调用进行确认。
+7. 在变更审查面板查看 AI 产生的文件差异。
+8. 保留满意的改动，回退不合适的改动。
+9. 继续在编辑器中运行、调试和迭代。
+
+## 其他能力
 
 ### 用户系统
 
-NEXT Engine 内置用户登录与身份管理，通过远程 NexusServer API 提供服务：
-- 支持手机验证码登录和密码登录两种方式。
-- 登录状态持久化，支持自动 token 刷新和过期重登录。
-- 账户信息展示：昵称、手机号、用户 ID、积分和礼品卡余额。
-- 编辑器右上角显示用户头像入口，点击可查看账户详情和退出登录。
-- 认证客户端独立运行在后台线程，不阻塞编辑器 UI。
-- 设备 ID 生成并持久化，跨登出保持不变。
+项目内包含用户登录与账户状态相关能力，用于后续承载账号、权益、服务连接和个性化体验。
 
-### MarkdownViewer 节点
+### MarkdownViewer
 
-NEXT Engine 新增了独立的 `MarkdownViewer` 场景节点（`Control` 子类），可在任何 UI 场景中使用：
-- 完整的 Markdown 解析：标题、段落、粗体、斜体、删除线、代码块、引用、列表、表格、链接、图片、分割线。
-- 代码块语法高亮：支持 GDScript、Shader 等语言的关键字、字符串、注释和数字识别。
-- 图片加载：支持本地图片和远程 HTTP 图片（可配置开关）。
-- 可配置属性：最大图片宽度/高度、滚动、语法高亮开关、代码复制按钮、远程图片开关、打开链接开关。
-- 高效的视口裁剪渲染，适用于长文档展示。
+NEXT Engine 新增了 `MarkdownViewer` UI 节点，可用于在编辑器或项目 UI 中展示 Markdown 内容。AI 消息中的富文本展示也会复用相关能力。
 
-AI Dock 和 AI Settings 中的消息渲染和帮助文档展示均基于 MarkdownViewer 实现。
+### Next Marquee
 
-### 权限与安全边界
+AI 设置中包含 Next Marquee 页面，用于管理 AI UI 中的内置和自定义动效预设。
 
-NEXT Engine 的 AI 工具调用默认遵循清晰的权限边界：
-- 只读项目工具可直接用于上下文理解。
-- 高风险编辑工具按 Agent Profile 控制权限（允许 / 询问 / 拒绝）。
-- MCP 等外部工具默认需要用户审批。
-- 工具执行结果会写回消息链路，便于追踪。
-- 文件改动通过变更审查面板呈现。
-- Agent Profile 划分 `plan`、`write`、`review`、`build` 四种权限级别。
+## 当前状态
 
-目标是让 AI 能真正参与开发，同时让开发者始终掌握最终控制权。
+NEXT Engine 当前基于 Godot upstream `master` 持续合并更新。AI 能力仍在快速演进中，重点方向包括：
 
-## 构建
+- 更自然的 AI Dock 交互体验。
+- 更准确的项目上下文理解。
+- 更强的场景、脚本、Shader 和资源编辑工具。
+- 更完善的模型配置和多模态支持。
+- 更成熟的变更审查、回退和任务记录。
+- 更丰富的 MCP、Skill、Rules 和上下文来源生态。
+
+## 从源码构建
 
 Windows 下可使用 SCons 构建编辑器：
 
@@ -218,56 +180,25 @@ Windows 下可使用 SCons 构建编辑器：
 scons platform=windows
 ```
 
-如果构建提示 Direct3D 12、WinRT 或 AccessKit 依赖缺失，请按终端提示执行 Godot 提供的依赖安装脚本。
-
 常用 AI 相关测试命令：
 
 ```powershell
 bin\next.windows.editor.x86_64.console.exe --test --test-case="*[AI]*"
 ```
 
-## 项目结构
+如果构建提示 Direct3D 12、WinRT、AccessKit 或其他 Godot upstream 依赖缺失，请按照终端提示安装对应依赖。
+
+## 源码入口
+
+如果你需要了解或扩展实现，主要目录如下：
 
 ```text
-next-engine/
-  editor/ai_component/       # AI 功能核心代码
-    agent/                   # Agent 基类、会话、Runtime、Context Manager、MCP
-    ui/                      # AI Dock、Composer、消息列表、设置页、变更审查等
-    providers/               # 模型供应商、MCP 客户端、协议编解码
-    tools/                   # 工具系统基类和工具注册
-    tools/editor/            # 场景、脚本、Shader、运行控制等编辑器工具
-    tools/project/           # 项目上下文工具（文件树、搜索、读取等）
-    context/                 # 上下文提供者（编辑器、项目树、文件、最佳实践等）
-    planning/                # 单 MainAgent 计划管理
-    review/                  # 变更集存储和 Diff 服务
-    skills/                  # AgentSkill 系统
-    rules/                   # Rules 规则系统
-    storage/                 # 会话持久化存储
-  editor/user_system/        # 用户系统（登录、认证、账户管理）
-  scene/gui/                 # MarkdownViewer 节点（Markdown 解析/布局/渲染）
-  .devdocs/                  # 架构文档、设计记录和计划文档
-  tests/editor/              # AI 相关单元测试
+editor/agent_v1/      # AI Agent 后端、会话、模型运行时、工具、权限、MCP、Skill
+editor/agent_ui/      # AI Dock、Composer、设置页、消息列表、状态、todo、diff 审查等 UI
+editor/user_system/   # 用户系统
+scene/gui/            # MarkdownViewer 等 GUI 节点
+.devdocs/             # 架构文档、设计记录和计划文档
+tests/editor/         # 编辑器与 AI 相关测试
 ```
 
-## 开发原则
-
-NEXT Engine 的 AI 模块遵循以下原则：
-- AI 功能与 Godot 原生功能边界清晰。
-- UI、Session、Runtime、Provider、Tool、Storage 各层职责分离。
-- 工具优先封装编辑器内部能力，而不是绕过引擎直接修改资源。
-- 高风险写入必须可追踪、可审查、可撤销。
-- MCP、Skill、Rules 等扩展能力通过独立模块接入，避免侵入主流程。
-- Planning、Rules、Skill、MCP 均通过独立服务或 Context Provider 接入，保持低耦合、高内聚。
-- 优先保证稳定性、可维护性和可扩展性。
-
-## 后续方向
-
-NEXT Engine 会继续围绕游戏开发场景扩展 AI Agent 工作流：
-- 更完整的模型能力描述和模型配置体验。
-- 更细粒度的 Ask / Write / Review 模式。
-- 更强的场景、节点、脚本、Shader 和资源编辑工具。
-- 更准确的上下文预算、压缩和摘要机制。
-- 更成熟的变更审查、diff、回滚和任务记录体验。
-- 更强的 Skill 类型、Rules 系统和计划管理体验。
-- 更丰富的 MCP 工具生态接入。
-- 更适合游戏开发者的 AI 交互体验。
+开发新能力前，优先查看这些目录中是否已经有可复用的服务、工具、UI 组件或领域模型。
