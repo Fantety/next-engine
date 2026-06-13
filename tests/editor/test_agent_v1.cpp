@@ -3524,8 +3524,9 @@ TEST_CASE("[Editor][AgentV1] Requirement form tool resumes with submitted answer
 	const Dictionary request = pending_requests[0];
 	const Dictionary source = request.get("source", Dictionary());
 	CHECK(String(source.get("tool", String())) == "agent_collect_requirements");
-	REQUIRE(source.get("input", Variant()).get_type() == Variant::DICTIONARY);
-	const Dictionary requested_form = source["input"];
+	CHECK_FALSE(source.has("input"));
+	REQUIRE(source.get("arguments", Variant()).get_type() == Variant::DICTIONARY);
+	const Dictionary requested_form = source["arguments"];
 	CHECK(String(requested_form.get("title", String())) == "Confirm game requirements");
 	CHECK(Array(requested_form.get("questions", Array())).size() == 1);
 
@@ -5248,7 +5249,7 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter maps permission pending requests
 	REQUIRE(bool(adapter->create_session(create).get("success", false)));
 
 	Dictionary source;
-	source["tool_name"] = "file_write";
+	source["tool"] = "file_write";
 	source["call_id"] = "call-ui";
 
 	Dictionary input;
@@ -5266,6 +5267,10 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter maps permission pending requests
 	CHECK(String(request.get("session_id", String())) == "ui-permission-session");
 	CHECK(String(request.get("action", String())) == "file.write");
 	CHECK(String(request.get("resource", String())) == "res://ui.txt");
+	CHECK(String(request.get("tool_name", String())) == "file_write");
+	const Dictionary request_source = request.get("source", Dictionary());
+	CHECK(String(request_source.get("tool", String())) == "file_write");
+	CHECK_FALSE(request_source.has("tool_name"));
 
 	REQUIRE(collector->permission_requests.size() == 1);
 	CHECK(String(Dictionary(collector->permission_requests[0]).get("request_id", String())) == String(request.get("request_id", String())));

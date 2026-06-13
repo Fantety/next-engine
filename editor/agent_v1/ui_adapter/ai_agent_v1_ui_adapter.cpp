@@ -282,8 +282,14 @@ Dictionary AIAgentV1UIAdapter::_permission_request_to_view(const Dictionary &p_r
 		request["source"] = Dictionary();
 	}
 	Dictionary source = request["source"];
-	if (!source.has("tool_name") && source.has("tool")) {
-		source["tool_name"] = source["tool"];
+	if (!source.has("tool") && source.has("tool_name")) {
+		source["tool"] = source["tool_name"];
+	}
+	if (source.has("tool_name")) {
+		source.erase("tool_name");
+	}
+	if (!request.has("tool_name") && source.has("tool")) {
+		request["tool_name"] = source["tool"];
 	}
 	request["source"] = source;
 	return request;

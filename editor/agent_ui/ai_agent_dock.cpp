@@ -389,9 +389,9 @@ void AIAgentDock::_tool_approval_requested(const Dictionary &p_approval) {
 	if (pending_tool_approval.get("source", Variant()).get_type() == Variant::DICTIONARY) {
 		source = pending_tool_approval["source"];
 	}
-	const String tool_name = String(pending_tool_approval.get("tool_name", source.get("tool_name", source.get("tool", String()))));
+	const String tool_name = String(pending_tool_approval.get("tool_name", source.get("tool", String())));
 	const String reason = String(pending_tool_approval.get("reason", ""));
-	const Variant arguments = pending_tool_approval.get("arguments", pending_tool_approval.get("input", source.get("input", Variant())));
+	const Variant arguments = pending_tool_approval.get("arguments", source.get("arguments", Variant()));
 	if (_is_requirement_form_tool_name(tool_name)) {
 		if (requirement_form_dialog && arguments.get_type() == Variant::DICTIONARY) {
 			requirement_form_dialog->set_form(arguments);

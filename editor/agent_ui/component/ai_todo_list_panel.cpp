@@ -43,11 +43,11 @@ bool _todo_is_current(const Dictionary &p_todo) {
 }
 
 String _todo_summary_text(int p_completed, int p_total) {
-	return vformat(TTR("已完成 %d 个任务（共 %d 个）"), p_completed, p_total);
+	return vformat(TTR("Completed %d out of %d tasks."), p_completed, p_total);
 }
 
 String _todo_current_task_text(const String &p_content) {
-	return vformat(TTR("当前任务：%s"), p_content);
+	return vformat(TTR("Current task: %s"), p_content);
 }
 
 Color _with_alpha(Color p_color, float p_alpha) {
