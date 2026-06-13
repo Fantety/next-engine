@@ -65,6 +65,14 @@ AIAgentV1UIAdapter::AIAgentV1UIAdapter() {
 	_ensure_defaults();
 }
 
+Array AIAgentV1UIAdapter::project_session_messages_for_test(const Vector<AISessionMessage> &p_messages) {
+	Array result;
+	for (int i = 0; i < p_messages.size(); i++) {
+		_append_ui_messages_from_session_message(p_messages[i], result);
+	}
+	return result;
+}
+
 void AIAgentV1UIAdapter::_ensure_defaults() {
 	if (session_service.is_null()) {
 		session_service.instantiate();
@@ -254,9 +262,11 @@ void AIAgentV1UIAdapter::_append_ui_messages_from_session_message(const AISessio
 		}
 	}
 
-	String text = p_message.text;
-	if (text.is_empty() && !assistant_text.is_empty()) {
+	String text;
+	if (!assistant_text.is_empty()) {
 		text = String("\n\n").join(assistant_text);
+	} else if (p_message.type != AI_SESSION_MESSAGE_ASSISTANT || tool_messages.is_empty()) {
+		text = p_message.text;
 	}
 
 	const bool should_emit_base_message = p_message.type != AI_SESSION_MESSAGE_ASSISTANT || !text.strip_edges().is_empty() || tool_messages.is_empty();

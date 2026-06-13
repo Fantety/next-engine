@@ -15,6 +15,7 @@ class MarkdownViewer : public Control {
 	String markdown;
 	MarkdownViewerDocument document;
 	MarkdownViewerLayout layout;
+	MarkdownViewerLayout measured_layout_cache;
 	MarkdownViewerImageLoader *image_loader = nullptr;
 
 	bool remote_images_enabled = false;
@@ -22,25 +23,39 @@ class MarkdownViewer : public Control {
 	bool scroll_enabled = true;
 	bool syntax_highlighting_enabled = true;
 	bool code_copy_enabled = true;
+	bool async_parsing_enabled = true;
 
 	real_t image_max_width = 800.0;
 	real_t image_max_height = 420.0;
 	real_t content_height = 0.0;
 	real_t scroll_offset = 0.0;
 	Size2 last_layout_size = Size2(-1.0, -1.0);
+	Size2 measured_layout_size = Size2(-1.0, -1.0);
 
 	bool parse_dirty = true;
 	bool layout_dirty = true;
+	bool measured_layout_valid = false;
+	bool async_parse_pending = false;
+	int async_parse_minimum_length = 4096;
+	int64_t document_generation = 0;
+	int64_t async_parse_generation = 0;
+	int layout_build_count_for_test = 0;
+	int document_build_count_for_test = 0;
 
 	void _mark_parse_dirty();
 	void _mark_layout_dirty();
+	void _clear_measured_layout_cache();
 	void _ensure_document();
 	void _ensure_layout();
 	void _build_layout(const Size2 &p_layout_size);
+	bool _should_parse_async() const;
+	bool _start_async_parse();
 	void _clamp_scroll_offset();
 	MarkdownViewerLayoutTheme _make_layout_theme() const;
 	bool _resolve_hit_test(const Point2 &p_position, MarkdownViewerHitTest &r_hit);
 	void _image_state_changed(const String &p_source);
+	static void _run_async_document_parse(void *p_userdata);
+	static void _finish_async_document_parse(uint64_t p_request_ptr);
 
 protected:
 	void _notification(int p_what);
@@ -69,6 +84,9 @@ public:
 	void set_code_copy_enabled(bool p_enabled);
 	bool is_code_copy_enabled() const;
 
+	void set_async_parsing_enabled(bool p_enabled);
+	bool is_async_parsing_enabled() const;
+
 	void set_image_max_width(real_t p_width);
 	real_t get_image_max_width() const;
 
@@ -82,6 +100,10 @@ public:
 	bool get_hit_test_at_for_test(const Point2 &p_position, MarkdownViewerHitTest &r_hit);
 	void set_scroll_offset_for_test(real_t p_offset);
 	real_t get_scroll_offset_for_test() const;
+	int get_layout_build_count_for_test() const;
+	int get_document_build_count_for_test() const;
+	bool is_async_parse_pending_for_test() const;
+	void set_async_parse_minimum_length_for_test(int p_minimum_length);
 
 	MarkdownViewer();
 };

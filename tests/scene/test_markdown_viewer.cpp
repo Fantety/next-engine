@@ -11,6 +11,8 @@
 TEST_FORCE_LINK(test_markdown_viewer)
 
 #include "core/io/image.h"
+#include "core/object/message_queue.h"
+#include "core/os/os.h"
 #include "core/object/class_db.h"
 #include "modules/modules_enabled.gen.h"
 #include "scene/gui/markdown_viewer.h"
@@ -495,6 +497,60 @@ TEST_CASE("[SceneTree][MarkdownViewer] Content height query reuses current-width
 
 	viewer->force_layout_for_test();
 	CHECK(viewer->get_content_height() == doctest::Approx(queried_height));
+
+	memdelete(viewer);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Content height query caches repeated off-width layout") {
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(320, 120));
+	viewer->set_async_parsing_enabled(false);
+	viewer->set_markdown("This paragraph is intentionally long enough to wrap differently when measured at a narrow width, so repeated minimum-size queries should not rebuild the Markdown layout every time a parent container asks for size.");
+
+	const int initial_build_count = viewer->get_layout_build_count_for_test();
+	const real_t first_height = viewer->get_content_height_for_width(180);
+	const int after_first_query_count = viewer->get_layout_build_count_for_test();
+	const real_t second_height = viewer->get_content_height_for_width(180);
+
+	CHECK(first_height > 0.0);
+	CHECK(second_height == doctest::Approx(first_height));
+	CHECK(after_first_query_count > initial_build_count);
+	CHECK(viewer->get_layout_build_count_for_test() == after_first_query_count);
+
+	viewer->set_size(Size2(180, 120));
+	viewer->force_layout_for_test();
+	CHECK(viewer->get_layout_build_count_for_test() == after_first_query_count);
+	CHECK(viewer->get_content_height() == doctest::Approx(first_height));
+
+	memdelete(viewer);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Async parse applies only the latest markdown") {
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(320, 120));
+	viewer->set_async_parsing_enabled(true);
+	viewer->set_async_parse_minimum_length_for_test(1);
+
+	viewer->set_markdown("First async document that should be superseded.");
+	viewer->set_markdown("# Latest\n\nThis document should win after async parsing settles.");
+
+	for (int i = 0; i < 200 && viewer->is_async_parse_pending_for_test(); i++) {
+		if (OS::get_singleton()) {
+			OS::get_singleton()->delay_usec(1000);
+		}
+		if (MessageQueue::get_singleton()) {
+			MessageQueue::get_singleton()->flush();
+		}
+	}
+	if (MessageQueue::get_singleton()) {
+		MessageQueue::get_singleton()->flush();
+	}
+
+	CHECK_FALSE(viewer->is_async_parse_pending_for_test());
+	CHECK(viewer->get_markdown() == "# Latest\n\nThis document should win after async parsing settles.");
+
+	viewer->force_layout_for_test();
+	CHECK(viewer->get_content_height() > 0.0);
 
 	memdelete(viewer);
 }

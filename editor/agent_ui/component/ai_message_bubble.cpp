@@ -23,6 +23,8 @@ void AIMessageBubble::_bind_methods() {
 namespace {
 
 static const int TOOL_SUMMARY_LIMIT = 72;
+static const int ASSISTANT_COLLAPSE_LIMIT = 6000;
+static const int ASSISTANT_PREVIEW_LIMIT = 2400;
 
 String _variant_to_text(const Variant &p_value) {
 	if (p_value.get_type() == Variant::NIL) {
@@ -49,6 +51,15 @@ String _single_line_summary(const String &p_text, int p_limit = TOOL_SUMMARY_LIM
 	}
 
 	return summary;
+}
+
+String _large_text_preview(const String &p_text) {
+	String preview = p_text.substr(0, MIN(p_text.length(), ASSISTANT_PREVIEW_LIMIT)).strip_edges();
+	if (!preview.is_empty()) {
+		preview += "\n\n";
+	}
+	preview += "[truncated]";
+	return preview;
 }
 
 String _build_tool_call_summary(const Array &p_tool_calls) {
@@ -408,6 +419,7 @@ void AIMessageBubble::_render_message() {
 
 	const bool is_pure_assistant_tool_call = role == "assistant" && content.strip_edges().is_empty() && !tool_calls.is_empty();
 	const bool is_assistant_with_tool_calls = role == "assistant" && !content.strip_edges().is_empty() && !tool_calls.is_empty();
+	const bool is_oversized_assistant = role == "assistant" && content.length() > ASSISTANT_COLLAPSE_LIMIT;
 	const bool is_tool_group = role == "tool_group";
 	const bool is_tool_bubble = (role == "tool") || is_pure_assistant_tool_call || is_tool_group;
 	set_h_size_flags(Control::SIZE_EXPAND_FILL);
@@ -438,9 +450,12 @@ void AIMessageBubble::_render_message() {
 	} else if (role == "tool") {
 		summary = _single_line_summary(content);
 		details = _is_mcp_tool_metadata(message_metadata) ? _build_mcp_tool_details(message_metadata, content) : content;
+	} else if (is_oversized_assistant) {
+		summary = _large_text_preview(content);
+		details = content;
 	}
 
-	details_available = is_tool_bubble && _tool_details_need_toggle(summary, details, tool_call_count);
+	details_available = is_oversized_assistant || (is_tool_bubble && _tool_details_need_toggle(summary, details, tool_call_count));
 
 	title_label->set_text(title);
 	label->clear();
@@ -450,7 +465,11 @@ void AIMessageBubble::_render_message() {
 		details_button->set_text(details_expanded ? TTR("Hide") : TTR("Details"));
 		details_button->set_visible(details_available);
 	} else if (role == "assistant") {
-		if (is_assistant_with_tool_calls) {
+		if (is_oversized_assistant && !details_expanded) {
+			label->add_text(summary);
+			details_button->set_text(TTR("Details"));
+			details_button->show();
+		} else if (is_assistant_with_tool_calls) {
 			const String tool_summary = _build_tool_call_summary(tool_calls);
 			label->set_markdown(content + "\n\n`" + tool_summary + "`");
 		} else if (_looks_like_markdown(content)) {
@@ -458,7 +477,12 @@ void AIMessageBubble::_render_message() {
 		} else {
 			label->add_text(content);
 		}
-		details_button->hide();
+		if (is_oversized_assistant && details_expanded) {
+			details_button->set_text(TTR("Hide"));
+			details_button->show();
+		} else if (!is_oversized_assistant) {
+			details_button->hide();
+		}
 	} else {
 		label->add_text(content);
 		details_button->hide();

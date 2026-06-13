@@ -39,6 +39,8 @@
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
 #include "editor/agent_ui/ai_agent_dock.h"
 #include "editor/agent_ui/ai_composer.h"
+#include "editor/agent_ui/component/ai_markdown_label.h"
+#include "editor/agent_ui/component/ai_message_list.h"
 #include "editor/agent_ui/component/ai_reference_text_edit.h"
 #include "editor/agent_ui/component/ai_reference_resolver.h"
 #include "editor/agent_ui/component/ai_status_panel.h"
@@ -47,6 +49,7 @@
 #include "scene/gui/control.h"
 #include "scene/gui/item_list.h"
 #include "scene/gui/label.h"
+#include "scene/gui/markdown_viewer.h"
 #include "scene/gui/popup.h"
 #include "scene/gui/tab_container.h"
 #include "scene/main/scene_tree.h"
@@ -192,6 +195,54 @@ static Control *find_todo_row_for_label(Node *p_root, const String &p_text) {
 		row = Object::cast_to<Control>(row->get_parent());
 	}
 	return row;
+}
+
+static AIMessageBubble *find_first_message_bubble(Node *p_node) {
+	if (!p_node) {
+		return nullptr;
+	}
+
+	if (AIMessageBubble *bubble = Object::cast_to<AIMessageBubble>(p_node)) {
+		return bubble;
+	}
+
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (AIMessageBubble *child_first = find_first_message_bubble(p_node->get_child(i))) {
+			return child_first;
+		}
+	}
+	return nullptr;
+}
+
+static AIMessageBubble *find_last_message_bubble(Node *p_node) {
+	if (!p_node) {
+		return nullptr;
+	}
+
+	AIMessageBubble *last = Object::cast_to<AIMessageBubble>(p_node);
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (AIMessageBubble *child_last = find_last_message_bubble(p_node->get_child(i))) {
+			last = child_last;
+		}
+	}
+	return last;
+}
+
+static AIMarkdownLabel *find_first_markdown_label(Node *p_node) {
+	if (!p_node) {
+		return nullptr;
+	}
+
+	if (AIMarkdownLabel *label = Object::cast_to<AIMarkdownLabel>(p_node)) {
+		return label;
+	}
+
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (AIMarkdownLabel *child_label = find_first_markdown_label(p_node->get_child(i))) {
+			return child_label;
+		}
+	}
+	return nullptr;
 }
 
 static void write_bytes_file(const String &p_path, const PackedByteArray &p_bytes) {
@@ -768,6 +819,106 @@ TEST_CASE("[Editor][AgentUI] Reference text edit installs syntax highlighter aft
 
 	root->remove_child(edit);
 	memdelete(edit);
+}
+
+TEST_CASE("[Editor][AgentUI] Message list reuses unchanged bubbles across set_messages updates") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AIMessageList *list = memnew(AIMessageList);
+	root->add_child(list);
+	list->set_size(Size2(360, 148));
+
+	Array messages;
+	for (int i = 0; i < 80; i++) {
+		Dictionary message;
+		message["id"] = "message-" + itos(i);
+		message["role"] = "assistant";
+		message["content"] = "Earlier response line " + itos(i);
+		messages.push_back(message);
+	}
+	list->set_messages(messages);
+	flush_deferred_calls();
+
+	AIMessageBubble *first_before = find_first_message_bubble(list);
+	AIMessageBubble *last_before = find_last_message_bubble(list);
+	REQUIRE(first_before);
+	REQUIRE(last_before);
+	const ObjectID first_id_before = first_before->get_instance_id();
+	const ObjectID last_id_before = last_before->get_instance_id();
+
+	Array appended = messages.duplicate(true);
+	Dictionary final_message;
+	final_message["id"] = "message-final";
+	final_message["role"] = "assistant";
+	final_message["content"] = "Final short response";
+	appended.push_back(final_message);
+	list->set_messages(appended);
+	flush_deferred_calls();
+
+	AIMessageBubble *first_after_append = find_first_message_bubble(list);
+	AIMessageBubble *last_after_append = find_last_message_bubble(list);
+	REQUIRE(first_after_append);
+	REQUIRE(last_after_append);
+	CHECK(first_after_append->get_instance_id() == first_id_before);
+	CHECK(last_after_append->get_instance_id() != last_id_before);
+
+	Array updated = appended.duplicate(true);
+	Dictionary changed_last = updated[updated.size() - 1];
+	changed_last["content"] = "Final response after streaming update";
+	updated[updated.size() - 1] = changed_last;
+	list->set_messages(updated);
+	flush_deferred_calls();
+
+	AIMessageBubble *first_after_update = find_first_message_bubble(list);
+	REQUIRE(first_after_update);
+	CHECK(first_after_update->get_instance_id() == first_id_before);
+
+	root->remove_child(list);
+	memdelete(list);
+}
+
+TEST_CASE("[Editor][AgentUI] Message bubble collapses oversized assistant content before rendering") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	String large_content;
+	for (int i = 0; i < 260; i++) {
+		large_content += "Large assistant line " + itos(i) + " with enough text to exceed the preview threshold.\n";
+	}
+
+	AIMessageBubble *bubble = memnew(AIMessageBubble);
+	root->add_child(bubble);
+	Dictionary message;
+	message["role"] = "assistant";
+	message["content"] = large_content;
+	bubble->set_message(message);
+	flush_deferred_calls();
+
+	AIMarkdownLabel *label = find_first_markdown_label(bubble);
+	REQUIRE(label);
+	CHECK(label->get_parsed_text().length() < large_content.length());
+	CHECK(label->get_parsed_text().contains("[truncated]"));
+
+	root->remove_child(bubble);
+	memdelete(bubble);
+}
+
+TEST_CASE("[Editor][AgentUI] Markdown label renders plain text without Markdown parsing") {
+	AIMarkdownLabel *label = memnew(AIMarkdownLabel);
+	MarkdownViewer *viewer = label->get_markdown_viewer();
+	REQUIRE(viewer);
+
+	label->add_text("Plain **text** that should stay literal.");
+	viewer->force_layout_for_test();
+
+	CHECK(label->get_parsed_text() == "Plain **text** that should stay literal.");
+	CHECK(viewer->get_document_build_count_for_test() == 0);
+	CHECK(viewer->get_content_height() > 0.0);
+
+	memdelete(label);
 }
 
 TEST_CASE("[Editor][AgentV1] Prompt admission resolves data URL attachments into durable blobs") {
@@ -5090,6 +5241,43 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter streams live assistant deltas th
 	const Array final_messages = adapter->get_messages("ui-session-live-stream");
 	REQUIRE(final_messages.size() == 1);
 	CHECK(String(Dictionary(final_messages[0]).get("content", String())) == "Hello");
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter keeps tool output out of assistant bubbles") {
+	AISessionMessage message = AISessionMessage::assistant_shell("ui-session-tool-output", 42, "assistant-tool-output");
+	message.text = "LEGACY_TOOL_OUTPUT_SHOULD_NOT_RENDER_IN_ASSISTANT_BUBBLE";
+	message.content.push_back(AIAssistantContent::text_content("The tool completed; here is the summary.", "assistant-text"));
+
+	Dictionary input;
+	input["path"] = "res://large.txt";
+	Dictionary output;
+	output["text"] = "TOOL_OUTPUT_RENDERED_AS_TOOL_MESSAGE";
+	message.content.push_back(AIAssistantContent::tool_content("call-read-large", "file.read", AIToolState::success(input, output)));
+
+	Vector<AISessionMessage> projected;
+	projected.push_back(message);
+	const Array ui_messages = AIAgentV1UIAdapter::project_session_messages_for_test(projected);
+
+	REQUIRE(ui_messages.size() == 2);
+	const Dictionary assistant = ui_messages[0];
+	CHECK(String(assistant.get("role", String())) == "assistant");
+	CHECK(String(assistant.get("content", String())) == "The tool completed; here is the summary.");
+	CHECK_FALSE(String(assistant.get("content", String())).contains("LEGACY_TOOL_OUTPUT"));
+
+	const Dictionary tool = ui_messages[1];
+	CHECK(String(tool.get("role", String())) == "tool");
+	CHECK(String(tool.get("content", String())).contains("TOOL_OUTPUT_RENDERED_AS_TOOL_MESSAGE"));
+
+	AISessionMessage tool_only = AISessionMessage::assistant_shell("ui-session-tool-only", 43, "assistant-tool-only");
+	tool_only.text = "LEGACY_TOOL_ONLY_OUTPUT_SHOULD_NOT_CREATE_ASSISTANT_BUBBLE";
+	tool_only.content.push_back(AIAssistantContent::tool_content("call-tool-only", "file.read", AIToolState::success(input, output)));
+
+	Vector<AISessionMessage> tool_only_projected;
+	tool_only_projected.push_back(tool_only);
+	const Array tool_only_ui_messages = AIAgentV1UIAdapter::project_session_messages_for_test(tool_only_projected);
+	REQUIRE(tool_only_ui_messages.size() == 1);
+	CHECK(String(Dictionary(tool_only_ui_messages[0]).get("role", String())) == "tool");
+	CHECK_FALSE(String(Dictionary(tool_only_ui_messages[0]).get("content", String())).contains("LEGACY_TOOL_ONLY_OUTPUT"));
 }
 
 TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter restores the last active session without creating a new one") {

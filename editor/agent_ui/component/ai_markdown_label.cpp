@@ -11,6 +11,8 @@
 
 namespace {
 
+static const int AI_MARKDOWN_LABEL_SYNC_PARSE_LIMIT = 4096;
+
 String _escape_plain_markdown(const String &p_text) {
 	String escaped;
 	bool line_start = true;
@@ -102,6 +104,25 @@ String _flatten_document(const MarkdownViewerDocument &p_document) {
 		_append_joined(text, _flatten_block(block));
 	}
 	return text;
+}
+
+MarkdownViewerDocument _make_plain_text_document(const String &p_text) {
+	MarkdownViewerDocument document;
+	if (p_text.is_empty()) {
+		return document;
+	}
+
+	MarkdownViewerBlock block;
+	block.type = MarkdownViewerBlock::TYPE_PARAGRAPH;
+	block.plain_text = p_text;
+
+	MarkdownViewerInline run;
+	run.type = MarkdownViewerInline::TYPE_TEXT;
+	run.text = p_text;
+	block.inlines.push_back(run);
+
+	document.blocks.push_back(block);
+	return document;
 }
 
 } // namespace
@@ -221,11 +242,19 @@ void AIMarkdownLabel::set_markdown(const String &p_markdown) {
 	}
 
 	markdown_text = p_markdown;
-	MarkdownViewerDocumentBuilder builder;
-	const MarkdownViewerDocument document = builder.build(markdown_text);
-	parsed_text = _flatten_document(document);
-	if (markdown_viewer) {
-		markdown_viewer->set_markdown_document(markdown_text, document);
+
+	if (markdown_text.length() <= AI_MARKDOWN_LABEL_SYNC_PARSE_LIMIT) {
+		MarkdownViewerDocumentBuilder builder;
+		const MarkdownViewerDocument document = builder.build(markdown_text);
+		parsed_text = _flatten_document(document);
+		if (markdown_viewer) {
+			markdown_viewer->set_markdown_document(markdown_text, document);
+		}
+	} else {
+		parsed_text = markdown_text;
+		if (markdown_viewer) {
+			markdown_viewer->set_markdown(markdown_text);
+		}
 	}
 	_invalidate_cached_layout();
 	_queue_markdown_viewer_minimum_size_sync();
@@ -258,7 +287,7 @@ void AIMarkdownLabel::add_text(const String &p_text) {
 	markdown_text = escaped_text;
 	parsed_text = p_text;
 	if (markdown_viewer) {
-		markdown_viewer->set_markdown(markdown_text);
+		markdown_viewer->set_markdown_document(markdown_text, _make_plain_text_document(p_text));
 	}
 	_invalidate_cached_layout();
 	_queue_markdown_viewer_minimum_size_sync();

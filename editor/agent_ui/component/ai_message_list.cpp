@@ -250,21 +250,47 @@ void AIMessageList::clear_messages() {
 }
 
 void AIMessageList::set_messages(const Array &p_messages) {
-	should_scroll_to_bottom = true;
-	pending_scroll_to_bottom_passes = 0;
-	scroll_to_bottom_queued = false;
-	scrolling_to_bottom = false;
-	messages.clear();
-	_clear_bubbles();
-
+	Vector<Dictionary> next_messages;
 	for (int i = 0; i < p_messages.size(); i++) {
 		if (Variant(p_messages[i]).get_type() == Variant::DICTIONARY) {
-			messages.push_back(p_messages[i]);
+			next_messages.push_back(p_messages[i]);
 		}
 	}
 
-	_rebuild_bubbles();
-	set_v_scroll(0);
+	if (next_messages.is_empty()) {
+		clear_messages();
+		return;
+	}
+
+	if (messages.is_empty()) {
+		should_scroll_to_bottom = true;
+		pending_scroll_to_bottom_passes = 0;
+		scroll_to_bottom_queued = false;
+		scrolling_to_bottom = false;
+		messages = next_messages;
+		_rebuild_bubbles();
+		set_v_scroll(0);
+		_request_scroll_to_bottom_if_needed();
+		return;
+	}
+
+	should_scroll_to_bottom = scroll_to_bottom_queued || _is_at_bottom();
+	const int common_count = MIN(messages.size(), next_messages.size());
+	for (int i = 0; i < common_count; i++) {
+		if (!messages[i].recursive_equal(next_messages[i], 0)) {
+			update_message(i, next_messages[i]);
+		}
+	}
+
+	for (int i = common_count; i < next_messages.size(); i++) {
+		add_message(next_messages[i]);
+	}
+
+	if (messages.size() > next_messages.size()) {
+		messages.resize(next_messages.size());
+		_rebuild_bubbles();
+	}
+
 	_request_scroll_to_bottom_if_needed();
 }
 

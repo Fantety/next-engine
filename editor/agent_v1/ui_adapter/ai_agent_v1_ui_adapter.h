@@ -76,6 +76,7 @@ protected:
 
 public:
 	AIAgentV1UIAdapter();
+	static Array project_session_messages_for_test(const Vector<AISessionMessage> &p_messages);
 
 	void set_session_service(const Ref<AISessionService> &p_service);
 	Ref<AISessionService> get_session_service() const;
