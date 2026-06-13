@@ -38,6 +38,7 @@ class AIConfigService : public RefCounted {
 	mutable Mutex mutex;
 
 	static Dictionary _default_config();
+	static void _append_bundled_best_practices(Array &r_system);
 	static Dictionary _dictionary_from_variant(const Variant &p_value);
 	static Array _array_from_variant(const Variant &p_value);
 	static Dictionary _merge_dicts(const Dictionary &p_base, const Dictionary &p_patch);
@@ -61,6 +62,8 @@ protected:
 
 public:
 	AIConfigService();
+
+	static Array get_fixed_system_prompt();
 
 	void set_global_config_path(const String &p_path);
 	String get_global_config_path() const;

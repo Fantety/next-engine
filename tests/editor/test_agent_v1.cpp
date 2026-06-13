@@ -921,6 +921,62 @@ TEST_CASE("[Editor][AgentV1] Config service discovers stable prioritized entries
 	CHECK(String(Dictionary(entries[3]).get("source", String())) == "opencode");
 }
 
+TEST_CASE("[Editor][AgentV1] Config service includes fixed agent guidance and bundled best practices") {
+	Ref<AIConfigService> config;
+	config.instantiate();
+	config->set_global_config_path(String());
+	config->set_project_config_path(String());
+	config->set_opencode_config_path(String());
+	config->set_account_config_path(String());
+	config->set_remote_config_path(String());
+	config->set_managed_config_path(String());
+
+	const Array system = config->get_system_prompt("main");
+	String combined;
+	for (int i = 0; i < system.size(); i++) {
+		combined += String(system[i]) + "\n";
+	}
+
+	CHECK(combined.contains("You are NextEngine Agent, an AI assistant built into the Godot-based NEXT Engine editor."));
+	CHECK(combined.contains("Godot 4.x Best Practices"));
+	CHECK(combined.contains("Core Workflow"));
+	CHECK(combined.contains("Confirm before building"));
+	CHECK(combined.contains("Scene Tree Architecture"));
+}
+
+TEST_CASE("[Editor][AgentV1] Configured agent prompt still receives bundled best practices") {
+	Ref<AIConfigService> config;
+	config.instantiate();
+	config->set_global_config_path(String());
+	config->set_project_config_path(String());
+	config->set_opencode_config_path(String());
+	config->set_account_config_path(String());
+	config->set_remote_config_path(String());
+	config->set_managed_config_path(String());
+
+	Array custom_system;
+	custom_system.push_back("Custom project persona. Project notes mention Core Architectural Philosophy, but are not the bundled document.");
+	Dictionary main_agent;
+	main_agent["system"] = custom_system;
+	Dictionary agents;
+	agents["main"] = main_agent;
+	Dictionary override_config;
+	override_config["agents"] = agents;
+	config->set_runtime_override(override_config);
+
+	const Array system = config->get_system_prompt("main");
+	String combined;
+	for (int i = 0; i < system.size(); i++) {
+		combined += String(system[i]) + "\n";
+	}
+
+	CHECK(String(system[0]).begins_with("Custom project persona."));
+	CHECK(combined.contains("NextEngine bundled best practices (generated from editor/agent_v1/best_practices.md)"));
+	CHECK(combined.contains("Godot 4.x Best Practices"));
+	CHECK(combined.contains("Confirm before building"));
+	CHECK(count_occurrences(combined, "Confirm before building") == 1);
+}
+
 TEST_CASE("[Editor][AgentV1] Local settings v3 stays separate from server config") {
 	const String base = TestUtils::get_temp_path("agent_v1/local_settings");
 
@@ -3417,6 +3473,83 @@ TEST_CASE("[Editor][AgentV1] Session service registers migrated editor tools for
 	CHECK(String(settlement.content).contains("Project tree under res://"));
 	CHECK(String(settlement.metadata.get("tool_origin", String())) == "agent_v1");
 	CHECK(String(settlement.metadata.get("legacy_tool_name", String())) == "project.list_tree");
+}
+
+TEST_CASE("[Editor][AgentV1] Requirement form tool resumes with submitted answers") {
+	Ref<AISessionService> service;
+	service.instantiate();
+
+	Ref<AIV1ToolRegistry> registry = service->get_tool_registry();
+	REQUIRE(registry.is_valid());
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization.is_valid());
+	REQUIRE(materialization->has_tool("agent_collect_requirements"));
+
+	Dictionary question;
+	question["id"] = "game_style";
+	question["label"] = "What game style should be built?";
+	question["type"] = "single_choice";
+	Array options;
+	options.push_back("Platformer");
+	options.push_back("Puzzle");
+	question["options"] = options;
+
+	Array questions;
+	questions.push_back(question);
+
+	Dictionary form_args;
+	form_args["title"] = "Confirm game requirements";
+	form_args["purpose"] = "Clarify the game direction before implementation.";
+	form_args["questions"] = questions;
+
+	Dictionary call;
+	call["id"] = "call-requirements";
+	call["name"] = "agent_collect_requirements";
+	call["input"] = form_args;
+
+	Dictionary settle_input;
+	settle_input["session_id"] = "session-requirements";
+	settle_input["assistant_message_id"] = "assistant-requirements";
+	settle_input["call"] = call;
+
+	AIV1ToolSettlement pending_settlement;
+	AIError error;
+	REQUIRE(materialization->settle_struct(settle_input, pending_settlement, error));
+	CHECK_FALSE(pending_settlement.success);
+	CHECK(pending_settlement.pending);
+	CHECK(pending_settlement.error.kind == AI_ERROR_PERMISSION);
+
+	const Array pending_requests = service->get_permission_service()->get_pending_requests();
+	REQUIRE(pending_requests.size() == 1);
+	const Dictionary request = pending_requests[0];
+	const Dictionary source = request.get("source", Dictionary());
+	CHECK(String(source.get("tool", String())) == "agent_collect_requirements");
+	REQUIRE(source.get("input", Variant()).get_type() == Variant::DICTIONARY);
+	const Dictionary requested_form = source["input"];
+	CHECK(String(requested_form.get("title", String())) == "Confirm game requirements");
+	CHECK(Array(requested_form.get("questions", Array())).size() == 1);
+
+	Dictionary answers;
+	answers["game_style"] = "Platformer";
+	answers["include_menu"] = true;
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Dictionary reply_options;
+	reply_options["answers"] = answers;
+	const Dictionary reply_result = adapter->reply_permission(String(request.get("request_id", String())), true, String(), reply_options);
+	CHECK(bool(reply_result.get("success", false)));
+
+	AIV1ToolSettlement submitted_settlement;
+	REQUIRE(materialization->settle_struct(settle_input, submitted_settlement, error));
+	CHECK(submitted_settlement.success);
+	CHECK(String(submitted_settlement.content).contains("Requirement confirmation submitted."));
+	CHECK(String(submitted_settlement.metadata.get("type", String())) == "requirement_form_result");
+	const Dictionary submitted_answers = submitted_settlement.metadata.get("answers", Dictionary());
+	CHECK(String(submitted_answers.get("game_style", String())) == "Platformer");
+	CHECK(bool(submitted_answers.get("include_menu", false)));
 }
 
 TEST_CASE("[Editor][AgentV1] Project list tree accepts JSON number values for integer arguments") {

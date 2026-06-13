@@ -72,7 +72,7 @@ class AIV1EditorTool : public AIV1Tool {
 protected:
 	static void _bind_methods();
 
-	bool assert_tool_permission(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIError &r_error) const;
+	bool assert_tool_permission(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIError &r_error, AIPermissionDecision *r_decision = nullptr) const;
 	String get_permission_resource(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context) const;
 
 public:

@@ -781,6 +781,8 @@ bool AIV1ToolRegistry::settle_materialized_tool(const Ref<AIV1Tool> &p_tool, con
 	context.source["assistant_message_id"] = r_settlement.assistant_message_id;
 	context.source["call_id"] = r_settlement.call_id;
 	context.source["tool"] = r_settlement.tool_name;
+	context.source["input"] = arguments.duplicate(true);
+	context.source["arguments"] = arguments.duplicate(true);
 	if (p_identity.is_valid()) {
 		const Dictionary identity = p_identity.to_dictionary();
 		context.source["registration_identity"] = identity;

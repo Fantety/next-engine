@@ -62,6 +62,32 @@
 | Decision | Rationale |
 |----------|-----------|
 | Rewrite root README instead of adding a new module README | User asked for "README" and the only agent-related README currently present is the root README, which already describes NEXT Engine but is stale. |
+| Verify Skill/MCP with code tracing plus targeted doctest runs | The user asked whether the current Skill and MCP links work, so static inspection alone is insufficient. |
+| Generate `best_practices.gen.h` at build time | User preferred using SCons to generate a prompt header and hardcode the content into the program instead of runtime file reads. |
+| Append bundled best practices after configured system prompts | This preserves user/project agent prompt configuration while guaranteeing the fixed Godot guidance is present. |
+
+## Skill/MCP Chain Findings
+- MCP configuration chain is wired: `AIAgentSettingsDialog` emits MCP settings changes, MCP settings pages call `AIAgentV1UIBridge::patch_settings()`, `AIAgentV1UIConfigAdapter::patch_settings()` persists config and calls `AIV1MCPService::import_config()`, and `AIAgentDock::_mcp_settings_changed()` calls `refresh_mcp_status()`. `AIAgentV1UIBridge::refresh_mcp_status()` reimports config, calls `AIV1MCPService::refresh()`, and returns statuses/summary.
+- MCP runtime chain is wired: `AIV1MCPService` discovers configured/fake server tools, resources, and prompts; MCP tools are registered through `AIV1ToolRegistry`; resource reads, prompt rendering, startup permission, tool permission, disconnect handling, and failed-discovery rollback are covered by tests.
+- Skill configuration chain is partially UI-facing and fully runtime-facing: Skills settings call `AIAgentV1UIBridge::patch_settings()`, then `AIAgentV1UIConfigAdapter::patch_settings()` persists config and calls `AIV1SkillService::import_config()`.
+- Skill runtime chain is wired: `AISessionRunner::_configure_skill_service_from_config()` imports Skill config, calls `AIV1SkillService::refresh_struct()`, selects skills, converts selected skills into context sources, and injects them into the Context Epoch before model request creation.
+- Skill tool chain is wired when enabled: Skill script tools are registered through `AIV1ToolRegistry`, carry `tool_origin = skill` metadata, and go through the configured permission action `skill.script.run`.
+- UI status chain is wired: the shared `AIAgentV1UIBridge` owns the MCP and Skill services used by config/session adapters, and `AIStatusPanel` can combine MCP and Skill status tabs.
+
+## Skill/MCP Caveats
+- I found an explicit MCP settings refresh path from settings change to `refresh_mcp_status()`. For Skills, the settings patch path imports config, while manifest discovery/refresh is explicit in the Runner path. Runtime Skill use is verified; immediate settings-page manifest refresh may depend on an existing service snapshot or a later Runner refresh unless another UI signal path is added.
+- The Dock status-panel test passes, but after success the process prints cleanup/theming warnings about leaked RIDs/ObjectDB instances and early `AIComposer` theme access. These warnings do not fail the test, but they are worth cleaning separately.
+
+## Skill/MCP Verification Results
+| Check | Command | Result |
+|-------|---------|--------|
+| MCP service tests | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1] MCP*"` | 11 test cases, 116 assertions passed |
+| Skill service tests | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1] Skill*"` | 4 test cases, 76 assertions passed |
+| Skill runner Context Epoch injection | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1] Session runner injects selected Skill into Context Epoch"` | 1 test case, 18 assertions passed |
+| MCP settings bridge write path | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1] Settings MCP page writes MCP servers through bridge"` | 1 test case, 5 assertions passed |
+| Skill/rules settings bridge write path | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1] Settings skills and rules pages patch agent_v1 config"` | 1 test case, 6 assertions passed |
+| Shared UI backend services | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1][UIAdapter] Bridge owns shared backend services for UI adapters"` | 1 test case, 15 assertions passed |
+| Dock MCP/Skill status tabs | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentUI] Dock combines MCP and Skill status in server popup tabs"` | 1 test case, 15 assertions passed; cleanup/theming warnings printed after success |
 
 ## Issues Encountered
 | Issue | Resolution |
@@ -71,6 +97,30 @@
 | First tool-class search used Windows-invalid wildcard path arguments | Reran with header-only `rg` and `-g "*.h"`. |
 | Recursive `rg` path using `editor\\agent_v1\\**\\SCsub` is invalid on Windows | Used direct `editor/SCsub` findings; enough for build integration. |
 | `Select-String` keyword check hit a sandbox helper error | Re-ran the keyword verification with `rg`. |
+| Non-dev editor test binary is not built with tests enabled | Used `bin\next.windows.editor.dev.x86_64.console.exe`. |
+| First build after the prompt refactor failed when `core/os/os.h` was removed | Restored the include because the file still uses `OS` later. |
+| Parallel targeted prompt test run produced one `Failed to delete files` startup cleanup message | Reran both prompt tests serially; both produced clean doctest success output. |
+| Generated best-practices header stayed stale after the markdown changed | Added explicit SCons dependencies from config objects to the generated header and verified SCons regenerated it before compiling. |
+
+## Agent Prompt Findings
+- The fixed fallback prompt lived in two places before this change: `AIConfigService::get_system_prompt()` and `AIAgentConfig::from_dictionary()`.
+- `AIConfigService::get_system_prompt()` is the right assembly point for fixed best-practices injection because it is already the config-facing source used by request building.
+- `AIAgentConfig::from_dictionary()` still needs the same optimized fixed fallback so resolved agent configs and config-service fallback stay aligned.
+- `AIAgentConfig::from_dictionary()` should not append the bundled document because `AIAgentService::list()` feeds UI config snapshots; final runtime prompt assembly already goes through `AIContextSourceRegistry`, which calls `AIConfigService::get_system_prompt()`.
+- `editor/editor_builders.py` already exposes `make_ai_best_practices_header()`, so `editor/SCsub` can generate `editor/agent_v1/best_practices.gen.h` directly from `editor/agent_v1/best_practices.md`.
+- A stable generated-block marker is safer than checking for a best-practices section title, because user prompts can mention `Core Architectural Philosophy` without already containing the bundled document.
+- `editor/agent_v1/config/SCsub` needs an explicit dependency on the generated header; otherwise the command can exist without reliably updating the header before `ai_config_service.cpp` compiles.
+- The bundled `best_practices.md` has been shortened into a compact, ASCII-only prompt payload so it is safer to embed in a generated C++ raw string.
+
+## Agent Prompt Verification Results
+| Check | Command | Result |
+|-------|---------|--------|
+| Editor test build | `scons platform=windows target=editor dev_build=yes tests=yes -j4` | Exit 0; generated `best_practices.gen.h`, compiled touched files; existing SCsub SyntaxWarning and PDB LNK4099 warnings printed |
+| Fixed prompt + bundled best practices | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1] Config service includes fixed agent guidance and bundled best practices*"` | 1 test case, 5 assertions passed |
+| Custom prompt + bundled best practices | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1] Configured agent prompt still receives bundled best practices*"` | 1 test case, 5 assertions passed |
+| Config service group | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1] Config service*"` | 2 test cases, 19 assertions passed |
+| Agent resolve behavior | `bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][AgentV1] Agent service resolves configured and session-bound agents*"` | 1 test case, 9 assertions passed |
+| Whitespace check | `git diff --check` | Exit 0, no output |
 
 ## Resources
 - `editor/agent_v1`

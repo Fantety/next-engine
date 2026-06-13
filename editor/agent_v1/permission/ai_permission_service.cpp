@@ -23,6 +23,9 @@ Dictionary AIPermissionDecision::to_dictionary() const {
 	result["reply"] = reply;
 	result["reason"] = reason;
 	result["source"] = source;
+	if (!metadata.is_empty()) {
+		result["metadata"] = metadata.duplicate(true);
+	}
 	result["error"] = error.to_dictionary();
 	result["success"] = allowed && !error.is_error();
 	if (pending) {
@@ -47,7 +50,36 @@ Dictionary AIPermissionService::PendingRequest::to_dictionary() const {
 	result["status"] = status;
 	result["reason"] = reason;
 	result["source"] = source;
+	if (!metadata.is_empty()) {
+		result["metadata"] = metadata.duplicate(true);
+	}
 	return result;
+}
+
+static bool _ai_permission_is_reply_control_key(const String &p_key) {
+	return p_key == "request_id" || p_key == "requestID" || p_key == "reply" || p_key == "decision" || p_key == "reason";
+}
+
+static Dictionary _ai_permission_reply_metadata_from_input(const Dictionary &p_input) {
+	Dictionary metadata;
+	const Array keys = p_input.keys();
+	for (int i = 0; i < keys.size(); i++) {
+		const Variant key_variant = keys[i];
+		const String key = String(key_variant);
+		if (_ai_permission_is_reply_control_key(key)) {
+			continue;
+		}
+
+		const Variant value = p_input[key_variant];
+		if (value.get_type() == Variant::DICTIONARY) {
+			metadata[key] = Dictionary(value).duplicate(true);
+		} else if (value.get_type() == Variant::ARRAY) {
+			metadata[key] = Array(value).duplicate(true);
+		} else {
+			metadata[key] = value;
+		}
+	}
+	return metadata;
 }
 
 void AIPermissionService::_bind_methods() {
@@ -185,6 +217,7 @@ void AIPermissionService::_record_pending_request_locked(const String &p_request
 	decision.request_id = p_request.request_id;
 	decision.reason = p_request.reason;
 	decision.source = p_request.source.duplicate(true);
+	decision.metadata = p_request.metadata.duplicate(true);
 	if (p_request.status == "once" || p_request.status == "always") {
 		decision.allowed = true;
 		decision.reply = p_request.status;
@@ -300,6 +333,7 @@ bool AIPermissionService::assert_permission_struct(const Dictionary &p_input, AI
 			if (existing.status == "once" || existing.status == "always") {
 				r_decision.allowed = true;
 				r_decision.reply = existing.status;
+				r_decision.metadata = existing.metadata.duplicate(true);
 				_record_decision_locked(request_key, r_decision);
 				return true;
 			}
@@ -357,6 +391,7 @@ bool AIPermissionService::reply_struct(const Dictionary &p_input, AIPermissionDe
 	const String request_id = String(p_input.get("request_id", p_input.get("requestID", String()))).strip_edges();
 	const String reply = _normalize_reply(p_input.get("reply", p_input.get("decision", String())));
 	const String reason = p_input.get("reason", String());
+	const Dictionary reply_metadata = _ai_permission_reply_metadata_from_input(p_input);
 	if (request_id.is_empty()) {
 		r_error = AIError::make(AI_ERROR_VALIDATION, "Permission request_id is required.");
 		r_decision.error = r_error;
@@ -379,6 +414,7 @@ bool AIPermissionService::reply_struct(const Dictionary &p_input, AIPermissionDe
 			if (!reason.is_empty()) {
 				kv.value.reason = reason;
 			}
+			kv.value.metadata = reply_metadata.duplicate(true);
 			request = kv.value;
 			found = true;
 			matched_request_key = kv.key;
@@ -437,6 +473,7 @@ bool AIPermissionService::reply_struct(const Dictionary &p_input, AIPermissionDe
 	r_decision.source = request.source;
 	r_decision.reply = reply;
 	r_decision.reason = request.reason;
+	r_decision.metadata = request.metadata.duplicate(true);
 	r_decision.allowed = reply == "once" || reply == "always";
 	r_decision.denied = reply == "reject";
 	if (r_decision.denied) {

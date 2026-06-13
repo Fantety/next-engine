@@ -18,6 +18,12 @@ Import("env")
 env.editor_sources = []
 
 if env.editor_build:
+    env["ai_best_practices_header"] = env.CommandNoCache(
+        "#editor/agent_v1/best_practices.gen.h",
+        "#editor/agent_v1/best_practices.md",
+        env.Run(editor_builders.make_ai_best_practices_header),
+    )
+
     # Generate doc data paths
     env.CommandNoCache(
         "doc/doc_data_class_path.gen.h",

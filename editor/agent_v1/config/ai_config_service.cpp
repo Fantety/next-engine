@@ -10,6 +10,9 @@
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "core/variant/variant.h"
+#include "editor/agent_v1/best_practices.gen.h"
+
+static constexpr const char *NEXTENGINE_BUNDLED_BEST_PRACTICES_MARKER = "NextEngine bundled best practices (generated from editor/agent_v1/best_practices.md)";
 
 Dictionary AIConfigEntry::to_dictionary() const {
 	Dictionary result;
@@ -69,6 +72,32 @@ AIConfigService::AIConfigService() {
 	managed_config_path = "user://net.nextengine/config/managed.jsonc";
 }
 
+Array AIConfigService::get_fixed_system_prompt() {
+	Array system;
+	system.push_back("You are NextEngine Agent, an AI assistant built into the Godot-based NEXT Engine editor.");
+	system.push_back("Help users create, inspect, and refine Godot projects from inside the editor. Prefer concrete, project-aware actions over generic advice.");
+	system.push_back("Before implementing, inspect the existing project, Agent V1 services, editor tools, scenes, scripts, and domain models for reusable infrastructure. Avoid duplicate systems and unrelated refactors.");
+	system.push_back("For broad, vague, or new-game requests, ask concise clarifying questions first. Once scope is clear, make a short implementation plan before editing scenes, scripts, resources, or settings.");
+	system.push_back("For requests with three or more clear steps, use the todowrite tool to maintain the visible session task list. Submit the complete todo snapshot before starting, keep exactly one item in_progress, update it immediately after each step completes, mark obsolete work cancelled, and do not batch progress updates only at the end.");
+	system.push_back("Use editor and project tools carefully: read before writing, keep changes scoped, preserve user work, respect permission decisions, and route risky or destructive actions through the review/permission flow.");
+	return system;
+}
+
+void AIConfigService::_append_bundled_best_practices(Array &r_system) {
+	const String practices = String(AI_AGENT_BEST_PRACTICES_MARKDOWN).strip_edges();
+	if (practices.is_empty()) {
+		return;
+	}
+
+	for (int i = 0; i < r_system.size(); i++) {
+		if (String(r_system[i]).contains(NEXTENGINE_BUNDLED_BEST_PRACTICES_MARKER)) {
+			return;
+		}
+	}
+
+	r_system.push_back(String(NEXTENGINE_BUNDLED_BEST_PRACTICES_MARKER) + ":\n\n" + practices);
+}
+
 Dictionary AIConfigService::_default_config() {
 	Dictionary fake_provider;
 	fake_provider["type"] = "fake";
@@ -78,14 +107,10 @@ Dictionary AIConfigService::_default_config() {
 	Dictionary providers;
 	providers["fake"] = fake_provider;
 
-	Array system;
-	system.push_back("You are NextEngine Agent.");
-	system.push_back("When a user request has three or more clear steps, use the todowrite tool to maintain the visible session task list. Submit the complete todo snapshot before starting, keep exactly one item in_progress, update the snapshot immediately after each step completes, mark obsolete work cancelled, and do not batch progress updates only at the end.");
-
 	Dictionary main_agent;
 	main_agent["provider"] = "fake";
 	main_agent["model"] = "fake-model";
-	main_agent["system"] = system;
+	main_agent["system"] = get_fixed_system_prompt();
 
 	Dictionary agents;
 	agents["main"] = main_agent;
@@ -753,8 +778,8 @@ Array AIConfigService::get_system_prompt(const String &p_agent_id) {
 		}
 	}
 	if (system.is_empty()) {
-		system.push_back("You are NextEngine Agent.");
-		system.push_back("When a user request has three or more clear steps, use the todowrite tool to maintain the visible session task list. Submit the complete todo snapshot before starting, keep exactly one item in_progress, update the snapshot immediately after each step completes, mark obsolete work cancelled, and do not batch progress updates only at the end.");
+		system = get_fixed_system_prompt();
 	}
+	_append_bundled_best_practices(system);
 	return system;
 }

@@ -164,13 +164,23 @@ String AIV1EditorTool::get_permission_resource(const Dictionary &p_arguments, co
 	return "*";
 }
 
-bool AIV1EditorTool::assert_tool_permission(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIError &r_error) const {
+bool AIV1EditorTool::assert_tool_permission(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIError &r_error, AIPermissionDecision *r_decision) const {
+	if (r_decision) {
+		*r_decision = AIPermissionDecision();
+	}
 	if (permission_action.is_empty()) {
+		if (r_decision) {
+			r_decision->allowed = true;
+		}
 		r_error = AIError::none();
 		return true;
 	}
 	if (p_context.permission_service.is_null()) {
 		if (permission_effect == "allow") {
+			if (r_decision) {
+				r_decision->allowed = true;
+				r_decision->effect = "allow";
+			}
 			r_error = AIError::none();
 			return true;
 		}
@@ -185,10 +195,16 @@ bool AIV1EditorTool::assert_tool_permission(const Dictionary &p_arguments, const
 
 	AIPermissionDecision decision;
 	if (!p_context.permission_service->assert_permission_struct(input, decision, r_error)) {
+		if (r_decision) {
+			*r_decision = decision;
+		}
 		if (!r_error.is_error()) {
 			r_error = decision.error.is_error() ? decision.error : AIError::make(AI_ERROR_PERMISSION, "Permission denied.");
 		}
 		return false;
+	}
+	if (r_decision) {
+		*r_decision = decision;
 	}
 	r_error = AIError::none();
 	return true;
@@ -200,7 +216,8 @@ bool AIV1EditorTool::execute_struct(const Dictionary &p_arguments, const AIV1Too
 		r_result = AIV1ToolExecutionResult::fail(r_error);
 		return false;
 	}
-	if (!assert_tool_permission(p_arguments, p_context, r_error)) {
+	AIPermissionDecision permission_decision;
+	if (!assert_tool_permission(p_arguments, p_context, r_error, &permission_decision)) {
 		r_result = AIV1ToolExecutionResult::fail(r_error);
 		return false;
 	}
@@ -215,7 +232,13 @@ bool AIV1EditorTool::execute_struct(const Dictionary &p_arguments, const AIV1Too
 	current_context->set_review_changes(bool(p_context.metadata.get("review_changes", true)));
 	AIV1ToolExecutionState::set_current(current_context);
 
-	const AIV1EditorToolResult tool_result = execute_tool(p_arguments);
+	AIV1EditorToolResult tool_result;
+	const Variant submitted_answers = permission_decision.metadata.get("answers", Variant());
+	if (AIV1RequirementFormTool::is_requirement_form_tool(get_name()) && submitted_answers.get_type() == Variant::DICTIONARY) {
+		tool_result = AIV1RequirementFormTool::make_submission_result(p_arguments, Dictionary(submitted_answers));
+	} else {
+		tool_result = execute_tool(p_arguments);
+	}
 
 	if (previous_context.is_valid()) {
 		AIV1ToolExecutionState::set_current(previous_context);

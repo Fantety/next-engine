@@ -3,4 +3,11 @@ from misc.utility.scons_hints import *
 
 Import("env")
 
-env.add_source_files(env.editor_sources, "*.cpp")
+config_sources = []
+env.add_source_files(config_sources, "*.cpp")
+
+ai_best_practices_header = env.get("ai_best_practices_header")
+if ai_best_practices_header:
+    env.Depends(config_sources, ai_best_practices_header)
+
+env.editor_sources += config_sources

@@ -91,3 +91,96 @@
 | What's the goal? | Understand `editor/agent_v1` and `editor/agent_ui`, then rewrite the relevant README |
 | What have I learned? | See `findings.md` |
 | What have I done? | Rewrote root README, then revised it again to focus on user-facing product introduction |
+
+## Session: 2026-06-13 Skill/MCP Verification
+
+### Phase 6: Skill/MCP Chain Inspection
+- **Status:** complete
+- Actions taken:
+  - Started follow-up task to inspect and verify Skill and MCP chains.
+  - Traced MCP settings path through `AIAgentSettingsDialog`, MCP settings pages, `AIAgentV1UIBridge`, `AIAgentV1UIConfigAdapter`, `AIV1MCPService`, dock refresh, discovery, and `AIV1ToolRegistry` scoped registration.
+  - Traced Skill settings/runtime path through settings pages, `AIAgentV1UIBridge`, `AIAgentV1UIConfigAdapter`, `AIV1SkillService`, `AISessionRunner`, skill selection, context source creation, and Context Epoch injection.
+  - Identified tests covering MCP service behavior, Skill service behavior, Skill runner injection, settings bridge writes, shared UI backend services, and status-panel tabs.
+- Files created/modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+### Phase 7: Skill/MCP Verification
+- **Status:** complete
+- Actions taken:
+  - Ran targeted MCP, Skill, Runner, settings bridge, UI bridge, and status-panel tests with the dev editor test binary.
+  - Recorded pass counts and caveats in `findings.md`.
+- Files created/modified:
+  - `findings.md`
+  - `progress.md`
+
+### Phase 8: Skill/MCP Result
+- **Status:** complete
+- Actions taken:
+  - Confirmed MCP chain is currently working based on code tracing and passing targeted tests.
+  - Confirmed Skill runtime chain is currently working based on code tracing and passing targeted tests.
+  - Noted that Skill settings UI imports config but manifest refresh/discovery is explicit in the Runner path.
+  - Noted that the Dock MCP/Skill status-panel test passes but prints cleanup/theming warnings after success.
+- Files created/modified:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+## Skill/MCP Verification Results
+| Check | Result | Status |
+|-------|--------|--------|
+| MCP service group | 11 test cases, 116 assertions passed | Pass |
+| Skill service group | 4 test cases, 76 assertions passed | Pass |
+| Skill runner Context Epoch injection | 1 test case, 18 assertions passed | Pass |
+| MCP settings bridge write path | 1 test case, 5 assertions passed | Pass |
+| Skill/rules settings bridge write path | 1 test case, 6 assertions passed | Pass |
+| Shared UI backend services | 1 test case, 15 assertions passed | Pass |
+| Dock MCP/Skill status tabs | 1 test case, 15 assertions passed; warnings printed after success | Pass with caveat |
+
+## Session: 2026-06-13 Agent System Prompt Injection
+
+### Phase 9: Agent System Prompt Design
+- **Status:** complete
+- Actions taken:
+  - Inspected the existing fixed fallback prompt in `AIConfigService::get_system_prompt()` and `AIAgentConfig::from_dictionary()`.
+  - Inspected `editor/agent_v1/best_practices.md` and the existing SCons header generator hook in `editor/editor_builders.py`.
+  - Chose build-time generation of `editor/agent_v1/best_practices.gen.h` via `editor/SCsub`, then runtime inclusion through `AIConfigService`.
+  - Chose to preserve configured `agents.<id>.system` prompts and append the bundled best-practices block after them.
+
+### Phase 10: Prompt Tests
+- **Status:** complete
+- Actions taken:
+  - Added tests for the optimized fixed system prompt and bundled best-practices content.
+  - Added a custom prompt test proving configured prompts keep their first entry and still receive the bundled block.
+  - Verified the new tests failed before implementation because the optimized prompt and generated best-practices injection were missing.
+
+### Phase 11: Prompt Implementation
+- **Status:** complete
+- Actions taken:
+  - Added a SCons command to generate `editor/agent_v1/best_practices.gen.h` from `editor/agent_v1/best_practices.md`.
+  - Added explicit SCons dependencies from `editor/agent_v1/config` objects to the generated header so markdown changes regenerate before compilation.
+  - Added `AIConfigService::get_fixed_system_prompt()` as the shared fixed prompt source.
+  - Added `_append_bundled_best_practices()` to append the generated markdown once at final system prompt assembly time, using a stable generated-block marker rather than matching a document section title.
+  - Updated `AIAgentConfig::from_dictionary()` to use the same fixed prompt fallback without polluting agent listing/config snapshots with the bundled document.
+  - Shortened and normalized `best_practices.md` into a compact ASCII-only fixed prompt payload.
+
+### Phase 12: Prompt Verification
+- **Status:** complete
+- Actions taken:
+  - Ran SCons build with tests enabled; build completed successfully after generating `best_practices.gen.h` and compiling the touched files.
+  - Ran the two new prompt tests serially; both passed.
+  - Confirmed runtime prompt assembly goes through `AIContextSourceRegistry`, which calls `AIConfigService::get_system_prompt()`.
+  - Ran the broader Agent V1 config service test group; passed.
+  - Ran the agent resolve test to confirm agent config/listing behavior remains unchanged.
+  - Ran `git diff --check`; no whitespace errors.
+
+## Agent Prompt Verification Results
+| Check | Result | Status |
+|-------|--------|--------|
+| SCons editor test build | `scons platform=windows target=editor dev_build=yes tests=yes -j4` exited 0; generated `best_practices.gen.h`; existing SCsub SyntaxWarning and PDB LNK4099 warnings printed | Pass |
+| Fixed prompt + bundled best practices | 1 test case, 5 assertions passed | Pass |
+| Custom prompt + bundled best practices | 1 test case, 5 assertions passed | Pass |
+| Config service group | 2 test cases, 19 assertions passed | Pass |
+| Agent resolve behavior | 1 test case, 9 assertions passed | Pass |
+| Whitespace check | `git diff --check` exited 0 with no output | Pass |

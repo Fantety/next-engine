@@ -25,6 +25,7 @@ struct AIPermissionDecision {
 	String reply;
 	String reason;
 	Dictionary source;
+	Dictionary metadata;
 	AIError error;
 
 	Dictionary to_dictionary() const;
@@ -42,6 +43,7 @@ class AIPermissionService : public RefCounted {
 		String status = "pending";
 		String reason;
 		Dictionary source;
+		Dictionary metadata;
 
 		Dictionary to_dictionary() const;
 	};
