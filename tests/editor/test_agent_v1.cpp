@@ -2436,7 +2436,7 @@ TEST_CASE("[Editor][AgentV1] Skill resources are read on demand with source meta
 	CHECK(String(Dictionary(escaped.get("error", Dictionary())).get("kind", String())) == "permission");
 }
 
-TEST_CASE("[Editor][AgentV1] Skill script tools register through ToolRegistry and require permission") {
+TEST_CASE("[Editor][AgentV1] Skill script tools are not registered even when configured") {
 	const String root = TestUtils::get_temp_path("agent_v1/skills_script_tool");
 	const String skill_dir = root.path_join("script_skill");
 	write_text_file(skill_dir.path_join("skill.json"), "{\n\"id\":\"script_skill\",\"name\":\"Script Skill\",\"description\":\"Has a script tool.\",\"entry\":\"SKILL.md\",\"tools\":[{\"name\":\"echo\",\"description\":\"Echo from skill.\",\"command\":[\"cmd\",\"/C\",\"echo skill tool\"],\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}]\n}\n");
@@ -2472,10 +2472,11 @@ TEST_CASE("[Editor][AgentV1] Skill script tools register through ToolRegistry an
 	REQUIRE(service->refresh_struct(error));
 
 	const String tool_name = AIV1SkillService::make_tool_name("script_skill", "echo");
-	CHECK(registry->has_tool(tool_name));
+	CHECK_FALSE(registry->has_tool(tool_name));
 
 	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
-	REQUIRE(materialization->has_tool(tool_name));
+	REQUIRE(materialization.is_valid());
+	CHECK_FALSE(materialization->has_tool(tool_name));
 
 	Dictionary call;
 	call["id"] = "call-skill-script";
@@ -2486,28 +2487,13 @@ TEST_CASE("[Editor][AgentV1] Skill script tools register through ToolRegistry an
 	settle_input["assistant_message_id"] = "assistant-skill-script";
 	settle_input["call"] = call;
 
-	AIV1ToolSettlement pending_settlement;
-	REQUIRE(materialization->settle_struct(settle_input, pending_settlement, error));
-	CHECK_FALSE(pending_settlement.success);
-	CHECK(pending_settlement.pending);
-
-	Array pending = permission_service->get_pending_requests();
-	REQUIRE(pending.size() == 1);
-	Dictionary pending_request = pending[0];
-	CHECK(String(pending_request.get("action", String())) == "skill.script.run");
-	CHECK(String(pending_request.get("resource", String())).contains("script_skill/echo"));
-
-	Dictionary reply;
-	reply["request_id"] = pending_request.get("request_id", String());
-	reply["reply"] = "once";
-	(void)permission_service->reply(reply);
-
 	AIV1ToolSettlement settlement;
 	REQUIRE(materialization->settle_struct(settle_input, settlement, error));
-	REQUIRE(settlement.success);
-	CHECK(String(settlement.content).contains("skill tool"));
-	CHECK(String(settlement.metadata.get("tool_origin", String())) == "skill");
-	CHECK(String(settlement.metadata.get("skill_id", String())) == "script_skill");
+	CHECK_FALSE(settlement.success);
+	CHECK_FALSE(settlement.pending);
+	CHECK(settlement.needs_continuation);
+	CHECK(settlement.error.kind == AI_ERROR_UNAVAILABLE);
+	CHECK(permission_service->get_pending_requests().is_empty());
 }
 
 TEST_CASE("[Editor][AgentV1] Agent service resolves configured and session-bound agents") {
@@ -3028,6 +3014,7 @@ TEST_CASE("[Editor][AgentV1] Agent permission default deny narrows inherited glo
 	REQUIRE(bool(run.get("success", false)));
 	CHECK_FALSE(phase10_request_has_tool(runtime->get_last_request(), "file_read"));
 	CHECK_FALSE(phase10_request_has_tool(runtime->get_last_request(), "file_write"));
+	CHECK_FALSE(phase10_request_has_tool(runtime->get_last_request(), "shell_run"));
 }
 
 TEST_CASE("[Editor][AgentV1] Agent service rejects spawning above max concurrent active subagents") {
@@ -3714,12 +3701,12 @@ TEST_CASE("[Editor][AgentV1] Permission service records pending and rejected rep
 	Dictionary source;
 	source["assistant_message_id"] = "assistant-a";
 	source["call_id"] = "call-a";
-	source["tool"] = "file_write";
+	source["tool"] = "script.write";
 
 	Dictionary input;
 	input["session_id"] = "session-permission";
-	input["action"] = "file.write";
-	input["resource"] = "res://generated.txt";
+	input["action"] = "script.write";
+	input["resource"] = "res://generated.gd";
 	input["source"] = source;
 
 	AIPermissionDecision decision;
@@ -3828,7 +3815,7 @@ TEST_CASE("[Editor][AgentV1] Permission rules use the last matching policy") {
 	CHECK(error.kind == AI_ERROR_PERMISSION);
 }
 
-TEST_CASE("[Editor][AgentV1] Tool registry settles read tools, pending writes, and stale calls") {
+TEST_CASE("[Editor][AgentV1] Tool registry settles read tools, rejects removed direct tools, and stale calls") {
 	const String root = TestUtils::get_temp_path("agent_v1/tools_root");
 	const String read_path = root.path_join("readme.txt");
 	const String write_path = root.path_join("generated.txt");
@@ -3855,8 +3842,8 @@ TEST_CASE("[Editor][AgentV1] Tool registry settles read tools, pending writes, a
 
 	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
 	CHECK(materialization->has_tool("file_read"));
-	CHECK(materialization->has_tool("file_write"));
-	CHECK(materialization->has_tool("shell_run"));
+	CHECK_FALSE(materialization->has_tool("file_write"));
+	CHECK_FALSE(materialization->has_tool("shell_run"));
 
 	Dictionary read_args;
 	read_args["path"] = "readme.txt";
@@ -3899,33 +3886,30 @@ TEST_CASE("[Editor][AgentV1] Tool registry settles read tools, pending writes, a
 	AIV1ToolSettlement write_settlement;
 	REQUIRE(materialization->settle_struct(write_settle_input, write_settlement, error));
 	CHECK_FALSE(write_settlement.success);
-	CHECK(write_settlement.pending);
+	CHECK_FALSE(write_settlement.pending);
+	CHECK(write_settlement.needs_continuation);
+	CHECK(write_settlement.error.kind == AI_ERROR_UNAVAILABLE);
 	CHECK_FALSE(FileAccess::exists(write_path));
-	const Vector<AIEventRow> pending_events = event_store->list("session-tools");
-	for (int i = 0; i < pending_events.size(); i++) {
-		CHECK(pending_events[i].type != AIDomainEventTypes::tool_failed());
-	}
+	CHECK(permission_service->get_pending_requests().is_empty());
 
-	Array pending = permission_service->get_pending_requests();
-	REQUIRE(pending.size() == 1);
-	Dictionary reply;
-	reply["request_id"] = Dictionary(pending[0]).get("request_id", String());
-	reply["reply"] = "reject";
-	(void)permission_service->reply(reply);
+	Dictionary shell_args;
+	shell_args["command"] = "echo should not run";
+	Dictionary shell_call;
+	shell_call["id"] = "call-shell";
+	shell_call["name"] = "shell_run";
+	shell_call["input"] = shell_args;
+	Dictionary shell_settle_input;
+	shell_settle_input["session_id"] = "session-tools";
+	shell_settle_input["assistant_message_id"] = "assistant-tools";
+	shell_settle_input["call"] = shell_call;
 
-	AIV1ToolSettlement rejected_write_settlement;
-	REQUIRE(materialization->settle_struct(write_settle_input, rejected_write_settlement, error));
-	CHECK_FALSE(rejected_write_settlement.success);
-	CHECK(rejected_write_settlement.error.kind == AI_ERROR_PERMISSION);
-	Dictionary rejected_metadata = rejected_write_settlement.metadata;
-	Dictionary rejected_identity = rejected_metadata.get("registration_identity", Dictionary());
-	CHECK(String(rejected_identity.get("name", String())) == "file_write");
-	CHECK(String(Dictionary(rejected_identity.get("metadata", Dictionary())).get("source", String())) == "builtin");
-	Dictionary rejected_permission = rejected_metadata.get("permission_decision", Dictionary());
-	CHECK(String(rejected_permission.get("status", String())) == "rejected");
-	CHECK(String(rejected_permission.get("reply", String())) == "reject");
-	CHECK(String(rejected_permission.get("action", String())) == "file.write");
-	CHECK(String(rejected_permission.get("resource", String())).ends_with("generated.txt"));
+	AIV1ToolSettlement shell_settlement;
+	REQUIRE(materialization->settle_struct(shell_settle_input, shell_settlement, error));
+	CHECK_FALSE(shell_settlement.success);
+	CHECK_FALSE(shell_settlement.pending);
+	CHECK(shell_settlement.needs_continuation);
+	CHECK(shell_settlement.error.kind == AI_ERROR_UNAVAILABLE);
+	CHECK(permission_service->get_pending_requests().is_empty());
 
 	Ref<AIV1ReadFileTool> replacement;
 	replacement.instantiate();
@@ -4164,18 +4148,21 @@ TEST_CASE("[Editor][AgentV1] Tool materialization captures root, filters denied 
 	registry.instantiate();
 	registry->register_builtin_tools();
 	CHECK(registry->has_tool("todowrite"));
+	CHECK_FALSE(registry->has_tool("file_write"));
+	CHECK_FALSE(registry->has_tool("shell_run"));
 
 	Array rules;
-	Dictionary deny_write;
-	deny_write["action"] = "file.write";
-	deny_write["resource"] = "*";
-	deny_write["effect"] = "deny";
-	rules.push_back(deny_write);
+	Dictionary deny_read;
+	deny_read["action"] = "file.read";
+	deny_read["resource"] = "*";
+	deny_read["effect"] = "deny";
+	rules.push_back(deny_read);
 
 	Ref<AIV1ToolMaterialization> filtered = registry->materialize_struct(root_a, rules);
-	CHECK(filtered->has_tool("file_read"));
+	CHECK_FALSE(filtered->has_tool("file_read"));
 	CHECK_FALSE(filtered->has_tool("file_write"));
-	CHECK(filtered->has_tool("shell_run"));
+	CHECK_FALSE(filtered->has_tool("shell_run"));
+	CHECK(filtered->has_tool("todowrite"));
 
 	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct(root_a, Array());
 	registry->set_root_dir(root_b);
@@ -4246,7 +4233,6 @@ TEST_CASE("[Editor][AgentV1] Session service registers migrated editor tools for
 		"project_read_file",
 		"project_search_text",
 		"project_attach_multimodal_file",
-		"project_create_markdown",
 		"agent_collect_requirements",
 		"editor_get_context",
 		"docs_search",
@@ -4413,28 +4399,30 @@ TEST_CASE("[Editor][AgentV1] Tool materialization applies last matching permissi
 	registry->register_builtin_tools();
 
 	Array allow_after_deny;
-	Dictionary deny_write;
-	deny_write["action"] = "file.write";
-	deny_write["resource"] = "*";
-	deny_write["effect"] = "deny";
-	allow_after_deny.push_back(deny_write);
+	Dictionary deny_todos;
+	deny_todos["action"] = "todo.write";
+	deny_todos["resource"] = "*";
+	deny_todos["effect"] = "deny";
+	allow_after_deny.push_back(deny_todos);
 
-	Dictionary allow_write;
-	allow_write["action"] = "file.write";
-	allow_write["resource"] = "*";
-	allow_write["effect"] = "allow";
-	allow_after_deny.push_back(allow_write);
+	Dictionary allow_todos;
+	allow_todos["action"] = "todo.write";
+	allow_todos["resource"] = "*";
+	allow_todos["effect"] = "allow";
+	allow_after_deny.push_back(allow_todos);
 
 	Ref<AIV1ToolMaterialization> visible = registry->materialize_struct(String(), allow_after_deny);
-	CHECK(visible->has_tool("file_write"));
+	CHECK(visible->has_tool("todowrite"));
 
 	Array deny_after_allow;
-	deny_after_allow.push_back(allow_write);
-	deny_after_allow.push_back(deny_write);
+	deny_after_allow.push_back(allow_todos);
+	deny_after_allow.push_back(deny_todos);
 
 	Ref<AIV1ToolMaterialization> hidden = registry->materialize_struct(String(), deny_after_allow);
-	CHECK_FALSE(hidden->has_tool("file_write"));
+	CHECK_FALSE(hidden->has_tool("todowrite"));
 	CHECK(hidden->has_tool("file_read"));
+	CHECK_FALSE(hidden->has_tool("file_write"));
+	CHECK_FALSE(hidden->has_tool("shell_run"));
 }
 
 TEST_CASE("[Editor][AgentV1] Tool registry coerces numeric string arguments before validation") {
@@ -5311,14 +5299,14 @@ TEST_CASE("[Editor][AgentV1] Startup recovery retains permission-pending tools b
 	Dictionary tool_called;
 	tool_called["assistant_message_id"] = "phase11-permission-assistant";
 	tool_called["call_id"] = "phase11-permission-call";
-	tool_called["tool"] = "file_write";
+	tool_called["tool"] = "script.write";
 	REQUIRE(event_store->append("phase11-permission-recovery", AIDomainEventTypes::tool_called(), tool_called, false, row, event_error));
 
 	Dictionary permission_asked;
 	permission_asked["request_id"] = "phase11-permission-request";
 	permission_asked["session_id"] = "phase11-permission-recovery";
-	permission_asked["action"] = "file.write";
-	permission_asked["resource"] = "res://pending.txt";
+	permission_asked["action"] = "script.write";
+	permission_asked["resource"] = "res://pending.gd";
 	permission_asked["status"] = "pending";
 	permission_asked["source"] = tool_called.duplicate(true);
 	REQUIRE(event_store->append("phase11-permission-recovery", AIDomainEventTypes::permission_asked(), permission_asked, false, row, event_error));
@@ -6219,13 +6207,13 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter maps permission pending requests
 	REQUIRE(bool(adapter->create_session(create).get("success", false)));
 
 	Dictionary source;
-	source["tool"] = "file_write";
+	source["tool"] = "script.write";
 	source["call_id"] = "call-ui";
 
 	Dictionary input;
 	input["session_id"] = "ui-permission-session";
-	input["action"] = "file.write";
-	input["resource"] = "res://ui.txt";
+	input["action"] = "script.write";
+	input["resource"] = "res://ui.gd";
 	input["source"] = source;
 	const Dictionary decision = service->get_permission_service()->assert_permission(input);
 	REQUIRE(bool(decision.get("pending", false)));
@@ -6235,11 +6223,11 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter maps permission pending requests
 	const Dictionary request = pending[0];
 	CHECK(String(request.get("request_id", String())).begins_with("perm_"));
 	CHECK(String(request.get("session_id", String())) == "ui-permission-session");
-	CHECK(String(request.get("action", String())) == "file.write");
-	CHECK(String(request.get("resource", String())) == "res://ui.txt");
-	CHECK(String(request.get("tool_name", String())) == "file_write");
+	CHECK(String(request.get("action", String())) == "script.write");
+	CHECK(String(request.get("resource", String())) == "res://ui.gd");
+	CHECK(String(request.get("tool_name", String())) == "script.write");
 	const Dictionary request_source = request.get("source", Dictionary());
-	CHECK(String(request_source.get("tool", String())) == "file_write");
+	CHECK(String(request_source.get("tool", String())) == "script.write");
 	CHECK_FALSE(request_source.has("tool_name"));
 
 	REQUIRE(collector->permission_requests.size() == 1);

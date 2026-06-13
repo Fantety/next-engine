@@ -27,7 +27,6 @@
 #include "editor/agent_v1/tools/editor/ai_shader_set_parameters_tool.h"
 #include "editor/agent_v1/tools/project/ai_attach_multimodal_file_tool.h"
 #include "editor/agent_v1/tools/project/ai_create_folder_tool.h"
-#include "editor/agent_v1/tools/project/ai_create_markdown_tool.h"
 #include "editor/agent_v1/tools/project/ai_list_project_tool.h"
 #include "editor/agent_v1/tools/project/ai_read_file_tool.h"
 #include "editor/agent_v1/tools/project/ai_requirement_form_tool.h"
@@ -355,7 +354,6 @@ void register_editor_tools(const Ref<AIV1ToolRegistry> &p_registry) {
 	_register_tool<AIV1ProjectReadFileTool>(p_registry, "project", "project.read", "allow", "Read project file content.");
 	_register_tool<AIV1SearchProjectTool>(p_registry, "project", "project.read", "allow", "Search project files.");
 	_register_tool<AIV1AttachMultimodalFileTool>(p_registry, "project", "project.read", "allow", "Attach a project file to the model context.");
-	_register_tool<AIV1CreateMarkdownTool>(p_registry, "project", "project.write", "allow", "Create a project Markdown file.");
 	_register_tool<AIV1RequirementFormTool>(p_registry, "project", "agent.requirement_form", "ask", "Ask the user to confirm requirements.");
 	_register_tool<AIV1GetEditorContextTool>(p_registry, "editor", "editor.read", "allow", "Read editor context.");
 	_register_tool<AIV1DocsSearchTool>(p_registry, "editor", "docs.search", "allow", "Search Godot documentation.");

@@ -614,16 +614,6 @@ void AIV1ToolRegistry::register_builtin_tools() {
 		read_tool.instantiate();
 		register_tool_struct("file_read", read_tool, "builtin");
 	}
-	if (!has_tool("file_write")) {
-		Ref<AIV1WriteFileTool> write_tool;
-		write_tool.instantiate();
-		register_tool_struct("file_write", write_tool, "builtin");
-	}
-	if (!has_tool("shell_run")) {
-		Ref<AIV1ShellTool> shell_tool;
-		shell_tool.instantiate();
-		register_tool_struct("shell_run", shell_tool, "builtin");
-	}
 	if (!has_tool("todowrite")) {
 		Ref<AIV1TodoWriteTool> todo_tool;
 		todo_tool.instantiate();

@@ -12,56 +12,7 @@
 #include "core/io/file_access.h"
 #include "core/io/json.h"
 #include "core/object/class_db.h"
-#include "core/object/object.h"
-#include "core/os/os.h"
 #include "core/variant/variant.h"
-
-void AIV1SkillScriptToolAdapter::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("get_skill_id"), &AIV1SkillScriptToolAdapter::get_skill_id);
-	ClassDB::bind_method(D_METHOD("get_tool_name"), &AIV1SkillScriptToolAdapter::get_tool_name);
-	ClassDB::bind_method(D_METHOD("get_agent_tool_name"), &AIV1SkillScriptToolAdapter::get_agent_tool_name);
-}
-
-void AIV1SkillScriptToolAdapter::setup(AIV1SkillService *p_service, const Dictionary &p_manifest, const Dictionary &p_descriptor, const String &p_permission_default) {
-	service_id = p_service ? p_service->get_instance_id() : ObjectID();
-	manifest = p_manifest.duplicate(true);
-	descriptor = p_descriptor.duplicate(true);
-	skill_id = String(manifest.get("id", String())).strip_edges();
-	skill_name = String(manifest.get("name", skill_id)).strip_edges();
-	tool_name = String(descriptor.get("name", String())).strip_edges();
-	agent_tool_name = AIV1SkillService::make_tool_name(skill_id, tool_name);
-	permission_default = p_permission_default.strip_edges().to_lower();
-	if (permission_default.is_empty()) {
-		permission_default = "ask";
-	}
-
-	Dictionary tool_metadata = AIV1SkillService::_metadata_for_skill_tool(manifest, descriptor, agent_tool_name);
-	tool_metadata["action"] = "skill.script.run";
-	configure(String(descriptor.get("description", "Tool from skill " + skill_name + ".")), Dictionary(descriptor.get("inputSchema", descriptor.get("input_schema", Dictionary()))), Callable(), tool_metadata);
-}
-
-String AIV1SkillScriptToolAdapter::get_skill_id() const {
-	return skill_id;
-}
-
-String AIV1SkillScriptToolAdapter::get_tool_name() const {
-	return tool_name;
-}
-
-String AIV1SkillScriptToolAdapter::get_agent_tool_name() const {
-	return agent_tool_name;
-}
-
-bool AIV1SkillScriptToolAdapter::execute_struct(const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIV1ToolExecutionResult &r_result, AIError &r_error) {
-	AIV1SkillService *service = Object::cast_to<AIV1SkillService>(ObjectDB::get_instance(service_id));
-	if (service == nullptr) {
-		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "Skill service is not available.");
-		r_result = AIV1ToolExecutionResult::fail(r_error);
-		return false;
-	}
-
-	return service->_execute_script_tool(manifest, descriptor, permission_default, p_arguments, p_context, r_result, r_error);
-}
 
 void AIV1SkillService::_bind_methods() {
 	ClassDB::bind_static_method("AIV1SkillService", D_METHOD("sanitize_name_part", "text"), &AIV1SkillService::sanitize_name_part);
@@ -170,11 +121,6 @@ String AIV1SkillService::_strip_markdown_frontmatter(const String &p_markdown) {
 	return p_markdown.substr(body_start).strip_edges();
 }
 
-bool AIV1SkillService::_is_valid_effect(const String &p_effect) {
-	const String effect = p_effect.strip_edges().to_lower();
-	return effect == "allow" || effect == "ask" || effect == "deny";
-}
-
 bool AIV1SkillService::_is_path_safe_relative(const String &p_path) {
 	const String path = p_path.strip_edges().replace("\\", "/").simplify_path();
 	if (path.is_empty() || path.is_absolute_path() || path.begins_with("res://") || path.begins_with("user://")) {
@@ -195,30 +141,6 @@ String AIV1SkillService::_content_hash(const String &p_text) {
 		return String::num_uint64(p_text.hash64(), 16);
 	}
 	return String::hex_encode_buffer(hash, 32);
-}
-
-String AIV1SkillService::_command_preview(const Array &p_command) {
-	Vector<String> parts;
-	for (int i = 0; i < p_command.size(); i++) {
-		parts.push_back(String(p_command[i]));
-	}
-	return String(" ").join(parts);
-}
-
-String AIV1SkillService::_permission_resource_for_script_tool(const String &p_skill_id, const String &p_tool_name, const Array &p_command) {
-	const String preview = _command_preview(p_command);
-	return p_skill_id + "/" + p_tool_name + "?command_hash=" + _content_hash(preview) + "&command=" + preview;
-}
-
-Dictionary AIV1SkillService::_metadata_for_skill_tool(const Dictionary &p_manifest, const Dictionary &p_descriptor, const String &p_agent_tool_name) {
-	Dictionary tool_metadata;
-	tool_metadata["tool_origin"] = "skill";
-	tool_metadata["skill_id"] = String(p_manifest.get("id", String()));
-	tool_metadata["skill_name"] = String(p_manifest.get("name", String()));
-	tool_metadata["skill_tool_name"] = String(p_descriptor.get("name", String()));
-	tool_metadata["skill_agent_tool_name"] = p_agent_tool_name;
-	tool_metadata["source"] = "skill";
-	return tool_metadata;
 }
 
 bool AIV1SkillService::_read_text_file(const String &p_path, String &r_text, AIError &r_error) {
@@ -448,15 +370,6 @@ bool AIV1SkillService::_trigger_matches_prompt(const Dictionary &p_trigger, cons
 	return false;
 }
 
-void AIV1SkillService::_close_registration_list(Vector<Ref<AIScopedRegistration>> &r_registrations) {
-	for (int i = 0; i < r_registrations.size(); i++) {
-		if (r_registrations[i].is_valid()) {
-			r_registrations.write[i]->close();
-		}
-	}
-	r_registrations.clear();
-}
-
 void AIV1SkillService::set_tool_registry(const Ref<AIV1ToolRegistry> &p_tool_registry) {
 	MutexLock lock(mutex);
 	tool_registry = p_tool_registry;
@@ -478,12 +391,6 @@ bool AIV1SkillService::import_config_struct(const Dictionary &p_config, AIError 
 	Array disabled = _array_from_variant(skill_config.get("disabled_skill_ids", skill_config.get("disabledSkillIDs", Array())));
 	const bool imported_auto_select = bool(skill_config.get("auto_select", skill_config.get("autoSelect", true)));
 	const int imported_max_skills = MAX(0, int(skill_config.get("max_skills_per_turn", skill_config.get("maxSkillsPerTurn", 4))));
-	const bool imported_script_tools_enabled = bool(skill_config.get("script_tools_enabled", skill_config.get("scriptToolsEnabled", false)));
-	String imported_script_permission_default = String(skill_config.get("script_permission_default", skill_config.get("scriptPermissionDefault", "ask"))).strip_edges().to_lower();
-	if (!_is_valid_effect(imported_script_permission_default)) {
-		r_error = AIError::make(AI_ERROR_VALIDATION, "Invalid Skill script permission default.");
-		return false;
-	}
 
 	MutexLock lock(mutex);
 	source_roots = sources.duplicate(true);
@@ -491,8 +398,6 @@ bool AIV1SkillService::import_config_struct(const Dictionary &p_config, AIError 
 	disabled_skill_ids = disabled.duplicate(true);
 	auto_select = imported_auto_select;
 	max_skills_per_turn = imported_max_skills;
-	script_tools_enabled = imported_script_tools_enabled;
-	script_permission_default = imported_script_permission_default;
 	r_error = AIError::none();
 	return true;
 }
@@ -509,15 +414,9 @@ Dictionary AIV1SkillService::import_config(const Dictionary &p_config) {
 }
 
 void AIV1SkillService::clear() {
-	Vector<Ref<AIScopedRegistration>> registrations_to_close;
-	{
-		MutexLock lock(mutex);
-		registrations_to_close = registrations;
-		registrations.clear();
-		skills.clear();
-		skill_order.clear();
-	}
-	_close_registration_list(registrations_to_close);
+	MutexLock lock(mutex);
+	skills.clear();
+	skill_order.clear();
 }
 
 bool AIV1SkillService::refresh_struct(AIError &r_error) {
@@ -580,33 +479,13 @@ bool AIV1SkillService::refresh_struct(AIError &r_error) {
 		dir->list_dir_end();
 	}
 
-	Vector<Ref<AIScopedRegistration>> new_registrations;
-	HashMap<String, SkillRecord> old_skills;
-	Vector<String> old_order;
-	Vector<Ref<AIScopedRegistration>> old_registrations;
 	{
 		MutexLock lock(mutex);
-		old_skills = skills;
-		old_order = skill_order;
-		old_registrations = registrations;
 		skills = discovered;
 		skill_order = discovered_order;
-		registrations.clear();
-		if (!_register_skill_tools_locked(new_registrations, r_error)) {
-			skills = old_skills;
-			skill_order = old_order;
-			registrations = old_registrations;
-			_close_registration_list(new_registrations);
-			return false;
-		}
-		registrations = new_registrations;
 	}
-	_close_registration_list(old_registrations);
 	r_error = AIError::none();
 	call_deferred("emit_signal", SNAME("skills_changed"));
-	if (script_tools_enabled) {
-		call_deferred("emit_signal", SNAME("tools_changed"));
-	}
 	return true;
 }
 
@@ -620,52 +499,6 @@ Dictionary AIV1SkillService::refresh() {
 	}
 	result["manifests"] = list_manifests();
 	return result;
-}
-
-bool AIV1SkillService::_register_skill_tools_locked(Vector<Ref<AIScopedRegistration>> &r_new_registrations, AIError &r_error) {
-	if (!script_tools_enabled) {
-		r_error = AIError::none();
-		return true;
-	}
-	if (tool_registry.is_null()) {
-		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "ToolRegistry is required for Skill script tools.");
-		return false;
-	}
-
-	for (int i = 0; i < skill_order.size(); i++) {
-		const String skill_id = skill_order[i];
-		if (!skills.has(skill_id)) {
-			continue;
-		}
-		const SkillRecord record = skills[skill_id];
-		const Array tools = _array_from_variant(record.manifest.get("tools", Array()));
-		for (int tool_index = 0; tool_index < tools.size(); tool_index++) {
-			if (tools[tool_index].get_type() != Variant::DICTIONARY) {
-				continue;
-			}
-			const Dictionary descriptor = Dictionary(tools[tool_index]).duplicate(true);
-			const String source_tool_name = String(descriptor.get("name", String())).strip_edges();
-			const Array command = _array_from_variant(descriptor.get("command", Array()));
-			if (source_tool_name.is_empty() || command.is_empty()) {
-				continue;
-			}
-
-			const String agent_tool_name = make_tool_name(skill_id, source_tool_name);
-			Ref<AIV1SkillScriptToolAdapter> tool;
-			tool.instantiate();
-			tool->setup(this, record.manifest, descriptor, script_permission_default);
-			Dictionary tool_metadata = _metadata_for_skill_tool(record.manifest, descriptor, agent_tool_name);
-			tool_metadata["source"] = "skill";
-			Ref<AIScopedRegistration> scope = tool_registry->register_tool_scope_struct(agent_tool_name, tool, "skill", tool_metadata, &r_error);
-			if (scope.is_null()) {
-				_close_registration_list(r_new_registrations);
-				return false;
-			}
-			r_new_registrations.push_back(scope);
-		}
-	}
-	r_error = AIError::none();
-	return true;
 }
 
 Array AIV1SkillService::list_manifests() const {
@@ -944,99 +777,4 @@ Dictionary AIV1SkillService::read_resource(const String &p_skill_id, const Strin
 	resource_metadata["kind"] = kind;
 	result["metadata"] = resource_metadata;
 	return result;
-}
-
-bool AIV1SkillService::_execute_script_tool(const Dictionary &p_manifest, const Dictionary &p_descriptor, const String &p_permission_default, const Dictionary &p_arguments, const AIV1ToolExecutionContext &p_context, AIV1ToolExecutionResult &r_result, AIError &r_error) const {
-	const String skill_id = String(p_manifest.get("id", String())).strip_edges();
-	const String skill_name = String(p_manifest.get("name", skill_id)).strip_edges();
-	const String tool_name = String(p_descriptor.get("name", String())).strip_edges();
-	const String agent_tool_name = make_tool_name(skill_id, tool_name);
-	const Array command = _array_from_variant(p_descriptor.get("command", Array()));
-	if (command.is_empty()) {
-		r_error = AIError::make(AI_ERROR_VALIDATION, "Skill script tool command is required.");
-		r_result = AIV1ToolExecutionResult::fail(r_error);
-		return false;
-	}
-
-	Dictionary source = p_context.source.duplicate(true);
-	source["external"] = true;
-	source["skill_id"] = skill_id;
-	source["skill_name"] = skill_name;
-	source["skill_tool_name"] = tool_name;
-	source["skill_agent_tool_name"] = agent_tool_name;
-	source["skill_arguments"] = p_arguments.duplicate(true);
-
-	if (p_context.permission_service.is_null()) {
-		r_error = AIError::make(AI_ERROR_PERMISSION, "PermissionService is required for Skill script tools.");
-		r_result = AIV1ToolExecutionResult::fail(r_error);
-		return false;
-	}
-
-	const String action = "skill.script.run";
-	const String resource = _permission_resource_for_script_tool(skill_id, tool_name, command);
-	Dictionary permission_input;
-	permission_input["session_id"] = p_context.session_id;
-	permission_input["action"] = action;
-	permission_input["resource"] = resource;
-	permission_input["reason"] = "Execute Skill script tool `" + tool_name + "` from `" + skill_name + "`.";
-	permission_input["source"] = source;
-	const String permission_default = p_permission_default.strip_edges().to_lower();
-	if (!permission_default.is_empty()) {
-		permission_input["default_effect"] = permission_default;
-	}
-
-	AIPermissionDecision decision;
-	if (!p_context.permission_service->assert_permission_struct(permission_input, decision, r_error)) {
-		if (!r_error.is_error()) {
-			r_error = decision.error.is_error() ? decision.error : AIError::make(AI_ERROR_PERMISSION, "Skill script permission denied.");
-		}
-		r_result = AIV1ToolExecutionResult::fail(r_error);
-		return false;
-	}
-
-	const String executable = String(command[0]).strip_edges();
-	if (executable.is_empty()) {
-		r_error = AIError::make(AI_ERROR_VALIDATION, "Skill script tool executable is required.");
-		r_result = AIV1ToolExecutionResult::fail(r_error);
-		return false;
-	}
-
-	List<String> arguments;
-	for (int i = 1; i < command.size(); i++) {
-		arguments.push_back(String(command[i]));
-	}
-
-	String output;
-	int exit_code = 0;
-	const Error err = OS::get_singleton()->execute(executable, arguments, &output, &exit_code, true);
-	if (err != OK) {
-		Dictionary details;
-		details["command"] = command.duplicate(true);
-		r_error = AIError::make(AI_ERROR_INTERNAL, "Failed to launch Skill script tool.", details);
-		r_result = AIV1ToolExecutionResult::fail(r_error);
-		return false;
-	}
-
-	Dictionary structured;
-	structured["skill_id"] = skill_id;
-	structured["tool_name"] = tool_name;
-	structured["command"] = command.duplicate(true);
-	structured["exit_code"] = exit_code;
-	structured["output"] = output;
-
-	Dictionary tool_metadata = _metadata_for_skill_tool(p_manifest, p_descriptor, agent_tool_name);
-	tool_metadata["skill_permission_action"] = action;
-	tool_metadata["skill_permission_resource"] = resource;
-	structured["metadata"] = tool_metadata.duplicate(true);
-
-	if (exit_code != 0) {
-		r_error = AIError::make(AI_ERROR_INTERNAL, "Skill script tool failed.", structured.duplicate(true));
-		r_result = AIV1ToolExecutionResult::fail(r_error);
-		r_result.metadata = tool_metadata;
-		return false;
-	}
-
-	r_result = AIV1ToolExecutionResult::ok(structured, output, structured);
-	r_result.metadata = tool_metadata;
-	return true;
 }

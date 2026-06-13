@@ -166,9 +166,6 @@ String AIPermissionService::_default_effect_for_action(const String &p_action) c
 	if (action == "file.read") {
 		return "allow";
 	}
-	if (action == "file.write" || action == "shell.run") {
-		return "ask";
-	}
 	return "ask";
 }
 
