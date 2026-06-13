@@ -6,7 +6,30 @@
 
 #include "editor/agent_v1/core/base/ai_id.h"
 
+#include "core/io/json.h"
 #include "core/variant/variant.h"
+
+static Variant _ai_model_tool_call_input_from_variant(const Variant &p_value) {
+	if (p_value.get_type() == Variant::STRING) {
+		const String text = String(p_value).strip_edges();
+		if (text.is_empty()) {
+			return Dictionary();
+		}
+
+		Ref<JSON> json;
+		json.instantiate();
+		if (json->parse(text) == OK) {
+			return json->get_data();
+		}
+	}
+	if (p_value.get_type() == Variant::DICTIONARY) {
+		return Dictionary(p_value).duplicate(true);
+	}
+	if (p_value.get_type() == Variant::ARRAY) {
+		return Array(p_value).duplicate(true);
+	}
+	return p_value;
+}
 
 Dictionary AIModelPart::to_dictionary() const {
 	Dictionary result;
@@ -49,15 +72,56 @@ AIModelPart AIModelPart::data_part(AIModelPartType p_type, const String &p_mime,
 	return part;
 }
 
+bool AIModelToolCall::is_valid() const {
+	return AIId::is_valid_name(name) && !id.strip_edges().is_empty();
+}
+
+Dictionary AIModelToolCall::to_dictionary() const {
+	Dictionary result;
+	result["id"] = id;
+	result["name"] = name;
+	result["input"] = input;
+	result["provider_metadata"] = provider_metadata;
+	return result;
+}
+
+AIModelToolCall AIModelToolCall::from_dictionary(const Dictionary &p_dict) {
+	AIModelToolCall result;
+	Dictionary function;
+	if (p_dict.get("function", Variant()).get_type() == Variant::DICTIONARY) {
+		function = Dictionary(p_dict["function"]);
+	}
+	const Variant raw_arguments = p_dict.has("arguments") ? p_dict["arguments"] : function.get("arguments", Variant());
+	result.id = p_dict.get("id", p_dict.get("call_id", p_dict.get("callID", String())));
+	result.name = p_dict.get("name", p_dict.get("tool", function.get("name", String())));
+	result.input = _ai_model_tool_call_input_from_variant(p_dict.get("input", raw_arguments));
+	if (p_dict.get("provider_metadata", Variant()).get_type() == Variant::DICTIONARY) {
+		result.provider_metadata = Dictionary(p_dict["provider_metadata"]).duplicate(true);
+	} else if (p_dict.get("providerMetadata", Variant()).get_type() == Variant::DICTIONARY) {
+		result.provider_metadata = Dictionary(p_dict["providerMetadata"]).duplicate(true);
+	}
+	if (raw_arguments.get_type() == Variant::STRING && !result.provider_metadata.has("raw_arguments")) {
+		result.provider_metadata["raw_arguments"] = String(raw_arguments);
+	}
+	return result;
+}
+
 Dictionary AIModelMessage::to_dictionary() const {
 	Dictionary result;
 	result["id"] = id;
 	result["role"] = role;
+	result["tool_call_id"] = tool_call_id;
+	result["name"] = name;
 	Array part_array;
 	for (int i = 0; i < parts.size(); i++) {
 		part_array.push_back(parts[i].to_dictionary());
 	}
 	result["parts"] = part_array;
+	Array tool_call_array;
+	for (int i = 0; i < tool_calls.size(); i++) {
+		tool_call_array.push_back(tool_calls[i].to_dictionary());
+	}
+	result["tool_calls"] = tool_call_array;
 	result["metadata"] = metadata;
 	return result;
 }
@@ -66,6 +130,16 @@ AIModelMessage AIModelMessage::text_message(const String &p_role, const String &
 	AIModelMessage message;
 	message.id = p_id;
 	message.role = p_role;
+	message.parts.push_back(AIModelPart::text_part(p_text));
+	return message;
+}
+
+AIModelMessage AIModelMessage::tool_result_message(const String &p_tool_call_id, const String &p_name, const String &p_text, const String &p_id) {
+	AIModelMessage message;
+	message.id = p_id;
+	message.role = "tool";
+	message.tool_call_id = p_tool_call_id;
+	message.name = p_name;
 	message.parts.push_back(AIModelPart::text_part(p_text));
 	return message;
 }

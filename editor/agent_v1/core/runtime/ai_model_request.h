@@ -8,6 +8,7 @@
 #include "core/templates/vector.h"
 #include "core/variant/array.h"
 #include "core/variant/dictionary.h"
+#include "core/variant/variant.h"
 
 enum AIModelPartType {
 	AI_MODEL_PART_TEXT,
@@ -31,15 +32,31 @@ struct AIModelPart {
 	static AIModelPart data_part(AIModelPartType p_type, const String &p_mime, const String &p_data, const String &p_name = String());
 };
 
+struct AIModelToolCall {
+	String id;
+	String name;
+	Variant input;
+	Dictionary provider_metadata;
+
+	bool is_valid() const;
+	Dictionary to_dictionary() const;
+
+	static AIModelToolCall from_dictionary(const Dictionary &p_dict);
+};
+
 struct AIModelMessage {
 	String id;
 	String role;
 	Vector<AIModelPart> parts;
+	Vector<AIModelToolCall> tool_calls;
+	String tool_call_id;
+	String name;
 	Dictionary metadata;
 
 	Dictionary to_dictionary() const;
 
 	static AIModelMessage text_message(const String &p_role, const String &p_text, const String &p_id = String());
+	static AIModelMessage tool_result_message(const String &p_tool_call_id, const String &p_name, const String &p_text, const String &p_id = String());
 };
 
 struct AIModelToolDefinition {

@@ -6,6 +6,7 @@
 
 #include "editor/agent_v1/core/base/ai_id.h"
 
+#include "core/io/json.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/variant/variant.h"
@@ -289,23 +290,38 @@ String AISessionRunner::_message_text(const AISessionMessage &p_message) {
 	String text;
 	for (int i = 0; i < p_message.content.size(); i++) {
 		const AIAssistantContent &content = p_message.content[i];
-		if (content.type == "text" || content.type == "reasoning") {
+		if (content.type == "text") {
 			text += text.is_empty() ? content.text : "\n" + content.text;
-		} else if (content.type == "tool") {
-			String tool_text;
-			const String tool_name = content.name.is_empty() ? String("tool") : content.name;
-			if (content.tool_state.status == AI_TOOL_STATUS_SUCCESS) {
-				const Variant output = content.tool_state.output.get_type() == Variant::NIL ? content.tool_state.result : content.tool_state.output;
-				tool_text = "Tool " + tool_name + " result:\n" + Variant(output).stringify();
-			} else if (content.tool_state.status == AI_TOOL_STATUS_FAILED) {
-				tool_text = "Tool " + tool_name + " failed:\n" + content.tool_state.error.message;
-			}
-			if (!tool_text.is_empty()) {
-				text += text.is_empty() ? tool_text : "\n" + tool_text;
-			}
 		}
 	}
 	return text;
+}
+
+String AISessionRunner::_assistant_model_text(const AISessionMessage &p_message) {
+	return _message_text(p_message);
+}
+
+String AISessionRunner::_tool_result_text(const AIAssistantContent &p_content) {
+	const String tool_name = p_content.name.is_empty() ? String("tool") : p_content.name;
+	if (p_content.tool_state.status == AI_TOOL_STATUS_FAILED) {
+		Dictionary payload;
+		payload["tool"] = tool_name;
+		payload["status"] = "failed";
+		payload["error"] = p_content.tool_state.error.to_dictionary();
+		return JSON::stringify(payload);
+	}
+
+	Variant output = p_content.tool_state.output;
+	if (output.get_type() == Variant::NIL) {
+		output = p_content.tool_state.result;
+	}
+	if (output.get_type() == Variant::NIL) {
+		return String();
+	}
+	if (output.get_type() == Variant::STRING) {
+		return String(output);
+	}
+	return JSON::stringify(output);
 }
 
 String AISessionRunner::_latest_user_prompt_text(const Vector<AISessionMessage> &p_messages) {
@@ -317,12 +333,58 @@ String AISessionRunner::_latest_user_prompt_text(const Vector<AISessionMessage> 
 	return String();
 }
 
-bool AISessionRunner::_message_to_model(const AISessionMessage &p_message, const Dictionary &p_provider_config, AIModelMessage &r_message, AIError &r_error) {
+bool AISessionRunner::_append_message_to_model_messages(const AISessionMessage &p_message, const Dictionary &p_provider_config, Vector<AIModelMessage> &r_messages, AIError &r_error) {
 	String role = "user";
 	if (p_message.type == AI_SESSION_MESSAGE_ASSISTANT) {
 		role = "assistant";
 	} else if (p_message.type == AI_SESSION_MESSAGE_SYSTEM || p_message.type == AI_SESSION_MESSAGE_COMPACTION) {
 		role = "system";
+	}
+
+	if (p_message.type == AI_SESSION_MESSAGE_ASSISTANT) {
+		AIModelMessage assistant_message;
+		assistant_message.id = p_message.id;
+		assistant_message.role = "assistant";
+		const String text = _assistant_model_text(p_message);
+		if (!text.is_empty()) {
+			assistant_message.parts.push_back(AIModelPart::text_part(text));
+		}
+
+		Vector<AIModelMessage> tool_result_messages;
+		for (int i = 0; i < p_message.content.size(); i++) {
+			const AIAssistantContent &content = p_message.content[i];
+			if (content.type != "tool") {
+				continue;
+			}
+			if (content.tool_state.status != AI_TOOL_STATUS_SUCCESS && content.tool_state.status != AI_TOOL_STATUS_FAILED) {
+				continue;
+			}
+			if (content.id.strip_edges().is_empty() || content.name.strip_edges().is_empty()) {
+				continue;
+			}
+
+			AIModelToolCall tool_call;
+			tool_call.id = content.id;
+			tool_call.name = content.name;
+			tool_call.input = content.tool_state.input;
+			tool_call.provider_metadata = content.provider_metadata.duplicate(true);
+			if (tool_call.provider_metadata.is_empty() && !content.tool_state.provider.is_empty()) {
+				tool_call.provider_metadata = content.tool_state.provider.duplicate(true);
+			}
+			assistant_message.tool_calls.push_back(tool_call);
+
+			AIModelMessage tool_result = AIModelMessage::tool_result_message(content.id, content.name, _tool_result_text(content), content.id + "_result");
+			tool_result_messages.push_back(tool_result);
+		}
+
+		if (!assistant_message.parts.is_empty() || !assistant_message.tool_calls.is_empty()) {
+			r_messages.push_back(assistant_message);
+		}
+		for (int i = 0; i < tool_result_messages.size(); i++) {
+			r_messages.push_back(tool_result_messages[i]);
+		}
+		r_error = AIError::none();
+		return true;
 	}
 
 	String text = _message_text(p_message);
@@ -346,7 +408,7 @@ bool AISessionRunner::_message_to_model(const AISessionMessage &p_message, const
 		}
 	}
 
-	r_message = message;
+	r_messages.push_back(message);
 	r_error = AIError::none();
 	return true;
 }
@@ -425,11 +487,18 @@ Dictionary AISessionRunner::_model_message_for_event_log(const AIModelMessage &p
 	Dictionary message;
 	message["id"] = p_message.id;
 	message["role"] = p_message.role;
+	message["tool_call_id"] = p_message.tool_call_id;
+	message["name"] = p_message.name;
 	Array parts;
 	for (int i = 0; i < p_message.parts.size(); i++) {
 		parts.push_back(_model_part_for_event_log(p_message.parts[i]));
 	}
 	message["parts"] = parts;
+	Array tool_calls;
+	for (int i = 0; i < p_message.tool_calls.size(); i++) {
+		tool_calls.push_back(p_message.tool_calls[i].to_dictionary());
+	}
+	message["tool_calls"] = tool_calls;
 	message["metadata"] = p_message.metadata;
 	return message;
 }
@@ -825,11 +894,9 @@ bool AISessionRunner::_build_request(const AISessionRow &p_session, const String
 
 	const Vector<AISessionMessage> runner_messages = AISessionHistory::entries_for_runner(projected_messages, epoch.baseline_seq, history_token_budget);
 	for (int i = 0; i < runner_messages.size(); i++) {
-		AIModelMessage message;
-		if (!_message_to_model(runner_messages[i], provider_config, message, r_error)) {
+		if (!_append_message_to_model_messages(runner_messages[i], provider_config, r_request.messages, r_error)) {
 			return false;
 		}
-		r_request.messages.push_back(message);
 	}
 
 	if (tool_registry.is_valid()) {

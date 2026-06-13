@@ -75,8 +75,25 @@ AIModelRequest AILLMRuntime::request_from_dictionary(const Dictionary &p_dict) {
 			AIModelMessage message;
 			message.id = message_dict.get("id", String());
 			message.role = message_dict.get("role", String());
+			message.tool_call_id = message_dict.get("tool_call_id", message_dict.get("toolCallID", String()));
+			message.name = message_dict.get("name", String());
 			if (message_dict.get("parts", Variant()).get_type() == Variant::ARRAY) {
 				message.parts = _ai_runtime_parts_from_array(message_dict["parts"]);
+			}
+			if (message_dict.get("tool_calls", Variant()).get_type() == Variant::ARRAY) {
+				const Array tool_calls = message_dict["tool_calls"];
+				for (int j = 0; j < tool_calls.size(); j++) {
+					if (tool_calls[j].get_type() == Variant::DICTIONARY) {
+						message.tool_calls.push_back(AIModelToolCall::from_dictionary(tool_calls[j]));
+					}
+				}
+			} else if (message_dict.get("toolCalls", Variant()).get_type() == Variant::ARRAY) {
+				const Array tool_calls = message_dict["toolCalls"];
+				for (int j = 0; j < tool_calls.size(); j++) {
+					if (tool_calls[j].get_type() == Variant::DICTIONARY) {
+						message.tool_calls.push_back(AIModelToolCall::from_dictionary(tool_calls[j]));
+					}
+				}
 			}
 			if (message_dict.get("metadata", Variant()).get_type() == Variant::DICTIONARY) {
 				message.metadata = Dictionary(message_dict["metadata"]).duplicate(true);

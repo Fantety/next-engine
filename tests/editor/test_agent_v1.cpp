@@ -696,6 +696,7 @@ public:
 	Ref<DeferredToolExecutionProbeTool> tool;
 	int64_t stream_call_count = 0;
 	int execute_count_after_tool_push = -1;
+	Array requests;
 
 	virtual String get_runtime_type() const override {
 		return "deferred-tool-probe";
@@ -703,6 +704,7 @@ public:
 
 	virtual bool stream_struct(const AIModelRequest &p_request, const Ref<AIStreamSink> &p_sink, const Ref<AICancelToken> &p_cancel_token, AIError &r_error) override {
 		stream_call_count++;
+		requests.push_back(p_request.to_dictionary());
 		if (p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested()) {
 			r_error = AIError::make(AI_ERROR_INTERRUPTED, p_cancel_token->get_cancel_message("Deferred probe runtime interrupted."));
 			return false;
@@ -729,6 +731,72 @@ public:
 			execute_count_after_tool_push = tool.is_valid() ? tool->execute_count : -1;
 		} else {
 			if (!_push_event(p_sink, AIStreamEvent::text_delta("deferred-probe-final", "Tool result consumed."), r_error)) {
+				return false;
+			}
+		}
+
+		AIStreamEvent end;
+		end.type = AI_STREAM_EVENT_STEP_END;
+		end.id = p_request.request_id;
+		if (!_push_event(p_sink, end, r_error)) {
+			return false;
+		}
+
+		r_error = AIError::none();
+		return true;
+	}
+};
+
+class InvalidToolInputRuntime : public AILLMRuntime {
+	GDCLASS(InvalidToolInputRuntime, AILLMRuntime);
+
+	bool _push_event(const Ref<AIStreamSink> &p_sink, const AIStreamEvent &p_event, AIError &r_error) const {
+		bool stop_requested = false;
+		String sink_error;
+		if (!p_sink->push_event(p_event, stop_requested, sink_error)) {
+			r_error = AIError::make(AI_ERROR_INTERNAL, sink_error);
+			return false;
+		}
+		if (stop_requested) {
+			r_error = AIError::make(AI_ERROR_CANCELLED, "Stream sink stopped invalid tool input runtime.");
+			return false;
+		}
+		return true;
+	}
+
+public:
+	int64_t stream_call_count = 0;
+	Array requests;
+
+	virtual String get_runtime_type() const override {
+		return "invalid-tool-input";
+	}
+
+	virtual bool stream_struct(const AIModelRequest &p_request, const Ref<AIStreamSink> &p_sink, const Ref<AICancelToken> &p_cancel_token, AIError &r_error) override {
+		stream_call_count++;
+		requests.push_back(p_request.to_dictionary());
+		if (p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested()) {
+			r_error = AIError::make(AI_ERROR_INTERRUPTED, p_cancel_token->get_cancel_message("Invalid tool input runtime interrupted."));
+			return false;
+		}
+		if (p_sink.is_null()) {
+			r_error = AIError::make(AI_ERROR_VALIDATION, "Invalid tool input runtime requires a stream sink.");
+			return false;
+		}
+
+		AIStreamEvent start = AIStreamEvent::step_start();
+		start.id = p_request.request_id;
+		if (!_push_event(p_sink, start, r_error)) {
+			return false;
+		}
+
+		if (stream_call_count == 1) {
+			AIStreamEvent tool_call = AIStreamEvent::tool_call("invalid-tool-input-call", "file_read", String("not an object"));
+			if (!_push_event(p_sink, tool_call, r_error)) {
+				return false;
+			}
+		} else {
+			if (!_push_event(p_sink, AIStreamEvent::text_delta("invalid-tool-input-final", "Recovered from invalid tool input."), r_error)) {
 				return false;
 			}
 		}
@@ -3262,6 +3330,52 @@ TEST_CASE("[Editor][AgentV1] Fake runtime streams text and provider-neutral tool
 	CHECK(saw_tool);
 }
 
+TEST_CASE("[Editor][AgentV1] Model request parses OpenAI-style assistant tool calls") {
+	Dictionary function;
+	function["name"] = "file_read";
+	function["arguments"] = "{\"path\":\"res://main.gd\"}";
+
+	Dictionary call;
+	call["id"] = "call-a";
+	call["type"] = "function";
+	call["function"] = function;
+
+	Array tool_calls;
+	tool_calls.push_back(call);
+
+	Dictionary assistant;
+	assistant["role"] = "assistant";
+	assistant["tool_calls"] = tool_calls;
+
+	Dictionary tool_result;
+	tool_result["role"] = "tool";
+	tool_result["tool_call_id"] = "call-a";
+	tool_result["name"] = "file_read";
+	Array result_parts;
+	result_parts.push_back(AIModelPart::text_part("ok").to_dictionary());
+	tool_result["parts"] = result_parts;
+
+	Array messages;
+	messages.push_back(assistant);
+	messages.push_back(tool_result);
+
+	Dictionary input;
+	input["messages"] = messages;
+
+	const AIModelRequest request = AILLMRuntime::request_from_dictionary(input);
+	REQUIRE(request.messages.size() == 2);
+	REQUIRE(request.messages[0].tool_calls.size() == 1);
+	CHECK(request.messages[0].role == "assistant");
+	CHECK(request.messages[0].tool_calls[0].id == "call-a");
+	CHECK(request.messages[0].tool_calls[0].name == "file_read");
+	REQUIRE(request.messages[0].tool_calls[0].input.get_type() == Variant::DICTIONARY);
+	const Dictionary parsed_input = request.messages[0].tool_calls[0].input;
+	CHECK(String(parsed_input.get("path", String())) == "res://main.gd");
+	CHECK(String(request.messages[0].tool_calls[0].provider_metadata.get("raw_arguments", String())) == "{\"path\":\"res://main.gd\"}");
+	CHECK(request.messages[1].role == "tool");
+	CHECK(request.messages[1].tool_call_id == "call-a");
+}
+
 TEST_CASE("[Editor][AgentV1] Session runner records assistant turn before settling local tools") {
 	const String workspace = TestUtils::get_temp_path("agent_v1/deferred_tool_settlement");
 
@@ -3320,6 +3434,39 @@ TEST_CASE("[Editor][AgentV1] Session runner records assistant turn before settli
 	CHECK(tool->saw_text_ended_before_execute);
 	CHECK(tool->saw_step_ended_before_execute);
 	CHECK(runtime->stream_call_count == 2);
+	REQUIRE(runtime->requests.size() == 2);
+	const Dictionary second_request = runtime->requests[1];
+	const Array second_messages = second_request.get("messages", Array());
+	REQUIRE(second_messages.size() >= 3);
+	bool saw_assistant_tool_call = false;
+	bool saw_tool_result_message = false;
+	int assistant_tool_call_index = -1;
+	int tool_result_index = -1;
+	for (int i = 0; i < second_messages.size(); i++) {
+		if (second_messages[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary message = second_messages[i];
+		if (String(message.get("role", String())) == "assistant") {
+			const Array tool_calls = message.get("tool_calls", Array());
+			if (!tool_calls.is_empty() && tool_calls[0].get_type() == Variant::DICTIONARY) {
+				const Dictionary call = tool_calls[0];
+				saw_assistant_tool_call = String(call.get("id", String())) == "deferred-probe-call" && String(call.get("name", String())) == "deferred_probe";
+				if (saw_assistant_tool_call) {
+					assistant_tool_call_index = i;
+				}
+			}
+		} else if (String(message.get("role", String())) == "tool") {
+			saw_tool_result_message = String(message.get("tool_call_id", String())) == "deferred-probe-call" && String(message.get("name", String())) == "deferred_probe";
+			if (saw_tool_result_message) {
+				tool_result_index = i;
+			}
+		}
+	}
+	CHECK(saw_assistant_tool_call);
+	CHECK(saw_tool_result_message);
+	CHECK(assistant_tool_call_index >= 0);
+	CHECK(tool_result_index > assistant_tool_call_index);
 
 	const Vector<AIEventRow> events = service->get_event_store()->list("deferred-tool-session");
 	int tool_called_index = -1;
@@ -3344,6 +3491,77 @@ TEST_CASE("[Editor][AgentV1] Session runner records assistant turn before settli
 	CHECK(tool_called_index < text_ended_index);
 	CHECK(text_ended_index < tool_success_index);
 	CHECK(step_ended_index < tool_success_index);
+}
+
+TEST_CASE("[Editor][AgentV1] Session runner continues after local tool validation failure") {
+	const String workspace = TestUtils::get_temp_path("agent_v1/tool_validation_continuation");
+
+	Ref<InvalidToolInputRuntime> runtime;
+	runtime.instantiate();
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_runtime_registry()->register_runtime("invalid-tool-input-provider", runtime);
+
+	Dictionary provider;
+	provider["type"] = "fake";
+	provider["model"] = "invalid-tool-input-model";
+	Dictionary providers;
+	providers["invalid-tool-input-provider"] = provider;
+
+	Dictionary main_agent;
+	main_agent["provider"] = "invalid-tool-input-provider";
+	main_agent["model"] = "invalid-tool-input-model";
+	Dictionary agents;
+	agents["main"] = main_agent;
+
+	Dictionary override_config;
+	override_config["default_provider"] = "invalid-tool-input-provider";
+	override_config["default_model"] = "invalid-tool-input-model";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "invalid-tool-input-session";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "invalid-tool-input-session";
+	prompt["message_id"] = "invalid-tool-input-prompt";
+	prompt["text"] = "Call a tool with invalid arguments, then recover.";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Dictionary run = service->get_session_runner()->run("invalid-tool-input-session", false);
+	REQUIRE(bool(run.get("success", false)));
+	CHECK(runtime->stream_call_count == 2);
+	REQUIRE(runtime->requests.size() == 2);
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("invalid-tool-input-session");
+	bool saw_tool_failed = false;
+	for (int i = 0; i < events.size(); i++) {
+		saw_tool_failed = saw_tool_failed || events[i].type == AIDomainEventTypes::tool_failed();
+	}
+	CHECK(saw_tool_failed);
+
+	const Dictionary second_request = runtime->requests[1];
+	const Array second_messages = second_request.get("messages", Array());
+	bool saw_failed_tool_result_message = false;
+	for (int i = 0; i < second_messages.size(); i++) {
+		if (second_messages[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary message = second_messages[i];
+		if (String(message.get("role", String())) == "tool" && String(message.get("tool_call_id", String())) == "invalid-tool-input-call") {
+			saw_failed_tool_result_message = true;
+		}
+	}
+	CHECK(saw_failed_tool_result_message);
 }
 
 TEST_CASE("[Editor][AgentV1] Session runner sends path attachments as blob-backed model parts") {

@@ -740,6 +740,7 @@ bool AIV1ToolRegistry::settle_materialized_tool(const Ref<AIV1Tool> &p_tool, con
 	} else {
 		r_error = AIError::make(AI_ERROR_VALIDATION, "Tool input must be an object.");
 		r_settlement.error = r_error;
+		r_settlement.needs_continuation = true;
 		return _append_settlement_event(r_settlement, false, r_error);
 	}
 
@@ -747,22 +748,26 @@ bool AIV1ToolRegistry::settle_materialized_tool(const Ref<AIV1Tool> &p_tool, con
 		if (!r_settlement.error.is_error()) {
 			r_settlement.error = AIError::make(AI_ERROR_UNAVAILABLE, "Tool is not available: " + r_settlement.tool_name);
 		}
+		r_settlement.needs_continuation = true;
 		return _append_settlement_event(r_settlement, false, r_error);
 	}
 
 	if (!is_identity_current(r_settlement.tool_name, p_identity)) {
 		r_settlement.stale = true;
 		r_settlement.error = AIError::make(AI_ERROR_CONFLICT, "Tool call was made against a stale materialization.");
+		r_settlement.needs_continuation = true;
 		return _append_settlement_event(r_settlement, false, r_error);
 	}
 
 	if (!_coerce_arguments_for_schema(p_tool, arguments, r_error)) {
 		r_settlement.error = r_error;
+		r_settlement.needs_continuation = true;
 		return _append_settlement_event(r_settlement, false, r_error);
 	}
 
 	if (!_validate_arguments(p_tool, arguments, r_error)) {
 		r_settlement.error = r_error;
+		r_settlement.needs_continuation = true;
 		return _append_settlement_event(r_settlement, false, r_error);
 	}
 

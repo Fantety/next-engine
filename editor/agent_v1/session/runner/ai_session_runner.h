@@ -38,6 +38,8 @@ class AISessionRunner : public AISessionDrainRunner {
 	Ref<AIAgentService> agent_service;
 
 	static String _message_text(const AISessionMessage &p_message);
+	static String _assistant_model_text(const AISessionMessage &p_message);
+	static String _tool_result_text(const AIAssistantContent &p_content);
 	static String _latest_user_prompt_text(const Vector<AISessionMessage> &p_messages);
 	static Vector<AIModelPart> _system_parts_from_baseline(const String &p_baseline);
 	static int64_t _history_token_budget_from_config(const Dictionary &p_config);
@@ -49,7 +51,6 @@ class AISessionRunner : public AISessionDrainRunner {
 	static Dictionary _request_for_event_log(const AIModelRequest &p_request);
 	static Dictionary _make_error_result(const AIError &p_error);
 
-	bool _message_to_model(const AISessionMessage &p_message, const Dictionary &p_provider_config, AIModelMessage &r_message, AIError &r_error);
 	bool _append_event(const String &p_session_id, const String &p_type, const Dictionary &p_data, bool p_live_only, AIEventRow &r_row, AIError &r_error);
 	bool _resolve_session(const String &p_session_id, AISessionRow &r_session, AIError &r_error) const;
 	bool _resolve_agent_for_session(const AISessionRow &p_session, AIAgentConfig &r_agent, AIError &r_error) const;
@@ -61,6 +62,7 @@ class AISessionRunner : public AISessionDrainRunner {
 	bool _load_system_context(const AISessionRow &p_session, const String &p_agent_id, const String &p_provider, const String &p_model, const Array &p_selected_skills, AISystemContext &r_context, AIError &r_error) const;
 	bool _prepare_context_epoch(const AISessionRow &p_session, const String &p_agent_id, const String &p_provider, const String &p_model, const Array &p_selected_skills, AIContextEpoch &r_epoch, AIError &r_error);
 	bool _verify_context_epoch_current(const String &p_session_id, const String &p_agent_id, const AIModelRequest &p_request, AIError &r_error) const;
+	bool _append_message_to_model_messages(const AISessionMessage &p_message, const Dictionary &p_provider_config, Vector<AIModelMessage> &r_messages, AIError &r_error);
 	bool _build_request(const AISessionRow &p_session, const String &p_agent_id, const String &p_root_dir, int64_t p_wake_seq, AIModelRequest &r_request, Ref<AIV1ToolMaterialization> &r_tool_materialization, AIError &r_error);
 	bool _settle_open_tool_calls(const AISessionRow &p_session, const String &p_agent_id, const String &p_root_dir, const Array &p_permission_rules, const Ref<AICancelToken> &p_cancel_token, bool &r_needs_continuation, bool &r_waiting_permission, AIError &r_error);
 	bool _run_provider_turn(const String &p_session_id, const String &p_agent_id, const AIModelRequest &p_request, const Ref<AIV1ToolMaterialization> &p_tool_materialization, const Ref<AICancelToken> &p_cancel_token, bool &r_needs_continuation, bool &r_waiting_permission, AIError &r_error);

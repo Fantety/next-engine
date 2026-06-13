@@ -97,7 +97,14 @@ class AIOpenAICompatibleStreamBridge : public RefCounted {
 	bool _flush_tool_calls() {
 		for (int i = 0; i < tool_calls.size(); i++) {
 			ToolCallState &tool_call = tool_calls.write[i];
-			if (tool_call.emitted || tool_call.name.is_empty()) {
+			if (tool_call.emitted) {
+				continue;
+			}
+			if (tool_call.name.is_empty()) {
+				if (!tool_call.id.is_empty() || !tool_call.arguments.strip_edges().is_empty()) {
+					error = vformat("Provider returned incomplete tool call at index %d: missing function name.", i);
+					return true;
+				}
 				continue;
 			}
 
@@ -125,6 +132,10 @@ public:
 
 	String get_error() const {
 		return error;
+	}
+
+	bool flush_pending_tool_calls() {
+		return _flush_tool_calls();
 	}
 
 	bool handle_sse_event(const Dictionary &p_event) {
@@ -294,15 +305,64 @@ Dictionary AIOpenAICompatibleRuntime::_part_to_openai(const AIModelPart &p_part)
 	return result;
 }
 
+String AIOpenAICompatibleRuntime::_tool_call_arguments_to_json(const AIModelToolCall &p_tool_call) {
+	const Variant raw_arguments = p_tool_call.provider_metadata.get("raw_arguments", p_tool_call.provider_metadata.get("rawArguments", Variant()));
+	if (raw_arguments.get_type() == Variant::STRING) {
+		return String(raw_arguments);
+	}
+
+	if (p_tool_call.input.get_type() == Variant::NIL) {
+		return "{}";
+	}
+
+	const String json = JSON::stringify(p_tool_call.input);
+	return json.strip_edges().is_empty() ? String("{}") : json;
+}
+
+Array AIOpenAICompatibleRuntime::_tool_calls_to_openai(const AIModelMessage &p_message) {
+	Array result;
+	for (int i = 0; i < p_message.tool_calls.size(); i++) {
+		const AIModelToolCall &tool_call = p_message.tool_calls[i];
+		if (tool_call.id.strip_edges().is_empty() || tool_call.name.strip_edges().is_empty()) {
+			continue;
+		}
+
+		Dictionary function;
+		function["name"] = tool_call.name;
+		function["arguments"] = _tool_call_arguments_to_json(tool_call);
+
+		Dictionary call;
+		call["id"] = tool_call.id;
+		call["type"] = "function";
+		call["function"] = function;
+		result.push_back(call);
+	}
+	return result;
+}
+
 Dictionary AIOpenAICompatibleRuntime::_message_to_openai(const AIModelMessage &p_message) {
 	Dictionary result;
-	result["role"] = p_message.role.is_empty() ? String("user") : p_message.role;
+	const String role = p_message.role.is_empty() ? String("user") : p_message.role;
+	result["role"] = role;
+	if (role == "tool") {
+		result["tool_call_id"] = p_message.tool_call_id;
+		result["content"] = _message_text(p_message);
+		return result;
+	}
+
 	bool has_non_text = false;
 	for (int i = 0; i < p_message.parts.size(); i++) {
 		if (p_message.parts[i].type != AI_MODEL_PART_TEXT) {
 			has_non_text = true;
 			break;
 		}
+	}
+	const Array tool_calls = _tool_calls_to_openai(p_message);
+	if (!tool_calls.is_empty()) {
+		const String text = _message_text(p_message);
+		result["content"] = text.is_empty() ? Variant() : Variant(text);
+		result["tool_calls"] = tool_calls;
+		return result;
 	}
 	if (!has_non_text) {
 		result["content"] = _message_text(p_message);
@@ -420,6 +480,11 @@ bool AIOpenAICompatibleRuntime::stream_struct(const AIModelRequest &p_request, c
 	String http_error;
 	if (!http_client->request_sse(request, callable_mp(bridge.ptr(), &AIOpenAICompatibleStreamBridge::handle_sse_event), response, http_error)) {
 		r_error = AIError::make(p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested() ? AI_ERROR_INTERRUPTED : AI_ERROR_NETWORK, http_error);
+		return false;
+	}
+	if (bridge->flush_pending_tool_calls()) {
+		const String bridge_error = bridge->get_error();
+		r_error = AIError::make(bridge_error.is_empty() ? AI_ERROR_CANCELLED : AI_ERROR_PROVIDER, bridge_error.is_empty() ? String("OpenAI-compatible stream stopped while flushing tool calls.") : bridge_error);
 		return false;
 	}
 
