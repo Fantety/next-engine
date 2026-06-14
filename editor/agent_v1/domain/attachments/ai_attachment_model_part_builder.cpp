@@ -497,14 +497,29 @@ bool AIModelPartBuilder::_build_text_part(const AIFileAttachment &p_attachment, 
 	return true;
 }
 
+bool AIModelPartBuilder::_build_unsupported_modality_notice_part(const AIFileAttachment &p_attachment, const String &p_modality, AIModelPart &r_part, AIError &r_error) const {
+	const String modality = p_modality.strip_edges().to_lower();
+	const String display_modality = modality.is_empty() ? String("file") : modality;
+	const String name = p_attachment.name.strip_edges().is_empty() ? (p_attachment.id.strip_edges().is_empty() ? String("attachment") : p_attachment.id.strip_edges()) : p_attachment.name.strip_edges();
+	const String mime = p_attachment.mime.strip_edges().is_empty() ? String("application/octet-stream") : p_attachment.mime.strip_edges();
+	const String blob_ref = _blob_ref_from_attachment(p_attachment);
+
+	String text;
+	text += "Attachment " + name + " (" + mime + ", " + itos(p_attachment.size_bytes) + " bytes) was uploaded as " + display_modality + " input, but the selected model does not support " + display_modality + " input.\n";
+	text += "The attachment binary content was omitted from this model request. Use the user's text prompt and this attachment notice only.";
+
+	r_part = AIModelPart::text_part(text);
+	r_part.metadata = _safe_part_metadata(p_attachment, display_modality, blob_ref);
+	r_part.metadata["derived_from_attachment"] = true;
+	r_part.metadata["modality_omitted"] = true;
+	r_part.metadata["omitted_reason"] = "unsupported_model_modality";
+	r_error = AIError::none();
+	return true;
+}
+
 bool AIModelPartBuilder::_build_binary_part(const AIFileAttachment &p_attachment, const Dictionary &p_provider_config, const String &p_modality, AIModelPart &r_part, AIError &r_error) {
 	if (!provider_supports_modality_static(p_provider_config, p_modality)) {
-		Dictionary details;
-		details["modality"] = p_modality;
-		details["attachment_id"] = p_attachment.id;
-		details["mime"] = p_attachment.mime;
-		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "Selected model does not support attachment modality: " + p_modality, details);
-		return false;
+		return _build_unsupported_modality_notice_part(p_attachment, p_modality, r_part, r_error);
 	}
 
 	AIFileAttachment attachment = p_attachment;

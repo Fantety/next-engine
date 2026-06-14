@@ -4,6 +4,7 @@
 
 #include "tests/test_macros.h"
 
+#include "core/core_bind.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/image.h"
@@ -505,6 +506,12 @@ static PackedByteArray make_test_png_bytes() {
 	PackedByteArray bytes = image->save_png_to_buffer();
 	REQUIRE(!bytes.is_empty());
 	return bytes;
+}
+
+static String make_data_url(const String &p_mime, const PackedByteArray &p_bytes) {
+	CoreBind::Marshalls *marshalls = CoreBind::Marshalls::get_singleton();
+	REQUIRE(marshalls);
+	return "data:" + p_mime + ";base64," + marshalls->raw_to_base64(p_bytes);
 }
 
 static AISystemContext make_context_fixture(const String &p_text, const String &p_directory, const String &p_model) {
@@ -1604,6 +1611,57 @@ TEST_CASE("[Editor][AgentV1] Prompt admission resolves data URL attachments into
 	CHECK(String(file.get("mime", String())) == "text/plain");
 }
 
+TEST_CASE("[Editor][AgentV1] Prompt admission resolves composer image data URL attachments into durable blobs") {
+	const String base = TestUtils::get_temp_path("agent_v1/phase7_composer_image_data_url");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_attachment_blob_store()->set_base_dir(base.path_join("attachments"));
+
+	Dictionary create;
+	create["id"] = "phase7-composer-image-data";
+	create["directory"] = base.path_join("workspace");
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary attachment;
+	attachment["type"] = "image";
+	attachment["id"] = "att-composer-image";
+	attachment["name"] = "clipboard.png";
+	attachment["mime_type"] = "image/png";
+	attachment["data_url"] = make_data_url("image/png", make_test_png_bytes());
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase7-composer-image-data";
+	prompt["message_id"] = "phase7-composer-image-message";
+	prompt["text"] = "look at the image";
+	prompt["attachments"] = attachments;
+	prompt["resume"] = false;
+	const Dictionary admitted = service->prompt(prompt);
+	REQUIRE(bool(admitted.get("success", false)));
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("phase7-composer-image-data");
+	REQUIRE(events.size() == 1);
+	if (events.size() == 1) {
+		const String admitted_json = Variant(events[0].data).stringify();
+		CHECK_FALSE(admitted_json.contains("data:image/png"));
+
+		const Dictionary prompt_data = events[0].data.get("prompt", Dictionary());
+		const Array files = prompt_data.get("files", Array());
+		REQUIRE(files.size() == 1);
+		if (files.size() == 1) {
+			const Dictionary file = files[0];
+			CHECK(String(file.get("path", String())).begins_with("blob_"));
+			CHECK(String(file.get("mime", String())) == "image/png");
+			CHECK(String(file.get("name", String())) == "clipboard.png");
+		}
+	}
+}
+
 TEST_CASE("[Editor][AgentV1] Prompt admission rejects mismatched data URL attachment MIME") {
 	const String base = TestUtils::get_temp_path("agent_v1/phase7_bad_data_url");
 
@@ -1693,7 +1751,7 @@ TEST_CASE("[Editor][AgentV1] Blob attachment references are session-bound and si
 	CHECK(error.kind == AI_ERROR_VALIDATION);
 }
 
-TEST_CASE("[Editor][AgentV1] Model part builder checks image capability and builds provider neutral data parts") {
+TEST_CASE("[Editor][AgentV1] Model part builder adapts unsupported image attachments to text notices") {
 	Ref<AIAttachmentBlobStore> store;
 	store.instantiate();
 	store->set_base_dir(TestUtils::get_temp_path("agent_v1/phase7_builder_blobs"));
@@ -1719,9 +1777,15 @@ TEST_CASE("[Editor][AgentV1] Model part builder checks image capability and buil
 	builder->set_blob_store(store);
 
 	AIModelPart unsupported_part;
-	CHECK_FALSE(builder->build_attachment_part_struct(attachment, Dictionary(), unsupported_part, error));
-	CHECK(error.kind == AI_ERROR_UNAVAILABLE);
-	CHECK(String(error.details.get("modality", String())) == "image");
+	REQUIRE(builder->build_attachment_part_struct(attachment, Dictionary(), unsupported_part, error));
+	CHECK(unsupported_part.type == AI_MODEL_PART_TEXT);
+	CHECK(unsupported_part.text.contains("pixel.png"));
+	CHECK(unsupported_part.text.contains("image/png"));
+	CHECK(unsupported_part.text.contains("does not support image input"));
+	CHECK_FALSE(unsupported_part.data.begins_with("data:image/png;base64,"));
+	CHECK(bool(unsupported_part.metadata.get("derived_from_attachment", false)));
+	CHECK(bool(unsupported_part.metadata.get("modality_omitted", false)));
+	CHECK(String(unsupported_part.metadata.get("modality", String())) == "image");
 
 	Dictionary modalities;
 	Array input_modalities;
@@ -1740,6 +1804,58 @@ TEST_CASE("[Editor][AgentV1] Model part builder checks image capability and buil
 	CHECK(part.data.begins_with("data:image/png;base64,"));
 	CHECK_FALSE(part.metadata.has("source_path"));
 	CHECK(String(part.metadata.get("blob_id", String())).begins_with("blob_"));
+}
+
+TEST_CASE("[Editor][AgentV1] Prompt admission resolves inline text attachments into durable blobs") {
+	const String base = TestUtils::get_temp_path("agent_v1/phase7_inline_text_attachment");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_attachment_blob_store()->set_base_dir(base.path_join("attachments"));
+
+	Dictionary create;
+	create["id"] = "phase7-inline-text";
+	create["directory"] = base.path_join("workspace");
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary attachment;
+	attachment["type"] = "text";
+	attachment["id"] = "att-inline-text";
+	attachment["name"] = "clipboard.txt";
+	attachment["mime_type"] = "text/plain";
+	attachment["text"] = "clipboard text body";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase7-inline-text";
+	prompt["message_id"] = "phase7-inline-text-message";
+	prompt["text"] = "read the inline text";
+	prompt["attachments"] = attachments;
+	prompt["resume"] = false;
+	const Dictionary admitted = service->prompt(prompt);
+	REQUIRE(bool(admitted.get("success", false)));
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("phase7-inline-text");
+	REQUIRE(events.size() == 1);
+	if (events.size() == 1) {
+		CHECK(events[0].type == AIDomainEventTypes::prompt_admitted());
+		const String admitted_json = Variant(events[0].data).stringify();
+		CHECK_FALSE(admitted_json.contains("clipboard text body"));
+
+		const Dictionary prompt_data = events[0].data.get("prompt", Dictionary());
+		const Array files = prompt_data.get("files", Array());
+		REQUIRE(files.size() == 1);
+		if (files.size() == 1) {
+			const Dictionary file = files[0];
+			CHECK(String(file.get("path", String())).begins_with("blob_"));
+			CHECK(String(file.get("mime", String())) == "text/plain");
+			CHECK(String(file.get("name", String())) == "clipboard.txt");
+		}
+	}
 }
 
 TEST_CASE("[Editor][AgentV1] Config service discovers stable prioritized entries") {
@@ -3914,6 +4030,85 @@ TEST_CASE("[Editor][AgentV1] Session runner sends path attachments as blob-backe
 		CHECK_FALSE(event_json.contains("data:image/png;base64,"));
 	}
 	CHECK(saw_redacted_request);
+}
+
+TEST_CASE("[Editor][AgentV1] Session runner continues with text notice when image attachments target text-only models") {
+	const String base = TestUtils::get_temp_path("agent_v1/phase7_text_only_attachment_runner");
+	const String workspace = base.path_join("workspace");
+	const String image_path = workspace.path_join("pixel.png");
+	write_bytes_file(image_path, make_test_png_bytes());
+
+	Ref<AIFakeLLMRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_response_text("text only accepted");
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+	service->get_attachment_blob_store()->set_base_dir(base.path_join("attachments"));
+	service->get_runtime_registry()->register_runtime("fake", runtime);
+
+	Dictionary fake_provider;
+	fake_provider["type"] = "fake";
+	fake_provider["model"] = "text-only-model";
+	Dictionary providers;
+	providers["fake"] = fake_provider;
+	Dictionary override_config;
+	override_config["default_provider"] = "fake";
+	override_config["default_model"] = "text-only-model";
+	override_config["providers"] = providers;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "phase7-text-only-runner";
+	create["directory"] = workspace;
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary attachment;
+	attachment["type"] = "path";
+	attachment["id"] = "att-text-only-image";
+	attachment["name"] = "pixel.png";
+	attachment["path"] = "pixel.png";
+	Array attachments;
+	attachments.push_back(attachment);
+
+	Dictionary prompt;
+	prompt["session_id"] = "phase7-text-only-runner";
+	prompt["message_id"] = "phase7-text-only-runner-message";
+	prompt["text"] = "describe the attachment";
+	prompt["attachments"] = attachments;
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	Dictionary run = service->get_session_runner()->run("phase7-text-only-runner", false);
+	REQUIRE(bool(run.get("success", false)));
+	CHECK(runtime->get_stream_call_count() == 1);
+
+	const Dictionary last_request = runtime->get_last_request();
+	const String request_json = Variant(last_request).stringify();
+	CHECK_FALSE(request_json.contains("data:image/png;base64,"));
+	CHECK_FALSE(request_json.contains(image_path));
+	CHECK(request_json.contains("does not support image input"));
+
+	bool saw_notice_part = false;
+	bool saw_image_part = false;
+	const Array messages = last_request.get("messages", Array());
+	for (int i = 0; i < messages.size(); i++) {
+		const Dictionary message = messages[i];
+		const Array parts = message.get("parts", Array());
+		for (int j = 0; j < parts.size(); j++) {
+			const Dictionary part = parts[j];
+			const String type = part.get("type", String());
+			saw_image_part = saw_image_part || type == "image";
+			if (type == "text" && String(part.get("text", String())).contains("pixel.png") && String(part.get("text", String())).contains("does not support image input")) {
+				saw_notice_part = true;
+			}
+		}
+	}
+	CHECK_FALSE(saw_image_part);
+	CHECK(saw_notice_part);
 }
 
 TEST_CASE("[Editor][AgentV1] Permission service records pending and rejected replies") {

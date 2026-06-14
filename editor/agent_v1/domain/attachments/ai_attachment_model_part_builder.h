@@ -75,6 +75,7 @@ class AIModelPartBuilder : public RefCounted {
 	bool _ensure_dependencies(AIError &r_error);
 	bool _read_attachment_bytes(const AIFileAttachment &p_attachment, PackedByteArray &r_bytes, String &r_blob_ref, AIError &r_error) const;
 	bool _build_text_part(const AIFileAttachment &p_attachment, AIModelPart &r_part, AIError &r_error);
+	bool _build_unsupported_modality_notice_part(const AIFileAttachment &p_attachment, const String &p_modality, AIModelPart &r_part, AIError &r_error) const;
 	bool _build_binary_part(const AIFileAttachment &p_attachment, const Dictionary &p_provider_config, const String &p_modality, AIModelPart &r_part, AIError &r_error);
 
 protected:

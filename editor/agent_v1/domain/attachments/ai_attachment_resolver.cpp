@@ -56,9 +56,6 @@ String AIAttachmentResolver::_attachment_type(const Dictionary &p_attachment) {
 			type = String(nested.get("type", type)).strip_edges().to_lower();
 		}
 	}
-	if (!type.is_empty() && type != "attachment" && type != "file") {
-		return type;
-	}
 	if (p_attachment.has("data_url") || p_attachment.has("dataURL") || String(p_attachment.get("data", String())).begins_with("data:")) {
 		return "data";
 	}
@@ -71,6 +68,9 @@ String AIAttachmentResolver::_attachment_type(const Dictionary &p_attachment) {
 	}
 	if (!path.is_empty()) {
 		return "path";
+	}
+	if (!type.is_empty() && type != "attachment" && type != "file") {
+		return type;
 	}
 	return type.is_empty() ? String("path") : type;
 }
@@ -472,6 +472,57 @@ bool AIAttachmentResolver::_resolve_data_attachment(const String &p_session_id, 
 	return true;
 }
 
+bool AIAttachmentResolver::_resolve_text_attachment(const String &p_session_id, const AILocationRef &p_location, const Dictionary &p_attachment, AIFileAttachment &r_file, AIError &r_error) {
+	if (!_ensure_blob_store(r_error)) {
+		return false;
+	}
+
+	const String text = String(p_attachment.get("text", p_attachment.get("content", String())));
+	if (text.is_empty()) {
+		r_error = AIError::make(AI_ERROR_VALIDATION, "Text attachment content cannot be empty.");
+		return false;
+	}
+
+	const PackedByteArray bytes = text.to_utf8_buffer();
+	if (bytes.size() > max_attachment_bytes) {
+		Dictionary details;
+		details["size_bytes"] = bytes.size();
+		details["max_bytes"] = max_attachment_bytes;
+		r_error = AIError::make(AI_ERROR_VALIDATION, "Attachment exceeds the configured byte limit.", details);
+		return false;
+	}
+
+	const String name = _name_from_attachment(p_attachment, "attachment.txt");
+	const String mime = detect_mime_static(name, bytes, _declared_mime_from_attachment(p_attachment));
+	if (!_validate_payload_mime(mime, bytes, r_error)) {
+		return false;
+	}
+
+	Dictionary source_metadata;
+	source_metadata["source_type"] = "text";
+	source_metadata["session_id"] = p_session_id;
+	source_metadata["workspace_id"] = p_location.workspace_id;
+	source_metadata["name"] = name;
+	source_metadata["submitted_id"] = String(p_attachment.get("id", String()));
+	if (p_attachment.has("source")) {
+		source_metadata["source"] = p_attachment["source"];
+	}
+	if (p_attachment.has("label")) {
+		source_metadata["label"] = p_attachment["label"];
+	}
+
+	AIAttachmentBlobRecord record;
+	if (!blob_store->put_bytes_struct(bytes, mime, source_metadata, record, r_error)) {
+		return false;
+	}
+
+	Dictionary attachment_metadata;
+	attachment_metadata["submitted_id"] = String(p_attachment.get("id", String()));
+	r_file = _attachment_from_blob_record(record, String(p_attachment.get("id", String())), name, "text", attachment_metadata);
+	r_error = AIError::none();
+	return true;
+}
+
 bool AIAttachmentResolver::_resolve_path_attachment(const String &p_session_id, const AILocationRef &p_location, const Dictionary &p_attachment, AIFileAttachment &r_file, AIError &r_error) {
 	if (!_ensure_blob_store(r_error)) {
 		return false;
@@ -619,6 +670,9 @@ bool AIAttachmentResolver::resolve_struct(const String &p_session_id, const AILo
 	}
 	if (type == "blob") {
 		return _resolve_blob_attachment(p_session_id, p_location, attachment, r_file, r_error);
+	}
+	if (type == "text" && (attachment.has("text") || attachment.has("content"))) {
+		return _resolve_text_attachment(p_session_id, p_location, attachment, r_file, r_error);
 	}
 	return _resolve_path_attachment(p_session_id, p_location, attachment, r_file, r_error);
 }

@@ -32,6 +32,7 @@ class AIAttachmentResolver : public RefCounted {
 
 	bool _ensure_blob_store(AIError &r_error);
 	bool _resolve_data_attachment(const String &p_session_id, const AILocationRef &p_location, const Dictionary &p_attachment, AIFileAttachment &r_file, AIError &r_error);
+	bool _resolve_text_attachment(const String &p_session_id, const AILocationRef &p_location, const Dictionary &p_attachment, AIFileAttachment &r_file, AIError &r_error);
 	bool _resolve_path_attachment(const String &p_session_id, const AILocationRef &p_location, const Dictionary &p_attachment, AIFileAttachment &r_file, AIError &r_error);
 	bool _resolve_blob_attachment(const String &p_session_id, const AILocationRef &p_location, const Dictionary &p_attachment, AIFileAttachment &r_file, AIError &r_error);
 
