@@ -29,7 +29,7 @@ static String find_repo_file(const String &p_relative_path) {
 		current_dir = parent;
 	}
 
-	FAIL("Could not locate repository file: " + p_relative_path);
+	REQUIRE_MESSAGE(false, vformat("Could not locate repository file: %s", p_relative_path));
 	return String();
 }
 
@@ -37,7 +37,7 @@ static String read_repo_file(const String &p_relative_path) {
 	const String path = find_repo_file(p_relative_path);
 	Error err = OK;
 	Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ, &err);
-	REQUIRE_MESSAGE(file.is_valid(), "Could not read repository file: " + path);
+	REQUIRE_MESSAGE(file.is_valid(), vformat("Could not read repository file: %s", path));
 	REQUIRE(err == OK);
 	return file->get_as_text();
 }

@@ -58,7 +58,8 @@ void EditorAbout::_notification(int p_what) {
 		case NOTIFICATION_TRANSLATION_CHANGED: {
 			_about_text_label->set_text(
 					String(U"© 2025-present ") + TTR("NEXT Engine contributors") + ".\n" +
-					String(U"Portions of this software are copyright © 2007-2023 Juan Linietsky, Ariel Manzur and Godot Engine contributors.\n"));
+					String(U"Based on Godot Engine.\n") +
+					String(U"Portions of this software are copyright © 2007-present Juan Linietsky, Ariel Manzur and Godot Engine contributors.\n"));
 
 			_project_manager_label->set_text(TTR("Project Manager", "Job Title"));
 
@@ -211,7 +212,7 @@ Label *EditorAbout::_create_section(Control *p_parent, const String &p_name, con
 }
 
 EditorAbout::EditorAbout() {
-	set_title(TTRC("Thanks from the Godot community!"));
+	set_title(TTRC("About NEXT Engine"));
 	set_hide_on_ok(true);
 
 	VBoxContainer *vbc = memnew(VBoxContainer);
@@ -252,7 +253,7 @@ EditorAbout::EditorAbout() {
 
 	{
 		ScrollContainer *sc = memnew(ScrollContainer);
-		sc->set_name(TTRC("Authors"));
+		sc->set_name(TTRC("Godot Authors"));
 		sc->set_v_size_flags(Control::SIZE_EXPAND);
 		tc->add_child(sc);
 
@@ -270,7 +271,7 @@ EditorAbout::EditorAbout() {
 
 	{
 		ScrollContainer *sc = memnew(ScrollContainer);
-		sc->set_name(TTRC("Donors"));
+		sc->set_name(TTRC("Godot Donors"));
 		sc->set_v_size_flags(Control::SIZE_EXPAND);
 		tc->add_child(sc);
 
@@ -306,7 +307,7 @@ EditorAbout::EditorAbout() {
 	license_thirdparty->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	tc->add_child(license_thirdparty);
 
-	Label *tpl_label = memnew(Label(TTRC("Godot Engine relies on a number of third-party free and open source libraries, all compatible with the terms of its MIT license. The following is an exhaustive list of all such third-party components with their respective copyright statements and license terms.")));
+	Label *tpl_label = memnew(Label(TTRC("NEXT Engine is a Godot-derived editor and relies on a number of third-party free and open source libraries, all compatible with the terms of the MIT license. The following is an exhaustive list of all such third-party components with their respective copyright statements and license terms.")));
 	tpl_label->set_focus_mode(Control::FOCUS_ACCESSIBILITY);
 	tpl_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	tpl_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
