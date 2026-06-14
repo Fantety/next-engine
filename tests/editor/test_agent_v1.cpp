@@ -7,10 +7,14 @@
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/image.h"
+#include "core/io/json.h"
+#include "core/io/stream_peer_tcp.h"
+#include "core/io/tcp_server.h"
 #include "core/math/color.h"
 #include "core/object/callable_mp.h"
 #include "core/object/message_queue.h"
 #include "core/os/os.h"
+#include "core/os/thread.h"
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/config/ai_local_settings_store.h"
 #include "editor/agent_v1/agents/ai_agent_service_v1.h"
@@ -29,6 +33,7 @@
 #include "editor/agent_v1/mcp/ai_mcp_service_v1.h"
 #include "editor/agent_v1/permission/ai_permission_service.h"
 #include "editor/agent_v1/runtime/ai_fake_llm_runtime.h"
+#include "editor/agent_v1/runtime/ai_openai_compatible_runtime.h"
 #include "editor/agent_v1/session/recovery/ai_startup_recovery.h"
 #include "editor/agent_v1/session/service/ai_session_service.h"
 #include "editor/agent_v1/skills/ai_skill_service_v1.h"
@@ -540,6 +545,190 @@ public:
 		return false;
 	}
 };
+
+class CancellingStreamCollector : public RefCounted {
+	GDCLASS(CancellingStreamCollector, RefCounted);
+
+public:
+	Ref<AICancelToken> cancel_token;
+	Array events;
+	int text_delta_count = 0;
+	int tool_call_count = 0;
+
+	bool handle_event(const Dictionary &p_event) {
+		events.push_back(p_event);
+		const String type = String(p_event.get("type", String()));
+		if (type == "tool-call") {
+			tool_call_count++;
+			return false;
+		}
+		if (type == "text-delta") {
+			text_delta_count++;
+			if (cancel_token.is_valid()) {
+				cancel_token->request_cancel("cancel while streaming");
+			}
+			return true;
+		}
+		return false;
+	}
+};
+
+class LocalOpenAISSEServer {
+	Ref<TCPServer> server;
+	Thread thread;
+	String response_body;
+	String error;
+	int port = 0;
+	bool served = false;
+
+	static void _thread_func(void *p_userdata) {
+		LocalOpenAISSEServer *self = static_cast<LocalOpenAISSEServer *>(p_userdata);
+		if (!self || self->server.is_null()) {
+			return;
+		}
+
+		const uint64_t accept_start = OS::get_singleton()->get_ticks_usec();
+		while (!self->server->is_connection_available() && OS::get_singleton()->get_ticks_usec() - accept_start < 2000000) {
+			OS::get_singleton()->delay_usec(1000);
+		}
+		if (!self->server->is_connection_available()) {
+			self->error = "Timed out waiting for local OpenAI SSE client.";
+			return;
+		}
+
+		Ref<StreamPeerTCP> peer = self->server->take_connection();
+		if (peer.is_null()) {
+			self->error = "Failed to accept local OpenAI SSE client.";
+			return;
+		}
+
+		const uint64_t request_start = OS::get_singleton()->get_ticks_usec();
+		while (OS::get_singleton()->get_ticks_usec() - request_start < 500000) {
+			peer->poll();
+			const int available = peer->get_available_bytes();
+			if (available > 0) {
+				PackedByteArray ignored;
+				ignored.resize(available);
+				int received = 0;
+				if (peer->get_partial_data(ignored.ptrw(), available, received) != OK) {
+					break;
+				}
+				if (received > 0) {
+					break;
+				}
+			}
+			OS::get_singleton()->delay_usec(1000);
+		}
+
+		const PackedByteArray body = self->response_body.to_utf8_buffer();
+		const String headers = "HTTP/1.1 200 OK\r\n"
+							   "Content-Type: text/event-stream\r\n"
+							   "Cache-Control: no-cache\r\n"
+							   "Connection: close\r\n"
+							   "Content-Length: " +
+				itos(body.size()) + "\r\n\r\n";
+		PackedByteArray response = headers.to_utf8_buffer();
+		response.append_array(body);
+		if (!response.is_empty() && peer->put_data(response.ptr(), response.size()) != OK) {
+			self->error = "Failed to write local OpenAI SSE response.";
+			return;
+		}
+
+		self->served = true;
+		OS::get_singleton()->delay_usec(10000);
+		peer->disconnect_from_host();
+		self->server->stop();
+	}
+
+public:
+	~LocalOpenAISSEServer() {
+		stop();
+	}
+
+	bool start(const String &p_response_body) {
+		response_body = p_response_body;
+		error = String();
+		served = false;
+
+		server.instantiate();
+		if (server->listen(0, IPAddress("127.0.0.1")) != OK) {
+			error = "Failed to listen on local OpenAI SSE test port.";
+			return false;
+		}
+		port = server->get_local_port();
+		if (port <= 0) {
+			error = "Local OpenAI SSE test port was not assigned.";
+			return false;
+		}
+		thread.start(_thread_func, this);
+		return true;
+	}
+
+	void stop() {
+		if (server.is_valid()) {
+			server->stop();
+		}
+		if (thread.is_started()) {
+			thread.wait_to_finish();
+		}
+	}
+
+	int get_port() const {
+		return port;
+	}
+
+	bool was_served() const {
+		return served;
+	}
+
+	String get_error() const {
+		return error;
+	}
+};
+
+static String openai_sse_data_event(const Dictionary &p_payload) {
+	return "data: " + JSON::stringify(p_payload) + "\r\n\r\n";
+}
+
+static String make_openai_partial_tool_then_text_sse_body() {
+	Dictionary function;
+	function["name"] = "script.write";
+	function["arguments"] = "{\"path\":\"res://broken.gd\",\"content\":\"hel";
+
+	Dictionary tool_call;
+	tool_call["index"] = 0;
+	tool_call["id"] = "call_partial";
+	tool_call["function"] = function;
+
+	Array tool_calls;
+	tool_calls.push_back(tool_call);
+
+	Dictionary tool_delta;
+	tool_delta["tool_calls"] = tool_calls;
+
+	Dictionary tool_choice;
+	tool_choice["delta"] = tool_delta;
+
+	Array tool_choices;
+	tool_choices.push_back(tool_choice);
+
+	Dictionary tool_payload;
+	tool_payload["choices"] = tool_choices;
+
+	Dictionary text_delta;
+	text_delta["content"] = "cancel now";
+
+	Dictionary text_choice;
+	text_choice["delta"] = text_delta;
+
+	Array text_choices;
+	text_choices.push_back(text_choice);
+
+	Dictionary text_payload;
+	text_payload["choices"] = text_choices;
+
+	return openai_sse_data_event(tool_payload) + openai_sse_data_event(text_payload);
+}
 
 class AgentV1UIAdapterSignalCollector : public RefCounted {
 	GDCLASS(AgentV1UIAdapterSignalCollector, RefCounted);
@@ -3328,6 +3517,44 @@ TEST_CASE("[Editor][AgentV1] Fake runtime streams text and provider-neutral tool
 	CHECK(saw_tool);
 }
 
+TEST_CASE("[Editor][AgentV1] OpenAI-compatible stream cancel does not flush partial tool calls") {
+	LocalOpenAISSEServer server;
+	REQUIRE(server.start(make_openai_partial_tool_then_text_sse_body()));
+
+	Ref<AIOpenAICompatibleRuntime> runtime;
+	runtime.instantiate();
+	runtime->set_base_url("http://127.0.0.1:" + itos(server.get_port()) + "/v1");
+
+	Ref<AICancelToken> cancel_token;
+	cancel_token.instantiate();
+
+	Ref<CancellingStreamCollector> collector;
+	collector.instantiate();
+	collector->cancel_token = cancel_token;
+
+	Ref<AICallableStreamSink> sink;
+	sink.instantiate();
+	sink->set_callback(callable_mp(collector.ptr(), &CancellingStreamCollector::handle_event));
+
+	AIModelRequest request;
+	request.request_id = "openai-cancel-request";
+	request.provider = "compatible";
+	request.model = "fake-openai-model";
+	request.provider_options["timeout_msec"] = 2000;
+	request.messages.push_back(AIModelMessage::text_message("user", "hello", "msg-openai-cancel"));
+
+	AIError error;
+	CHECK_FALSE(runtime->stream_struct(request, sink, cancel_token, error));
+	server.stop();
+
+	CHECK(server.was_served());
+	CHECK(server.get_error().is_empty());
+	CHECK(error.kind == AI_ERROR_INTERRUPTED);
+	CHECK(cancel_token->is_cancel_requested());
+	CHECK(collector->text_delta_count == 1);
+	CHECK(collector->tool_call_count == 0);
+}
+
 TEST_CASE("[Editor][AgentV1] EditorProgress uses background mode during message queue flush") {
 	editor_progress_flush_callable_ran = false;
 	editor_progress_flush_callable_used_background = false;
@@ -3716,6 +3943,7 @@ TEST_CASE("[Editor][AgentV1] Permission service records pending and rejected rep
 	CHECK(decision.request_id.begins_with("perm_"));
 	CHECK(event_store->list("session-permission").size() == 1);
 	CHECK(event_store->list("session-permission")[0].type == AIDomainEventTypes::permission_asked());
+	CHECK(permission_service->get_pending_requests().size() == 1);
 
 	Dictionary reply;
 	reply["request_id"] = decision.request_id;
@@ -3731,6 +3959,7 @@ TEST_CASE("[Editor][AgentV1] Permission service records pending and rejected rep
 	CHECK_FALSE(permission_service->assert_permission_struct(input, rejected_decision, error));
 	CHECK(rejected_decision.denied);
 	CHECK(error.kind == AI_ERROR_PERMISSION);
+	CHECK(permission_service->get_pending_requests().is_empty());
 }
 
 TEST_CASE("[Editor][AgentV1] Permission rules use the last matching policy") {
@@ -6236,6 +6465,58 @@ TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter maps permission pending requests
 	const Dictionary reply = adapter->reply_permission(String(request.get("request_id", String())), false, "not from UI");
 	CHECK_FALSE(bool(reply.get("success", true)));
 	CHECK(String(reply.get("reply", String())) == "reject");
+}
+
+TEST_CASE("[Editor][AgentV1][UIAdapter] Adapter cancel clears permission wait state") {
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Ref<AIAgentV1UIAdapter> adapter;
+	adapter.instantiate();
+	adapter->set_session_service(service);
+
+	Dictionary create;
+	create["id"] = "ui-permission-cancel-session";
+	create["directory"] = "res://";
+	REQUIRE(bool(adapter->create_session(create).get("success", false)));
+
+	Dictionary source;
+	source["tool"] = "script.write";
+	source["call_id"] = "call-ui-cancel";
+
+	Dictionary input;
+	input["session_id"] = "ui-permission-cancel-session";
+	input["action"] = "script.write";
+	input["resource"] = "res://cancelled.gd";
+	input["source"] = source;
+	const Dictionary decision = service->get_permission_service()->assert_permission(input);
+	REQUIRE(bool(decision.get("pending", false)));
+
+	const Dictionary waiting_state = adapter->get_run_state();
+	CHECK(String(waiting_state.get("state", String())) == "waiting_permission");
+	CHECK(bool(waiting_state.get("busy", false)));
+	CHECK(bool(waiting_state.get("can_cancel", false)));
+
+	const Dictionary cancelled = adapter->cancel_active_run("user cancelled permission wait");
+	REQUIRE(bool(cancelled.get("success", false)));
+	CHECK(service->get_permission_service()->get_pending_requests().is_empty());
+
+	const Dictionary idle_state = adapter->get_run_state();
+	CHECK_FALSE(bool(idle_state.get("busy", true)));
+	CHECK(String(idle_state.get("state", String())) != "waiting_permission");
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("ui-permission-cancel-session");
+	bool saw_permission_replied = false;
+	bool saw_interrupt_requested = false;
+	for (int i = 0; i < events.size(); i++) {
+		saw_permission_replied = saw_permission_replied || events[i].type == AIDomainEventTypes::permission_replied();
+		saw_interrupt_requested = saw_interrupt_requested || events[i].type == AIDomainEventTypes::interrupt_requested();
+	}
+	CHECK(saw_permission_replied);
+	CHECK(saw_interrupt_requested);
 }
 
 TEST_CASE("[Editor][AgentV1][UIAdapter] Config adapter exposes settings snapshot without old settings") {

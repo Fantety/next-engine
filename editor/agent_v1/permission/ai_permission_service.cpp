@@ -499,6 +499,9 @@ Array AIPermissionService::get_pending_requests() const {
 	MutexLock lock(mutex);
 	Array result;
 	for (const KeyValue<String, PendingRequest> &kv : pending_requests) {
+		if (kv.value.status != "pending") {
+			continue;
+		}
 		result.push_back(kv.value.to_dictionary());
 	}
 	return result;

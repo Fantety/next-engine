@@ -135,6 +135,10 @@ public:
 	}
 
 	bool flush_pending_tool_calls() {
+		if (cancel_token.is_valid() && cancel_token->is_cancel_requested()) {
+			error = cancel_token->get_cancel_message("OpenAI-compatible stream interrupted.");
+			return true;
+		}
 		return _flush_tool_calls();
 	}
 
@@ -482,9 +486,13 @@ bool AIOpenAICompatibleRuntime::stream_struct(const AIModelRequest &p_request, c
 		r_error = AIError::make(p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested() ? AI_ERROR_INTERRUPTED : AI_ERROR_NETWORK, http_error);
 		return false;
 	}
+	if (p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested()) {
+		r_error = AIError::make(AI_ERROR_INTERRUPTED, p_cancel_token->get_cancel_message("OpenAI-compatible stream interrupted."));
+		return false;
+	}
 	if (bridge->flush_pending_tool_calls()) {
 		const String bridge_error = bridge->get_error();
-		r_error = AIError::make(bridge_error.is_empty() ? AI_ERROR_CANCELLED : AI_ERROR_PROVIDER, bridge_error.is_empty() ? String("OpenAI-compatible stream stopped while flushing tool calls.") : bridge_error);
+		r_error = AIError::make(p_cancel_token.is_valid() && p_cancel_token->is_cancel_requested() ? AI_ERROR_INTERRUPTED : (bridge_error.is_empty() ? AI_ERROR_CANCELLED : AI_ERROR_PROVIDER), bridge_error.is_empty() ? String("OpenAI-compatible stream stopped while flushing tool calls.") : bridge_error);
 		return false;
 	}
 

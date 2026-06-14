@@ -509,6 +509,47 @@ bool AISessionService::_append_interrupted_activity_events(const String &p_sessi
 	return AIStartupRecovery::cleanup_open_activity_struct(event_store, projector, p_session_id, reason, true, true, false, report, r_error);
 }
 
+bool AISessionService::_reject_pending_permissions(const String &p_session_id, const String &p_reason, AIError &r_error) {
+	if (permission_service.is_null()) {
+		r_error = AIError::none();
+		return true;
+	}
+
+	const String session_id = p_session_id.strip_edges();
+	const String reason = p_reason.strip_edges().is_empty() ? String("Session interrupted.") : p_reason;
+	const Array pending = permission_service->get_pending_requests();
+	for (int i = 0; i < pending.size(); i++) {
+		if (pending[i].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		const Dictionary request = pending[i];
+		if (String(request.get("session_id", String())).strip_edges() != session_id) {
+			continue;
+		}
+
+		const String request_id = String(request.get("request_id", request.get("requestID", String()))).strip_edges();
+		if (request_id.is_empty()) {
+			continue;
+		}
+
+		Dictionary reply;
+		reply["request_id"] = request_id;
+		reply["reply"] = "reject";
+		reply["reason"] = reason;
+
+		AIPermissionDecision decision;
+		AIError reply_error;
+		if (!permission_service->reply_struct(reply, decision, reply_error) && !(decision.denied && reply_error.kind == AI_ERROR_PERMISSION)) {
+			r_error = reply_error.is_error() ? reply_error : AIError::make(AI_ERROR_INTERNAL, "Failed to reject pending permission request.");
+			return false;
+		}
+	}
+
+	r_error = AIError::none();
+	return true;
+}
+
 void AISessionService::set_project_scope(const String &p_project_id, const String &p_directory, const String &p_storage_root) {
 	_ensure_defaults();
 	project_scope_id = _sanitize_project_scope_id(p_project_id);
@@ -900,6 +941,10 @@ Dictionary AISessionService::interrupt(const Dictionary &p_input) {
 
 	Dictionary result;
 	result["success"] = true;
+	AIError permission_error;
+	if (!_reject_pending_permissions(session_id, reason, permission_error)) {
+		return _make_error_result(permission_error);
+	}
 	const Dictionary interrupted = execution.is_valid() ? execution->interrupt(session_id, reason) : Dictionary();
 	result["interrupted"] = interrupted;
 

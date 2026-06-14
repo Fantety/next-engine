@@ -75,6 +75,7 @@ class AISessionService : public RefCounted {
 	bool _resolve_prompt_attachments(const Dictionary &p_input, const AISessionRow &p_session, const Array &p_parts, AIPrompt &r_prompt, AIError &r_error);
 	bool _append_admitted_event(AISessionInputRecord &r_input, AIError &r_error);
 	bool _append_interrupted_activity_events(const String &p_session_id, const String &p_reason, AIError &r_error);
+	bool _reject_pending_permissions(const String &p_session_id, const String &p_reason, AIError &r_error);
 
 protected:
 	static void _bind_methods();
