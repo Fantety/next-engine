@@ -11,7 +11,7 @@
 
 namespace {
 
-static const int AI_MARKDOWN_LABEL_SYNC_PARSE_LIMIT = 4096;
+static const int AI_MARKDOWN_LABEL_SYNC_PARSE_LIMIT = 1024;
 
 String _escape_plain_markdown(const String &p_text) {
 	String escaped;
@@ -179,6 +179,43 @@ void AIMarkdownLabel::_invalidate_cached_layout() {
 	cached_layout_width = -1.0;
 }
 
+void AIMarkdownLabel::_queue_markdown_update() {
+	has_pending_markdown_update = true;
+	if (markdown_update_queued) {
+		return;
+	}
+
+	markdown_update_queued = true;
+	callable_mp(this, &AIMarkdownLabel::_flush_markdown_update).call_deferred();
+}
+
+void AIMarkdownLabel::_flush_markdown_update() {
+	markdown_update_queued = false;
+	if (!has_pending_markdown_update) {
+		return;
+	}
+	has_pending_markdown_update = false;
+	_apply_markdown_update(pending_markdown_text);
+}
+
+void AIMarkdownLabel::_apply_markdown_update(const String &p_markdown) {
+	if (p_markdown.length() <= AI_MARKDOWN_LABEL_SYNC_PARSE_LIMIT) {
+		MarkdownViewerDocumentBuilder builder;
+		const MarkdownViewerDocument document = builder.build(p_markdown);
+		parsed_text = _flatten_document(document);
+		if (markdown_viewer) {
+			markdown_viewer->set_markdown_document(p_markdown, document);
+		}
+	} else {
+		parsed_text = p_markdown;
+		if (markdown_viewer) {
+			markdown_viewer->set_markdown(p_markdown);
+		}
+	}
+	_invalidate_cached_layout();
+	_queue_markdown_viewer_minimum_size_sync();
+}
+
 void AIMarkdownLabel::_queue_markdown_viewer_minimum_size_sync() {
 	if (layout_sync_queued) {
 		return;
@@ -237,27 +274,13 @@ Size2 AIMarkdownLabel::get_minimum_size() const {
 }
 
 void AIMarkdownLabel::set_markdown(const String &p_markdown) {
-	if (markdown_text == p_markdown) {
+	if (markdown_text == p_markdown && pending_markdown_text == p_markdown) {
 		return;
 	}
 
 	markdown_text = p_markdown;
-
-	if (markdown_text.length() <= AI_MARKDOWN_LABEL_SYNC_PARSE_LIMIT) {
-		MarkdownViewerDocumentBuilder builder;
-		const MarkdownViewerDocument document = builder.build(markdown_text);
-		parsed_text = _flatten_document(document);
-		if (markdown_viewer) {
-			markdown_viewer->set_markdown_document(markdown_text, document);
-		}
-	} else {
-		parsed_text = markdown_text;
-		if (markdown_viewer) {
-			markdown_viewer->set_markdown(markdown_text);
-		}
-	}
-	_invalidate_cached_layout();
-	_queue_markdown_viewer_minimum_size_sync();
+	pending_markdown_text = p_markdown;
+	_queue_markdown_update();
 }
 
 String AIMarkdownLabel::get_markdown() const {
@@ -270,6 +293,8 @@ void AIMarkdownLabel::clear() {
 	}
 
 	markdown_text.clear();
+	pending_markdown_text.clear();
+	has_pending_markdown_update = false;
 	parsed_text.clear();
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown(String());
@@ -285,6 +310,8 @@ void AIMarkdownLabel::add_text(const String &p_text) {
 	}
 
 	markdown_text = escaped_text;
+	pending_markdown_text = escaped_text;
+	has_pending_markdown_update = false;
 	parsed_text = p_text;
 	if (markdown_viewer) {
 		markdown_viewer->set_markdown_document(markdown_text, _make_plain_text_document(p_text));

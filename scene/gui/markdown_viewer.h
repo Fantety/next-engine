@@ -36,7 +36,7 @@ class MarkdownViewer : public Control {
 	bool layout_dirty = true;
 	bool measured_layout_valid = false;
 	bool async_parse_pending = false;
-	int async_parse_minimum_length = 4096;
+	int async_parse_minimum_length = 1024;
 	int64_t document_generation = 0;
 	int64_t async_parse_generation = 0;
 	int layout_build_count_for_test = 0;

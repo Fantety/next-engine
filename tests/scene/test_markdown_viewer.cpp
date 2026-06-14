@@ -525,6 +525,38 @@ TEST_CASE("[SceneTree][MarkdownViewer] Content height query caches repeated off-
 	memdelete(viewer);
 }
 
+TEST_CASE("[SceneTree][MarkdownViewer] Default async parse threshold offloads medium markdown") {
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(320, 120));
+	viewer->set_async_parsing_enabled(true);
+
+	String markdown;
+	for (int i = 0; i < 26; i++) {
+		markdown += "This paragraph is long enough to represent a streaming assistant response with Markdown structure.\n\n";
+	}
+	REQUIRE(markdown.length() > 1024);
+	REQUIRE(markdown.length() < 4096);
+
+	viewer->set_markdown(markdown);
+	CHECK(viewer->is_async_parse_pending_for_test());
+
+	for (int i = 0; i < 200 && viewer->is_async_parse_pending_for_test(); i++) {
+		if (OS::get_singleton()) {
+			OS::get_singleton()->delay_usec(1000);
+		}
+		if (MessageQueue::get_singleton()) {
+			MessageQueue::get_singleton()->flush();
+		}
+	}
+	if (MessageQueue::get_singleton()) {
+		MessageQueue::get_singleton()->flush();
+	}
+
+	CHECK_FALSE(viewer->is_async_parse_pending_for_test());
+
+	memdelete(viewer);
+}
+
 TEST_CASE("[SceneTree][MarkdownViewer] Async parse applies only the latest markdown") {
 	MarkdownViewer *viewer = memnew(MarkdownViewer);
 	viewer->set_size(Size2(320, 120));

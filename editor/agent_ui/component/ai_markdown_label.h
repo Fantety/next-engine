@@ -13,15 +13,21 @@ class AIMarkdownLabel : public VBoxContainer {
 	GDCLASS(AIMarkdownLabel, VBoxContainer);
 
 	String markdown_text;
+	String pending_markdown_text;
 	String parsed_text;
 	MarkdownViewer *markdown_viewer = nullptr;
 	mutable real_t cached_layout_width = -1.0;
 	mutable real_t cached_content_height = 0.0;
+	bool has_pending_markdown_update = false;
+	bool markdown_update_queued = false;
 	bool layout_sync_queued = false;
 
 	void _markdown_viewer_minimum_size_changed();
 	real_t _get_layout_width() const;
 	void _invalidate_cached_layout();
+	void _queue_markdown_update();
+	void _flush_markdown_update();
+	void _apply_markdown_update(const String &p_markdown);
 	void _queue_markdown_viewer_minimum_size_sync();
 	void _flush_markdown_viewer_minimum_size_sync();
 	void _sync_markdown_viewer_minimum_size() const;

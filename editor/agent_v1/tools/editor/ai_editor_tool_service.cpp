@@ -16,11 +16,13 @@
 #include "editor/scene/editor_scene_tabs.h"
 #include "editor/scene/scene_tree_editor.h"
 #include "scene/main/node.h"
+#include "scene/main/scene_tree.h"
 #include "scene/resources/packed_scene.h"
 
 Mutex AIV1EditorToolService::main_thread_dispatch_mutex;
 Vector<AIV1EditorToolService::MainThreadDispatchItem> AIV1EditorToolService::main_thread_dispatch_items;
 uint64_t AIV1EditorToolService::main_thread_dispatch_next_id = 0;
+bool AIV1EditorToolService::main_thread_dispatch_flush_queued = false;
 
 void AIV1EditorToolService::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_update_scene_tree"), &AIV1EditorToolService::_update_scene_tree);
@@ -29,11 +31,8 @@ void AIV1EditorToolService::_bind_methods() {
 
 Error AIV1EditorToolService::_queue_main_thread_dispatch(const Callable &p_callable, const Variant &p_argument, uint64_t &r_item_id) {
 	r_item_id = 0;
-	CallQueue *message_queue = MessageQueue::get_main_singleton();
-	if (!message_queue) {
-		return ERR_UNAVAILABLE;
-	}
 
+	bool should_schedule_flush = false;
 	{
 		MutexLock lock(main_thread_dispatch_mutex);
 		MainThreadDispatchItem item;
@@ -42,18 +41,29 @@ Error AIV1EditorToolService::_queue_main_thread_dispatch(const Callable &p_calla
 		item.argument = p_argument;
 		r_item_id = item.id;
 		main_thread_dispatch_items.push_back(item);
+		if (!main_thread_dispatch_flush_queued) {
+			main_thread_dispatch_flush_queued = true;
+			should_schedule_flush = true;
+		}
 	}
 
-	const Error err = message_queue->push_callable(callable_mp_static(&AIV1EditorToolService::flush_pending_main_thread_dispatches_for_wait));
+	if (!should_schedule_flush) {
+		return OK;
+	}
+
+	const Error err = _schedule_main_thread_dispatch_flush(false);
 	if (err != OK) {
 		bool removed_item = false;
-		MutexLock lock(main_thread_dispatch_mutex);
-		for (int i = main_thread_dispatch_items.size() - 1; i >= 0; i--) {
-			if (main_thread_dispatch_items[i].id == r_item_id) {
-				main_thread_dispatch_items.remove_at(i);
-				removed_item = true;
-				break;
+		{
+			MutexLock lock(main_thread_dispatch_mutex);
+			for (int i = main_thread_dispatch_items.size() - 1; i >= 0; i--) {
+				if (main_thread_dispatch_items[i].id == r_item_id) {
+					main_thread_dispatch_items.remove_at(i);
+					removed_item = true;
+					break;
+				}
 			}
+			main_thread_dispatch_flush_queued = false;
 		}
 		if (removed_item) {
 			r_item_id = 0;
@@ -73,10 +83,32 @@ bool AIV1EditorToolService::_remove_queued_main_thread_dispatch(uint64_t p_item_
 	for (int i = main_thread_dispatch_items.size() - 1; i >= 0; i--) {
 		if (main_thread_dispatch_items[i].id == p_item_id) {
 			main_thread_dispatch_items.remove_at(i);
+			if (main_thread_dispatch_items.is_empty()) {
+				main_thread_dispatch_flush_queued = false;
+			}
 			return true;
 		}
 	}
 	return false;
+}
+
+Error AIV1EditorToolService::_schedule_main_thread_dispatch_flush(bool p_next_process_frame) {
+	const Callable flush_callable = callable_mp_static(&AIV1EditorToolService::flush_pending_main_thread_dispatches_for_wait);
+	if (p_next_process_frame && Thread::is_main_thread()) {
+		SceneTree *tree = SceneTree::get_singleton();
+		if (tree) {
+			if (tree->is_connected(SNAME("process_frame"), flush_callable)) {
+				return OK;
+			}
+			return tree->connect(SNAME("process_frame"), flush_callable, Object::CONNECT_ONE_SHOT);
+		}
+	}
+
+	CallQueue *message_queue = MessageQueue::get_main_singleton();
+	if (!message_queue) {
+		return ERR_UNAVAILABLE;
+	}
+	return message_queue->push_callable(flush_callable);
 }
 
 void AIV1EditorToolService::flush_pending_main_thread_dispatches_for_wait() {
@@ -84,25 +116,43 @@ void AIV1EditorToolService::flush_pending_main_thread_dispatches_for_wait() {
 		return;
 	}
 
-	while (true) {
-		Vector<MainThreadDispatchItem> dispatch_items;
+	int executed_count = 0;
+	while (executed_count < MAIN_THREAD_DISPATCH_FLUSH_BUDGET) {
+		MainThreadDispatchItem dispatch_item;
 		{
 			MutexLock lock(main_thread_dispatch_mutex);
 			if (main_thread_dispatch_items.is_empty()) {
+				main_thread_dispatch_flush_queued = false;
 				return;
 			}
-			dispatch_items = main_thread_dispatch_items;
-			main_thread_dispatch_items.clear();
+			dispatch_item = main_thread_dispatch_items[0];
+			main_thread_dispatch_items.remove_at(0);
 		}
 
-		for (int i = 0; i < dispatch_items.size(); i++) {
-			const Variant *argptrs[1] = { &dispatch_items[i].argument };
-			Callable::CallError ce;
-			Variant ret;
-			dispatch_items[i].callable.callp(argptrs, 1, ret, ce);
-			if (ce.error != Callable::CallError::CALL_OK) {
-				ERR_PRINT("Failed to dispatch AI editor tool request: " + Variant::get_callable_error_text(dispatch_items[i].callable, argptrs, 1, ce) + ".");
-			}
+		const Variant *argptrs[1] = { &dispatch_item.argument };
+		Callable::CallError ce;
+		Variant ret;
+		dispatch_item.callable.callp(argptrs, 1, ret, ce);
+		if (ce.error != Callable::CallError::CALL_OK) {
+			ERR_PRINT("Failed to dispatch AI editor tool request: " + Variant::get_callable_error_text(dispatch_item.callable, argptrs, 1, ce) + ".");
+		}
+		executed_count++;
+	}
+
+	bool has_more = false;
+	{
+		MutexLock lock(main_thread_dispatch_mutex);
+		has_more = !main_thread_dispatch_items.is_empty();
+		if (!has_more) {
+			main_thread_dispatch_flush_queued = false;
+		}
+	}
+	if (has_more) {
+		const Error err = _schedule_main_thread_dispatch_flush(true);
+		if (err != OK) {
+			MutexLock lock(main_thread_dispatch_mutex);
+			main_thread_dispatch_flush_queued = false;
+			ERR_PRINT("Failed to schedule remaining AI editor tool dispatches.");
 		}
 	}
 }
@@ -281,4 +331,17 @@ Node *AIV1EditorToolService::resolve_scene_node_path_for_test(Node *p_scene_root
 	Ref<AIV1EditorToolService> service;
 	service.instantiate();
 	return service->_resolve_node_path(p_scene_root, p_path, p_allow_root, r_error);
+}
+
+int AIV1EditorToolService::get_main_thread_dispatch_flush_budget_for_test() {
+	return MAIN_THREAD_DISPATCH_FLUSH_BUDGET;
+}
+
+int AIV1EditorToolService::get_pending_main_thread_dispatch_count_for_test() {
+	MutexLock lock(main_thread_dispatch_mutex);
+	return main_thread_dispatch_items.size();
+}
+
+Error AIV1EditorToolService::queue_main_thread_dispatch_for_test(const Callable &p_callable, const Variant &p_argument, uint64_t &r_item_id) {
+	return _queue_main_thread_dispatch(p_callable, p_argument, r_item_id);
 }

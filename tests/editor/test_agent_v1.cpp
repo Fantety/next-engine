@@ -19,6 +19,7 @@
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/config/ai_local_settings_store.h"
 #include "editor/agent_v1/agents/ai_agent_service_v1.h"
+#include "editor/agent_v1/core/threading/ai_main_thread_dispatcher.h"
 #include "editor/agent_v1/core/runtime/ai_stream_sink.h"
 #include "editor/agent_v1/core/runtime/ai_stream_event.h"
 #include "editor/agent_v1/core/testing/ai_fake_mcp_server.h"
@@ -40,6 +41,7 @@
 #include "editor/agent_v1/skills/ai_skill_service_v1.h"
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
+#include "editor/agent_v1/tools/editor/ai_editor_tool_service.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_adapter.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
@@ -116,12 +118,17 @@ static void flush_deferred_calls() {
 
 static bool editor_progress_flush_callable_ran = false;
 static bool editor_progress_flush_callable_used_background = false;
+static int editor_tool_dispatch_flush_counter = 0;
 
 static void create_editor_progress_during_message_queue_flush() {
 	editor_progress_flush_callable_ran = true;
 	EditorProgress progress("agent_v1_flush_progress", "Agent V1 Flush Progress", 2);
 	editor_progress_flush_callable_used_background = progress.force_background;
 	progress.step("Running during flush", 1);
+}
+
+static void increment_editor_tool_dispatch_flush_counter(const Variant &p_value) {
+	editor_tool_dispatch_flush_counter += int(p_value);
 }
 
 static Label *find_first_label(Node *p_node) {
@@ -1559,6 +1566,46 @@ TEST_CASE("[Editor][AgentUI] Markdown label renders plain text without Markdown 
 	CHECK(label->get_parsed_text() == "Plain **text** that should stay literal.");
 	CHECK(viewer->get_document_build_count_for_test() == 0);
 	CHECK(viewer->get_content_height() > 0.0);
+
+	memdelete(label);
+}
+
+TEST_CASE("[Editor][AgentUI] Markdown label coalesces repeated markdown rendering until deferred flush") {
+	AIMarkdownLabel *label = memnew(AIMarkdownLabel);
+	MarkdownViewer *viewer = label->get_markdown_viewer();
+	REQUIRE(viewer);
+
+	label->set_size(Size2(320, 120));
+	label->set_markdown("# First\n\nThis update should be superseded.");
+	label->set_markdown("# Latest\n\nOnly this markdown should reach the viewer.");
+
+	CHECK(label->get_markdown() == "# Latest\n\nOnly this markdown should reach the viewer.");
+	CHECK(viewer->get_markdown().is_empty());
+
+	flush_deferred_calls();
+	CHECK(viewer->get_markdown() == "# Latest\n\nOnly this markdown should reach the viewer.");
+	viewer->force_layout_for_test();
+	CHECK(viewer->get_content_height() > 0.0);
+
+	memdelete(label);
+}
+
+TEST_CASE("[Editor][AgentUI] Plain text update cancels pending markdown render") {
+	AIMarkdownLabel *label = memnew(AIMarkdownLabel);
+	MarkdownViewer *viewer = label->get_markdown_viewer();
+	REQUIRE(viewer);
+
+	label->set_size(Size2(320, 120));
+	label->set_markdown("# Pending\n\nThis markdown should not render.");
+	label->add_text("plain *content*");
+
+	const String rendered_markdown = viewer->get_markdown();
+	CHECK(label->get_parsed_text() == "plain *content*");
+	CHECK_FALSE(rendered_markdown.is_empty());
+
+	flush_deferred_calls();
+	CHECK(label->get_parsed_text() == "plain *content*");
+	CHECK(viewer->get_markdown() == rendered_markdown);
 
 	memdelete(label);
 }
@@ -3682,6 +3729,52 @@ TEST_CASE("[Editor][AgentV1] EditorProgress uses background mode during message 
 
 	CHECK(editor_progress_flush_callable_ran);
 	CHECK(editor_progress_flush_callable_used_background);
+}
+
+TEST_CASE("[Editor][AgentV1][Tools] Main-thread dispatch flush is budgeted") {
+	editor_tool_dispatch_flush_counter = 0;
+	const int budget = AIV1EditorToolService::get_main_thread_dispatch_flush_budget_for_test();
+	REQUIRE(budget > 0);
+
+	for (int i = 0; i < budget + 3; i++) {
+		uint64_t item_id = 0;
+		const Error err = AIV1EditorToolService::queue_main_thread_dispatch_for_test(callable_mp_static(&increment_editor_tool_dispatch_flush_counter), 1, item_id);
+		REQUIRE(err == OK);
+		REQUIRE(item_id != 0);
+	}
+
+	flush_deferred_calls();
+	CHECK(editor_tool_dispatch_flush_counter == budget);
+	CHECK(AIV1EditorToolService::get_pending_main_thread_dispatch_count_for_test() == 3);
+
+	AIV1EditorToolService::flush_pending_main_thread_dispatches_for_wait();
+	CHECK(editor_tool_dispatch_flush_counter == budget + 3);
+	CHECK(AIV1EditorToolService::get_pending_main_thread_dispatch_count_for_test() == 0);
+	flush_deferred_calls();
+}
+
+TEST_CASE("[Editor][AgentV1] Shared main-thread dispatcher flush is budgeted") {
+	editor_tool_dispatch_flush_counter = 0;
+	const int budget = AIMainThreadDispatcher::get_dispatch_flush_budget_for_test();
+	REQUIRE(budget > 0);
+
+	Array arguments;
+	arguments.push_back(1);
+	for (int i = 0; i < budget + 2; i++) {
+		uint64_t item_id = 0;
+		const Error err = AIMainThreadDispatcher::queue_call(callable_mp_static(&increment_editor_tool_dispatch_flush_counter), arguments, item_id);
+		REQUIRE(err == OK);
+		REQUIRE(item_id != 0);
+	}
+
+	flush_deferred_calls();
+	CHECK(editor_tool_dispatch_flush_counter == budget);
+	CHECK(AIMainThreadDispatcher::get_pending_call_count_for_test() == 2);
+
+	AIMainThreadDispatcher::flush_pending_calls();
+	CHECK(editor_tool_dispatch_flush_counter == budget + 2);
+	CHECK(AIMainThreadDispatcher::get_pending_call_count_for_test() == 0);
+	flush_deferred_calls();
 }
 
 TEST_CASE("[Editor][AgentV1] Model request parses OpenAI-style assistant tool calls") {

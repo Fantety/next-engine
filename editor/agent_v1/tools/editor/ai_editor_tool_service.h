@@ -22,6 +22,7 @@ class AIV1EditorToolService : public RefCounted {
 
 protected:
 	static constexpr uint32_t MAIN_THREAD_DISPATCH_WAIT_USEC = 1000;
+	static constexpr int MAIN_THREAD_DISPATCH_FLUSH_BUDGET = 8;
 
 	struct MainThreadDispatchItem {
 		uint64_t id = 0;
@@ -32,10 +33,12 @@ protected:
 	static Mutex main_thread_dispatch_mutex;
 	static Vector<MainThreadDispatchItem> main_thread_dispatch_items;
 	static uint64_t main_thread_dispatch_next_id;
+	static bool main_thread_dispatch_flush_queued;
 
 	static void _bind_methods();
 	static Error _queue_main_thread_dispatch(const Callable &p_callable, const Variant &p_argument, uint64_t &r_item_id);
 	static bool _remove_queued_main_thread_dispatch(uint64_t p_item_id);
+	static Error _schedule_main_thread_dispatch_flush(bool p_next_process_frame);
 
 	template <typename TResult, typename TRequest, typename TService>
 	static TResult _dispatch_main_thread_request(TRequest &r_request, TService *p_dispatcher, void (TService::*p_execute_request)(uint64_t), Mutex &r_request_mutex, const String &p_schedule_error) {
@@ -94,5 +97,8 @@ protected:
 
 public:
 	static void flush_pending_main_thread_dispatches_for_wait();
+	static int get_main_thread_dispatch_flush_budget_for_test();
+	static int get_pending_main_thread_dispatch_count_for_test();
+	static Error queue_main_thread_dispatch_for_test(const Callable &p_callable, const Variant &p_argument, uint64_t &r_item_id);
 	static Node *resolve_scene_node_path_for_test(Node *p_scene_root, const String &p_path, bool p_allow_root, String &r_error);
 };

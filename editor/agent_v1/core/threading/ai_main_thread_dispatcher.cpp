@@ -7,10 +7,12 @@
 #include "core/object/callable_mp.h"
 #include "core/os/os.h"
 #include "core/variant/variant.h"
+#include "scene/main/scene_tree.h"
 
 Mutex AIMainThreadDispatcher::dispatch_mutex;
 Vector<AIMainThreadDispatcher::DispatchItem> AIMainThreadDispatcher::dispatch_items;
 uint64_t AIMainThreadDispatcher::next_dispatch_id = 0;
+bool AIMainThreadDispatcher::flush_queued = false;
 
 bool AIMainThreadDispatcher::_call_callable(const Callable &p_callable, const Array &p_arguments, Variant &r_result, String &r_error) {
 	Vector<Variant> argument_storage;
@@ -41,6 +43,9 @@ bool AIMainThreadDispatcher::_remove_queued_call(uint64_t p_item_id) {
 	for (int i = dispatch_items.size() - 1; i >= 0; i--) {
 		if (dispatch_items[i].id == p_item_id) {
 			dispatch_items.remove_at(i);
+			if (dispatch_items.is_empty()) {
+				flush_queued = false;
+			}
 			return true;
 		}
 	}
@@ -59,11 +64,8 @@ void AIMainThreadDispatcher::_execute_sync_call(uint64_t p_request_ptr) {
 
 Error AIMainThreadDispatcher::queue_call(const Callable &p_callable, const Array &p_arguments, uint64_t &r_item_id) {
 	r_item_id = 0;
-	CallQueue *message_queue = MessageQueue::get_main_singleton();
-	if (!message_queue) {
-		return ERR_UNAVAILABLE;
-	}
 
+	bool should_schedule_flush = false;
 	{
 		MutexLock lock(dispatch_mutex);
 		DispatchItem item;
@@ -72,14 +74,48 @@ Error AIMainThreadDispatcher::queue_call(const Callable &p_callable, const Array
 		item.arguments = p_arguments.duplicate(true);
 		r_item_id = item.id;
 		dispatch_items.push_back(item);
+		if (!flush_queued) {
+			flush_queued = true;
+			should_schedule_flush = true;
+		}
 	}
 
-	const Error err = message_queue->push_callable(callable_mp_static(&AIMainThreadDispatcher::flush_pending_calls));
-	if (err != OK && _remove_queued_call(r_item_id)) {
-		r_item_id = 0;
-		return err;
+	if (!should_schedule_flush) {
+		return OK;
+	}
+
+	const Error err = _schedule_flush(false);
+	if (err != OK) {
+		const bool removed_item = _remove_queued_call(r_item_id);
+		{
+			MutexLock lock(dispatch_mutex);
+			flush_queued = false;
+		}
+		if (removed_item) {
+			r_item_id = 0;
+			return err;
+		}
 	}
 	return OK;
+}
+
+Error AIMainThreadDispatcher::_schedule_flush(bool p_next_process_frame) {
+	const Callable flush_callable = callable_mp_static(&AIMainThreadDispatcher::flush_pending_calls);
+	if (p_next_process_frame && Thread::is_main_thread()) {
+		SceneTree *tree = SceneTree::get_singleton();
+		if (tree) {
+			if (tree->is_connected(SNAME("process_frame"), flush_callable)) {
+				return OK;
+			}
+			return tree->connect(SNAME("process_frame"), flush_callable, Object::CONNECT_ONE_SHOT);
+		}
+	}
+
+	CallQueue *message_queue = MessageQueue::get_main_singleton();
+	if (!message_queue) {
+		return ERR_UNAVAILABLE;
+	}
+	return message_queue->push_callable(flush_callable);
 }
 
 void AIMainThreadDispatcher::flush_pending_calls() {
@@ -87,23 +123,41 @@ void AIMainThreadDispatcher::flush_pending_calls() {
 		return;
 	}
 
-	while (true) {
-		Vector<DispatchItem> items;
+	int executed_count = 0;
+	while (executed_count < DISPATCH_FLUSH_BUDGET) {
+		DispatchItem item;
 		{
 			MutexLock lock(dispatch_mutex);
 			if (dispatch_items.is_empty()) {
+				flush_queued = false;
 				return;
 			}
-			items = dispatch_items;
-			dispatch_items.clear();
+			item = dispatch_items[0];
+			dispatch_items.remove_at(0);
 		}
 
-		for (int i = 0; i < items.size(); i++) {
-			Variant result;
-			String error;
-			if (!_call_callable(items[i].callable, items[i].arguments, result, error)) {
-				ERR_PRINT("Failed to dispatch AI main-thread call: " + error + ".");
-			}
+		Variant result;
+		String error;
+		if (!_call_callable(item.callable, item.arguments, result, error)) {
+			ERR_PRINT("Failed to dispatch AI main-thread call: " + error + ".");
+		}
+		executed_count++;
+	}
+
+	bool has_more = false;
+	{
+		MutexLock lock(dispatch_mutex);
+		has_more = !dispatch_items.is_empty();
+		if (!has_more) {
+			flush_queued = false;
+		}
+	}
+	if (has_more) {
+		const Error err = _schedule_flush(true);
+		if (err != OK) {
+			MutexLock lock(dispatch_mutex);
+			flush_queued = false;
+			ERR_PRINT("Failed to schedule remaining AI main-thread calls.");
 		}
 	}
 }
@@ -156,4 +210,13 @@ bool AIMainThreadDispatcher::dispatch_sync(const Callable &p_callable, const Arr
 	r_result = request.result;
 	r_error = request.error;
 	return request.success;
+}
+
+int AIMainThreadDispatcher::get_dispatch_flush_budget_for_test() {
+	return DISPATCH_FLUSH_BUDGET;
+}
+
+int AIMainThreadDispatcher::get_pending_call_count_for_test() {
+	MutexLock lock(dispatch_mutex);
+	return dispatch_items.size();
 }
