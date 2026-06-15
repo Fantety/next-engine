@@ -29,6 +29,60 @@ bool _patch_contains_delete_node(const Dictionary &p_arguments, String &r_error)
 	return false;
 }
 
+bool _is_script_property_path(const String &p_property_path) {
+	const String property_path = p_property_path.strip_edges();
+	return property_path == "script" || property_path.begins_with("script:");
+}
+
+bool _dictionary_contains_script_property(const Dictionary &p_properties, const String &p_location, String &r_error) {
+	for (const KeyValue<Variant, Variant> &E : p_properties) {
+		const String property_path = String(E.key).strip_edges();
+		if (_is_script_property_path(property_path)) {
+			r_error = p_location + ": scene.apply_patch cannot set the `script` property. Use script.create or script.write (script_create or script_write) to create/update an external .gd file, then use script.bind_to_node / script_bind_to_node to attach it. Setting `script` through scene.apply_patch can serialize GDScript as a built-in .tscn subresource.";
+			return true;
+		}
+	}
+	return false;
+}
+
+bool _patch_contains_script_property_binding(const Dictionary &p_arguments, String &r_error) {
+	if (p_arguments.has("create_scene") && Variant(p_arguments["create_scene"]).get_type() == Variant::DICTIONARY) {
+		const Dictionary create_scene = p_arguments["create_scene"];
+		if (create_scene.has("properties") && Variant(create_scene["properties"]).get_type() == Variant::DICTIONARY) {
+			if (_dictionary_contains_script_property(Dictionary(create_scene["properties"]), "create_scene.properties", r_error)) {
+				return true;
+			}
+		}
+	}
+
+	if (!p_arguments.has("ops") || Variant(p_arguments["ops"]).get_type() != Variant::ARRAY) {
+		return false;
+	}
+
+	const Array ops = p_arguments["ops"];
+	for (int i = 0; i < ops.size(); i++) {
+		if (Variant(ops[i]).get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+
+		const Dictionary op_dict = ops[i];
+		const String op = String(op_dict.get("op", "")).strip_edges();
+		if (op == "set_property") {
+			if (_is_script_property_path(String(op_dict.get("property", "")).strip_edges())) {
+				r_error = vformat("ops[%d].property: scene.apply_patch cannot set the `script` property. Use script.create or script.write (script_create or script_write) to create/update an external .gd file, then use script.bind_to_node / script_bind_to_node to attach it. Setting `script` through scene.apply_patch can serialize GDScript as a built-in .tscn subresource.", i);
+				return true;
+			}
+		}
+		if ((op == "add_node" || op == "instantiate_scene" || op == "set_properties") && op_dict.has("properties") && Variant(op_dict["properties"]).get_type() == Variant::DICTIONARY) {
+			if (_dictionary_contains_script_property(Dictionary(op_dict["properties"]), vformat("ops[%d].properties", i), r_error)) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 } // namespace
 
 AIV1SceneApplyPatchTool::AIV1SceneApplyPatchTool() {
@@ -40,7 +94,7 @@ String AIV1SceneApplyPatchTool::get_name() const {
 }
 
 String AIV1SceneApplyPatchTool::get_description() const {
-	return "Applies a validated scene patch through Godot editor APIs. Use it for scene creation, node add/instantiate/rename/move, and batch property edits. Use scene.delete_node for node deletion. It never writes scene files directly.";
+	return "Applies a validated scene patch through Godot editor APIs. Use it for scene creation, node add/instantiate/rename/move, and batch property edits. Use scene.delete_node for node deletion. It does not bind GDScript; create/update external .gd files with script.create or script.write (script_create or script_write), then attach them with script.bind_to_node / script_bind_to_node. It never writes scene files directly.";
 }
 
 Dictionary AIV1SceneApplyPatchTool::get_parameters_schema() const {
@@ -129,12 +183,12 @@ Dictionary AIV1SceneApplyPatchTool::get_parameters_schema() const {
 
 	Dictionary properties_property;
 	properties_property["type"] = "object";
-	properties_property["description"] = "Property map for add_node, instantiate_scene, or set_properties. Keys must be real property paths. Values must match property types; vector-like values can use {\"type\":\"Vector2\",\"args\":[10,20]}. Resource-backed properties such as CollisionShape2D.shape, material, texture, or script accept {\"resource_type\":\"...\",\"properties\":{...}} or {\"resource_path\":\"res://...\"}; for a new shape, set shape to {\"resource_type\":\"RectangleShape2D\",\"properties\":{\"size\":{\"type\":\"Vector2\",\"args\":[64,32]}}} instead of editing shape:size while shape is null.";
+	properties_property["description"] = "Property map for add_node, instantiate_scene, or set_properties. Keys must be real property paths. Values must match property types; vector-like values can use {\"type\":\"Vector2\",\"args\":[10,20]}. Do not set `script` here; create/update external .gd files with script.create or script.write (script_create or script_write), then attach them with script.bind_to_node / script_bind_to_node. Resource-backed properties such as CollisionShape2D.shape, material, or texture accept {\"resource_type\":\"...\",\"properties\":{...}} or {\"resource_path\":\"res://...\"}; for a new shape, set shape to {\"resource_type\":\"RectangleShape2D\",\"properties\":{\"size\":{\"type\":\"Vector2\",\"args\":[64,32]}}} instead of editing shape:size while shape is null.";
 	item_properties["properties"] = properties_property;
 
 	Dictionary property_property;
 	property_property["type"] = "string";
-	property_property["description"] = "Single property path for set_property. Prefer exact paths returned by scene.list_properties. Nested Resource subpaths such as shape:size work only after the parent Resource exists; otherwise set the parent Resource with a resource_type/resource_path dictionary and nested properties.";
+	property_property["description"] = "Single property path for set_property. Prefer exact paths returned by scene.list_properties. Do not set `script` with this tool; use script.bind_to_node / script_bind_to_node after creating or writing the .gd file. Nested Resource subpaths such as shape:size work only after the parent Resource exists; otherwise set the parent Resource with a resource_type/resource_path dictionary and nested properties.";
 	item_properties["property"] = property_property;
 
 	Dictionary value_property;
@@ -184,6 +238,12 @@ AIV1EditorToolResult AIV1SceneApplyPatchTool::execute_tool(const Dictionary &p_a
 	String delete_node_error;
 	if (_patch_contains_delete_node(p_arguments, delete_node_error)) {
 		result.error = delete_node_error;
+		print_line(vformat("[AI Agent][Tool:scene.apply_patch] Failed: %s", result.error));
+		return result;
+	}
+	String script_property_error;
+	if (_patch_contains_script_property_binding(p_arguments, script_property_error)) {
+		result.error = script_property_error;
 		print_line(vformat("[AI Agent][Tool:scene.apply_patch] Failed: %s", result.error));
 		return result;
 	}

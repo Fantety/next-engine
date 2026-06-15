@@ -138,7 +138,7 @@ void MarkdownViewerDrawHelper::_draw_text_lines(MarkdownViewer &p_viewer, const 
 	}
 }
 
-void MarkdownViewerDrawHelper::draw(MarkdownViewer &p_viewer, const MarkdownViewerLayout &p_layout, const MarkdownViewerLayoutTheme &p_theme, real_t p_scroll_offset, real_t p_table_horizontal_scroll_offset) {
+void MarkdownViewerDrawHelper::draw(MarkdownViewer &p_viewer, const MarkdownViewerLayout &p_layout, const MarkdownViewerLayoutTheme &p_theme, real_t p_scroll_offset, real_t p_table_horizontal_scroll_offset, const Vector<Rect2> &p_selection_rects) {
 	const Rect2 viewport_rect(Point2(), p_viewer.get_size());
 	const Vector<int> visible = collect_visible_item_indices_for_test(p_layout, viewport_rect, p_scroll_offset);
 
@@ -223,6 +223,12 @@ void MarkdownViewerDrawHelper::draw(MarkdownViewer &p_viewer, const MarkdownView
 			default: {
 				_draw_text_lines(p_viewer, item, p_theme, p_scroll_offset);
 			} break;
+		}
+	}
+
+	for (const Rect2 &selection_rect : p_selection_rects) {
+		if (selection_rect.intersects(viewport_rect)) {
+			p_viewer.draw_rect(selection_rect, p_theme.selection_color, true);
 		}
 	}
 

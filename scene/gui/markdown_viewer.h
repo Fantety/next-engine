@@ -12,6 +12,17 @@
 class MarkdownViewer : public Control {
 	GDCLASS(MarkdownViewer, Control);
 
+	struct SelectableRun {
+		int start = 0;
+		int end = 0;
+		Rect2 rect;
+		String text;
+		Ref<Font> font;
+		int font_size = 16;
+		bool table_cell = false;
+		real_t table_max_scroll_offset = 0.0;
+	};
+
 	String markdown;
 	MarkdownViewerDocument document;
 	MarkdownViewerLayout layout;
@@ -24,6 +35,7 @@ class MarkdownViewer : public Control {
 	bool syntax_highlighting_enabled = true;
 	bool code_copy_enabled = true;
 	bool async_parsing_enabled = true;
+	bool selection_enabled = true;
 
 	real_t image_max_width = 800.0;
 	real_t image_max_height = 420.0;
@@ -37,17 +49,28 @@ class MarkdownViewer : public Control {
 	bool layout_dirty = true;
 	bool measured_layout_valid = false;
 	bool async_parse_pending = false;
+	bool selectable_runs_dirty = true;
+	bool selection_dragging = false;
+	bool selection_dragged = false;
+	bool pending_click_hit_valid = false;
 	int async_parse_minimum_length = 1024;
 	int64_t document_generation = 0;
 	int64_t async_parse_generation = 0;
 	int layout_build_count_for_test = 0;
 	int document_build_count_for_test = 0;
+	int selection_anchor = 0;
+	int selection_caret = 0;
+	Point2 selection_drag_start;
+	MarkdownViewerHitTest pending_click_hit;
+	Vector<SelectableRun> selectable_runs;
+	String selectable_text;
 
 	void _mark_parse_dirty();
 	void _mark_layout_dirty();
 	void _clear_measured_layout_cache();
 	void _ensure_document();
 	void _ensure_layout();
+	void _ensure_selectable_runs();
 	void _build_layout(const Size2 &p_layout_size);
 	bool _should_parse_async() const;
 	bool _start_async_parse();
@@ -55,6 +78,19 @@ class MarkdownViewer : public Control {
 	void _clamp_scroll_offset();
 	void _clamp_table_horizontal_scroll_offset();
 	bool _scroll_table_horizontally(real_t p_delta);
+	void _clear_selection();
+	void _clamp_selection();
+	void _append_selectable_run(const String &p_text, const Rect2 &p_rect, const Ref<Font> &p_font, int p_font_size, bool p_table_cell = false, real_t p_table_max_scroll_offset = 0.0);
+	void _append_selectable_separator(const String &p_separator);
+	int _get_selection_start() const;
+	int _get_selection_end() const;
+	bool _copy_selection_to_clipboard() const;
+	bool _is_copy_shortcut(const Ref<InputEventKey> &p_key) const;
+	bool _is_select_all_shortcut(const Ref<InputEventKey> &p_key) const;
+	bool _get_selection_offset_at_position(const Point2 &p_position, int &r_offset, bool p_allow_outside = false);
+	real_t _measure_run_text_width(const SelectableRun &p_run, int p_chars) const;
+	Vector<Rect2> _get_selection_rects() const;
+	void _activate_hit(const MarkdownViewerHitTest &p_hit);
 	MarkdownViewerLayoutTheme _make_layout_theme() const;
 	bool _resolve_hit_test(const Point2 &p_position, MarkdownViewerHitTest &r_hit);
 	void _image_state_changed(const String &p_source);
@@ -91,6 +127,13 @@ public:
 	void set_async_parsing_enabled(bool p_enabled);
 	bool is_async_parsing_enabled() const;
 
+	void set_selection_enabled(bool p_enabled);
+	bool is_selection_enabled() const;
+	bool has_selection() const;
+	String get_selected_text() const;
+	void select_all();
+	void deselect();
+
 	void set_image_max_width(real_t p_width);
 	real_t get_image_max_width() const;
 
@@ -107,6 +150,7 @@ public:
 	void set_table_horizontal_scroll_offset_for_test(real_t p_offset);
 	real_t get_table_horizontal_scroll_offset_for_test() const;
 	real_t get_max_table_horizontal_scroll_offset_for_test() const;
+	Point2 get_text_caret_position_for_test(int p_offset);
 	int get_layout_build_count_for_test() const;
 	int get_document_build_count_for_test() const;
 	bool is_async_parse_pending_for_test() const;

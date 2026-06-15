@@ -1513,6 +1513,7 @@ AIV1SceneEditingResult AIV1SceneEditingService::_list_properties_main_thread(con
 	String content;
 	content += vformat("Properties for node `%s` (%s)\n", p_node_path, node->get_class());
 	content += "Use `property_path` exactly in scene.apply_patch set_property or set_properties operations. For subproperty edits, use one of the listed subproperty_paths when present.\n";
+	content += "Do not use scene.apply_patch / scene_apply_patch to set `script`; create/update the external .gd with script.create or script.write (script_create or script_write), then attach it with script.bind_to_node / script_bind_to_node so the scene keeps an external script reference instead of a built-in GDScript subresource.\n";
 	content += "Resource properties accept null, {\"resource_path\":\"res://...\"}, or {\"resource_type\":\"Type\",\"properties\":{...}}. For CollisionShape2D/3D.shape and similar complex Resource properties, create or load the Resource first and put nested values under `properties`; paths like shape:size work only after shape already exists.\n";
 	for (int i = 0; i < properties.size(); i++) {
 		Dictionary property = properties[i];

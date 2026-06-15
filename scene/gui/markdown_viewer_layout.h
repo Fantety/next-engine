@@ -44,6 +44,7 @@ struct MarkdownViewerLayoutTheme {
 	Color blockquote_color = Color(0.4, 0.55, 0.9);
 	Color image_background_color = Color(0.11, 0.11, 0.12);
 	Color image_error_color = Color(0.9, 0.35, 0.3);
+	Color selection_color = Color(0.25, 0.48, 1.0, 0.35);
 };
 
 struct MarkdownViewerLayoutSpan {

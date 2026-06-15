@@ -25,6 +25,7 @@ TEST_FORCE_LINK(test_markdown_viewer)
 #include "scene/main/window.h"
 #include "scene/resources/font.h"
 #include "scene/theme/theme_db.h"
+#include "tests/display_server_mock.h"
 #include "tests/signal_watcher.h"
 #include "tests/test_tools.h"
 
@@ -497,6 +498,93 @@ TEST_CASE("[SceneTree][MarkdownViewer] Control updates content height after layo
 
 	CHECK(viewer->get_content_height() > 0.0);
 
+	memdelete(viewer);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Select all and copy uses rendered plain text") {
+	DisplayServerMock *DS = static_cast<DisplayServerMock *>(DisplayServer::get_singleton());
+	REQUIRE(DS != nullptr);
+	DS->clipboard_set("");
+
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(420, 240));
+	viewer->set_markdown("# Title\n\nBody with **bold** and `code`.");
+	root->add_child(viewer);
+	viewer->force_layout_for_test();
+	viewer->select_all();
+	viewer->grab_focus();
+
+	SEND_GUI_KEY_EVENT(Key::C | KeyModifierMask::CMD_OR_CTRL);
+
+	CHECK(viewer->get_selected_text() == "Title\nBody with bold and code.");
+	CHECK(DS->clipboard_get() == "Title\nBody with bold and code.");
+
+	root->remove_child(viewer);
+	memdelete(viewer);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Mouse drag selection can be copied") {
+	DisplayServerMock *DS = static_cast<DisplayServerMock *>(DisplayServer::get_singleton());
+	REQUIRE(DS != nullptr);
+	DS->clipboard_set("");
+
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(420, 120));
+	viewer->set_markdown("Alpha beta gamma");
+	root->add_child(viewer);
+	viewer->force_layout_for_test();
+
+	const Point2 selection_start = viewer->get_text_caret_position_for_test(0);
+	const Point2 selection_end = viewer->get_text_caret_position_for_test(5);
+	SEND_GUI_MOUSE_BUTTON_EVENT(selection_start, MouseButton::LEFT, MouseButtonMask::LEFT, Key::NONE);
+	SEND_GUI_MOUSE_MOTION_EVENT(selection_end, MouseButtonMask::LEFT, Key::NONE);
+	SEND_GUI_MOUSE_BUTTON_RELEASED_EVENT(selection_end, MouseButton::LEFT, MouseButtonMask::NONE, Key::NONE);
+
+	viewer->grab_focus();
+	SEND_GUI_KEY_EVENT(Key::C | KeyModifierMask::CMD_OR_CTRL);
+
+	CHECK(viewer->get_selected_text() == "Alpha");
+	CHECK(DS->clipboard_get() == "Alpha");
+
+	root->remove_child(viewer);
+	memdelete(viewer);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Link clicks are not emitted while selecting link text") {
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root != nullptr);
+
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(420, 120));
+	viewer->set_markdown("[Godot](https://godotengine.org) docs");
+	root->add_child(viewer);
+	viewer->force_layout_for_test();
+
+	SIGNAL_WATCH(viewer, "link_clicked");
+
+	const Point2 click_start = viewer->get_text_caret_position_for_test(0);
+	SEND_GUI_MOUSE_BUTTON_EVENT(click_start, MouseButton::LEFT, MouseButtonMask::LEFT, Key::NONE);
+	SEND_GUI_MOUSE_BUTTON_RELEASED_EVENT(click_start, MouseButton::LEFT, MouseButtonMask::NONE, Key::NONE);
+	Array signal_args = { { "https://godotengine.org" } };
+	SIGNAL_CHECK("link_clicked", signal_args);
+
+	const Point2 selection_start = viewer->get_text_caret_position_for_test(0);
+	const Point2 selection_end = viewer->get_text_caret_position_for_test(5);
+	SEND_GUI_MOUSE_BUTTON_EVENT(selection_start, MouseButton::LEFT, MouseButtonMask::LEFT, Key::NONE);
+	SEND_GUI_MOUSE_MOTION_EVENT(selection_end, MouseButtonMask::LEFT, Key::NONE);
+	SEND_GUI_MOUSE_BUTTON_RELEASED_EVENT(selection_end, MouseButton::LEFT, MouseButtonMask::NONE, Key::NONE);
+
+	SIGNAL_CHECK_FALSE("link_clicked");
+	CHECK(viewer->get_selected_text() == "Godot");
+
+	SIGNAL_UNWATCH(viewer, "link_clicked");
+	root->remove_child(viewer);
 	memdelete(viewer);
 }
 

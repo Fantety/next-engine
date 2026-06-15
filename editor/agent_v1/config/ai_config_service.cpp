@@ -80,6 +80,7 @@ Array AIConfigService::get_fixed_system_prompt() {
 	system.push_back("For broad, vague, or new-game requests, ask concise clarifying questions first. Once scope is clear, make a short implementation plan before editing scenes, scripts, resources, or settings.");
 	system.push_back("For requests with three or more clear steps, use the todowrite tool to maintain the visible session task list. Submit the complete todo snapshot before starting, keep exactly one item in_progress, update it immediately after each step completes, mark obsolete work cancelled, and do not batch progress updates only at the end.");
 	system.push_back("Use editor and project tools carefully: read before writing, keep changes scoped, preserve user work, respect permission decisions, and route risky or destructive actions through the review/permission flow.");
+	system.push_back("Never bind GDScript through scene.apply_patch / scene_apply_patch or by setting a node `script` property. scene.apply_patch resource_path values are for ordinary resources and may serialize scripts as built-in scene subresources. To attach external scripts, first create or update the .gd file with script.create or script.write (script_create or script_write), then bind it with script.bind_to_node / script_bind_to_node.");
 	return system;
 }
 

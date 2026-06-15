@@ -42,6 +42,7 @@
 #include "editor/agent_v1/tools/ai_builtin_tools_v1.h"
 #include "editor/agent_v1/tools/ai_tool_registry_v1.h"
 #include "editor/agent_v1/tools/editor/ai_editor_tool_service.h"
+#include "editor/agent_v1/tools/editor/ai_scene_apply_patch_tool.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_adapter.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
@@ -2054,6 +2055,66 @@ TEST_CASE("[Editor][AgentV1] Config service includes fixed agent guidance and bu
 	CHECK(combined.contains("Core Workflow"));
 	CHECK(combined.contains("Confirm before building"));
 	CHECK(combined.contains("Scene Tree Architecture"));
+	CHECK(combined.contains("Never bind GDScript through scene.apply_patch"));
+	CHECK(combined.contains("scene_apply_patch"));
+	CHECK(combined.contains("script.create or script.write"));
+	CHECK(combined.contains("script_create or script_write"));
+	CHECK(combined.contains("script.bind_to_node"));
+	CHECK(combined.contains("script_bind_to_node"));
+}
+
+TEST_CASE("[Editor][AgentV1] Scene apply patch schema redirects script binding to script tools") {
+	Ref<AIV1SceneApplyPatchTool> tool;
+	tool.instantiate();
+
+	const String description = tool->get_description();
+	CHECK(description.contains("does not bind GDScript"));
+	CHECK(description.contains("script.bind_to_node"));
+	CHECK(description.contains("script_bind_to_node"));
+
+	const Dictionary schema = tool->get_parameters_schema();
+	const Dictionary properties = schema["properties"];
+	const Dictionary ops_property = properties["ops"];
+	const Dictionary item_schema = ops_property["items"];
+	const Dictionary item_properties = item_schema["properties"];
+	const Dictionary properties_property = item_properties["properties"];
+	const Dictionary property_property = item_properties["property"];
+	const String properties_description = String(properties_property["description"]);
+	const String property_description = String(property_property["description"]);
+
+	CHECK(properties_description.contains("Do not set `script`"));
+	CHECK(properties_description.contains("script.bind_to_node"));
+	CHECK(properties_description.contains("script_bind_to_node"));
+	CHECK_FALSE(properties_description.contains("or script accept"));
+	CHECK(property_description.contains("Do not set `script`"));
+	CHECK(property_description.contains("script_bind_to_node"));
+}
+
+TEST_CASE("[Editor][AgentV1] Scene apply patch rejects script property binding") {
+	Ref<AIV1SceneApplyPatchTool> tool;
+	tool.instantiate();
+
+	Dictionary script_resource;
+	script_resource["resource_path"] = "res://player.gd";
+
+	Dictionary op;
+	op["op"] = "set_property";
+	op["node"] = ".";
+	op["property"] = "script";
+	op["value"] = script_resource;
+	Array ops;
+	ops.push_back(op);
+
+	Dictionary arguments;
+	arguments["ops"] = ops;
+	const AIV1EditorToolResult result = tool->execute_tool(arguments);
+
+	CHECK(result.is_error());
+	CHECK(result.error.contains("scene.apply_patch cannot set the `script` property"));
+	CHECK(result.error.contains("script.create"));
+	CHECK(result.error.contains("script.write"));
+	CHECK(result.error.contains("script.bind_to_node"));
+	CHECK(result.error.contains("script_bind_to_node"));
 }
 
 TEST_CASE("[Editor][AgentV1] Configured agent prompt still receives bundled best practices") {
