@@ -105,6 +105,7 @@ struct MarkdownViewerLayoutItem {
 	String marker_text;
 	bool marker_unordered = false;
 	Rect2 marker_rect;
+	real_t scroll_viewport_width = 0.0;
 };
 
 struct MarkdownViewerLayout {

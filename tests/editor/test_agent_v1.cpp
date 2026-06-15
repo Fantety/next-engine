@@ -1439,6 +1439,105 @@ TEST_CASE("[Editor][AgentUI] Message list scroll range covers fractional bubble 
 	memdelete(list);
 }
 
+TEST_CASE("[Editor][AgentUI] Message list user scroll cancels pending bottom follow") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AIMessageList *list = memnew(AIMessageList);
+	root->add_child(list);
+	list->set_size(Size2(320, 180));
+
+	Array messages;
+	for (int i = 0; i < 80; i++) {
+		Dictionary message;
+		message["id"] = "user-scroll-message-" + itos(i);
+		message["role"] = "assistant";
+		message["content"] = "Message " + itos(i);
+		messages.push_back(message);
+	}
+
+	list->set_messages(messages);
+	settle_gui_layout(8);
+	list->scroll_to_bottom();
+	flush_deferred_calls();
+
+	VScrollBar *scroll_bar = list->get_v_scroll_bar();
+	REQUIRE(scroll_bar);
+	REQUIRE(scroll_bar->get_max() > scroll_bar->get_page());
+
+	list->set_v_scroll(0);
+
+	Dictionary appended;
+	appended["id"] = "user-scroll-appended-message";
+	appended["role"] = "assistant";
+	appended["content"] = "New message should not pull the user back down.";
+	messages.push_back(appended);
+	list->set_messages(messages);
+	settle_gui_layout(8);
+
+	CHECK(scroll_bar->get_value() <= 2.0);
+
+	root->remove_child(list);
+	memdelete(list);
+}
+
+TEST_CASE("[Editor][AgentUI] Dock live message updates preserve user scroll position") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AIAgentV1UIBridge::clear_singleton_for_test();
+
+	AIAgentDock *dock = memnew(AIAgentDock);
+	root->add_child(dock);
+	dock->set_size(Size2(360, 520));
+	settle_gui_layout(8);
+
+	AIMessageList *list = find_first_message_list(dock);
+	REQUIRE(list);
+
+	Ref<AIAgentV1UIBridge> bridge = AIAgentV1UIBridge::get_singleton();
+	REQUIRE(bridge.is_valid());
+	const String session_id = bridge->get_active_session_id();
+	REQUIRE_FALSE(session_id.is_empty());
+
+	Array messages;
+	for (int i = 0; i < 90; i++) {
+		Dictionary message;
+		message["id"] = "dock-live-scroll-message-" + itos(i);
+		message["role"] = "assistant";
+		message["content"] = "Message " + itos(i);
+		messages.push_back(message);
+	}
+
+	bridge->emit_signal(SNAME("messages_changed"), session_id, messages);
+	settle_gui_layout(12);
+
+	VScrollBar *scroll_bar = list->get_v_scroll_bar();
+	REQUIRE(scroll_bar);
+	REQUIRE(scroll_bar->get_max() > scroll_bar->get_page());
+	CHECK(scroll_bar->get_value() + scroll_bar->get_page() >= scroll_bar->get_max() - 2.0);
+
+	list->set_v_scroll(0);
+	settle_gui_layout(1);
+	CHECK(scroll_bar->get_value() <= 2.0);
+
+	Dictionary appended;
+	appended["id"] = "dock-live-scroll-appended-message";
+	appended["role"] = "assistant";
+	appended["content"] = "Live update should not force-scroll when user is reading history.";
+	messages.push_back(appended);
+	bridge->emit_signal(SNAME("messages_changed"), session_id, messages);
+	settle_gui_layout(12);
+
+	CHECK(scroll_bar->get_value() <= 2.0);
+
+	root->remove_child(dock);
+	memdelete(dock);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+}
+
 TEST_CASE("[Editor][AgentUI] Dock message list keeps heavy markdown bubbles inside scroll range") {
 	REQUIRE(SceneTree::get_singleton());
 	Window *root = SceneTree::get_singleton()->get_root();

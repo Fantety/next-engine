@@ -286,7 +286,6 @@ void AIAgentDock::_messages_changed(const String &p_session_id, const Array &p_m
 	}
 	if (message_list) {
 		message_list->set_messages(p_messages);
-		message_list->scroll_to_bottom();
 	}
 	_refresh_token_usage();
 	_queue_refresh_session_list();

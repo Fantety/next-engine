@@ -125,6 +125,10 @@ void AIMessageList::_queue_scroll_to_bottom(int p_passes) {
 
 void AIMessageList::_scroll_to_bottom() {
 	scroll_to_bottom_queued = false;
+	if (!should_scroll_to_bottom) {
+		pending_scroll_to_bottom_passes = 0;
+		return;
+	}
 	VScrollBar *scroll_bar = get_v_scroll_bar();
 	if (!scroll_bar) {
 		return;
@@ -156,8 +160,11 @@ void AIMessageList::_scroll_range_changed() {
 }
 
 void AIMessageList::_scroll_value_changed(double p_value) {
-	if (!scroll_to_bottom_queued && !scrolling_to_bottom) {
+	if (!scrolling_to_bottom) {
 		should_scroll_to_bottom = _is_at_bottom();
+		if (!should_scroll_to_bottom) {
+			pending_scroll_to_bottom_passes = 0;
+		}
 	}
 }
 

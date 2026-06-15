@@ -138,7 +138,7 @@ void MarkdownViewerDrawHelper::_draw_text_lines(MarkdownViewer &p_viewer, const 
 	}
 }
 
-void MarkdownViewerDrawHelper::draw(MarkdownViewer &p_viewer, const MarkdownViewerLayout &p_layout, const MarkdownViewerLayoutTheme &p_theme, real_t p_scroll_offset) {
+void MarkdownViewerDrawHelper::draw(MarkdownViewer &p_viewer, const MarkdownViewerLayout &p_layout, const MarkdownViewerLayoutTheme &p_theme, real_t p_scroll_offset, real_t p_table_horizontal_scroll_offset) {
 	const Rect2 viewport_rect(Point2(), p_viewer.get_size());
 	const Vector<int> visible = collect_visible_item_indices_for_test(p_layout, viewport_rect, p_scroll_offset);
 
@@ -177,14 +177,26 @@ void MarkdownViewerDrawHelper::draw(MarkdownViewer &p_viewer, const MarkdownView
 				}
 			} break;
 			case MarkdownViewerBlock::TYPE_TABLE: {
+				const real_t table_viewport_width = item.scroll_viewport_width > 0.0 ? item.scroll_viewport_width : item.rect.size.x;
+				const real_t table_horizontal_scroll_offset = CLAMP(p_table_horizontal_scroll_offset, real_t(0.0), MAX(real_t(0.0), item.rect.size.x - table_viewport_width));
 				for (int i = 0; i < item.cell_rects.size(); i++) {
 					Rect2 cell_rect = item.cell_rects[i];
+					cell_rect.position.x -= table_horizontal_scroll_offset;
 					cell_rect.position.y -= p_scroll_offset;
 					p_viewer.draw_rect(cell_rect, item.cell_headers[i] ? p_theme.table_header_background_color : p_theme.table_row_background_color, true);
 					p_viewer.draw_rect(cell_rect, p_theme.table_border_color, false, 1.0);
 					if (p_theme.font.is_valid()) {
 						p_viewer.draw_string(p_theme.font, cell_rect.position + Point2(p_theme.table_cell_padding, p_theme.table_cell_padding + _get_font_ascent(p_theme.font, p_theme.normal_font_size)), item.cell_texts[i], HORIZONTAL_ALIGNMENT_LEFT, cell_rect.size.x - p_theme.table_cell_padding * 2.0, p_theme.normal_font_size, p_theme.font_color);
 					}
+				}
+				if (item.rect.size.x > table_viewport_width) {
+					const real_t track_y = rect.position.y + rect.size.y - 3.0;
+					const real_t thumb_ratio = CLAMP(table_viewport_width / item.rect.size.x, real_t(0.0), real_t(1.0));
+					const real_t thumb_width = MAX(real_t(24.0), table_viewport_width * thumb_ratio);
+					const real_t max_offset = MAX(real_t(1.0), item.rect.size.x - table_viewport_width);
+					const real_t thumb_x = rect.position.x + (table_viewport_width - thumb_width) * CLAMP(table_horizontal_scroll_offset / max_offset, real_t(0.0), real_t(1.0));
+					p_viewer.draw_rect(Rect2(rect.position.x, track_y, table_viewport_width, 2.0), p_theme.table_border_color, true);
+					p_viewer.draw_rect(Rect2(thumb_x, track_y - 1.0, thumb_width, 4.0), p_theme.muted_font_color, true);
 				}
 			} break;
 			case MarkdownViewerBlock::TYPE_IMAGE: {

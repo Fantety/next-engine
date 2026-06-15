@@ -66,7 +66,7 @@ void MarkdownViewer::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_DRAW: {
 			_ensure_layout();
-			MarkdownViewerDrawHelper::draw(*this, layout, _make_layout_theme(), scroll_offset);
+			MarkdownViewerDrawHelper::draw(*this, layout, _make_layout_theme(), scroll_offset, table_horizontal_scroll_offset);
 		} break;
 		case NOTIFICATION_RESIZED: {
 			const Size2 current_size = get_size();
@@ -87,6 +87,18 @@ void MarkdownViewer::_notification(int p_what) {
 void MarkdownViewer::gui_input(const Ref<InputEvent> &p_event) {
 	Ref<InputEventMouseButton> mouse_button = p_event;
 	if (mouse_button.is_valid() && mouse_button->is_pressed()) {
+		if (mouse_button->get_button_index() == MouseButton::WHEEL_RIGHT || (mouse_button->is_shift_pressed() && scroll_enabled && mouse_button->get_button_index() == MouseButton::WHEEL_DOWN)) {
+			if (_scroll_table_horizontally(48.0 * mouse_button->get_factor())) {
+				accept_event();
+				return;
+			}
+		}
+		if (mouse_button->get_button_index() == MouseButton::WHEEL_LEFT || (mouse_button->is_shift_pressed() && scroll_enabled && mouse_button->get_button_index() == MouseButton::WHEEL_UP)) {
+			if (_scroll_table_horizontally(-48.0 * mouse_button->get_factor())) {
+				accept_event();
+				return;
+			}
+		}
 		if (scroll_enabled && mouse_button->get_button_index() == MouseButton::WHEEL_DOWN) {
 			scroll_offset += 48.0;
 			_clamp_scroll_offset();
@@ -118,6 +130,16 @@ void MarkdownViewer::gui_input(const Ref<InputEvent> &p_event) {
 					accept_event();
 				}
 			}
+		}
+	}
+
+	Ref<InputEventPanGesture> pan_gesture = p_event;
+	if (pan_gesture.is_valid()) {
+		const Vector2 delta = pan_gesture->get_delta();
+		const real_t abs_delta_x = delta.x < 0.0 ? -delta.x : delta.x;
+		const real_t abs_delta_y = delta.y < 0.0 ? -delta.y : delta.y;
+		if (abs_delta_x >= abs_delta_y && _scroll_table_horizontally(delta.x * 48.0)) {
+			accept_event();
 		}
 	}
 }
@@ -210,6 +232,7 @@ void MarkdownViewer::_ensure_layout() {
 			last_layout_size = current_size;
 			layout_dirty = false;
 			_clamp_scroll_offset();
+			_clamp_table_horizontal_scroll_offset();
 			if (!scroll_enabled && !Math::is_equal_approx(previous_content_height, content_height)) {
 				update_minimum_size();
 			}
@@ -220,6 +243,7 @@ void MarkdownViewer::_ensure_layout() {
 		if (!Math::is_equal_approx(current_size.y, last_layout_size.y)) {
 			last_layout_size = current_size;
 			_clamp_scroll_offset();
+			_clamp_table_horizontal_scroll_offset();
 		}
 		return;
 	}
@@ -231,6 +255,7 @@ void MarkdownViewer::_ensure_layout() {
 		last_layout_size = current_size;
 		layout_dirty = false;
 		_clamp_scroll_offset();
+		_clamp_table_horizontal_scroll_offset();
 		if (!scroll_enabled && !Math::is_equal_approx(previous_content_height, content_height)) {
 			update_minimum_size();
 		}
@@ -250,6 +275,7 @@ void MarkdownViewer::_build_layout(const Size2 &p_layout_size) {
 	last_layout_size = p_layout_size;
 	layout_dirty = false;
 	_clamp_scroll_offset();
+	_clamp_table_horizontal_scroll_offset();
 	if (!scroll_enabled && !Math::is_equal_approx(previous_content_height, content_height)) {
 		update_minimum_size();
 	}
@@ -332,6 +358,34 @@ void MarkdownViewer::_clamp_scroll_offset() {
 	scroll_offset = CLAMP(scroll_offset, real_t(0.0), max_scroll);
 }
 
+real_t MarkdownViewer::_get_max_table_horizontal_scroll_offset() const {
+	real_t max_offset = 0.0;
+	for (const MarkdownViewerLayoutItem &item : layout.items) {
+		if (item.type != MarkdownViewerBlock::TYPE_TABLE) {
+			continue;
+		}
+		const real_t table_viewport_width = item.scroll_viewport_width > 0.0 ? item.scroll_viewport_width : item.rect.size.x;
+		max_offset = MAX(max_offset, item.rect.size.x - table_viewport_width);
+	}
+	return MAX(real_t(0.0), max_offset);
+}
+
+void MarkdownViewer::_clamp_table_horizontal_scroll_offset() {
+	table_horizontal_scroll_offset = CLAMP(table_horizontal_scroll_offset, real_t(0.0), _get_max_table_horizontal_scroll_offset());
+}
+
+bool MarkdownViewer::_scroll_table_horizontally(real_t p_delta) {
+	_ensure_layout();
+	const real_t previous_offset = table_horizontal_scroll_offset;
+	table_horizontal_scroll_offset += p_delta;
+	_clamp_table_horizontal_scroll_offset();
+	if (Math::is_equal_approx(previous_offset, table_horizontal_scroll_offset)) {
+		return false;
+	}
+	queue_redraw();
+	return true;
+}
+
 bool MarkdownViewer::_resolve_hit_test(const Point2 &p_position, MarkdownViewerHitTest &r_hit) {
 	_ensure_layout();
 	const Point2 document_position = p_position + Point2(0.0, scroll_offset);
@@ -372,6 +426,7 @@ void MarkdownViewer::set_markdown(const String &p_markdown) {
 	markdown = p_markdown;
 	document_generation++;
 	async_parse_pending = false;
+	table_horizontal_scroll_offset = 0.0;
 	document.clear();
 	layout.clear();
 	content_height = 0.0;
@@ -387,6 +442,7 @@ void MarkdownViewer::set_markdown_document(const String &p_markdown, const Markd
 	markdown = p_markdown;
 	document_generation++;
 	async_parse_pending = false;
+	table_horizontal_scroll_offset = 0.0;
 	document = p_document;
 	parse_dirty = false;
 	_mark_layout_dirty();
@@ -541,6 +597,21 @@ void MarkdownViewer::set_scroll_offset_for_test(real_t p_offset) {
 
 real_t MarkdownViewer::get_scroll_offset_for_test() const {
 	return scroll_offset;
+}
+
+void MarkdownViewer::set_table_horizontal_scroll_offset_for_test(real_t p_offset) {
+	table_horizontal_scroll_offset = p_offset;
+	_ensure_layout();
+	_clamp_table_horizontal_scroll_offset();
+}
+
+real_t MarkdownViewer::get_table_horizontal_scroll_offset_for_test() const {
+	return table_horizontal_scroll_offset;
+}
+
+real_t MarkdownViewer::get_max_table_horizontal_scroll_offset_for_test() const {
+	const_cast<MarkdownViewer *>(this)->_ensure_layout();
+	return _get_max_table_horizontal_scroll_offset();
 }
 
 int MarkdownViewer::get_layout_build_count_for_test() const {

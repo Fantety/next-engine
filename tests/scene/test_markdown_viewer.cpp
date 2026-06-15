@@ -314,6 +314,21 @@ TEST_CASE("[SceneTree][MarkdownViewer] Layout preserves inline spans and code sy
 	CHECK_FALSE(layout.hit_tests.is_empty());
 }
 
+TEST_CASE("[SceneTree][MarkdownViewer] Layout gives wide tables scrollable content width") {
+	MarkdownViewerDocumentBuilder builder;
+	MarkdownViewerDocument document = builder.build("| Name | Description |\n| --- | --- |\n| Short | ThisIsAnIntentionallyVeryLongTableCellThatShouldNotBeClippedIntoTheVisibleColumn |\n");
+
+	MarkdownViewerLayoutTheme theme;
+	MarkdownViewerLayoutBuilder layout_builder;
+	MarkdownViewerLayout layout = layout_builder.build(document, Size2(220, 120), theme);
+
+	REQUIRE(layout.items.size() == 1);
+	const MarkdownViewerLayoutItem &table = layout.items[0];
+	REQUIRE(table.type == MarkdownViewerBlock::TYPE_TABLE);
+	CHECK(table.scroll_viewport_width == doctest::Approx(220.0 - theme.document_margin * 2.0));
+	CHECK(table.rect.size.x > table.scroll_viewport_width);
+}
+
 TEST_CASE("[SceneTree][MarkdownViewer] Layout wraps wide glyph text inside item bounds") {
 	MarkdownViewerDocumentBuilder builder;
 	MarkdownViewerDocument document = builder.build("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW");
@@ -614,6 +629,22 @@ TEST_CASE("[SceneTree][MarkdownViewer] Scroll offset is clamped to content bound
 
 	viewer->set_scroll_offset_for_test(-100.0);
 	CHECK(viewer->get_scroll_offset_for_test() == doctest::Approx(0.0));
+
+	memdelete(viewer);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Table horizontal scroll offset is clamped to table overflow") {
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(220, 120));
+	viewer->set_markdown("| Name | Description |\n| --- | --- |\n| Short | ThisIsAnIntentionallyVeryLongTableCellThatShouldNotBeClippedIntoTheVisibleColumn |\n");
+	viewer->force_layout_for_test();
+
+	viewer->set_table_horizontal_scroll_offset_for_test(100000.0);
+	CHECK(viewer->get_table_horizontal_scroll_offset_for_test() > 0.0);
+	CHECK(viewer->get_table_horizontal_scroll_offset_for_test() <= viewer->get_max_table_horizontal_scroll_offset_for_test());
+
+	viewer->set_table_horizontal_scroll_offset_for_test(-100.0);
+	CHECK(viewer->get_table_horizontal_scroll_offset_for_test() == doctest::Approx(0.0));
 
 	memdelete(viewer);
 }

@@ -440,19 +440,38 @@ void MarkdownViewerLayoutBuilder::_append_block(const MarkdownViewerBlock &p_blo
 			}
 			const real_t left = p_theme.document_margin + p_indent;
 			const real_t width = p_width - p_theme.document_margin * 2.0 - p_indent;
-			const real_t column_width = width / column_count;
+			const real_t minimum_column_width = MAX(real_t(48.0), width / column_count);
+			Vector<real_t> column_widths;
+			column_widths.resize(column_count);
+			for (int column = 0; column < column_count; column++) {
+				column_widths.write[column] = minimum_column_width;
+			}
+			for (const MarkdownViewerTableRow &row : p_block.table_rows) {
+				for (int column = 0; column < MIN(column_count, row.cells.size()); column++) {
+					const real_t cell_width = _measure_text(p_theme.font, row.cells[column].plain_text, p_theme.normal_font_size) + p_theme.table_cell_padding * 2.0;
+					column_widths.write[column] = MAX(column_widths[column], cell_width);
+				}
+			}
+			real_t table_width = 0.0;
+			for (int column = 0; column < column_count; column++) {
+				table_width += column_widths[column];
+			}
 			const real_t row_height = _get_font_height(p_theme.font, p_theme.normal_font_size) + p_theme.table_cell_padding * 2.0;
 
 			MarkdownViewerLayoutItem table;
 			table.type = MarkdownViewerBlock::TYPE_TABLE;
 			table.font_size = p_theme.normal_font_size;
-			table.rect = Rect2(left, r_y, width, row_height * p_block.table_rows.size());
+			table.rect = Rect2(left, r_y, table_width, row_height * p_block.table_rows.size());
+			table.scroll_viewport_width = width;
 			for (int row = 0; row < p_block.table_rows.size(); row++) {
+				real_t cell_x = left;
 				for (int column = 0; column < column_count; column++) {
-					table.cell_rects.push_back(Rect2(left + column * column_width, r_y + row * row_height, column_width, row_height));
-					const MarkdownViewerTableCell &cell = p_block.table_rows[row].cells[column];
-					table.cell_texts.push_back(cell.plain_text);
+					const real_t column_width = column_widths[column];
+					table.cell_rects.push_back(Rect2(cell_x, r_y + row * row_height, column_width, row_height));
+					const String cell_text = column < p_block.table_rows[row].cells.size() ? p_block.table_rows[row].cells[column].plain_text : String();
+					table.cell_texts.push_back(cell_text);
 					table.cell_headers.push_back(p_block.table_rows[row].header);
+					cell_x += column_width;
 				}
 			}
 			r_layout.items.push_back(table);

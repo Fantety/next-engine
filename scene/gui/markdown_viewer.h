@@ -29,6 +29,7 @@ class MarkdownViewer : public Control {
 	real_t image_max_height = 420.0;
 	real_t content_height = 0.0;
 	real_t scroll_offset = 0.0;
+	real_t table_horizontal_scroll_offset = 0.0;
 	Size2 last_layout_size = Size2(-1.0, -1.0);
 	Size2 measured_layout_size = Size2(-1.0, -1.0);
 
@@ -50,7 +51,10 @@ class MarkdownViewer : public Control {
 	void _build_layout(const Size2 &p_layout_size);
 	bool _should_parse_async() const;
 	bool _start_async_parse();
+	real_t _get_max_table_horizontal_scroll_offset() const;
 	void _clamp_scroll_offset();
+	void _clamp_table_horizontal_scroll_offset();
+	bool _scroll_table_horizontally(real_t p_delta);
 	MarkdownViewerLayoutTheme _make_layout_theme() const;
 	bool _resolve_hit_test(const Point2 &p_position, MarkdownViewerHitTest &r_hit);
 	void _image_state_changed(const String &p_source);
@@ -100,6 +104,9 @@ public:
 	bool get_hit_test_at_for_test(const Point2 &p_position, MarkdownViewerHitTest &r_hit);
 	void set_scroll_offset_for_test(real_t p_offset);
 	real_t get_scroll_offset_for_test() const;
+	void set_table_horizontal_scroll_offset_for_test(real_t p_offset);
+	real_t get_table_horizontal_scroll_offset_for_test() const;
+	real_t get_max_table_horizontal_scroll_offset_for_test() const;
 	int get_layout_build_count_for_test() const;
 	int get_document_build_count_for_test() const;
 	bool is_async_parse_pending_for_test() const;
