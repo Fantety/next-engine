@@ -91,7 +91,7 @@ class AIAgentDock : public EditorDock {
 	void _ensure_request_progress_material();
 	void _refresh_request_progress_material();
 	void _clear_request_progress_material();
-	String _format_token_count(int p_tokens) const;
+	String _format_token_count(int64_t p_tokens) const;
 
 protected:
 	static void _bind_methods();

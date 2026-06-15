@@ -592,6 +592,7 @@ class LocalOpenAISSEServer {
 	Ref<TCPServer> server;
 	Thread thread;
 	String response_body;
+	String request_text;
 	String error;
 	int port = 0;
 	bool served = false;
@@ -629,6 +630,7 @@ class LocalOpenAISSEServer {
 					break;
 				}
 				if (received > 0) {
+					self->request_text += String::utf8((const char *)ignored.ptr(), received);
 					break;
 				}
 			}
@@ -662,6 +664,7 @@ public:
 
 	bool start(const String &p_response_body) {
 		response_body = p_response_body;
+		request_text = String();
 		error = String();
 		served = false;
 
@@ -698,6 +701,10 @@ public:
 
 	String get_error() const {
 		return error;
+	}
+
+	String get_request_text() const {
+		return request_text;
 	}
 };
 
@@ -743,6 +750,35 @@ static String make_openai_partial_tool_then_text_sse_body() {
 	text_payload["choices"] = text_choices;
 
 	return openai_sse_data_event(tool_payload) + openai_sse_data_event(text_payload);
+}
+
+static String make_openai_usage_sse_body() {
+	Dictionary text_delta;
+	text_delta["content"] = "usage response";
+
+	Dictionary text_choice;
+	text_choice["delta"] = text_delta;
+
+	Array text_choices;
+	text_choices.push_back(text_choice);
+
+	Dictionary text_payload;
+	text_payload["choices"] = text_choices;
+
+	Dictionary prompt_details;
+	prompt_details["cached_tokens"] = 12;
+
+	Dictionary usage;
+	usage["prompt_tokens"] = 120;
+	usage["completion_tokens"] = 30;
+	usage["total_tokens"] = 150;
+	usage["prompt_tokens_details"] = prompt_details;
+
+	Dictionary usage_payload;
+	usage_payload["choices"] = Array();
+	usage_payload["usage"] = usage;
+
+	return openai_sse_data_event(text_payload) + openai_sse_data_event(usage_payload) + "data: [DONE]\r\n\r\n";
 }
 
 class AgentV1UIAdapterSignalCollector : public RefCounted {
@@ -3878,6 +3914,85 @@ TEST_CASE("[Editor][AgentV1] OpenAI-compatible stream cancel does not flush part
 	CHECK(collector->tool_call_count == 0);
 }
 
+TEST_CASE("[Editor][AgentV1] OpenAI-compatible usage is requested and stored on the session") {
+	LocalOpenAISSEServer server;
+	REQUIRE(server.start(make_openai_usage_sse_body()));
+
+	Ref<AISessionService> service;
+	service.instantiate();
+	service->get_session_store()->set_base_dir(String());
+	service->get_input_store()->set_base_dir(String());
+	service->get_event_store()->set_base_dir(String());
+
+	Dictionary provider;
+	provider["type"] = "openai-compatible";
+	provider["model"] = "fake-openai-model";
+	provider["base_url"] = "http://127.0.0.1:" + itos(server.get_port()) + "/v1";
+	provider["api_key"] = "test-key";
+	provider["timeout_msec"] = 2000;
+	Dictionary providers;
+	providers["openai-usage"] = provider;
+
+	Dictionary main_agent;
+	main_agent["provider"] = "openai-usage";
+	main_agent["model"] = "fake-openai-model";
+	Dictionary agents;
+	agents["main"] = main_agent;
+
+	Dictionary override_config;
+	override_config["default_provider"] = "openai-usage";
+	override_config["default_model"] = "fake-openai-model";
+	override_config["providers"] = providers;
+	override_config["agents"] = agents;
+	service->get_config_service()->set_runtime_override(override_config);
+
+	Dictionary create;
+	create["id"] = "openai-usage-session";
+	create["agent_id"] = "main";
+	create["directory"] = "res://";
+	REQUIRE(bool(service->create(create).get("success", false)));
+
+	Dictionary prompt;
+	prompt["session_id"] = "openai-usage-session";
+	prompt["message_id"] = "openai-usage-prompt";
+	prompt["text"] = "count tokens";
+	prompt["resume"] = false;
+	REQUIRE(bool(service->prompt(prompt).get("success", false)));
+
+	const Dictionary run = service->get_session_runner()->run("openai-usage-session", false);
+	server.stop();
+
+	REQUIRE(bool(run.get("success", false)));
+	CHECK(server.was_served());
+	CHECK(server.get_error().is_empty());
+	CHECK(server.get_request_text().contains("\"stream_options\""));
+	CHECK(server.get_request_text().contains("\"include_usage\":true"));
+
+	const Dictionary session = service->get_session_store()->get_session("openai-usage-session");
+	REQUIRE(bool(session.get("success", false)));
+	const Dictionary session_metadata = session.get("metadata", Dictionary());
+	const Dictionary session_tokens = session_metadata.get("tokens", Dictionary());
+	CHECK(int64_t(session_tokens.get("input_tokens", 0)) == 108);
+	CHECK(int64_t(session_tokens.get("cache_read_tokens", 0)) == 12);
+	CHECK(int64_t(session_tokens.get("output_tokens", 0)) == 30);
+	CHECK(int64_t(session_tokens.get("total_tokens", 0)) == 150);
+
+	const Vector<AIEventRow> events = service->get_event_store()->list("openai-usage-session");
+	bool saw_step_tokens = false;
+	for (int i = 0; i < events.size(); i++) {
+		if (events[i].type != AIDomainEventTypes::step_ended()) {
+			continue;
+		}
+		const Dictionary step_tokens = events[i].data.get("tokens", Dictionary());
+		saw_step_tokens = !step_tokens.is_empty();
+		CHECK(int64_t(step_tokens.get("input_tokens", 0)) == 108);
+		CHECK(int64_t(step_tokens.get("cache_read_tokens", 0)) == 12);
+		CHECK(int64_t(step_tokens.get("output_tokens", 0)) == 30);
+		CHECK(int64_t(step_tokens.get("total_tokens", 0)) == 150);
+	}
+	CHECK(saw_step_tokens);
+}
+
 TEST_CASE("[Editor][AgentV1] EditorProgress uses background mode during message queue flush") {
 	editor_progress_flush_callable_ran = false;
 	editor_progress_flush_callable_used_background = false;
@@ -6391,6 +6506,48 @@ TEST_CASE("[Editor][AgentUI] Dock combines MCP and Skill status in server popup 
 
 	CHECK(Object::cast_to<ItemList>(tabs->find_child("AIMCPStatusList", true, false)) != nullptr);
 	CHECK(Object::cast_to<ItemList>(tabs->find_child("AISkillStatusList", true, false)) != nullptr);
+
+	root->remove_child(dock);
+	memdelete(dock);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+}
+
+TEST_CASE("[Editor][AgentUI] Dock token usage label reflects active session metadata") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AIAgentV1UIBridge::clear_singleton_for_test();
+
+	AIAgentDock *dock = memnew(AIAgentDock);
+	root->add_child(dock);
+	settle_gui_layout(4);
+
+	Ref<AIAgentV1UIBridge> bridge = AIAgentV1UIBridge::get_singleton();
+	REQUIRE(bridge.is_valid());
+	const String session_id = bridge->get_active_session_id();
+	REQUIRE_FALSE(session_id.is_empty());
+
+	Dictionary tokens;
+	tokens["input_tokens"] = 108;
+	tokens["cache_read_tokens"] = 12;
+	tokens["output_tokens"] = 30;
+	tokens["total_tokens"] = 150;
+
+	Dictionary metadata;
+	metadata["tokens"] = tokens;
+	AISessionRow updated_session;
+	String update_error;
+	REQUIRE(bridge->get_session_service()->get_session_store()->update_metadata_struct(session_id, metadata, updated_session, update_error));
+
+	bridge->emit_signal(SNAME("run_state_changed"), bridge->get_run_state());
+	settle_gui_layout(4);
+
+	Label *token_label = find_token_usage_label(dock);
+	REQUIRE(token_label);
+	CHECK(token_label->get_text().contains("In 120"));
+	CHECK(token_label->get_text().contains("Out 30"));
+	CHECK(token_label->get_text().contains("Total 150"));
 
 	root->remove_child(dock);
 	memdelete(dock);

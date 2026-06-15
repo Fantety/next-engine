@@ -11,6 +11,79 @@
 #include "core/object/class_db.h"
 #include "core/variant/variant.h"
 
+static int64_t _ai_session_runner_token_count(const Dictionary &p_tokens, const String &p_key, const String &p_alias = String()) {
+	if (p_tokens.has(p_key) && p_tokens[p_key].get_type() != Variant::NIL) {
+		return MAX(int64_t(0), int64_t(p_tokens[p_key]));
+	}
+	if (!p_alias.is_empty() && p_tokens.has(p_alias) && p_tokens[p_alias].get_type() != Variant::NIL) {
+		return MAX(int64_t(0), int64_t(p_tokens[p_alias]));
+	}
+	return 0;
+}
+
+static Dictionary _ai_session_runner_normalize_token_usage(const Dictionary &p_tokens) {
+	const int64_t input_tokens = _ai_session_runner_token_count(p_tokens, "input_tokens", "input");
+	const int64_t output_tokens = _ai_session_runner_token_count(p_tokens, "output_tokens", "output");
+	const int64_t cache_read_tokens = _ai_session_runner_token_count(p_tokens, "cache_read_tokens", "cache_read");
+	const int64_t cache_write_tokens = _ai_session_runner_token_count(p_tokens, "cache_write_tokens", "cache_write");
+	const int64_t computed_total_tokens = input_tokens + output_tokens + cache_read_tokens + cache_write_tokens;
+	const bool has_total_tokens = p_tokens.has("total_tokens") || p_tokens.has("total");
+	const int64_t total_tokens = has_total_tokens ? _ai_session_runner_token_count(p_tokens, "total_tokens", "total") : computed_total_tokens;
+
+	Dictionary usage;
+	usage["input_tokens"] = input_tokens;
+	usage["output_tokens"] = output_tokens;
+	usage["cache_read_tokens"] = cache_read_tokens;
+	usage["cache_write_tokens"] = cache_write_tokens;
+	usage["total_tokens"] = total_tokens;
+	return usage;
+}
+
+static Dictionary _ai_session_runner_add_token_usage(const Dictionary &p_existing, const Dictionary &p_delta) {
+	const Dictionary existing = _ai_session_runner_normalize_token_usage(p_existing);
+	const Dictionary delta = _ai_session_runner_normalize_token_usage(p_delta);
+
+	Dictionary tokens;
+	tokens["input_tokens"] = _ai_session_runner_token_count(existing, "input_tokens") + _ai_session_runner_token_count(delta, "input_tokens");
+	tokens["output_tokens"] = _ai_session_runner_token_count(existing, "output_tokens") + _ai_session_runner_token_count(delta, "output_tokens");
+	tokens["cache_read_tokens"] = _ai_session_runner_token_count(existing, "cache_read_tokens") + _ai_session_runner_token_count(delta, "cache_read_tokens");
+	tokens["cache_write_tokens"] = _ai_session_runner_token_count(existing, "cache_write_tokens") + _ai_session_runner_token_count(delta, "cache_write_tokens");
+	tokens["total_tokens"] = _ai_session_runner_token_count(existing, "total_tokens") + _ai_session_runner_token_count(delta, "total_tokens");
+	return tokens;
+}
+
+static bool _ai_session_runner_merge_session_token_usage(const Ref<AISessionStore> &p_session_store, const String &p_session_id, const Dictionary &p_usage, AIError &r_error) {
+	if (p_usage.is_empty() || p_session_store.is_null()) {
+		r_error = AIError::none();
+		return true;
+	}
+
+	AISessionRow session;
+	if (!p_session_store->get_session_struct(p_session_id, session)) {
+		Dictionary details;
+		details["session_id"] = p_session_id;
+		r_error = AIError::make(AI_ERROR_UNAVAILABLE, "Session not found while updating token usage.", details);
+		return false;
+	}
+
+	Dictionary metadata = session.metadata.duplicate(true);
+	Dictionary existing_tokens;
+	if (metadata.get("tokens", Variant()).get_type() == Variant::DICTIONARY) {
+		existing_tokens = Dictionary(metadata["tokens"]);
+	}
+	metadata["tokens"] = _ai_session_runner_add_token_usage(existing_tokens, p_usage);
+
+	AISessionRow updated_session;
+	String store_error;
+	if (!p_session_store->update_metadata_struct(p_session_id, metadata, updated_session, store_error)) {
+		r_error = AIError::make(AI_ERROR_INTERNAL, store_error);
+		return false;
+	}
+
+	r_error = AIError::none();
+	return true;
+}
+
 class AISessionRunnerEventRecorder : public RefCounted {
 	Ref<AIEventStore> event_store;
 	Ref<AISessionProjector> projector;
@@ -23,6 +96,7 @@ class AISessionRunnerEventRecorder : public RefCounted {
 	String reasoning_content_id;
 	String text;
 	String reasoning;
+	Dictionary usage;
 	AIError error;
 	bool needs_continuation = false;
 	bool waiting_permission = false;
@@ -72,6 +146,10 @@ public:
 
 	String get_reasoning_content_id() const {
 		return reasoning_content_id;
+	}
+
+	Dictionary get_usage() const {
+		return usage.duplicate(true);
 	}
 
 	AIError get_error() const {
@@ -142,6 +220,12 @@ public:
 		if (type == "provider-error") {
 			error = AIError::make(AI_ERROR_PROVIDER, "Provider stream error.", p_event.get("error", Dictionary()));
 			return true;
+		}
+		if (type == "usage") {
+			if (p_event.get("usage", Variant()).get_type() == Variant::DICTIONARY) {
+				usage = _ai_session_runner_normalize_token_usage(Dictionary(p_event["usage"]));
+			}
+			return false;
 		}
 		return false;
 	}
@@ -1086,8 +1170,15 @@ bool AISessionRunner::_run_provider_turn(const String &p_session_id, const Strin
 	ended["request_id"] = p_request.request_id;
 	ended["provider"] = p_request.provider;
 	ended["model"] = p_request.model;
+	const Dictionary usage = recorder->get_usage();
+	if (!usage.is_empty()) {
+		ended["tokens"] = usage;
+	}
 	AIEventRow end_row;
 	if (!_append_event(p_session_id, AIDomainEventTypes::step_ended(), ended, false, end_row, r_error)) {
+		return false;
+	}
+	if (!_ai_session_runner_merge_session_token_usage(session_store, p_session_id, usage, r_error)) {
 		return false;
 	}
 	return true;

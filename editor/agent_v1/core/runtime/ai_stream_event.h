@@ -24,6 +24,7 @@ enum AIStreamEventType {
 	AI_STREAM_EVENT_TOOL_CALL,
 	AI_STREAM_EVENT_TOOL_RESULT,
 	AI_STREAM_EVENT_TOOL_ERROR,
+	AI_STREAM_EVENT_USAGE,
 	AI_STREAM_EVENT_PROVIDER_ERROR,
 };
 
@@ -36,6 +37,7 @@ struct AIStreamEvent {
 	Variant result;
 	AIError error;
 	bool provider_executed = false;
+	Dictionary usage;
 	Dictionary provider_metadata;
 	Dictionary metadata;
 
@@ -46,5 +48,6 @@ struct AIStreamEvent {
 	static AIStreamEvent step_start();
 	static AIStreamEvent text_delta(const String &p_id, const String &p_text);
 	static AIStreamEvent tool_call(const String &p_id, const String &p_name, const Variant &p_input, bool p_provider_executed = false);
+	static AIStreamEvent usage_event(const Dictionary &p_usage);
 	static AIStreamEvent provider_error(const AIError &p_error);
 };

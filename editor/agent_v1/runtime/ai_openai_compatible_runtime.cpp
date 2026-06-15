@@ -64,6 +64,48 @@ class AIOpenAICompatibleStreamBridge : public RefCounted {
 		return fallback;
 	}
 
+	static int64_t _usage_int(const Dictionary &p_dict, const String &p_key, int64_t p_default = 0) {
+		if (!p_dict.has(p_key) || p_dict[p_key].get_type() == Variant::NIL) {
+			return p_default;
+		}
+		return int64_t(p_dict[p_key]);
+	}
+
+	static Dictionary _normalize_usage(const Dictionary &p_usage) {
+		Dictionary prompt_details;
+		if (p_usage.get("prompt_tokens_details", Variant()).get_type() == Variant::DICTIONARY) {
+			prompt_details = Dictionary(p_usage["prompt_tokens_details"]);
+		} else if (p_usage.get("input_token_details", Variant()).get_type() == Variant::DICTIONARY) {
+			prompt_details = Dictionary(p_usage["input_token_details"]);
+		}
+
+		const int64_t cache_read_tokens = MAX(int64_t(0), _usage_int(prompt_details, "cached_tokens", _usage_int(p_usage, "cache_read_tokens", _usage_int(p_usage, "cache_read", 0))));
+		const int64_t raw_input_tokens = MAX(int64_t(0), _usage_int(p_usage, "prompt_tokens", _usage_int(p_usage, "input_tokens", _usage_int(p_usage, "input", 0))));
+		const int64_t output_tokens = MAX(int64_t(0), _usage_int(p_usage, "completion_tokens", _usage_int(p_usage, "output_tokens", _usage_int(p_usage, "output", 0))));
+		const int64_t cache_write_tokens = MAX(int64_t(0), _usage_int(p_usage, "cache_write_tokens", _usage_int(p_usage, "cache_write", 0)));
+		const int64_t input_tokens = MAX(int64_t(0), raw_input_tokens - cache_read_tokens - cache_write_tokens);
+
+		Dictionary usage;
+		usage["input_tokens"] = input_tokens;
+		usage["output_tokens"] = output_tokens;
+		usage["cache_read_tokens"] = cache_read_tokens;
+		usage["cache_write_tokens"] = cache_write_tokens;
+		usage["total_tokens"] = input_tokens + output_tokens + cache_read_tokens + cache_write_tokens;
+		return usage;
+	}
+
+	bool _handle_usage(const Dictionary &p_root) {
+		if (p_root.get("usage", Variant()).get_type() != Variant::DICTIONARY) {
+			return false;
+		}
+
+		const Dictionary raw_usage = p_root["usage"];
+		AIStreamEvent event = AIStreamEvent::usage_event(_normalize_usage(raw_usage));
+		event.provider_metadata["provider"] = "openai-compatible";
+		event.provider_metadata["raw_usage"] = raw_usage.duplicate(true);
+		return _push_event(event);
+	}
+
 	bool _handle_tool_call_deltas(const Dictionary &p_delta) {
 		if (p_delta.get("tool_calls", Variant()).get_type() != Variant::ARRAY) {
 			return false;
@@ -171,6 +213,9 @@ public:
 		if (root.get("error", Variant()).get_type() == Variant::DICTIONARY) {
 			const Dictionary error_dict = root["error"];
 			error = error_dict.get("message", "Provider returned an error.");
+			return true;
+		}
+		if (_handle_usage(root)) {
 			return true;
 		}
 		if (root.get("choices", Variant()).get_type() != Variant::ARRAY) {
@@ -426,6 +471,9 @@ PackedByteArray AIOpenAICompatibleRuntime::_body_to_bytes(const AIModelRequest &
 	Dictionary body;
 	body["model"] = p_request.model;
 	body["stream"] = true;
+	Dictionary stream_options;
+	stream_options["include_usage"] = true;
+	body["stream_options"] = stream_options;
 	body["messages"] = _messages_to_openai(p_request);
 	const Array tools = _tools_to_openai(p_request);
 	if (!tools.is_empty()) {

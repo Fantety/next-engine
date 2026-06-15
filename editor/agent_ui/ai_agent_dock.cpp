@@ -50,6 +50,25 @@ Dictionary _dictionary_from_variant(const Variant &p_value) {
 	return Dictionary();
 }
 
+int64_t _token_count_from_dictionary(const Dictionary &p_tokens, const String &p_key, const String &p_alias = String()) {
+	if (p_tokens.has(p_key) && p_tokens[p_key].get_type() != Variant::NIL) {
+		return MAX(int64_t(0), int64_t(p_tokens[p_key]));
+	}
+	if (!p_alias.is_empty() && p_tokens.has(p_alias) && p_tokens[p_alias].get_type() != Variant::NIL) {
+		return MAX(int64_t(0), int64_t(p_tokens[p_alias]));
+	}
+	return 0;
+}
+
+Dictionary _token_usage_from_session(const Dictionary &p_session) {
+	const Dictionary metadata = _dictionary_from_variant(p_session.get("metadata", Variant()));
+	Dictionary tokens = _dictionary_from_variant(metadata.get("tokens", Variant()));
+	if (tokens.is_empty()) {
+		tokens = _dictionary_from_variant(p_session.get("tokens", Variant()));
+	}
+	return tokens;
+}
+
 bool _is_requirement_form_tool_name(const String &p_tool_name) {
 	const String tool_name = p_tool_name.strip_edges();
 	return tool_name == "agent.collect_requirements" || tool_name == "agent_collect_requirements";
@@ -689,7 +708,16 @@ void AIAgentDock::_refresh_token_usage() {
 		return;
 	}
 
-	token_usage_label->set_text(vformat(TTR("Tokens  In %s  Out %s  Total %s"), _format_token_count(0), _format_token_count(0), _format_token_count(0)));
+	const Dictionary tokens = _token_usage_from_session(_get_adapter()->get_active_session());
+	const int64_t input_tokens = _token_count_from_dictionary(tokens, "input_tokens", "input");
+	const int64_t cache_read_tokens = _token_count_from_dictionary(tokens, "cache_read_tokens", "cache_read");
+	const int64_t cache_write_tokens = _token_count_from_dictionary(tokens, "cache_write_tokens", "cache_write");
+	const int64_t output_tokens = _token_count_from_dictionary(tokens, "output_tokens", "output");
+	const int64_t display_input_tokens = input_tokens + cache_read_tokens + cache_write_tokens;
+	const bool has_total_tokens = tokens.has("total_tokens") || tokens.has("total");
+	const int64_t total_tokens = has_total_tokens ? _token_count_from_dictionary(tokens, "total_tokens", "total") : display_input_tokens + output_tokens;
+
+	token_usage_label->set_text(vformat(TTR("Tokens  In %s  Out %s  Total %s"), _format_token_count(display_input_tokens), _format_token_count(output_tokens), _format_token_count(total_tokens)));
 }
 
 void AIAgentDock::_ensure_request_progress_material() {
@@ -713,12 +741,12 @@ void AIAgentDock::_clear_request_progress_material() {
 	request_progress->set_material(Ref<Material>());
 }
 
-String AIAgentDock::_format_token_count(int p_tokens) const {
+String AIAgentDock::_format_token_count(int64_t p_tokens) const {
 	if (p_tokens >= 1000000) {
 		return rtos((double)p_tokens / 1000000.0).pad_decimals(1) + "M";
 	}
 	if (p_tokens >= 1000) {
 		return rtos((double)p_tokens / 1000.0).pad_decimals(1) + "k";
 	}
-	return itos(MAX(0, p_tokens));
+	return itos(MAX(int64_t(0), p_tokens));
 }

@@ -20,6 +20,7 @@ Dictionary AIStreamEvent::to_dictionary() const {
 	event_dict["result"] = result;
 	event_dict["error"] = error.to_dictionary();
 	event_dict["provider_executed"] = provider_executed;
+	event_dict["usage"] = usage;
 	event_dict["provider_metadata"] = provider_metadata;
 	event_dict["metadata"] = metadata;
 	return event_dict;
@@ -55,6 +56,8 @@ String AIStreamEvent::type_to_string(AIStreamEventType p_type) {
 			return "tool-result";
 		case AI_STREAM_EVENT_TOOL_ERROR:
 			return "tool-error";
+		case AI_STREAM_EVENT_USAGE:
+			return "usage";
 		case AI_STREAM_EVENT_PROVIDER_ERROR:
 			return "provider-error";
 	}
@@ -82,6 +85,13 @@ AIStreamEvent AIStreamEvent::tool_call(const String &p_id, const String &p_name,
 	event.name = p_name;
 	event.input = p_input;
 	event.provider_executed = p_provider_executed;
+	return event;
+}
+
+AIStreamEvent AIStreamEvent::usage_event(const Dictionary &p_usage) {
+	AIStreamEvent event;
+	event.type = AI_STREAM_EVENT_USAGE;
+	event.usage = p_usage.duplicate(true);
 	return event;
 }
 
