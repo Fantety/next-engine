@@ -389,17 +389,12 @@ void JoltBody3D::_destroy_joint_constraints() {
 	}
 }
 
-void JoltBody3D::_exit_all_areas() {
+void JoltBody3D::_clear_areas() {
 	if (!in_space()) {
 		return;
 	}
 
-	for (JoltArea3D *area : areas) {
-		area->body_exited(jolt_body->GetID(), false);
-	}
-
 	areas.clear();
-
 	_areas_changed();
 }
 
@@ -435,7 +430,7 @@ void JoltBody3D::_space_changing() {
 	sleep_initially = is_sleeping();
 
 	_destroy_joint_constraints();
-	_exit_all_areas();
+	_clear_areas();
 	_dequeue_call_queries();
 }
 
@@ -1246,6 +1241,7 @@ void JoltBody3D::set_gravity_scale(float p_scale) {
 		jolt_settings->mGravityFactor = p_scale;
 	} else {
 		jolt_body->GetMotionPropertiesUnchecked()->SetGravityFactor(p_scale);
+		_update_environmental_properties();
 	}
 }
 
