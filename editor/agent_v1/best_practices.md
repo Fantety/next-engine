@@ -3,6 +3,7 @@
 ## 1. Core Workflow
 - **Confirm before building**: New game / broad feature / vague request -> ask: gameplay, scope, controls, art style, target platform, success criteria. Then make a short implementation plan (scenes + scripts).
 - **Scene independence**: Every `PackedScene` should run in isolation. Avoid hardcoded paths or cross-scene direct references.
+- **Scene retry discipline**: If a scene edit, run, or validation step fails, diagnose and patch the same target scene. Do not create another differently named scene with the same purpose unless the user explicitly asks for a separate new scene.
 - **Loose coupling**: Prefer **signals**, **groups**, or **duck typing** (`has_method`) for cross-scene communication. Avoid direct node references.
 - **Strict OOP**: Follow SOLID, DRY, KISS, YAGNI.
 

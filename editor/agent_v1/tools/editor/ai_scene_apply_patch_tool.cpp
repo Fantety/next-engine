@@ -94,7 +94,7 @@ String AIV1SceneApplyPatchTool::get_name() const {
 }
 
 String AIV1SceneApplyPatchTool::get_description() const {
-	return "Applies a validated scene patch through Godot editor APIs. Use it for scene creation, node add/instantiate/rename/move, and batch property edits. Use scene.delete_node for node deletion. It does not bind GDScript; create/update external .gd files with script.create or script.write (script_create or script_write), then attach them with script.bind_to_node / script_bind_to_node. It never writes scene files directly.";
+	return "Applies a validated scene patch through Godot editor APIs. Use it for scene creation, node add/instantiate/rename/move, and batch property edits. Do not use scene creation as a retry path for a failed scene edit; inspect errors and patch the same target scene unless the user explicitly requested a separate new scene. Use scene.delete_node for node deletion. It does not bind GDScript; create/update external .gd files with script.create or script.write (script_create or script_write), then attach them with script.bind_to_node / script_bind_to_node. It never writes scene files directly.";
 }
 
 Dictionary AIV1SceneApplyPatchTool::get_parameters_schema() const {
@@ -104,7 +104,7 @@ Dictionary AIV1SceneApplyPatchTool::get_parameters_schema() const {
 	Dictionary properties;
 	Dictionary create_scene_property;
 	create_scene_property["type"] = "object";
-	create_scene_property["description"] = "Optional scene creation object. Fields: path (res://... .tscn/.scn), root_type, optional root_name, id, and properties. Omit to patch the currently edited saved scene.";
+	create_scene_property["description"] = "Optional scene creation object. Fields: path (res://... .tscn/.scn), root_type, optional root_name, id, and properties. Omit to patch the currently edited saved scene. Do not use create_scene as a retry after a failed scene edit, run, or validation; diagnose the failure and patch the same existing scene unless the user explicitly requested a separate new scene.";
 	Dictionary create_scene_properties;
 	Dictionary scene_path_create_property;
 	scene_path_create_property["type"] = "string";

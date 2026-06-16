@@ -2097,6 +2097,8 @@ TEST_CASE("[Editor][AgentV1] Config service includes fixed agent guidance and bu
 	CHECK(combined.contains("script_create or script_write"));
 	CHECK(combined.contains("script.bind_to_node"));
 	CHECK(combined.contains("script_bind_to_node"));
+	CHECK(combined.contains("If a scene edit, run, or validation step fails, diagnose and patch the same target scene"));
+	CHECK(combined.contains("Do not create another differently named scene with the same purpose"));
 }
 
 TEST_CASE("[Editor][AgentV1] Scene apply patch schema redirects script binding to script tools") {
@@ -2110,14 +2112,18 @@ TEST_CASE("[Editor][AgentV1] Scene apply patch schema redirects script binding t
 
 	const Dictionary schema = tool->get_parameters_schema();
 	const Dictionary properties = schema["properties"];
+	const Dictionary create_scene_property = properties["create_scene"];
 	const Dictionary ops_property = properties["ops"];
 	const Dictionary item_schema = ops_property["items"];
 	const Dictionary item_properties = item_schema["properties"];
 	const Dictionary properties_property = item_properties["properties"];
 	const Dictionary property_property = item_properties["property"];
+	const String create_scene_description = String(create_scene_property["description"]);
 	const String properties_description = String(properties_property["description"]);
 	const String property_description = String(property_property["description"]);
 
+	CHECK(create_scene_description.contains("Do not use create_scene as a retry"));
+	CHECK(create_scene_description.contains("patch the same existing scene"));
 	CHECK(properties_description.contains("Do not set `script`"));
 	CHECK(properties_description.contains("script.bind_to_node"));
 	CHECK(properties_description.contains("script_bind_to_node"));
@@ -2183,6 +2189,7 @@ TEST_CASE("[Editor][AgentV1] Configured agent prompt still receives bundled best
 	CHECK(combined.contains("NextEngine bundled best practices (generated from editor/agent_v1/best_practices.md)"));
 	CHECK(combined.contains("Godot 4.x Best Practices"));
 	CHECK(combined.contains("Confirm before building"));
+	CHECK(combined.contains("Do not create another differently named scene with the same purpose"));
 	CHECK(count_occurrences(combined, "Confirm before building") == 1);
 }
 
