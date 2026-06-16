@@ -94,6 +94,32 @@ static String read_text_file(const String &p_path) {
 	return file->get_as_text();
 }
 
+static void remove_project_path_if_exists(const String &p_path) {
+	if (FileAccess::exists(p_path) || DirAccess::dir_exists_absolute(p_path)) {
+		DirAccess::remove_absolute(p_path);
+	}
+}
+
+static AIV1ToolSettlement settle_project_delete_file(const Ref<AIV1ToolMaterialization> &p_materialization, const String &p_path, const String &p_call_id) {
+	Dictionary args;
+	args["path"] = p_path;
+
+	Dictionary call;
+	call["id"] = p_call_id;
+	call["name"] = "project_delete_file";
+	call["input"] = args;
+
+	Dictionary settle_input;
+	settle_input["session_id"] = "session-" + p_call_id;
+	settle_input["assistant_message_id"] = "assistant-" + p_call_id;
+	settle_input["call"] = call;
+
+	AIV1ToolSettlement settlement;
+	AIError error;
+	REQUIRE(p_materialization->settle_struct(settle_input, settlement, error));
+	return settlement;
+}
+
 static int count_occurrences(const String &p_text, const String &p_pattern) {
 	if (p_pattern.is_empty()) {
 		return 0;
@@ -2157,6 +2183,145 @@ TEST_CASE("[Editor][AgentV1] Scene apply patch rejects script property binding")
 	CHECK(result.error.contains("script.write"));
 	CHECK(result.error.contains("script.bind_to_node"));
 	CHECK(result.error.contains("script_bind_to_node"));
+}
+
+TEST_CASE("[Editor][AgentV1] Project delete file tool is registered as ask-gated project write") {
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	registry->register_builtin_tools();
+
+	REQUIRE(registry->has_tool("project_delete_file"));
+
+	const Dictionary identity = registry->get_tool_identity("project_delete_file");
+	const Dictionary metadata = identity.get("metadata", Dictionary());
+	CHECK(String(metadata.get("legacy_tool_name", String())) == "project.delete_file");
+	CHECK(String(metadata.get("category", String())) == "project");
+	CHECK(String(metadata.get("action", String())) == "project.write");
+	CHECK(String(metadata.get("default_effect", String())) == "ask");
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization.is_valid());
+	CHECK(materialization->has_tool("project_delete_file"));
+}
+
+TEST_CASE("[Editor][AgentV1] Project delete file removes unreferenced project files") {
+	const String fixture_dir = "res://__agent_v1_delete_file_remove";
+	const String target_path = fixture_dir.path_join("orphan.txt");
+	remove_project_path_if_exists(target_path);
+	remove_project_path_if_exists(fixture_dir);
+	write_text_file(target_path, "temporary file");
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	Dictionary allow_delete;
+	allow_delete["action"] = "project.write";
+	allow_delete["resource"] = "*";
+	allow_delete["effect"] = "allow";
+	Array rules;
+	rules.push_back(allow_delete);
+	registry->get_permission_service()->set_rules(rules);
+	registry->register_builtin_tools();
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization.is_valid());
+	REQUIRE(materialization->has_tool("project_delete_file"));
+
+	const AIV1ToolSettlement settlement = settle_project_delete_file(materialization, target_path, "call-project-delete-file-remove");
+	CHECK(settlement.success);
+	CHECK_FALSE(FileAccess::exists(target_path));
+	CHECK(String(settlement.content).contains("Deleted project file"));
+	CHECK(String(settlement.metadata.get("path", String())) == target_path);
+	CHECK(bool(settlement.metadata.get("deleted", false)));
+
+	remove_project_path_if_exists(target_path);
+	remove_project_path_if_exists(fixture_dir);
+}
+
+TEST_CASE("[Editor][AgentV1] Project delete file rejects currently open scenes") {
+	const String fixture_dir = "res://__agent_v1_delete_file_open";
+	const String target_path = fixture_dir.path_join("open_scene.tscn");
+	remove_project_path_if_exists(target_path);
+	remove_project_path_if_exists(fixture_dir);
+	write_text_file(target_path, "[gd_scene format=3]\n\n[node name=\"OpenScene\" type=\"Node\"]\n");
+
+	if (!EditorNode::get_singleton()) {
+		remove_project_path_if_exists(target_path);
+		remove_project_path_if_exists(fixture_dir);
+		return;
+	}
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	Dictionary allow_delete;
+	allow_delete["action"] = "project.write";
+	allow_delete["resource"] = "*";
+	allow_delete["effect"] = "allow";
+	Array rules;
+	rules.push_back(allow_delete);
+	registry->get_permission_service()->set_rules(rules);
+	registry->register_builtin_tools();
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization.is_valid());
+	REQUIRE(materialization->has_tool("project_delete_file"));
+
+	EditorData &editor_data = EditorNode::get_editor_data();
+	const int current_scene_index = editor_data.get_edited_scene();
+	REQUIRE(current_scene_index >= 0);
+	const String previous_scene_path = editor_data.get_scene_path(current_scene_index);
+	editor_data.set_scene_path(current_scene_index, target_path);
+
+	const AIV1ToolSettlement settlement = settle_project_delete_file(materialization, target_path, "call-project-delete-file-open");
+	editor_data.set_scene_path(current_scene_index, previous_scene_path);
+
+	CHECK_FALSE(settlement.success);
+	CHECK(settlement.error.message.contains("currently open"));
+	CHECK(settlement.error.message.contains(target_path));
+	CHECK(FileAccess::exists(target_path));
+
+	remove_project_path_if_exists(target_path);
+	remove_project_path_if_exists(fixture_dir);
+}
+
+TEST_CASE("[Editor][AgentV1] Project delete file rejects scenes referenced by another scene") {
+	const String fixture_dir = "res://__agent_v1_delete_file_referenced";
+	const String target_path = fixture_dir.path_join("child.tscn");
+	const String referencing_path = fixture_dir.path_join("parent.tscn");
+	remove_project_path_if_exists(referencing_path);
+	remove_project_path_if_exists(target_path);
+	remove_project_path_if_exists(fixture_dir);
+	write_text_file(target_path, "[gd_scene format=3]\n\n[node name=\"Child\" type=\"Node\"]\n");
+	write_text_file(referencing_path,
+			"[gd_scene load_steps=2 format=3]\n\n"
+			"[ext_resource type=\"PackedScene\" path=\"res://__agent_v1_delete_file_referenced/child.tscn\" id=\"1_child\"]\n\n"
+			"[node name=\"Parent\" type=\"Node\"]\n"
+			"[node name=\"Child\" parent=\".\" instance=ExtResource(\"1_child\")]\n");
+
+	Ref<AIV1ToolRegistry> registry;
+	registry.instantiate();
+	Dictionary allow_delete;
+	allow_delete["action"] = "project.write";
+	allow_delete["resource"] = "*";
+	allow_delete["effect"] = "allow";
+	Array rules;
+	rules.push_back(allow_delete);
+	registry->get_permission_service()->set_rules(rules);
+	registry->register_builtin_tools();
+
+	Ref<AIV1ToolMaterialization> materialization = registry->materialize_struct();
+	REQUIRE(materialization.is_valid());
+	REQUIRE(materialization->has_tool("project_delete_file"));
+
+	const AIV1ToolSettlement settlement = settle_project_delete_file(materialization, target_path, "call-project-delete-file-referenced");
+	CHECK_FALSE(settlement.success);
+	CHECK(settlement.error.message.contains("referenced by"));
+	CHECK(settlement.error.message.contains(referencing_path));
+	CHECK(FileAccess::exists(target_path));
+	CHECK(FileAccess::exists(referencing_path));
+
+	remove_project_path_if_exists(referencing_path);
+	remove_project_path_if_exists(target_path);
+	remove_project_path_if_exists(fixture_dir);
 }
 
 TEST_CASE("[Editor][AgentV1] Configured agent prompt still receives bundled best practices") {
@@ -5039,6 +5204,7 @@ TEST_CASE("[Editor][AgentV1] Session service registers migrated editor tools for
 		"editor_stop_running_scene",
 		"editor_get_terminal_errors",
 		"project_create_folder",
+		"project_delete_file",
 		"scene_describe_tree",
 		"scene_inspect_node",
 		"scene_list_properties",

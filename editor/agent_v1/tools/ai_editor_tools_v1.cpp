@@ -27,6 +27,7 @@
 #include "editor/agent_v1/tools/editor/ai_shader_set_parameters_tool.h"
 #include "editor/agent_v1/tools/project/ai_attach_multimodal_file_tool.h"
 #include "editor/agent_v1/tools/project/ai_create_folder_tool.h"
+#include "editor/agent_v1/tools/project/ai_delete_file_tool.h"
 #include "editor/agent_v1/tools/project/ai_list_project_tool.h"
 #include "editor/agent_v1/tools/project/ai_read_file_tool.h"
 #include "editor/agent_v1/tools/project/ai_requirement_form_tool.h"
@@ -361,6 +362,7 @@ void register_editor_tools(const Ref<AIV1ToolRegistry> &p_registry) {
 	_register_tool<AIV1EditorStopRunningSceneTool>(p_registry, "editor_runtime", "editor.run", "allow", "Stop the running scene.");
 	_register_tool<AIV1EditorGetTerminalErrorsTool>(p_registry, "editor_runtime", "editor.read", "allow", "Read recent editor/runtime terminal errors.");
 	_register_tool<AIV1CreateFolderTool>(p_registry, "project", "project.write", "allow", "Create a project folder.");
+	_register_tool<AIV1ProjectDeleteFileTool>(p_registry, "project", "project.write", "ask", "Delete a project file.");
 	_register_tool<AIV1SceneDescribeTreeTool>(p_registry, "scene", "scene.read", "allow", "Describe the current scene tree.");
 	_register_tool<AIV1SceneInspectNodeTool>(p_registry, "scene", "scene.read", "allow", "Inspect a scene node.");
 	_register_tool<AIV1SceneListPropertiesTool>(p_registry, "scene", "scene.read", "allow", "List scene node properties.");
