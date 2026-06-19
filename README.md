@@ -1,77 +1,121 @@
 # NEXT Engine
 
-NEXT Engine 是基于 Godot Engine 的二次开发编辑器，把 AI 工作流直接放进编辑器里。你仍然在熟悉的场景树、脚本、资源和调试环境中工作，只是多了一个能理解项目上下文、帮你改内容、整理任务并审查变更的 AI 搭档。
+English | [简体中文](README.zh-CN.md)
+
+NEXT Engine is a fork of Godot Engine that brings AI-assisted development directly into the editor. It keeps the familiar scene tree, script, resource, and debugging workflow, while adding an AI runtime that can understand project context, edit content, manage tasks, and keep changes reviewable.
 
 <p align="center">
   <img src="logo.png" width="400" alt="NEXT Engine logo">
 </p>
 
-## 适合谁
+## Overview
 
-- 正在使用 Godot / NEXT Engine 做游戏或交互项目的开发者
-- 想让 AI 理解项目结构、脚本、场景和资源的人
-- 需要在编辑器里审查 AI 改动、保留人工确认的人
-- 想接入 MCP、Skill、权限规则和自定义模型的高级用户
+NEXT Engine focuses on an editor-native AI workflow for Godot-style game and interactive project development.
 
-## 快速开始
+- Upstream project and base engine: Godot Engine 4.x.
+- Current fork version metadata: `NEXT Engine 4.7.1 rc`, with docs branch `4.7` in `version.py`.
+- Key dependencies: Godot Engine, `cmark 0.31.1` in `thirdparty/cmark/`, and Alimama FangYuanTi in `thirdparty/fonts/AlimamaFangYuanTiVF.woff2`.
+- License: MIT, following Godot Engine's license model. Third-party components remain under their own licenses.
 
-1. 打开项目。
-2. 在 AI Settings 里配置模型和提供方。
-3. 打开 AI Dock，描述你要做的事。
-4. 附上相关文件，让 AI 先理解上下文，再开始修改。
-5. 在变更审查里查看 diff，决定保留还是回退。
+The largest NEXT-specific changes are in the AI Agent runtime, editor AI UI, user system, Markdown parsing/rendering stack, project documentation, and related tests.
 
-## 你可以做什么
+## Features
 
-- 让 AI 读取项目文件、搜索文本、查看编辑器上下文
-- 让 AI 生成、修改和审查场景、脚本、Shader 和项目文件
-- 通过 AI Dock 管理会话、模型、附件、任务和变更审查
-- 用 Markdown 方式查看 AI 回复和项目说明
-- 在复杂任务里把工作拆成 todo，再逐步推进
+- AI Dock for chat, model selection, attachments, progress, token usage, todos, permission prompts, and diff review.
+- Agent V1 backend with durable sessions, event logs, projections, runner coordination, provider-neutral model requests, tool settlement, interruption, recovery, and compaction.
+- Built-in project/editor tools for reading and searching files, editing scenes, writing scripts, editing shaders, managing todos, and collecting structured requirements.
+- Unified permission flow for local tools, MCP tools, Skill-driven workflows, and subagents.
+- MCP integration for configured servers, tools, resources, prompts, startup permissions, and namespaced tool materialization.
+- Skill system for discovering, selecting, injecting, and reading specialized workflow guidance on demand.
+- User system under `editor/user_system/` for authentication, server-backed profile data, local session handling, and UI integration.
+- Runtime Markdown stack: `core/markdown` wraps cmark into `MarkdownParser` and `MarkdownNode`; `scene/gui/MarkdownViewer` renders Markdown as a self-drawn `Control`.
+- Public Agent API notes under `editor/agent_v1/`, with local-only development notes kept outside Git under ignored paths such as `.devdocs/`.
 
-## 安全与权限
+## Project Status
 
-- 需要确认的操作会在编辑器里弹窗审批
-- 删除项目文件前会检查它是否正在打开，或是否被其它场景引用
-- 场景修改、脚本绑定和文件删除都尽量保持可审查、可回退
+NEXT Engine is under active development. The current focus areas are:
 
-## 主要能力
+- Making AI Dock interactions smoother and more predictable.
+- Hardening Agent V1 session recovery, permission handling, tool settlement, and context management.
+- Improving scene, script, Shader, and project-file editing through reviewable tools.
+- Continuing the migration from editor-only Markdown components toward the runtime `MarkdownViewer`.
+- Keeping user-system authentication and server configuration separate from local runtime state.
 
-- AI Dock：聊天、模型选择、附件、进度、token 使用、任务列表、diff 审查
-- MarkdownViewer：用于展示 AI 消息和其他 Markdown 内容
-- 用户系统：账号、权限和个性化配置
-- 模型配置：支持 OpenAI-compatible 提供方、Base URL、API Key、模型 ID 等
-- 扩展能力：支持 MCP、Skill 和权限规则
+Public architecture references:
 
-## 项目结构
+- `editor/agent_v1/core/API.md`
+- `editor/agent_v1/domain/API.md`
+- `editor/agent_v1/best_practices.md`
 
-- `editor/agent_v1/`：AI Agent、工具、权限、MCP、Skill、会话
-- `editor/agent_ui/`：AI Dock、Composer、消息列表和审查面板
-- `editor/user_system/`：用户系统
-- `scene/gui/`：`MarkdownViewer` 等 GUI 节点
-- `.devdocs/`：架构说明和设计记录
-- `tests/editor/`：编辑器和 AI 相关测试
+## Build from Source
 
-## 从源码构建
-
-日常构建：
+Daily build:
 
 ```powershell
 scons platform=windows
 ```
 
-开发和测试：
+Development and test build:
 
 ```powershell
 scons platform=windows target=editor dev_build=yes tests=yes
 ```
 
-AI 相关测试：
+Agent V1 tests:
 
 ```powershell
 bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[AgentV1]*"
 ```
 
-## 当前状态
+MarkdownViewer tests:
 
-NEXT Engine 仍在快速迭代中，重点方向包括更自然的 AI Dock 交互、更稳定的场景和脚本编辑、更清晰的变更审查，以及更完整的模型和权限体系。
+```powershell
+bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[MarkdownViewer]*"
+```
+
+User system tests:
+
+```powershell
+bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[UserSystem]*"
+```
+
+## Project Layout
+
+```text
+editor/
+  agent_v1/       Agent V1 backend, domain model, runtime, tools, permissions, MCP, Skills, agents, UI adapter
+  agent_ui/       AI Dock, Composer, message list, settings pages, review panels
+  user_system/    User authentication, profile/session handling, server integration
+
+core/
+  markdown/       MarkdownParser and MarkdownNode core parsing layer backed by cmark
+
+scene/gui/
+  markdown_viewer*  Runtime MarkdownViewer node and document/layout/draw/image/highlighting helpers
+
+thirdparty/
+  cmark/          cmark 0.31.1 CommonMark parser sources
+  fonts/          Bundled fonts, including AlimamaFangYuanTiVF.woff2
+
+tests/
+  editor/         Agent V1, AI UI, and user-system tests
+  scene/          MarkdownViewer runtime scene tests
+```
+
+## Contributing
+
+- Read `AGENTS.md` before making changes in this repository.
+- Before implementing a feature, check the related code for reusable infrastructure, domain models, services, and tests.
+- Prefer the existing Agent V1 contracts in `core`, `domain`, `session`, `tools`, and `permission` instead of adding parallel systems.
+- Prefer `core/markdown` and `MarkdownViewer` for Markdown work instead of adding another parser or RichTextLabel renderer.
+- Keep editor UI as a projection of backend state; durable state should live in the Agent/session/event/config layers.
+- Add or update focused tests when changing runtime behavior, user flows, or reusable infrastructure.
+- Keep local design notes outside Git under ignored paths such as `.devdocs/`; public, code-facing contracts should live next to the implementation.
+
+## License
+
+NEXT Engine follows the MIT license inherited from Godot Engine. See `LICENSE.txt`.
+
+The NEXT Engine name, logo, icon, app icon, splash image, and other brand assets are not licensed for unrestricted use under MIT. See `TRADEMARKS.md`.
+
+This repository also bundles third-party components such as cmark and fonts. Their copyright and license terms remain with their respective upstream projects or bundled license files.

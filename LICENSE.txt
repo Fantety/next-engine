@@ -18,3 +18,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Additional brand and trademark terms:
+
+The MIT license above applies to the software. It does not grant permission to
+use the NEXT Engine name, logo, icon, app icon, splash image, or other brand
+assets except as described in the NEXT Engine Brand and Trademark Policy. See
+TRADEMARKS.md for details.
