@@ -414,19 +414,6 @@ static String make_async_sized_streaming_markdown_message(int p_index, int p_rev
 	return content;
 }
 
-static void force_markdown_viewer_layouts(Node *p_node) {
-	if (!p_node) {
-		return;
-	}
-
-	if (MarkdownViewer *viewer = Object::cast_to<MarkdownViewer>(p_node)) {
-		viewer->force_layout_for_test();
-	}
-	for (int i = 0; i < p_node->get_child_count(); i++) {
-		force_markdown_viewer_layouts(p_node->get_child(i));
-	}
-}
-
 static int count_markdown_viewer_content_overflows(Node *p_node) {
 	if (!p_node) {
 		return 0;

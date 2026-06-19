@@ -9,6 +9,10 @@ Import("env")
 
 # Sources with tests must be explicitly linked first.
 force_link_sources = glob.glob("*/**/*.cpp", recursive=True)
+if not env.editor_build:
+    force_link_sources = [
+        source for source in force_link_sources if not source.replace("\\", "/").startswith("editor/")
+    ]
 force_link_header = env.CommandNoCache(
     "force_link.gen.h", env.Value(force_link_sources), env.Run(test_builders.force_link_builder)
 )
