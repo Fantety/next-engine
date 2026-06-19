@@ -1,8 +1,32 @@
 /**************************************************************************/
 /*  test_agent_v1.cpp                                                     */
 /**************************************************************************/
-
-#include "tests/test_macros.h"
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "core/core_bind.h"
 #include "core/io/dir_access.h"
@@ -16,20 +40,28 @@
 #include "core/object/message_queue.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
+#include "editor/agent_ui/ai_agent_dock.h"
+#include "editor/agent_ui/ai_composer.h"
+#include "editor/agent_ui/component/ai_markdown_label.h"
+#include "editor/agent_ui/component/ai_message_list.h"
+#include "editor/agent_ui/component/ai_reference_resolver.h"
+#include "editor/agent_ui/component/ai_reference_text_edit.h"
+#include "editor/agent_ui/component/ai_status_panel.h"
+#include "editor/agent_ui/component/ai_todo_list_panel.h"
+#include "editor/agent_v1/agents/ai_agent_service_v1.h"
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/config/ai_local_settings_store.h"
-#include "editor/agent_v1/agents/ai_agent_service_v1.h"
-#include "editor/agent_v1/core/threading/ai_main_thread_dispatcher.h"
-#include "editor/agent_v1/core/runtime/ai_stream_sink.h"
 #include "editor/agent_v1/core/runtime/ai_stream_event.h"
+#include "editor/agent_v1/core/runtime/ai_stream_sink.h"
 #include "editor/agent_v1/core/testing/ai_fake_mcp_server.h"
-#include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
+#include "editor/agent_v1/core/threading/ai_main_thread_dispatcher.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_blob_store.h"
+#include "editor/agent_v1/domain/attachments/ai_attachment_model_part_builder.h"
 #include "editor/agent_v1/domain/attachments/ai_attachment_resolver.h"
+#include "editor/agent_v1/domain/compaction/ai_compaction_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_service.h"
 #include "editor/agent_v1/domain/context/ai_context_epoch_store.h"
 #include "editor/agent_v1/domain/context/ai_context_source_registry.h"
-#include "editor/agent_v1/domain/compaction/ai_compaction_service.h"
 #include "editor/agent_v1/domain/events/ai_event_store.h"
 #include "editor/agent_v1/domain/projection/ai_session_history.h"
 #include "editor/agent_v1/mcp/ai_mcp_service_v1.h"
@@ -46,14 +78,6 @@
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_adapter.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
-#include "editor/agent_ui/ai_agent_dock.h"
-#include "editor/agent_ui/ai_composer.h"
-#include "editor/agent_ui/component/ai_markdown_label.h"
-#include "editor/agent_ui/component/ai_message_list.h"
-#include "editor/agent_ui/component/ai_reference_text_edit.h"
-#include "editor/agent_ui/component/ai_reference_resolver.h"
-#include "editor/agent_ui/component/ai_status_panel.h"
-#include "editor/agent_ui/component/ai_todo_list_panel.h"
 #include "editor/editor_node.h"
 #include "scene/gui/button.h"
 #include "scene/gui/control.h"
@@ -66,6 +90,7 @@
 #include "scene/main/window.h"
 #include "scene/resources/style_box.h"
 #include "scene/resources/style_box_flat.h"
+#include "tests/test_macros.h"
 #include "tests/test_tools.h"
 #include "tests/test_utils.h"
 
