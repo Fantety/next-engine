@@ -406,3 +406,7 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 *.generated.props
+
+task_plan.md
+progress.md
+findings.md
