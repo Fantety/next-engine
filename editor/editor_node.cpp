@@ -49,6 +49,8 @@
 #include "core/string/print_string.h"
 #include "core/string/translation_server.h"
 #include "core/version.h"
+#include "editor/agent_ui/ai_agent_dock.h"
+#include "editor/agent_ui/ai_agent_settings_dialog.h"
 #include "editor/animation/animation_player_editor_plugin.h"
 #include "editor/asset_library/asset_library_editor_plugin.h"
 #include "editor/audio/audio_stream_preview.h"
@@ -182,9 +184,6 @@
 #include "servers/navigation_3d/navigation_server_3d.h"
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server.h"
-
-#include "editor/agent_ui/ai_agent_settings_dialog.h"
-#include "editor/agent_ui/ai_agent_dock.h"
 
 #ifdef VULKAN_ENABLED
 #include "editor/shader/shader_baker/shader_baker_export_plugin_platform_vulkan.h"
@@ -3941,7 +3940,7 @@ void EditorNode::_menu_option_confirm(int p_option, bool p_confirmed) {
 		case HELP_ABOUT: {
 			about->popup_centered(Size2(780, 500) * EDSCALE);
 		} break;
-		case AI_OPEN_SETTINGS:{
+		case AI_OPEN_SETTINGS: {
 			ai_settings->popup_centered_clamped(Size2(900, 700) * EDSCALE, 0.8);
 		} break;
 	}
@@ -6699,7 +6698,6 @@ void EditorNode::_layout_menu_option(int p_id) {
 		}
 	}
 }
-
 
 void EditorNode::_proceed_closing_scene_tabs() {
 	List<String>::Element *E = tabs_to_close.front();
