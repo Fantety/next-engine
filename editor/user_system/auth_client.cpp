@@ -11,10 +11,12 @@
 #include "core/os/os.h"
 #include "core/string/print_string.h"
 #include "core/variant/array.h"
+#include "editor/settings/editor_settings.h"
 
 namespace {
 
-static const char *NEXUS_SERVER_BASE_URL = "https://skillhub.xin/";
+static const char *AUTH_BASE_URL_SETTING = "user_system/authentication/base_url";
+static const char *AUTH_BASE_URL_ENV = "NEXT_ENGINE_AUTH_BASE_URL";
 static const char *AUTH_SCENE = "client";
 static const char *AUTH_SERVICE = "user";
 static const uint64_t HTTP_TIMEOUT_MSEC = 30000;
@@ -135,6 +137,23 @@ String _join_base_path(const String &p_base_path, const String &p_path) {
 	return base_path + path;
 }
 
+String _get_auth_base_url() {
+	OS *os = OS::get_singleton();
+	if (os && os->has_environment(AUTH_BASE_URL_ENV)) {
+		const String env_base_url = os->get_environment(AUTH_BASE_URL_ENV).strip_edges();
+		if (!env_base_url.is_empty()) {
+			return env_base_url;
+		}
+	}
+
+	EditorSettings *settings = EditorSettings::get_singleton();
+	if (!settings) {
+		return String();
+	}
+
+	return String(EDITOR_DEF_BASIC(AUTH_BASE_URL_SETTING, String())).strip_edges();
+}
+
 void _append_security_headers(Vector<String> &r_headers, const String &p_token) {
 	if (p_token.is_empty()) {
 		return;
@@ -157,8 +176,7 @@ String _describe_token_for_debug(const String &p_token) {
 	if (CryptoCore::sha256(reinterpret_cast<const uint8_t *>(token_utf8.get_data()), token_utf8.length(), hash) == OK) {
 		hash_prefix = String::hex_encode_buffer(hash, 32).substr(0, 12);
 	}
-	const String tail = token.length() <= 16 ? "<short>" : token.substr(token.length() - 6, 6);
-	return vformat("jwt_parts=%d token_length=%d token_sha256_12=%s token_tail=%s", parts.size(), token.length(), hash_prefix, tail);
+	return vformat("jwt_parts=%d token_length=%d token_sha256_12=%s", parts.size(), token.length(), hash_prefix);
 }
 
 void _print_token_debug(const String &p_context, const String &p_token) {
@@ -185,12 +203,18 @@ void AuthHTTPTransport::_bind_methods() {
 }
 
 bool AuthHTTPTransport::request_json(HTTPClient::Method p_method, const String &p_path, const String &p_body, const Vector<String> &p_headers, String &r_response, int &r_http_code, String &r_error) {
+	const String base_url = _get_auth_base_url();
+	if (base_url.is_empty()) {
+		r_error = vformat("Authentication server is not configured. Set the %s editor setting or %s environment variable.", AUTH_BASE_URL_SETTING, AUTH_BASE_URL_ENV);
+		return false;
+	}
+
 	String scheme;
 	String host;
 	String base_path;
 	String fragment;
 	int port = 0;
-	Error err = String(NEXUS_SERVER_BASE_URL).parse_url(scheme, host, port, base_path, fragment);
+	Error err = base_url.parse_url(scheme, host, port, base_path, fragment);
 	if (err != OK || (scheme != "https://" && scheme != "http://") || host.is_empty()) {
 		r_error = "Authentication server URL is invalid.";
 		return false;
@@ -451,7 +475,7 @@ String AuthClient::get_default_service() {
 }
 
 String AuthClient::get_base_url_for_test() {
-	return NEXUS_SERVER_BASE_URL;
+	return _get_auth_base_url();
 }
 
 String AuthClient::get_default_scene_for_test() {

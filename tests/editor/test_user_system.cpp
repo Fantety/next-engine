@@ -14,10 +14,62 @@
 #include "editor/user_system/editor_user_login_dialog.h"
 #include "editor/user_system/editor_user_manager.h"
 #include "editor/user_system/editor_user_session.h"
+#include "editor/settings/editor_settings.h"
 
 TEST_FORCE_LINK(test_user_system);
 
 namespace TestEditorUserSystem {
+
+static const char *AUTH_BASE_URL_SETTING_FOR_TEST = "user_system/authentication/base_url";
+static const char *AUTH_BASE_URL_ENV_FOR_TEST = "NEXT_ENGINE_AUTH_BASE_URL";
+
+class ScopedAuthBaseUrlReset {
+	bool had_env = false;
+	String old_env;
+	bool had_setting = false;
+	Variant old_setting;
+
+public:
+	ScopedAuthBaseUrlReset() {
+		OS *os = OS::get_singleton();
+		if (os) {
+			had_env = os->has_environment(AUTH_BASE_URL_ENV_FOR_TEST);
+			if (had_env) {
+				old_env = os->get_environment(AUTH_BASE_URL_ENV_FOR_TEST);
+			}
+			os->unset_environment(AUTH_BASE_URL_ENV_FOR_TEST);
+		}
+
+		EditorSettings *settings = EditorSettings::get_singleton();
+		if (settings) {
+			had_setting = settings->has_setting(AUTH_BASE_URL_SETTING_FOR_TEST);
+			if (had_setting) {
+				old_setting = settings->get_setting(AUTH_BASE_URL_SETTING_FOR_TEST);
+			}
+			settings->set_setting(AUTH_BASE_URL_SETTING_FOR_TEST, String());
+		}
+	}
+
+	~ScopedAuthBaseUrlReset() {
+		EditorSettings *settings = EditorSettings::get_singleton();
+		if (settings) {
+			if (had_setting) {
+				settings->set_setting(AUTH_BASE_URL_SETTING_FOR_TEST, old_setting);
+			} else {
+				settings->erase(AUTH_BASE_URL_SETTING_FOR_TEST);
+			}
+		}
+
+		OS *os = OS::get_singleton();
+		if (os) {
+			if (had_env) {
+				os->set_environment(AUTH_BASE_URL_ENV_FOR_TEST, old_env);
+			} else {
+				os->unset_environment(AUTH_BASE_URL_ENV_FOR_TEST);
+			}
+		}
+	}
+};
 
 class FakeAuthTransport : public AuthTransport {
 	GDCLASS(FakeAuthTransport, AuthTransport);
@@ -155,6 +207,12 @@ TEST_CASE("[Editor][UserSystem] Auth client defaults to HTTP transport") {
 	CHECK(Object::cast_to<AuthHTTPTransport>(*client->get_transport()) != nullptr);
 }
 
+TEST_CASE("[Editor][UserSystem] Auth client has no built-in auth server URL") {
+	ScopedAuthBaseUrlReset auth_base_url_reset;
+
+	CHECK(AuthClient::get_base_url_for_test().is_empty());
+}
+
 TEST_CASE("[Editor][UserSystem] Phone-code login body uses backend auto-register endpoint fields") {
 	Dictionary body = AuthClient::build_phone_code_login_body_for_test(" +8613800000000 ", " 2468 ", "device-1");
 
@@ -227,13 +285,13 @@ TEST_CASE("[Editor][UserSystem] Auth client redacts JWT diagnostics") {
 	CHECK(description.contains("jwt_parts=3"));
 	CHECK(description.contains("token_length="));
 	CHECK(description.contains("token_sha256_12="));
-	CHECK(description.contains("token_tail=nature"));
+	CHECK_FALSE(description.contains("token_tail="));
 	CHECK_FALSE(description.contains("jwt_header="));
 	CHECK_FALSE(description.contains("jwt_payload="));
 	CHECK_FALSE(description.contains("John Doe"));
 
 	const String short_description = AuthClient::describe_token_for_debug_for_test("abc123");
-	CHECK(short_description.contains("token_tail=<short>"));
+	CHECK_FALSE(short_description.contains("token_tail="));
 	CHECK_FALSE(short_description.contains("abc123"));
 }
 
