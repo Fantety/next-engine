@@ -3,7 +3,7 @@ on:
   workflow_call:
     secrets:
       SERVICE_ACCOUNT_KEY:
-        required: true
+        required: false
 
   workflow_dispatch:
 

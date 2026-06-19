@@ -158,17 +158,17 @@ Dictionary Engine::get_version_info() const {
 	dict["hex"] = GODOT_VERSION_HEX;
 	dict["status"] = GODOT_VERSION_STATUS;
 	dict["build"] = GODOT_VERSION_BUILD;
+	dict["next_major"] = NEXT_VERSION_MAJOR;
+	dict["next_minor"] = NEXT_VERSION_MINOR;
+	dict["next_status"] = NEXT_VERSION_STATUS;
+	dict["next_string"] = NEXT_VERSION_FULL_CONFIG;
 
 	String hash = String(GODOT_VERSION_HASH);
 	dict["hash"] = hash.is_empty() ? String("unknown") : hash;
 
 	dict["timestamp"] = GODOT_VERSION_TIMESTAMP;
 
-	String stringver = String(dict["major"]) + "." + String(dict["minor"]);
-	if ((int)dict["patch"] != 0) {
-		stringver += "." + String(dict["patch"]);
-	}
-	stringver += "-" + String(dict["status"]) + " (" + String(dict["build"]) + ")";
+	String stringver = String(NEXT_VERSION_FULL_CONFIG) + " (" + String(dict["build"]) + ")";
 	dict["string"] = stringver;
 
 	return dict;

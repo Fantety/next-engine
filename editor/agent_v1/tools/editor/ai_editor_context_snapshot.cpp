@@ -105,7 +105,7 @@ AIEditorContextSnapshotResult AIV1EditorContextSnapshotService::_collect_main_th
 	context_metadata["resource_path"] = resource_path;
 	context_metadata["application_name"] = application_name;
 	context_metadata["engine_name"] = String(VERSION_NAME);
-	context_metadata["engine_version"] = String(VERSION_FULL_CONFIG);
+	context_metadata["engine_version"] = String(NEXT_VERSION_FULL_CONFIG);
 	context_metadata["capabilities"] = capabilities_id;
 	context_metadata["capabilities_summary"] = capabilities_summary;
 
@@ -166,7 +166,7 @@ AIEditorContextSnapshotResult AIV1EditorContextSnapshotService::_collect_main_th
 
 	String content;
 	content += "Editor Context\n";
-	content += "Engine: " + String(VERSION_NAME) + " " + String(VERSION_FULL_CONFIG) + "\n";
+	content += "Engine: " + String(VERSION_NAME) + " " + String(NEXT_VERSION_FULL_CONFIG) + "\n";
 	content += "Project name: " + (application_name.is_empty() ? String("<unnamed>") : application_name) + "\n";
 	content += "Project path: " + (resource_path.is_empty() ? String("<unknown>") : resource_path) + "\n";
 	content += "Agent capabilities: " + capabilities_summary + "\n";

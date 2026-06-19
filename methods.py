@@ -145,6 +145,9 @@ def get_version_info(module_version_string="", silent=False):
     version_info = {
         "short_name": str(version.short_name),
         "name": str(version.name),
+        "next_major": int(version.next_major),
+        "next_minor": int(version.next_minor),
+        "next_status": str(version.next_status),
         "major": int(version.major),
         "minor": int(version.minor),
         "patch": int(version.patch),
@@ -161,6 +164,14 @@ def get_version_info(module_version_string="", silent=False):
         version_info["status"] = str(os.getenv("GODOT_VERSION_STATUS"))
         if not silent:
             print_info(f"Using version status '{version_info['status']}', overriding the original '{version.status}'.")
+
+    if os.getenv("NEXT_VERSION_STATUS") is not None:
+        version_info["next_status"] = str(os.getenv("NEXT_VERSION_STATUS"))
+        if not silent:
+            print_info(
+                f"Using NEXT version status '{version_info['next_status']}', "
+                f"overriding the original '{version.next_status}'."
+            )
 
     return version_info
 

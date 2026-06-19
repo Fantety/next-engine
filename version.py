@@ -1,5 +1,8 @@
 short_name = "next"
 name = "NEXT Engine"
+next_major = 0
+next_minor = 0
+next_status = "preview"
 major = 4
 minor = 7
 patch = 1

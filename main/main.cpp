@@ -327,7 +327,7 @@ static String get_full_version_string() {
 	if (!hash.is_empty()) {
 		hash = "." + hash.left(9);
 	}
-	return String(GODOT_VERSION_FULL_BUILD) + hash;
+	return String(NEXT_VERSION_FULL_BUILD) + hash;
 }
 
 #if defined(TOOLS_ENABLED) && defined(MODULE_GDSCRIPT_ENABLED)

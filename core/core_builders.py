@@ -21,6 +21,9 @@ def version_info_builder(target, source, env):
             """\
 #define GODOT_VERSION_SHORT_NAME "{short_name}"
 #define GODOT_VERSION_NAME "{name}"
+#define NEXT_VERSION_MAJOR {next_major}
+#define NEXT_VERSION_MINOR {next_minor}
+#define NEXT_VERSION_STATUS "{next_status}"
 #define GODOT_VERSION_MAJOR {major}
 #define GODOT_VERSION_MINOR {minor}
 #define GODOT_VERSION_PATCH {patch}

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  editor_version_button.cpp                                             */
+/*  test_version.cpp                                                       */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,61 +28,19 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "editor_version_button.h"
-
-#include "core/os/time.h"
 #include "core/version.h"
-#include "servers/display/display_server.h"
 
-String _get_version_string(EditorVersionButton::VersionFormat p_format) {
-	String main;
-	switch (p_format) {
-		case EditorVersionButton::FORMAT_BASIC: {
-			return NEXT_VERSION_FULL_CONFIG;
-		} break;
-		case EditorVersionButton::FORMAT_WITH_BUILD: {
-			main = "v" NEXT_VERSION_FULL_BUILD;
-		} break;
-		case EditorVersionButton::FORMAT_WITH_NAME_AND_BUILD: {
-			main = NEXT_VERSION_FULL_NAME;
-		} break;
-		default: {
-			ERR_FAIL_V_MSG(NEXT_VERSION_FULL_NAME, "Unexpected format: " + itos(p_format));
-		} break;
-	}
+#include "tests/test_macros.h"
 
-	String hash = GODOT_VERSION_HASH;
-	if (!hash.is_empty()) {
-		hash = vformat(" [%s]", hash.left(9));
-	}
-	return main + hash;
-}
+TEST_FORCE_LINK(test_version)
 
-void EditorVersionButton::_notification(int p_what) {
-	switch (p_what) {
-		case NOTIFICATION_POSTINITIALIZE: {
-			// This can't be done in the constructor because theme cache is not ready yet.
-			set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
-			set_text(_get_version_string(format));
-		} break;
+TEST_CASE("[Version] NEXT display version combines NEXT and Godot versions") {
+	CHECK(String(NEXT_VERSION_NUMBER) == "0.0.4.7.1");
+	CHECK(String(NEXT_VERSION_FULL_CONFIG) == "0.0.4.7.1-preview");
+	CHECK(String(NEXT_VERSION_STATUS) == "preview");
 
-		case NOTIFICATION_TRANSLATION_CHANGED: {
-			String build_date;
-			if (GODOT_VERSION_TIMESTAMP > 0) {
-				build_date = Time::get_singleton()->get_datetime_string_from_unix_time(GODOT_VERSION_TIMESTAMP, true) + " UTC";
-			} else {
-				build_date = TTR("(unknown)");
-			}
-			set_tooltip_text(vformat(TTR("Git commit date: %s\nClick to copy the version information."), build_date));
-		} break;
-	}
-}
-
-void EditorVersionButton::pressed() {
-	DisplayServer::get_singleton()->clipboard_set(_get_version_string(FORMAT_WITH_BUILD));
-}
-
-EditorVersionButton::EditorVersionButton(VersionFormat p_format) {
-	format = p_format;
-	set_underline_mode(LinkButton::UNDERLINE_MODE_ON_HOVER);
+	CHECK(GODOT_VERSION_MAJOR == 4);
+	CHECK(GODOT_VERSION_MINOR == 7);
+	CHECK(GODOT_VERSION_PATCH == 1);
+	CHECK(String(GODOT_VERSION_NUMBER) == "4.7.1");
 }

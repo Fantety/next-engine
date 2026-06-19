@@ -6008,7 +6008,7 @@ String EditorNode::_get_system_info() const {
 	}
 	const String distribution_version = OS::get_singleton()->get_version_alias();
 
-	String godot_version = "Godot v" + String(GODOT_VERSION_FULL_CONFIG);
+	String godot_version = String(GODOT_VERSION_NAME) + " v" + String(NEXT_VERSION_FULL_CONFIG);
 	if (String(GODOT_VERSION_BUILD) != "official") {
 		String hash = String(GODOT_VERSION_HASH);
 		hash = hash.is_empty() ? String("unknown") : vformat("(%s)", hash.left(9));
