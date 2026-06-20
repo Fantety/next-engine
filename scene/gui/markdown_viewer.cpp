@@ -64,6 +64,30 @@ Ref<Font> _get_selectable_span_font(const MarkdownViewerLayoutSpan &p_span, cons
 	return p_theme.font;
 }
 
+real_t _estimate_selectable_fallback_text_width(const String &p_text, int p_font_size) {
+	const real_t em_size = MAX(real_t(1.0), real_t(p_font_size));
+	real_t width = 0.0;
+	for (int i = 0; i < p_text.length(); i++) {
+		const char32_t c = p_text[i];
+		real_t em_width = 0.55;
+		if (c == '\t') {
+			em_width = 2.0;
+		} else if (c == ' ') {
+			em_width = 0.33;
+		} else if (c >= 0x2E80) {
+			em_width = 1.0;
+		} else if (c == 'W' || c == 'M' || c == 'w' || c == 'm') {
+			em_width = 0.9;
+		} else if ((c >= 'A' && c <= 'Z') || c == '@' || c == '#' || c == '%' || c == '&') {
+			em_width = 0.72;
+		} else if (c == 'i' || c == 'l' || c == 'I' || c == '.' || c == ',' || c == ':' || c == ';' || c == '!' || c == '|') {
+			em_width = 0.32;
+		}
+		width += em_size * em_width;
+	}
+	return width;
+}
+
 real_t _measure_selectable_text_width(const Ref<Font> &p_font, const String &p_text, int p_font_size) {
 	if (p_text.is_empty()) {
 		return 0.0;
@@ -74,7 +98,7 @@ real_t _measure_selectable_text_width(const Ref<Font> &p_font, const String &p_t
 			return width;
 		}
 	}
-	return p_text.length() * p_font_size * 0.55;
+	return _estimate_selectable_fallback_text_width(p_text, p_font_size);
 }
 
 real_t _get_selectable_font_height(const Ref<Font> &p_font, int p_font_size) {

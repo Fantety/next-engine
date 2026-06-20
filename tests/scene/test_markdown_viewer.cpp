@@ -372,6 +372,22 @@ TEST_CASE("[SceneTree][MarkdownViewer] Layout falls back when a valid font has n
 	CHECK(layout.hit_tests[0].rect.size.x > 0.0);
 }
 
+TEST_CASE("[SceneTree][MarkdownViewer] Layout estimates wide glyph fallback width conservatively") {
+	MarkdownViewerDocumentBuilder builder;
+	MarkdownViewerDocument document = builder.build("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW");
+
+	MarkdownViewerLayoutTheme theme;
+	Ref<ZeroMetricFont> zero_metric_font;
+	zero_metric_font.instantiate();
+	theme.font = zero_metric_font;
+	theme.normal_font_size = 16;
+
+	MarkdownViewerLayoutBuilder layout_builder;
+	MarkdownViewerLayout layout = layout_builder.build(document, Size2(420, 240), theme);
+
+	REQUIRE(layout.items.size() == 1);
+	REQUIRE(layout.items[0].inline_lines.size() > 1);
+}
 TEST_CASE("[SceneTree][MarkdownViewer] Layout gives wide tables scrollable content width") {
 	MarkdownViewerDocumentBuilder builder;
 	MarkdownViewerDocument document = builder.build("| Name | Description |\n| --- | --- |\n| Short | ThisIsAnIntentionallyVeryLongTableCellThatShouldNotBeClippedIntoTheVisibleColumn |\n");
