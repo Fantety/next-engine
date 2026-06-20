@@ -9,6 +9,7 @@
 #include "core/object/message_queue.h"
 #include "core/os/thread.h"
 #include "core/variant/variant.h"
+#include "editor/editor_node.h"
 #include "editor/file_system/editor_file_system.h"
 
 bool AIV1ProjectToolUtils::is_allowed_path(const String &p_path) {
@@ -47,6 +48,9 @@ void AIV1ProjectToolUtils::refresh_editor_file_system(const String &p_path, bool
 		return;
 	}
 
+	if (!EditorNode::get_singleton() || EditorNode::is_cmdline_mode()) {
+		return;
+	}
 	if (p_update_file && !p_path.is_empty()) {
 		file_system->update_file(p_path);
 	}

@@ -35,15 +35,40 @@ TEST_FORCE_LINK(test_code_edit)
 #ifndef ADVANCED_GUI_DISABLED
 
 #include "core/input/input_map.h"
+#include "modules/modules_enabled.gen.h"
 #include "scene/gui/code_edit.h"
 #include "scene/main/scene_tree.h"
+#include "scene/resources/font.h"
 #include "tests/display_server_mock.h"
 #include "tests/signal_watcher.h"
 
 namespace TestCodeEdit {
 
+static Ref<FontFile> get_code_control_test_font() {
+#ifdef MODULE_FREETYPE_ENABLED
+	Ref<FontFile> test_font;
+	test_font.instantiate();
+	const Error err = test_font->load_dynamic_font("thirdparty/fonts/Inter_Regular.woff2");
+	CHECK_MESSAGE(err == OK, "CodeEdit tests should be able to load the fixed test font.");
+	CHECK_MESSAGE(!test_font->get_data().is_empty(), "The fixed test font should contain font data.");
+	return test_font;
+#else
+	return Ref<FontFile>();
+#endif
+}
+
+static void apply_code_control_test_font(CodeEdit *p_code_edit) {
+#ifdef MODULE_FREETYPE_ENABLED
+	Ref<FontFile> test_font = get_code_control_test_font();
+	if (test_font.is_valid()) {
+		p_code_edit->add_theme_font_override("font", test_font);
+	}
+#endif
+}
+
 TEST_CASE("[SceneTree][CodeEdit] line gutters") {
 	CodeEdit *code_edit = memnew(CodeEdit);
+	apply_code_control_test_font(code_edit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);
 	code_edit->grab_focus();
 
@@ -841,6 +866,7 @@ TEST_CASE("[SceneTree][CodeEdit] line gutters") {
 
 TEST_CASE("[SceneTree][CodeEdit] delimiters") {
 	CodeEdit *code_edit = memnew(CodeEdit);
+	apply_code_control_test_font(code_edit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);
 	code_edit->grab_focus();
 
@@ -1744,6 +1770,7 @@ TEST_CASE("[SceneTree][CodeEdit] delimiters") {
 
 TEST_CASE("[SceneTree][CodeEdit] indent") {
 	CodeEdit *code_edit = memnew(CodeEdit);
+	apply_code_control_test_font(code_edit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);
 	code_edit->grab_focus();
 
@@ -2897,6 +2924,7 @@ TEST_CASE("[SceneTree][CodeEdit] indent") {
 
 TEST_CASE("[SceneTree][CodeEdit] folding") {
 	CodeEdit *code_edit = memnew(CodeEdit);
+	apply_code_control_test_font(code_edit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);
 	code_edit->grab_focus();
 	code_edit->set_line_folding_enabled(true);
@@ -3458,6 +3486,7 @@ TEST_CASE("[SceneTree][CodeEdit] folding") {
 
 TEST_CASE("[SceneTree][CodeEdit] region folding") {
 	CodeEdit *code_edit = memnew(CodeEdit);
+	apply_code_control_test_font(code_edit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);
 	code_edit->grab_focus();
 
@@ -3730,6 +3759,7 @@ TEST_CASE("[SceneTree][CodeEdit] region folding") {
 
 TEST_CASE("[SceneTree][CodeEdit] completion") {
 	CodeEdit *code_edit = memnew(CodeEdit);
+	apply_code_control_test_font(code_edit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);
 	code_edit->grab_focus();
 
@@ -4517,6 +4547,7 @@ TEST_CASE("[SceneTree][CodeEdit] completion") {
 
 TEST_CASE("[SceneTree][CodeEdit] symbol lookup") {
 	CodeEdit *code_edit = memnew(CodeEdit);
+	apply_code_control_test_font(code_edit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);
 	code_edit->grab_focus();
 
@@ -4554,6 +4585,7 @@ TEST_CASE("[SceneTree][CodeEdit] symbol lookup") {
 
 TEST_CASE("[SceneTree][CodeEdit] line length guidelines") {
 	CodeEdit *code_edit = memnew(CodeEdit);
+	apply_code_control_test_font(code_edit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);
 	code_edit->grab_focus();
 
@@ -4575,6 +4607,7 @@ TEST_CASE("[SceneTree][CodeEdit] line length guidelines") {
 
 TEST_CASE("[SceneTree][CodeEdit] text manipulation") {
 	CodeEdit *code_edit = memnew(CodeEdit);
+	apply_code_control_test_font(code_edit);
 	SceneTree::get_singleton()->get_root()->add_child(code_edit);
 	code_edit->grab_focus();
 

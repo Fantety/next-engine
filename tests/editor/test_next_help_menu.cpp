@@ -47,7 +47,7 @@ TEST_CASE("[Editor][HelpMenu] NEXT help menu does not expose upstream Godot supp
 
 	CHECK(editor_node.contains("ED_SHORTCUT_AND_COMMAND(\"editor/online_docs\", TTRC(\"Godot Documentation\"))"));
 	CHECK(editor_node.contains("ED_SHORTCUT_AND_COMMAND(\"editor/about\", TTRC(\"About NEXT Engine...\"))"));
-	CHECK(editor_node.contains("get_editor_theme_native_menu_icon(SNAME(\"Logo\")"));
+	CHECK(editor_node.contains("get_editor_theme_native_menu_icon(SNAME(\"NextIcon\")"));
 
 	CHECK_FALSE(editor_node.contains("ED_SHORTCUT_AND_COMMAND(\"editor/forum\""));
 	CHECK_FALSE(editor_node.contains("ED_SHORTCUT_AND_COMMAND(\"editor/community\""));
