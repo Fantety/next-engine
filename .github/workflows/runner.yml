@@ -109,9 +109,10 @@ jobs:
           set -euo pipefail
 
           version="${GITHUB_REF_NAME}"
+          repo="${GITHUB_REPOSITORY}"
 
-          if ! gh release view "$version" >/dev/null 2>&1; then
-            gh release create "$version" --title "$version" --notes-file /dev/null
+          if ! gh release view "$version" --repo "$repo" >/dev/null 2>&1; then
+            gh release create "$version" --repo "$repo" --title "$version" --notes-file /dev/null
           fi
 
-          gh release upload "$version" release-assets/*.zip --clobber
+          gh release upload "$version" release-assets/*.zip --repo "$repo" --clobber
