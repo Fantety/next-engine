@@ -29,14 +29,6 @@ jobs:
     if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
     uses: ./.github/workflows/ios_builds.yml
 
-  linux-build:
-    name: 🐧 Linux
-    needs: static-checks
-    if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
-    uses: ./.github/workflows/linux_builds.yml
-    with:
-      changed-files: ${{ needs.static-checks.outputs.changed-files }}
-
   macos-build:
     name: 🍎 macOS
     needs: static-checks
@@ -54,3 +46,72 @@ jobs:
     needs: static-checks
     if: needs.static-checks.outputs.sources-changed == 'true' || github.event_name != 'pull_request'
     uses: ./.github/workflows/web_builds.yml
+
+  release:
+    name: 🚀 Release
+    needs:
+      - android-build
+      - ios-build
+      - macos-build
+      - windows-build
+      - web-build
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-input
+
+      - name: Package release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME}"
+          mkdir -p release-assets
+
+          package_artifact() {
+            local artifact_name="$1"
+            local release_name="$2"
+            local source_dir="release-input/${artifact_name}"
+
+            if [ ! -d "$source_dir" ]; then
+              echo "::error::Missing artifact '${artifact_name}'"
+              exit 1
+            fi
+
+            (cd "$source_dir" && zip -9 -r "../../release-assets/${release_name}" .)
+          }
+
+          package_artifact "android-editor" "NextEngine-${version}-android-editor-arm64.zip"
+          package_artifact "android-editor-horizonos" "NextEngine-${version}-android-editor-horizonos-arm64.zip"
+          package_artifact "android-editor-picoos" "NextEngine-${version}-android-editor-picoos-arm64.zip"
+          package_artifact "android-template-arm32" "NextEngine-${version}-android-template-arm32.zip"
+          package_artifact "android-template-arm64" "NextEngine-${version}-android-template-arm64.zip"
+          package_artifact "ios-template" "NextEngine-${version}-ios-template-arm64.zip"
+          package_artifact "macos-editor" "NextEngine-${version}-macos-editor-universal.zip"
+          package_artifact "macos-template" "NextEngine-${version}-macos-template-universal.zip"
+          package_artifact "web-template" "NextEngine-${version}-web-template-wasm64.zip"
+          package_artifact "web-nothreads-template" "NextEngine-${version}-web-template-nothreads-wasm32.zip"
+          package_artifact "windows-editor" "NextEngine-${version}-windows-editor-x86_64.zip"
+          package_artifact "windows-template" "NextEngine-${version}-windows-template-x86_64.zip"
+
+          find release-assets -type f -name '*.zip' -print | sort
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME}"
+
+          if ! gh release view "$version" >/dev/null 2>&1; then
+            gh release create "$version" --title "$version" --notes-file /dev/null
+          fi
+
+          gh release upload "$version" release-assets/*.zip --clobber

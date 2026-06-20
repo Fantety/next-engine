@@ -68,10 +68,6 @@ String _format_size(const Size2i &p_size) {
 	return vformat("%d x %d px", p_size.width, p_size.height);
 }
 
-String _format_size(const Size2 &p_size) {
-	return vformat("%.0f x %.0f px", p_size.x, p_size.y);
-}
-
 String _scene_root_kind(Node *p_scene_root) {
 	if (!p_scene_root) {
 		return "none";

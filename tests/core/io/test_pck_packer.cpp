@@ -34,10 +34,18 @@ TEST_FORCE_LINK(test_pck_packer)
 
 #include "core/io/file_access.h"
 #include "core/io/pck_packer.h"
-#include "core/os/os.h"
 #include "tests/test_utils.h"
 
 namespace TestPCKPacker {
+
+static void write_source_file(const String &p_path, const String &p_text) {
+	Error err;
+	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE, &err);
+	REQUIRE_MESSAGE(err == OK, "Temporary source file should be writable.");
+	REQUIRE_MESSAGE(file.is_valid(), "Temporary source file should be valid.");
+	file->store_string(p_text);
+	file->flush();
+}
 
 TEST_CASE("[PCKPacker] Pack an empty PCK file") {
 	PCKPacker pck_packer;
@@ -86,19 +94,27 @@ TEST_CASE("[PCKPacker] Pack a PCK file with some files and directories") {
 			pck_packer.pck_start(output_pck_path) == OK,
 			"Starting a PCK file should return an OK error code.");
 
-	const String base_dir = OS::get_singleton()->get_executable_path().get_base_dir();
+	const String source_a_path = TestUtils::get_temp_path("pck_source_a.txt");
+	const String source_b_path = TestUtils::get_temp_path("pck_source_b.txt");
+	const String source_override_path = TestUtils::get_temp_path("pck_source_override.txt");
+	const String source_a_text = "version fixture\n";
+	const String source_b_text = "nested fixture\n";
+	const String source_override_text = "override fixture\n";
+	write_source_file(source_a_path, source_a_text);
+	write_source_file(source_b_path, source_b_text);
+	write_source_file(source_override_path, source_override_text);
 
 	CHECK_MESSAGE(
-			pck_packer.add_file("version.py", base_dir.path_join("../version.py"), "version.py") == OK,
+			pck_packer.add_file("version.py", source_a_path) == OK,
 			"Adding a file to the PCK should return an OK error code.");
 	CHECK_MESSAGE(
-			pck_packer.add_file("some/directories with spaces/to/create/icon.png", base_dir.path_join("../misc/logo/icon.png")) == OK,
+			pck_packer.add_file("some/directories with spaces/to/create/file_a.txt", source_b_path) == OK,
 			"Adding a file to a new subdirectory in the PCK should return an OK error code.");
 	CHECK_MESSAGE(
-			pck_packer.add_file("some/directories with spaces/to/create/icon.svg", base_dir.path_join("../misc/logo/icon.svg")) == OK,
+			pck_packer.add_file("some/directories with spaces/to/create/file_b.txt", source_a_path) == OK,
 			"Adding a file to an existing subdirectory in the PCK should return an OK error code.");
 	CHECK_MESSAGE(
-			pck_packer.add_file("some/directories with spaces/to/create/icon.png", base_dir.path_join("../misc/logo/logo.png")) == OK,
+			pck_packer.add_file("some/directories with spaces/to/create/file_a.txt", source_override_path) == OK,
 			"Overriding a non-flushed file to an existing subdirectory in the PCK should return an OK error code.");
 	CHECK_MESSAGE(
 			pck_packer.add_file_from_buffer("buffer/new.txt", String("Hello world!").to_utf8_buffer()) == OK,
@@ -113,10 +129,10 @@ TEST_CASE("[PCKPacker] Pack a PCK file with some files and directories") {
 			err == OK,
 			"The generated non-empty PCK file should be opened successfully.");
 	CHECK_MESSAGE(
-			f->get_length() >= 18000,
+			f->get_length() >= 100,
 			"The generated non-empty PCK file should be large enough to actually hold the contents specified above.");
 	CHECK_MESSAGE(
-			f->get_length() <= 27000,
+			f->get_length() <= 4096,
 			"The generated non-empty PCK file shouldn't be too large.");
 }
 

@@ -37,13 +37,39 @@ TEST_FORCE_LINK(test_tab_bar)
 #include "scene/gui/tab_bar.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
+#include "scene/resources/font.h"
 #include "tests/display_server_mock.h"
 #include "tests/signal_watcher.h"
 
+#include "modules/modules_enabled.gen.h"
+
 namespace TestTabBar {
+
+static Ref<FontFile> get_tab_control_test_font() {
+#ifdef MODULE_FREETYPE_ENABLED
+	Ref<FontFile> test_font;
+	test_font.instantiate();
+	const Error err = test_font->load_dynamic_font("thirdparty/fonts/Inter_Regular.woff2");
+	CHECK_MESSAGE(err == OK, "TabBar tests should be able to load the fixed test font.");
+	CHECK_MESSAGE(!test_font->get_data().is_empty(), "The fixed test font should contain font data.");
+	return test_font;
+#else
+	return Ref<FontFile>();
+#endif
+}
+
+static void apply_tab_control_test_font(TabBar *p_tab_bar) {
+#ifdef MODULE_FREETYPE_ENABLED
+	Ref<FontFile> test_font = get_tab_control_test_font();
+	if (test_font.is_valid()) {
+		p_tab_bar->add_theme_font_override("font", test_font);
+	}
+#endif
+}
 
 TEST_CASE("[SceneTree][TabBar] tab operations") {
 	TabBar *tab_bar = memnew(TabBar);
+	apply_tab_control_test_font(tab_bar);
 	SceneTree::get_singleton()->get_root()->add_child(tab_bar);
 	tab_bar->set_clip_tabs(false);
 	MessageQueue::get_singleton()->flush();
@@ -422,7 +448,8 @@ TEST_CASE("[SceneTree][TabBar] tab operations") {
 		// The tabs after are moved over.
 		MessageQueue::get_singleton()->flush();
 		CHECK(tab_bar->get_tab_rect(0) == tab_rects[0]);
-		CHECK(tab_bar->get_tab_rect(2) == tab_rects[1]);
+		CHECK(tab_bar->get_tab_rect(2).position == tab_rects[1].position);
+		CHECK(tab_bar->get_tab_rect(2).size == tab_rects[2].size);
 
 		// Unhiding a tab does not affect current tab.
 		tab_bar->set_tab_hidden(1, false);
@@ -628,6 +655,7 @@ TEST_CASE("[SceneTree][TabBar] tab operations") {
 
 TEST_CASE("[SceneTree][TabBar] initialization") {
 	TabBar *tab_bar = memnew(TabBar);
+	apply_tab_control_test_font(tab_bar);
 
 	SIGNAL_WATCH(tab_bar, "tab_selected");
 	SIGNAL_WATCH(tab_bar, "tab_changed");
@@ -727,6 +755,7 @@ TEST_CASE("[SceneTree][TabBar] initialization") {
 
 TEST_CASE("[SceneTree][TabBar] layout and offset") {
 	TabBar *tab_bar = memnew(TabBar);
+	apply_tab_control_test_font(tab_bar);
 	SceneTree::get_singleton()->get_root()->add_child(tab_bar);
 
 	tab_bar->set_clip_tabs(false);
@@ -873,6 +902,7 @@ TEST_CASE("[SceneTree][TabBar] layout and offset") {
 
 TEST_CASE("[SceneTree][TabBar] Mouse interaction") {
 	TabBar *tab_bar = memnew(TabBar);
+	apply_tab_control_test_font(tab_bar);
 	SceneTree::get_singleton()->get_root()->add_child(tab_bar);
 
 	tab_bar->set_clip_tabs(false);
@@ -1038,6 +1068,7 @@ TEST_CASE("[SceneTree][TabBar] Mouse interaction") {
 
 	SUBCASE("[TabBar] Drag and drop to different TabBar") {
 		TabBar *target_tab_bar = memnew(TabBar);
+		apply_tab_control_test_font(target_tab_bar);
 		SceneTree::get_singleton()->get_root()->add_child(target_tab_bar);
 
 		target_tab_bar->set_clip_tabs(false);

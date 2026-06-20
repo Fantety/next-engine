@@ -32,11 +32,45 @@
 
 TEST_FORCE_LINK(test_file_access)
 
+#include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/os/os.h"
 #include "tests/test_utils.h"
 
 namespace TestFileAccess {
+
+static void remove_dir_recursive_if_exists(const String &p_path) {
+	if (!DirAccess::dir_exists_absolute(p_path)) {
+		return;
+	}
+
+	Error err = OK;
+	Ref<DirAccess> dir = DirAccess::open(p_path, &err);
+	CHECK(err == OK);
+	CHECK(dir.is_valid());
+	if (dir.is_valid()) {
+		CHECK(dir->erase_contents_recursive() == OK);
+	}
+	CHECK(DirAccess::remove_absolute(p_path) == OK);
+}
+
+TEST_CASE("[DirAccess] Recursive user paths recreate missing user data root") {
+	ProjectSettings *settings = ProjectSettings::get_singleton();
+	REQUIRE(settings);
+
+	const Variant previous_project_name = settings->get_setting("application/config/name");
+	settings->set_setting("application/config/name", "godot_dir_access_recreate_tests");
+	const String user_data_dir = OS::get_singleton()->get_user_data_dir();
+	remove_dir_recursive_if_exists(user_data_dir);
+
+	const String nested_dir = "user://dir_access_recreate/subdir";
+	CHECK(DirAccess::make_dir_recursive_absolute(nested_dir) == OK);
+	CHECK(DirAccess::dir_exists_absolute(nested_dir));
+
+	remove_dir_recursive_if_exists(user_data_dir);
+	settings->set_setting("application/config/name", previous_project_name);
+}
 
 TEST_CASE("[FileAccess] CSV read") {
 	Ref<FileAccess> f = FileAccess::open(TestUtils::get_data_path("testdata.csv"), FileAccess::READ);

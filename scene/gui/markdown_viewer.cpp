@@ -1,6 +1,32 @@
 /**************************************************************************/
 /*  markdown_viewer.cpp                                                   */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "markdown_viewer.h"
 
@@ -38,19 +64,49 @@ Ref<Font> _get_selectable_span_font(const MarkdownViewerLayoutSpan &p_span, cons
 	return p_theme.font;
 }
 
+real_t _estimate_selectable_fallback_text_width(const String &p_text, int p_font_size) {
+	const real_t em_size = MAX(real_t(1.0), real_t(p_font_size));
+	real_t width = 0.0;
+	for (int i = 0; i < p_text.length(); i++) {
+		const char32_t c = p_text[i];
+		real_t em_width = 0.55;
+		if (c == '\t') {
+			em_width = 2.0;
+		} else if (c == ' ') {
+			em_width = 0.33;
+		} else if (c >= 0x2E80) {
+			em_width = 1.0;
+		} else if (c == 'W' || c == 'M' || c == 'w' || c == 'm') {
+			em_width = 0.9;
+		} else if ((c >= 'A' && c <= 'Z') || c == '@' || c == '#' || c == '%' || c == '&') {
+			em_width = 0.72;
+		} else if (c == 'i' || c == 'l' || c == 'I' || c == '.' || c == ',' || c == ':' || c == ';' || c == '!' || c == '|') {
+			em_width = 0.32;
+		}
+		width += em_size * em_width;
+	}
+	return width;
+}
+
 real_t _measure_selectable_text_width(const Ref<Font> &p_font, const String &p_text, int p_font_size) {
 	if (p_text.is_empty()) {
 		return 0.0;
 	}
 	if (p_font.is_valid()) {
-		return p_font->get_string_size(p_text, HORIZONTAL_ALIGNMENT_LEFT, -1, p_font_size).x;
+		const real_t width = p_font->get_string_size(p_text, HORIZONTAL_ALIGNMENT_LEFT, -1, p_font_size).x;
+		if (width > 0.0) {
+			return width;
+		}
 	}
-	return p_text.length() * p_font_size * 0.55;
+	return _estimate_selectable_fallback_text_width(p_text, p_font_size);
 }
 
 real_t _get_selectable_font_height(const Ref<Font> &p_font, int p_font_size) {
 	if (p_font.is_valid()) {
-		return p_font->get_height(p_font_size);
+		const real_t height = p_font->get_height(p_font_size);
+		if (height > 0.0) {
+			return height;
+		}
 	}
 	return p_font_size;
 }
