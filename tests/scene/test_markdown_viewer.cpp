@@ -5,16 +5,37 @@
 /*                             GODOT ENGINE                               */
 /*                        https://godotengine.org                         */
 /**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "tests/test_macros.h"
 
 TEST_FORCE_LINK(test_markdown_viewer)
 
 #include "core/io/image.h"
+#include "core/object/class_db.h"
 #include "core/object/message_queue.h"
 #include "core/os/os.h"
-#include "core/object/class_db.h"
-#include "modules/modules_enabled.gen.h"
 #include "scene/gui/markdown_viewer.h"
 #include "scene/gui/markdown_viewer_code_highlighter.h"
 #include "scene/gui/markdown_viewer_document.h"
@@ -29,7 +50,24 @@ TEST_FORCE_LINK(test_markdown_viewer)
 #include "tests/signal_watcher.h"
 #include "tests/test_tools.h"
 
+#include "modules/modules_enabled.gen.h"
+
 namespace TestMarkdownViewer {
+
+class ZeroMetricFont : public Font {
+public:
+	virtual real_t get_height(int) const override {
+		return 0.0;
+	}
+
+	virtual real_t get_ascent(int) const override {
+		return 0.0;
+	}
+
+	virtual Size2 get_string_size(const String &, HorizontalAlignment, float, int, BitField<TextServer::JustificationFlag>, TextServer::Direction, TextServer::Orientation) const override {
+		return Size2();
+	}
+};
 
 static bool _has_inline_type(const Vector<MarkdownViewerInline> &p_inlines, MarkdownViewerInline::Type p_type) {
 	for (const MarkdownViewerInline &run : p_inlines) {
@@ -313,6 +351,25 @@ TEST_CASE("[SceneTree][MarkdownViewer] Layout preserves inline spans and code sy
 	CHECK(found_code);
 	CHECK(found_link);
 	CHECK_FALSE(layout.hit_tests.is_empty());
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Layout falls back when a valid font has no metrics") {
+	MarkdownViewerDocumentBuilder builder;
+	MarkdownViewerDocument document = builder.build("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW [Godot](https://godotengine.org)");
+
+	MarkdownViewerLayoutTheme theme;
+	Ref<ZeroMetricFont> zero_metric_font;
+	zero_metric_font.instantiate();
+	theme.font = zero_metric_font;
+	theme.normal_font_size = 16;
+
+	MarkdownViewerLayoutBuilder layout_builder;
+	MarkdownViewerLayout layout = layout_builder.build(document, Size2(220, 120), theme);
+
+	REQUIRE(layout.items.size() == 1);
+	REQUIRE(layout.items[0].inline_lines.size() > 1);
+	REQUIRE_FALSE(layout.hit_tests.is_empty());
+	CHECK(layout.hit_tests[0].rect.size.x > 0.0);
 }
 
 TEST_CASE("[SceneTree][MarkdownViewer] Layout gives wide tables scrollable content width") {
