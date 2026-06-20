@@ -167,6 +167,10 @@ Error DirAccess::make_dir_recursive(const String &p_dir) {
 		ERR_FAIL_V(ERR_INVALID_PARAMETER);
 	}
 
+	if (base == "user://" && OS::get_singleton()) {
+		OS::get_singleton()->ensure_user_data_dir();
+	}
+
 	full_dir = full_dir.replace_first(base, "").simplify_path();
 
 	Vector<String> subdirs = full_dir.split("/");

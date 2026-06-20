@@ -31,7 +31,6 @@
 #include "ai_mcp_server_dialog.h"
 
 #include "core/object/callable_mp.h"
-#include "core/object/class_db.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/check_box.h"
