@@ -34,13 +34,14 @@ TEST_FORCE_LINK(test_tab_bar)
 
 #ifndef ADVANCED_GUI_DISABLED
 
-#include "modules/modules_enabled.gen.h"
 #include "scene/gui/tab_bar.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
 #include "scene/resources/font.h"
 #include "tests/display_server_mock.h"
 #include "tests/signal_watcher.h"
+
+#include "modules/modules_enabled.gen.h"
 
 namespace TestTabBar {
 
