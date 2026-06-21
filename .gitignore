@@ -25,6 +25,9 @@
 ############################
 .devdocs/
 .superpowers/
+/task_plan.md
+/progress.md
+/findings.md
 ###########################
 ### Build configuration ###
 ###########################
@@ -407,6 +410,3 @@ $RECYCLE.BIN/
 *.lnk
 *.generated.props
 
-task_plan.md
-progress.md
-findings.md
