@@ -8,10 +8,16 @@
 #include "editor/agent_v1/tools/editor/ai_change_set_store.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
 #include "editor/agent_ui/ai_composer.h"
+#include "editor/agent_ui/ai_settings_about_page.h"
 #include "editor/agent_ui/ai_settings_mcp_page.h"
 #include "editor/agent_ui/ai_settings_models_page.h"
 #include "editor/agent_ui/ai_settings_rules_page.h"
 #include "editor/agent_ui/ai_settings_skills_page.h"
+#include "editor/next_engine_update_checker.h"
+#include "core/version.h"
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
+#include "scene/main/http_request.h"
 
 TEST_FORCE_LINK(test_ai_model_settings);
 
@@ -51,6 +57,41 @@ Array array_from_snapshot(const Ref<AIAgentV1UIBridge> &p_bridge, const String &
 	Dictionary snapshot = p_bridge->get_settings_snapshot();
 	Variant value = snapshot.get(p_key, Array());
 	return value.get_type() == Variant::ARRAY ? Array(value) : Array();
+}
+
+PackedByteArray utf8_body(const String &p_text) {
+	return p_text.to_utf8_buffer();
+}
+
+String find_repo_file(const String &p_relative_path) {
+	Ref<DirAccess> dir = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+	REQUIRE(dir.is_valid());
+
+	String current_dir = dir->get_current_dir();
+	for (int i = 0; i < 8; i++) {
+		const String candidate = current_dir.path_join(p_relative_path);
+		if (FileAccess::exists(candidate)) {
+			return candidate;
+		}
+
+		const String parent = current_dir.get_base_dir();
+		if (parent == current_dir) {
+			break;
+		}
+		current_dir = parent;
+	}
+
+	REQUIRE_MESSAGE(false, vformat("Could not locate repository file: %s", p_relative_path));
+	return String();
+}
+
+String read_repo_file(const String &p_relative_path) {
+	const String path = find_repo_file(p_relative_path);
+	Error err = OK;
+	Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ, &err);
+	REQUIRE_MESSAGE(file.is_valid(), vformat("Could not read repository file: %s", path));
+	REQUIRE(err == OK);
+	return file->get_as_text();
 }
 
 } // namespace TestAIAgentV1Settings
@@ -119,6 +160,55 @@ TEST_CASE("[Editor][AgentV1] Settings skills and rules pages patch agent_v1 conf
 	memdelete(skills_page);
 	memdelete(rules_page);
 	AIAgentV1UIBridge::clear_singleton_for_test();
+}
+
+TEST_CASE("[Editor][AgentV1] NEXT update checker parses GitHub latest release") {
+	using namespace TestAIAgentV1Settings;
+
+	NextEngineUpdateCheckResult update = parse_next_engine_update_response(HTTPRequest::RESULT_SUCCESS, 200, utf8_body("{\"tag_name\":\"v9.0.4.7.1-preview\"}"), "0.0.4.7.1-preview");
+	CHECK(update.status == NextEngineUpdateCheckStatus::UPDATE_AVAILABLE);
+	CHECK(update.latest_version == "v9.0.4.7.1-preview");
+
+	NextEngineUpdateCheckResult current = parse_next_engine_update_response(HTTPRequest::RESULT_SUCCESS, 200, utf8_body("{\"tag_name\":\"v0.0.4.7.1-preview\"}"), "0.0.4.7.1-preview");
+	CHECK(current.status == NextEngineUpdateCheckStatus::UP_TO_DATE);
+
+	NextEngineUpdateCheckResult invalid = parse_next_engine_update_response(HTTPRequest::RESULT_SUCCESS, 200, utf8_body("{\"tag_name\":\"not-a-version\"}"), "0.0.4.7.1-preview");
+	CHECK(invalid.status == NextEngineUpdateCheckStatus::ERROR);
+}
+
+TEST_CASE("[Editor][AgentV1] Settings about page shows manual update results") {
+	using namespace TestAIAgentV1Settings;
+
+	AISettingsAboutPage *page = memnew(AISettingsAboutPage);
+	page->build_for_test();
+
+	CHECK(page->get_current_version_text_for_test().contains(NEXT_VERSION_FULL_CONFIG));
+	CHECK_FALSE(page->is_download_button_visible_for_test());
+
+	page->apply_update_response_for_test(HTTPRequest::RESULT_SUCCESS, 200, "{\"tag_name\":\"v9.0.4.7.1-preview\"}", "0.0.4.7.1-preview");
+	CHECK(page->get_update_status_for_test() == NextEngineUpdateCheckStatus::UPDATE_AVAILABLE);
+	CHECK(page->get_latest_version_text_for_test().contains("v9.0.4.7.1-preview"));
+	CHECK(page->is_download_button_visible_for_test());
+
+	page->apply_update_response_for_test(HTTPRequest::RESULT_SUCCESS, 200, "{\"tag_name\":\"v0.0.4.7.1-preview\"}", "0.0.4.7.1-preview");
+	CHECK(page->get_update_status_for_test() == NextEngineUpdateCheckStatus::UP_TO_DATE);
+	CHECK_FALSE(page->is_download_button_visible_for_test());
+
+	memdelete(page);
+}
+
+TEST_CASE("[Editor][AgentV1] Settings dialog source registers about navigation page") {
+	using namespace TestAIAgentV1Settings;
+
+	const String dialog_header = read_repo_file("editor/agent_ui/ai_agent_settings_dialog.h");
+	const String dialog_source = read_repo_file("editor/agent_ui/ai_agent_settings_dialog.cpp");
+
+	CHECK(dialog_header.contains("PAGE_ABOUT"));
+	CHECK(dialog_header.contains("AISettingsAboutPage *about_page"));
+	CHECK(dialog_source.contains("navigation->add_item(TTR(\"About\"), get_editor_theme_icon(SNAME(\"Info\")))"));
+	CHECK(dialog_source.contains("navigation->set_item_metadata(PAGE_ABOUT, PAGE_ABOUT)"));
+	CHECK(dialog_source.contains("about_page = memnew(AISettingsAboutPage)"));
+	CHECK(dialog_source.contains("pages->add_child(about_page)"));
 }
 
 TEST_CASE("[Editor][AgentV1] Composer model selector uses agent_v1 model profiles") {

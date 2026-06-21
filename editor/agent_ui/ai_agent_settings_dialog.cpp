@@ -4,6 +4,7 @@
 
 #include "ai_agent_settings_dialog.h"
 
+#include "editor/agent_ui/ai_settings_about_page.h"
 #include "editor/agent_ui/ai_settings_models_page.h"
 #include "editor/agent_ui/ai_settings_mcp_page.h"
 #include "editor/agent_ui/ai_settings_next_marquee_page.h"
@@ -100,6 +101,8 @@ void AIAgentSettingsDialog::_build_navigation(HBoxContainer *p_root) {
 	navigation->set_item_metadata(PAGE_SKILLS, PAGE_SKILLS);
 	navigation->add_item(TTR("Rules"), get_editor_theme_icon(SNAME("AIRules")));
 	navigation->set_item_metadata(PAGE_RULES, PAGE_RULES);
+	navigation->add_item(TTR("About"), get_editor_theme_icon(SNAME("Info")));
+	navigation->set_item_metadata(PAGE_ABOUT, PAGE_ABOUT);
 	navigation->select(PAGE_MODELS);
 	navigation->connect(SceneStringName(item_selected), callable_mp(this, &AIAgentSettingsDialog::_navigation_selected));
 	p_root->add_child(navigation);
@@ -136,6 +139,10 @@ void AIAgentSettingsDialog::_build_pages(HBoxContainer *p_root) {
 	rules_page->set_name(TTR("Rules"));
 	rules_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_rule_settings));
 	pages->add_child(rules_page);
+
+	about_page = memnew(AISettingsAboutPage);
+	about_page->set_name(TTR("About"));
+	pages->add_child(about_page);
 }
 
 void AIAgentSettingsDialog::_navigation_selected(int p_index) {
@@ -213,6 +220,9 @@ void AIAgentSettingsDialog::build_for_test() {
 	}
 	if (rules_page) {
 		rules_page->build_for_test();
+	}
+	if (about_page) {
+		about_page->build_for_test();
 	}
 }
 

@@ -30,21 +30,12 @@
 
 #include "engine_update_label.h"
 
-#include "core/io/json.h"
-#include "core/next_version.h"
 #include "core/object/callable_mp.h"
 #include "core/os/os.h"
-#include "core/version.h"
 #include "editor/editor_string_names.h"
+#include "editor/next_engine_update_checker.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/main/http_request.h"
-
-namespace {
-
-constexpr char NEXT_ENGINE_LATEST_RELEASE_URL[] = "https://api.github.com/repos/Fantety/next-engine/releases/latest";
-constexpr char NEXT_ENGINE_DOWNLOAD_URL[] = "https://nextengine.net";
-
-} // namespace
 
 bool EngineUpdateLabel::_can_check_updates() const {
 	return int(EDITOR_GET("network/connection/network_mode")) == EditorSettings::NETWORK_ONLINE &&
@@ -55,12 +46,7 @@ void EngineUpdateLabel::_check_update() {
 	checked_update = true;
 	_set_status(UpdateStatus::BUSY);
 
-	Vector<String> headers;
-	headers.push_back("Accept: application/vnd.github+json");
-	headers.push_back("User-Agent: NEXT-Engine");
-	headers.push_back("X-GitHub-Api-Version: 2022-11-28");
-
-	const Error err = http->request(NEXT_ENGINE_LATEST_RELEASE_URL, headers);
+	const Error err = request_next_engine_latest_release(http);
 	if (err != OK) {
 		_set_status(UpdateStatus::ERROR);
 		_set_message(vformat(TTR("Failed to check for updates. Error: %d."), err), theme_cache.error_color);
@@ -68,68 +54,27 @@ void EngineUpdateLabel::_check_update() {
 }
 
 void EngineUpdateLabel::_http_request_completed(int p_result, int p_response_code, const PackedStringArray &p_headers, const PackedByteArray &p_body) {
-	if (p_result != HTTPRequest::RESULT_SUCCESS) {
-		_set_status(UpdateStatus::ERROR);
-		_set_message(vformat(TTR("Failed to check for updates. Error: %d."), p_result), theme_cache.error_color);
-		return;
-	}
-
-	if (p_response_code != 200) {
-		_set_status(UpdateStatus::ERROR);
-		_set_message(vformat(TTR("Failed to check for updates. Response code: %d."), p_response_code), theme_cache.error_color);
-		return;
-	}
-
-	Dictionary release_info;
-	{
-		const uint8_t *r = p_body.ptr();
-		String s = String::utf8((const char *)r, p_body.size());
-
-		Variant result = JSON::parse_string(s);
-		if (result == Variant()) {
-			_set_status(UpdateStatus::ERROR);
-			_set_message(TTR("Failed to parse version JSON."), theme_cache.error_color);
-			return;
-		}
-		if (result.get_type() != Variant::DICTIONARY) {
-			_set_status(UpdateStatus::ERROR);
-			_set_message(TTR("Received JSON data is not a valid GitHub release."), theme_cache.error_color);
-			return;
-		}
-		release_info = result;
-	}
-
-	String latest_version = release_info.get("tag_name", String());
-	if (latest_version.is_empty()) {
-		latest_version = release_info.get("name", String());
-	}
-	if (latest_version.is_empty()) {
-		_set_status(UpdateStatus::ERROR);
-		_set_message(TTR("GitHub release does not include a version tag."), theme_cache.error_color);
-		return;
-	}
-
-	NextEngineVersion parsed_latest_version;
-	if (!parse_next_engine_version(latest_version, parsed_latest_version)) {
-		_set_status(UpdateStatus::ERROR);
-		_set_message(vformat(TTR("GitHub release version is not valid: %s."), latest_version), theme_cache.error_color);
-		return;
-	}
-
-	NextEngineVersion parsed_current_version;
-	if (!parse_next_engine_version(NEXT_VERSION_FULL_CONFIG, parsed_current_version)) {
-		_set_status(UpdateStatus::ERROR);
-		_set_message(vformat(TTR("Current NEXT Engine version is not valid: %s."), String(NEXT_VERSION_FULL_CONFIG)), theme_cache.error_color);
-		return;
-	}
+	const NextEngineUpdateCheckResult update_result = parse_next_engine_update_response(p_result, p_response_code, p_body);
 
 	available_newer_version = String();
-	if (compare_next_engine_versions(parsed_latest_version, parsed_current_version) > 0) {
-		available_newer_version = latest_version;
-		_set_status(UpdateStatus::UPDATE_AVAILABLE);
-		_set_message(vformat(TTR("Update available: %s."), available_newer_version), theme_cache.update_color);
-	} else {
-		_set_status(UpdateStatus::UP_TO_DATE);
+	switch (update_result.status) {
+		case NextEngineUpdateCheckStatus::ERROR: {
+			_set_status(UpdateStatus::ERROR);
+			_set_message(update_result.message.is_empty() ? TTR("Failed to check for updates.") : update_result.message, theme_cache.error_color);
+		} break;
+
+		case NextEngineUpdateCheckStatus::UPDATE_AVAILABLE: {
+			available_newer_version = update_result.latest_version;
+			_set_status(UpdateStatus::UPDATE_AVAILABLE);
+			_set_message(vformat(TTR("Update available: %s."), available_newer_version), theme_cache.update_color);
+		} break;
+
+		case NextEngineUpdateCheckStatus::UP_TO_DATE: {
+			_set_status(UpdateStatus::UP_TO_DATE);
+		} break;
+
+		case NextEngineUpdateCheckStatus::NOT_CHECKED: {
+		} break;
 	}
 }
 
@@ -228,7 +173,7 @@ void EngineUpdateLabel::pressed() {
 		} break;
 
 		case UpdateStatus::UPDATE_AVAILABLE: {
-			OS::get_singleton()->shell_open(NEXT_ENGINE_DOWNLOAD_URL);
+			OS::get_singleton()->shell_open(get_next_engine_download_url());
 		} break;
 
 		default: {

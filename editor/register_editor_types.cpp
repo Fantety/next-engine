@@ -188,6 +188,7 @@
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_config_adapter.h"
 #include "editor/agent_ui/ai_agent_dock.h"
 #include "editor/agent_ui/ai_agent_settings_dialog.h"
+#include "editor/agent_ui/ai_settings_about_page.h"
 #include "editor/agent_ui/ai_change_review_panel.h"
 #include "editor/agent_ui/ai_composer.h"
 #include "editor/agent_ui/ai_settings_next_marquee_page.h"
@@ -368,6 +369,7 @@ void register_editor_types() {
 	GDREGISTER_INTERNAL_CLASS(AIReferenceTextEdit);
 	GDREGISTER_INTERNAL_CLASS(AISkillDialog);
 	GDREGISTER_INTERNAL_CLASS(AIStatusPanel);
+	GDREGISTER_INTERNAL_CLASS(AISettingsAboutPage);
 	GDREGISTER_INTERNAL_CLASS(AISettingsMCPPage);
 	GDREGISTER_INTERNAL_CLASS(AISettingsModelsPage);
 	GDREGISTER_INTERNAL_CLASS(AISettingsNextMarqueePage);

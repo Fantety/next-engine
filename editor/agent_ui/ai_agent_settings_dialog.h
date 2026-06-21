@@ -8,6 +8,7 @@
 #include "scene/gui/item_list.h"
 #include "scene/gui/tab_container.h"
 
+class AISettingsAboutPage;
 class AISettingsModelsPage;
 class AISettingsMCPPage;
 class AISettingsNextMarqueePage;
@@ -24,6 +25,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 		PAGE_MCP,
 		PAGE_SKILLS,
 		PAGE_RULES,
+		PAGE_ABOUT,
 	};
 
 	ItemList *navigation = nullptr;
@@ -33,6 +35,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	AISettingsMCPPage *mcp_page = nullptr;
 	AISettingsSkillsPage *skills_page = nullptr;
 	AISettingsRulesPage *rules_page = nullptr;
+	AISettingsAboutPage *about_page = nullptr;
 
 	static inline AIAgentSettingsDialog *singleton = nullptr;
 
