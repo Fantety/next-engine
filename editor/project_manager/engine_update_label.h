@@ -47,17 +47,6 @@ public:
 	};
 
 private:
-	static constexpr int DEV_VERSION = 9999; // Version index for unnumbered builds (assumed to always be newest).
-
-	enum class VersionType {
-		STABLE,
-		RC,
-		BETA,
-		ALPHA,
-		DEV,
-		UNKNOWN,
-	};
-
 	enum class UpdateStatus {
 		NONE,
 		OFFLINE,
@@ -86,9 +75,6 @@ private:
 
 	void _set_message(const String &p_message, const Color &p_color);
 	void _set_status(UpdateStatus p_status);
-
-	VersionType _get_version_type(const String &p_string, int *r_index = nullptr) const;
-	String _extract_sub_string(const String &p_line) const;
 
 protected:
 	void _notification(int p_what);

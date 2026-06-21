@@ -31,12 +31,20 @@
 #include "engine_update_label.h"
 
 #include "core/io/json.h"
+#include "core/next_version.h"
 #include "core/object/callable_mp.h"
 #include "core/os/os.h"
 #include "core/version.h"
 #include "editor/editor_string_names.h"
 #include "editor/settings/editor_settings.h"
 #include "scene/main/http_request.h"
+
+namespace {
+
+constexpr char NEXT_ENGINE_LATEST_RELEASE_URL[] = "https://api.github.com/repos/Fantety/next-engine/releases/latest";
+constexpr char NEXT_ENGINE_DOWNLOAD_URL[] = "https://nextengine.net";
+
+} // namespace
 
 bool EngineUpdateLabel::_can_check_updates() const {
 	return int(EDITOR_GET("network/connection/network_mode")) == EditorSettings::NETWORK_ONLINE &&
@@ -46,11 +54,21 @@ bool EngineUpdateLabel::_can_check_updates() const {
 void EngineUpdateLabel::_check_update() {
 	checked_update = true;
 	_set_status(UpdateStatus::BUSY);
-	http->request("https://godotengine.org/versions.json");
+
+	Vector<String> headers;
+	headers.push_back("Accept: application/vnd.github+json");
+	headers.push_back("User-Agent: NEXT-Engine");
+	headers.push_back("X-GitHub-Api-Version: 2022-11-28");
+
+	const Error err = http->request(NEXT_ENGINE_LATEST_RELEASE_URL, headers);
+	if (err != OK) {
+		_set_status(UpdateStatus::ERROR);
+		_set_message(vformat(TTR("Failed to check for updates. Error: %d."), err), theme_cache.error_color);
+	}
 }
 
 void EngineUpdateLabel::_http_request_completed(int p_result, int p_response_code, const PackedStringArray &p_headers, const PackedByteArray &p_body) {
-	if (p_result != OK) {
+	if (p_result != HTTPRequest::RESULT_SUCCESS) {
 		_set_status(UpdateStatus::ERROR);
 		_set_message(vformat(TTR("Failed to check for updates. Error: %d."), p_result), theme_cache.error_color);
 		return;
@@ -62,7 +80,7 @@ void EngineUpdateLabel::_http_request_completed(int p_result, int p_response_cod
 		return;
 	}
 
-	Array version_array;
+	Dictionary release_info;
 	{
 		const uint8_t *r = p_body.ptr();
 		String s = String::utf8((const char *)r, p_body.size());
@@ -73,92 +91,44 @@ void EngineUpdateLabel::_http_request_completed(int p_result, int p_response_cod
 			_set_message(TTR("Failed to parse version JSON."), theme_cache.error_color);
 			return;
 		}
-		if (result.get_type() != Variant::ARRAY) {
+		if (result.get_type() != Variant::DICTIONARY) {
 			_set_status(UpdateStatus::ERROR);
-			_set_message(TTR("Received JSON data is not a valid version array."), theme_cache.error_color);
+			_set_message(TTR("Received JSON data is not a valid GitHub release."), theme_cache.error_color);
 			return;
 		}
-		version_array = result;
+		release_info = result;
 	}
 
-	UpdateMode update_mode = UpdateMode(int(EDITOR_GET("network/connection/check_for_updates")));
-	if (update_mode == UpdateMode::AUTO) {
-		if (_get_version_type(GODOT_VERSION_STATUS) == VersionType::STABLE) {
-			update_mode = UpdateMode::NEWEST_STABLE;
-		} else {
-			update_mode = UpdateMode::NEWEST_UNSTABLE;
-		}
+	String latest_version = release_info.get("tag_name", String());
+	if (latest_version.is_empty()) {
+		latest_version = release_info.get("name", String());
 	}
-	bool stable_only = update_mode == UpdateMode::NEWEST_STABLE || update_mode == UpdateMode::NEWEST_PATCH;
+	if (latest_version.is_empty()) {
+		_set_status(UpdateStatus::ERROR);
+		_set_message(TTR("GitHub release does not include a version tag."), theme_cache.error_color);
+		return;
+	}
+
+	NextEngineVersion parsed_latest_version;
+	if (!parse_next_engine_version(latest_version, parsed_latest_version)) {
+		_set_status(UpdateStatus::ERROR);
+		_set_message(vformat(TTR("GitHub release version is not valid: %s."), latest_version), theme_cache.error_color);
+		return;
+	}
+
+	NextEngineVersion parsed_current_version;
+	if (!parse_next_engine_version(NEXT_VERSION_FULL_CONFIG, parsed_current_version)) {
+		_set_status(UpdateStatus::ERROR);
+		_set_message(vformat(TTR("Current NEXT Engine version is not valid: %s."), String(NEXT_VERSION_FULL_CONFIG)), theme_cache.error_color);
+		return;
+	}
 
 	available_newer_version = String();
-	for (const Variant &data_bit : version_array) {
-		const Dictionary version_info = data_bit;
-
-		const String base_version_string = version_info.get("name", "");
-		const PackedStringArray version_bits = base_version_string.split(".");
-
-		if (version_bits.size() < 2) {
-			continue;
-		}
-
-		int minor = version_bits[1].to_int();
-		if (version_bits[0].to_int() != GODOT_VERSION_MAJOR || minor < GODOT_VERSION_MINOR) {
-			continue;
-		}
-
-		int patch = 0;
-		if (version_bits.size() >= 3) {
-			patch = version_bits[2].to_int();
-		}
-
-		if (minor == GODOT_VERSION_MINOR && patch < GODOT_VERSION_PATCH) {
-			continue;
-		}
-
-		if (update_mode == UpdateMode::NEWEST_PATCH && minor > GODOT_VERSION_MINOR) {
-			continue;
-		}
-
-		const Array releases = version_info.get("releases", Array());
-		if (releases.is_empty()) {
-			continue;
-		}
-
-		const Dictionary newest_release = releases[0];
-		const String release_string = newest_release.get("name", "unknown");
-
-		int release_index;
-		VersionType release_type = _get_version_type(release_string, &release_index);
-
-		if (minor > GODOT_VERSION_MINOR || patch > GODOT_VERSION_PATCH) {
-			if (stable_only && release_type != VersionType::STABLE) {
-				continue;
-			}
-
-			available_newer_version = vformat("%s-%s", base_version_string, release_string);
-			break;
-		}
-
-		int current_version_index;
-		VersionType current_version_type = _get_version_type(GODOT_VERSION_STATUS, &current_version_index);
-
-		if (int(release_type) > int(current_version_type)) {
-			break;
-		}
-
-		if (int(release_type) == int(current_version_type) && release_index <= current_version_index) {
-			break;
-		}
-
-		available_newer_version = vformat("%s-%s", base_version_string, release_string);
-		break;
-	}
-
-	if (!available_newer_version.is_empty()) {
+	if (compare_next_engine_versions(parsed_latest_version, parsed_current_version) > 0) {
+		available_newer_version = latest_version;
 		_set_status(UpdateStatus::UPDATE_AVAILABLE);
 		_set_message(vformat(TTR("Update available: %s."), available_newer_version), theme_cache.update_color);
-	} else if (available_newer_version.is_empty()) {
+	} else {
 		_set_status(UpdateStatus::UP_TO_DATE);
 	}
 }
@@ -212,42 +182,6 @@ void EngineUpdateLabel::_set_status(UpdateStatus p_status) {
 	}
 }
 
-EngineUpdateLabel::VersionType EngineUpdateLabel::_get_version_type(const String &p_string, int *r_index) const {
-	VersionType type = VersionType::UNKNOWN;
-	String index_string;
-
-	static HashMap<String, VersionType> type_map;
-	if (type_map.is_empty()) {
-		type_map["stable"] = VersionType::STABLE;
-		type_map["rc"] = VersionType::RC;
-		type_map["beta"] = VersionType::BETA;
-		type_map["alpha"] = VersionType::ALPHA;
-		type_map["dev"] = VersionType::DEV;
-	}
-
-	for (const KeyValue<String, VersionType> &kv : type_map) {
-		if (p_string.begins_with(kv.key)) {
-			index_string = p_string.trim_prefix(kv.key);
-			type = kv.value;
-			break;
-		}
-	}
-
-	if (r_index) {
-		if (index_string.is_empty()) {
-			*r_index = DEV_VERSION;
-		} else {
-			*r_index = index_string.to_int();
-		}
-	}
-	return type;
-}
-
-String EngineUpdateLabel::_extract_sub_string(const String &p_line) const {
-	int j = p_line.find_char('"') + 1;
-	return p_line.substr(j, p_line.find_char('"', j) - j);
-}
-
 void EngineUpdateLabel::_notification(int p_what) {
 	switch (p_what) {
 		case EditorSettings::NOTIFICATION_EDITOR_SETTINGS_CHANGED: {
@@ -294,7 +228,7 @@ void EngineUpdateLabel::pressed() {
 		} break;
 
 		case UpdateStatus::UPDATE_AVAILABLE: {
-			OS::get_singleton()->shell_open("https://godotengine.org/download/archive/" + available_newer_version);
+			OS::get_singleton()->shell_open(NEXT_ENGINE_DOWNLOAD_URL);
 		} break;
 
 		default: {

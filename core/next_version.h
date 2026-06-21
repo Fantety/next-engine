@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  test_version.cpp                                                      */
+/*  next_version.h                                                        */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,30 +28,19 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "core/next_version.h"
-#include "core/version.h"
-#include "tests/test_macros.h"
+#pragma once
 
-TEST_FORCE_LINK(test_version)
+#include "core/string/ustring.h"
 
-TEST_CASE("[Version] NEXT display version combines NEXT and Godot versions") {
-	CHECK(String(NEXT_VERSION_NUMBER) == "0.0.4.7.1");
-	CHECK(String(NEXT_VERSION_FULL_CONFIG) == "0.0.4.7.1-preview");
-	CHECK(String(NEXT_VERSION_STATUS) == "preview");
+struct NextEngineVersion {
+	int next_major = 0;
+	int next_minor = 0;
+	int godot_major = 0;
+	int godot_minor = 0;
+	int godot_patch = 0;
+	String status;
+};
 
-	CHECK(GODOT_VERSION_MAJOR == 4);
-	CHECK(GODOT_VERSION_MINOR == 7);
-	CHECK(GODOT_VERSION_PATCH == 1);
-	CHECK(String(GODOT_VERSION_NUMBER) == "4.7.1");
-}
-
-TEST_CASE("[Version] NEXT update comparison accepts GitHub release tags") {
-	CHECK(is_next_engine_version_newer("v0.0.4.7.2-preview", "0.0.4.7.1-preview"));
-	CHECK(is_next_engine_version_newer("0.1.4.7.1-preview", "0.0.4.7.1-preview"));
-	CHECK(is_next_engine_version_newer("0.0.4.8.0-preview", "0.0.4.7.1-preview"));
-	CHECK(is_next_engine_version_newer("0.0.4.7.1", "0.0.4.7.1-preview"));
-
-	CHECK_FALSE(is_next_engine_version_newer("v0.0.4.7.1-preview", "0.0.4.7.1-preview"));
-	CHECK_FALSE(is_next_engine_version_newer("not-a-version", "0.0.4.7.1-preview"));
-	CHECK_FALSE(is_next_engine_version_newer("0.0.4.7.1-preview", "not-a-version"));
-}
+bool parse_next_engine_version(const String &p_text, NextEngineVersion &r_version);
+int compare_next_engine_versions(const NextEngineVersion &p_a, const NextEngineVersion &p_b);
+bool is_next_engine_version_newer(const String &p_latest, const String &p_current);
