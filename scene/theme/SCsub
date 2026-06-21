@@ -11,6 +11,6 @@ SConscript("icons/SCsub")
 
 env.CommandNoCache(
     "#scene/theme/default_font.gen.h",
-    "#thirdparty/fonts/AlimamaFangYuanTiVF.woff2",
+    "#thirdparty/fonts/AlibabaPuHuiTi_3_65_Medium.woff2",
     env.Run(default_theme_builders.make_fonts_header),
 )

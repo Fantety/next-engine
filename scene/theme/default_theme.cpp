@@ -1394,7 +1394,7 @@ void make_default_theme(float p_scale, Ref<Font> p_font, TextServer::SubpixelPos
 		Ref<FontFile> dynamic_font;
 		dynamic_font.instantiate();
 #ifdef BROTLI_ENABLED
-		dynamic_font->set_data_ptr(_font_AlimamaFangYuanTiVF, _font_AlimamaFangYuanTiVF_size);
+		dynamic_font->set_data_ptr(_font_AlibabaPuHuiTi_3_65_Medium, _font_AlibabaPuHuiTi_3_65_Medium_size);
 		dynamic_font->set_subpixel_positioning(p_font_subpixel);
 		dynamic_font->set_hinting(p_font_hinting);
 		dynamic_font->set_antialiasing(p_font_antialiasing);
