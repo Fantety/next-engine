@@ -81,6 +81,7 @@
 #include "editor/editor_node.h"
 #include "scene/gui/button.h"
 #include "scene/gui/control.h"
+#include "scene/gui/dialogs.h"
 #include "scene/gui/item_list.h"
 #include "scene/gui/label.h"
 #include "scene/gui/markdown_viewer.h"
@@ -333,6 +334,25 @@ static AIComposer *find_first_composer(Node *p_node) {
 	for (int i = 0; i < p_node->get_child_count(); i++) {
 		if (AIComposer *child_composer = find_first_composer(p_node->get_child(i))) {
 			return child_composer;
+		}
+	}
+	return nullptr;
+}
+
+static ConfirmationDialog *find_confirmation_dialog_with_title(Node *p_node, const String &p_title) {
+	if (!p_node) {
+		return nullptr;
+	}
+
+	if (ConfirmationDialog *dialog = Object::cast_to<ConfirmationDialog>(p_node)) {
+		if (dialog->get_title() == p_title) {
+			return dialog;
+		}
+	}
+
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		if (ConfirmationDialog *child_dialog = find_confirmation_dialog_with_title(p_node->get_child(i), p_title)) {
+			return child_dialog;
 		}
 	}
 	return nullptr;
@@ -1557,6 +1577,59 @@ TEST_CASE("[Editor][AgentUI] Message list user scroll cancels pending bottom fol
 	memdelete(list);
 }
 
+TEST_CASE("[Editor][AgentUI] Tool approval dialog wraps long permission text inside fixed width") {
+	REQUIRE(SceneTree::get_singleton());
+	Window *root = SceneTree::get_singleton()->get_root();
+	REQUIRE(root);
+
+	AIAgentV1UIBridge::clear_singleton_for_test();
+
+	AIAgentDock *dock = memnew(AIAgentDock);
+	root->add_child(dock);
+	dock->set_size(Size2(360, 520));
+	settle_gui_layout(8);
+
+	Ref<AIAgentV1UIBridge> bridge = AIAgentV1UIBridge::get_singleton();
+	REQUIRE(bridge.is_valid());
+
+	String long_reason;
+	for (int i = 0; i < 24; i++) {
+		long_reason += "This permission explanation is intentionally long so the approval dialog must wrap text instead of stretching the popup width. ";
+	}
+
+	String long_argument;
+	for (int i = 0; i < 18; i++) {
+		long_argument += "res://very/long/path/that/should/not/stretch/the/approval/dialog/" + itos(i) + "/example_file_with_a_long_name.gd ";
+	}
+
+	Dictionary arguments;
+	arguments["content"] = long_argument;
+	arguments["path"] = "res://scripts/long_permission_dialog_test.gd";
+
+	Dictionary request;
+	request["request_id"] = "long-approval-dialog-request";
+	request["tool_name"] = "script.write";
+	request["reason"] = long_reason;
+	request["arguments"] = arguments;
+
+	bridge->emit_signal(SNAME("permission_requested"), request);
+	settle_gui_layout(12);
+
+	ConfirmationDialog *dialog = find_confirmation_dialog_with_title(dock, TTR("Approve AI Tool"));
+	REQUIRE(dialog);
+	CHECK(dialog->is_visible());
+	CHECK(dialog->get_size().x <= 720.0);
+
+	Label *content_label = find_first_label(dialog);
+	REQUIRE(content_label);
+	CHECK(content_label->get_autowrap_mode() == TextServer::AUTOWRAP_WORD_SMART);
+	CHECK(content_label->get_custom_minimum_size().x <= 640.0);
+
+	dialog->hide();
+	root->remove_child(dock);
+	memdelete(dock);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+}
 TEST_CASE("[Editor][AgentUI] Dock live message updates preserve user scroll position") {
 	REQUIRE(SceneTree::get_singleton());
 	Window *root = SceneTree::get_singleton()->get_root();

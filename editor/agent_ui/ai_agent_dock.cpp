@@ -1,13 +1,39 @@
 /**************************************************************************/
-/*  ai_agent_dock.cpp                                                      */
+/*  ai_agent_dock.cpp                                                     */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
 #include "ai_agent_dock.h"
 
-#include "core/object/callable_mp.h"
-#include "core/object/class_db.h"
 #include "core/io/json.h"
 #include "core/math/math_funcs.h"
+#include "core/object/callable_mp.h"
+#include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "core/os/time.h"
 #include "editor/agent_ui/ai_agent_settings_dialog.h"
@@ -24,6 +50,10 @@
 #include "servers/text/text_server.h"
 
 namespace {
+
+constexpr int TOOL_APPROVAL_DIALOG_WIDTH = 640;
+constexpr int TOOL_APPROVAL_DIALOG_HEIGHT = 360;
+constexpr int TOOL_APPROVAL_MESSAGE_WIDTH = 600;
 
 Ref<ShaderMaterial> _make_request_progress_material() {
 	Ref<Shader> shader;
@@ -155,6 +185,12 @@ AIAgentDock::AIAgentDock() {
 	tool_approval_dialog->set_title(TTR("Approve AI Tool"));
 	tool_approval_dialog->set_ok_button_text(TTR("Approve"));
 	tool_approval_dialog->set_cancel_button_text(TTR("Reject"));
+	tool_approval_dialog->set_min_size(Size2(TOOL_APPROVAL_DIALOG_WIDTH, TOOL_APPROVAL_DIALOG_HEIGHT) * EDSCALE);
+	Label *tool_approval_label = tool_approval_dialog->get_label();
+	tool_approval_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
+	tool_approval_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	tool_approval_label->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	tool_approval_label->set_custom_minimum_size(Size2(TOOL_APPROVAL_MESSAGE_WIDTH, 0) * EDSCALE);
 	tool_approval_dialog->connect(SceneStringName(confirmed), callable_mp(this, &AIAgentDock::_confirm_tool_approval));
 	tool_approval_dialog->connect("canceled", callable_mp(this, &AIAgentDock::_reject_tool_approval));
 	add_child(tool_approval_dialog);
@@ -427,7 +463,7 @@ void AIAgentDock::_tool_approval_requested(const Dictionary &p_approval) {
 	}
 
 	tool_approval_dialog->set_text(text);
-	tool_approval_dialog->popup_centered();
+	tool_approval_dialog->popup_centered(Size2(TOOL_APPROVAL_DIALOG_WIDTH, TOOL_APPROVAL_DIALOG_HEIGHT) * EDSCALE);
 }
 
 void AIAgentDock::_new_session_pressed() {
