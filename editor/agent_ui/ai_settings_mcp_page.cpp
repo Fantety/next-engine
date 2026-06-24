@@ -1,16 +1,41 @@
 /**************************************************************************/
 /*  ai_settings_mcp_page.cpp                                              */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_settings_mcp_page.h"
-
-#include "editor/agent_ui/component/ai_mcp_server_dialog.h"
 
 #include "core/io/json.h"
 #include "core/math/math_funcs.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
+#include "editor/agent_ui/component/ai_mcp_server_dialog.h"
 #include "editor/editor_string_names.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/box_container.h"
@@ -371,7 +396,7 @@ void AISettingsMCPPage::_build_ui() {
 
 	Label *description = memnew(Label);
 	description->set_text(TTR("Configure the MCP servers that agent_v1 can import as external tools. Tool discovery and runtime status are handled by the agent backend through the bridge."));
-	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	content->add_child(description);
 
@@ -459,27 +484,27 @@ void AISettingsMCPPage::_refresh_server_table() {
 	server_table->add_child(header);
 
 	Label *status_header = _make_table_label(TTR("Status"), 62);
-	status_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	status_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(status_header);
 
 	Label *enabled_header = _make_table_label(TTR("Enabled"), 70);
-	enabled_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	enabled_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(enabled_header);
 
 	Label *name_header = _make_table_label(TTR("Name"));
-	name_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	name_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(name_header);
 
 	Label *transport_header = _make_table_label(TTR("Transport"), 130);
-	transport_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	transport_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(transport_header);
 
 	Label *command_header = _make_table_label(TTR("Endpoint"), 220);
-	command_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	command_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(command_header);
 
 	Label *action_header = _make_table_label(TTR("Actions"), 150);
-	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(action_header);
 
 	HSeparator *header_separator = memnew(HSeparator);
@@ -503,7 +528,7 @@ void AISettingsMCPPage::_refresh_server_table() {
 
 		Label *empty_label = memnew(Label);
 		empty_label->set_text(TTR("No MCP servers yet. Add a server to make external tools available to the AI Agent."));
-		empty_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+		empty_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 		empty_margin->add_child(empty_label);
 	}
 }

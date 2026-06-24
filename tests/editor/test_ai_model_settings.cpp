@@ -236,6 +236,26 @@ TEST_CASE("[Editor][AgentV1] Settings dialog source registers about navigation p
 	CHECK(dialog_source.contains("pages->add_child(about_page)"));
 }
 
+TEST_CASE("[Editor][AgentV1] Settings UI uses NEXT theme font-disabled color token") {
+	using namespace TestAIAgentV1Settings;
+
+	const char *settings_sources[] = {
+		"editor/agent_ui/ai_settings_about_page.cpp",
+		"editor/agent_ui/ai_settings_custom_instructions_page.cpp",
+		"editor/agent_ui/ai_settings_mcp_page.cpp",
+		"editor/agent_ui/ai_settings_models_page.cpp",
+		"editor/agent_ui/ai_settings_next_marquee_page.cpp",
+		"editor/agent_ui/ai_settings_rules_page.cpp",
+		"editor/agent_ui/ai_settings_skills_page.cpp",
+		"editor/agent_ui/component/ai_model_profile_dialog.cpp",
+		"editor/agent_ui/component/ai_skill_dialog.cpp",
+	};
+
+	for (const char *source_path : settings_sources) {
+		const String source = read_repo_file(source_path);
+		CHECK_MESSAGE(!source.contains("\"disabled_font_color\""), vformat("%s must use \"font_disabled_color\" for NEXT theme compatibility.", source_path));
+	}
+}
 TEST_CASE("[Editor][AgentV1] Composer model selector uses agent_v1 model profiles") {
 	using namespace TestAIAgentV1Settings;
 

@@ -94,7 +94,7 @@ void AISettingsAboutPage::_build_ui() {
 
 	Label *description = memnew(Label);
 	description->set_text(TTR("NEXT Engine is built on Godot Engine and adds integrated AI Agent workflows."));
-	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	content->add_child(description);
 
@@ -121,7 +121,7 @@ void AISettingsAboutPage::_build_ui() {
 	status_label->set_text(TTR("Update status: Not checked."));
 	status_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	status_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
-	status_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	status_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	version_content->add_child(status_label);
 
 	HSeparator *separator = memnew(HSeparator);
@@ -159,7 +159,7 @@ void AISettingsAboutPage::_set_current_version_label() {
 void AISettingsAboutPage::_set_status_text(const String &p_text, bool p_error) {
 	ERR_FAIL_NULL(status_label);
 	status_label->set_text(p_text);
-	status_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(p_error ? SNAME("error_color") : SNAME("disabled_font_color"), EditorStringName(Editor)));
+	status_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(p_error ? SNAME("error_color") : SNAME("font_disabled_color"), EditorStringName(Editor)));
 }
 
 void AISettingsAboutPage::_check_updates_pressed() {

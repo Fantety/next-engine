@@ -33,6 +33,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "editor/agent_ui/ai_settings_about_page.h"
+#include "editor/agent_ui/ai_settings_custom_instructions_page.h"
 #include "editor/agent_ui/ai_settings_mcp_page.h"
 #include "editor/agent_ui/ai_settings_models_page.h"
 #include "editor/agent_ui/ai_settings_next_marquee_page.h"
@@ -49,6 +50,7 @@ void AIAgentSettingsDialog::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("ai_next_marquee_settings_changed"));
 	ADD_SIGNAL(MethodInfo("ai_mcp_settings_changed"));
 	ADD_SIGNAL(MethodInfo("ai_skill_settings_changed"));
+	ADD_SIGNAL(MethodInfo("ai_custom_instruction_settings_changed"));
 	ADD_SIGNAL(MethodInfo("ai_rule_settings_changed"));
 }
 
@@ -124,6 +126,8 @@ void AIAgentSettingsDialog::_build_navigation(HBoxContainer *p_root) {
 	navigation->set_item_metadata(PAGE_MCP, PAGE_MCP);
 	navigation->add_item(TTR("Skill"), get_editor_theme_icon(SNAME("AISkill")));
 	navigation->set_item_metadata(PAGE_SKILLS, PAGE_SKILLS);
+	navigation->add_item(TTR("Instructions"), get_editor_theme_icon(SNAME("Edit")));
+	navigation->set_item_metadata(PAGE_CUSTOM_INSTRUCTIONS, PAGE_CUSTOM_INSTRUCTIONS);
 	navigation->add_item(TTR("Rules"), get_editor_theme_icon(SNAME("AIRules")));
 	navigation->set_item_metadata(PAGE_RULES, PAGE_RULES);
 	navigation->add_item(TTR("About"), get_editor_theme_icon(SNAME("Info")));
@@ -160,6 +164,11 @@ void AIAgentSettingsDialog::_build_pages(HBoxContainer *p_root) {
 	skills_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_skill_settings));
 	pages->add_child(skills_page);
 
+	custom_instructions_page = memnew(AISettingsCustomInstructionsPage);
+	custom_instructions_page->set_name(TTR("Instructions"));
+	custom_instructions_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_custom_instruction_settings));
+	pages->add_child(custom_instructions_page);
+
 	rules_page = memnew(AISettingsRulesPage);
 	rules_page->set_name(TTR("Rules"));
 	rules_page->connect("settings_changed", callable_mp(this, &AIAgentSettingsDialog::_save_rule_settings));
@@ -186,6 +195,7 @@ void AIAgentSettingsDialog::_save_settings() {
 	emit_signal(SNAME("ai_next_marquee_settings_changed"));
 	emit_signal(SNAME("ai_mcp_settings_changed"));
 	emit_signal(SNAME("ai_skill_settings_changed"));
+	emit_signal(SNAME("ai_custom_instruction_settings_changed"));
 	emit_signal(SNAME("ai_rule_settings_changed"));
 }
 
@@ -221,6 +231,14 @@ void AIAgentSettingsDialog::_save_skill_settings() {
 	emit_signal(SNAME("ai_skill_settings_changed"));
 }
 
+void AIAgentSettingsDialog::_save_custom_instruction_settings() {
+	EditorSettings *settings = EditorSettings::get_singleton();
+	ERR_FAIL_NULL(settings);
+
+	settings->save();
+	emit_signal(SNAME("ai_custom_instruction_settings_changed"));
+}
+
 void AIAgentSettingsDialog::_save_rule_settings() {
 	EditorSettings *settings = EditorSettings::get_singleton();
 	ERR_FAIL_NULL(settings);
@@ -242,6 +260,9 @@ void AIAgentSettingsDialog::build_for_test() {
 	}
 	if (skills_page) {
 		skills_page->build_for_test();
+	}
+	if (custom_instructions_page) {
+		custom_instructions_page->build_for_test();
 	}
 	if (rules_page) {
 		rules_page->build_for_test();
@@ -298,6 +319,16 @@ void AIAgentSettingsDialog::add_skill_for_test(const String &p_display_name, con
 void AIAgentSettingsDialog::add_rule_for_test(const String &p_content, bool p_enabled) {
 	ERR_FAIL_NULL(rules_page);
 	rules_page->add_rule_for_test(p_content, p_enabled);
+}
+
+void AIAgentSettingsDialog::set_custom_instructions_for_test(const String &p_instructions) {
+	ERR_FAIL_NULL(custom_instructions_page);
+	custom_instructions_page->set_custom_instructions_for_test(p_instructions);
+}
+
+String AIAgentSettingsDialog::get_custom_instructions_for_test() const {
+	ERR_FAIL_NULL_V(custom_instructions_page, String());
+	return custom_instructions_page->get_custom_instructions_for_test();
 }
 
 void AIAgentSettingsDialog::select_next_marquee_preset_for_test(const String &p_preset_id) {

@@ -1,6 +1,32 @@
 /**************************************************************************/
 /*  ai_settings_next_marquee_page.cpp                                     */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_settings_next_marquee_page.h"
 
@@ -116,7 +142,7 @@ void AISettingsNextMarqueePage::_build_ui() {
 
 	Label *description = memnew(Label);
 	description->set_text(TTR("Choose the loading marquee shown while the AI Agent is working. Presets are read-only; custom marquees can be added, edited, and removed."));
-	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	content->add_child(description);
 
@@ -234,19 +260,19 @@ void AISettingsNextMarqueePage::_refresh_marquee_table() {
 	marquee_table->add_child(header);
 
 	Label *name_header = _make_table_label(TTR("Name"), 190);
-	name_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	name_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(name_header);
 
 	Label *preview_header = _make_table_label(TTR("Preview"));
-	preview_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	preview_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(preview_header);
 
 	Label *type_header = _make_table_label(TTR("Type"), 110);
-	type_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	type_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(type_header);
 
 	Label *action_header = _make_table_label(TTR("Actions"), 250);
-	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(action_header);
 
 	HSeparator *header_separator = memnew(HSeparator);
@@ -322,7 +348,7 @@ void AISettingsNextMarqueePage::_add_marquee_table_row(const AINextMarqueePreset
 
 		Button *remove_button = memnew(Button);
 		remove_button->set_text(TTR("Remove"));
-	remove_button->set_custom_minimum_size(Size2(90, 0) * EDSCALE);
+		remove_button->set_custom_minimum_size(Size2(90, 0) * EDSCALE);
 		remove_button->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
 		remove_button->connect(SceneStringName(pressed), callable_mp(this, &AISettingsNextMarqueePage::_remove_marquee_pressed).bind(p_marquee.id), CONNECT_DEFERRED);
 		action_cell->add_child(remove_button);

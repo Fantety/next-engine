@@ -35,6 +35,7 @@
 #include "scene/gui/tab_container.h"
 
 class AISettingsAboutPage;
+class AISettingsCustomInstructionsPage;
 class AISettingsModelsPage;
 class AISettingsMCPPage;
 class AISettingsNextMarqueePage;
@@ -50,6 +51,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 		PAGE_NEXT_MARQUEE,
 		PAGE_MCP,
 		PAGE_SKILLS,
+		PAGE_CUSTOM_INSTRUCTIONS,
 		PAGE_RULES,
 		PAGE_ABOUT,
 	};
@@ -60,6 +62,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	AISettingsNextMarqueePage *next_marquee_page = nullptr;
 	AISettingsMCPPage *mcp_page = nullptr;
 	AISettingsSkillsPage *skills_page = nullptr;
+	AISettingsCustomInstructionsPage *custom_instructions_page = nullptr;
 	AISettingsRulesPage *rules_page = nullptr;
 	AISettingsAboutPage *about_page = nullptr;
 
@@ -74,6 +77,7 @@ class AIAgentSettingsDialog : public ConfirmationDialog {
 	void _save_next_marquee_settings();
 	void _save_mcp_settings();
 	void _save_skill_settings();
+	void _save_custom_instruction_settings();
 	void _save_rule_settings();
 
 protected:
@@ -97,6 +101,8 @@ public:
 	void add_mcp_server_for_test(const String &p_display_name, const String &p_command, bool p_enabled = true);
 	void add_skill_for_test(const String &p_display_name, const String &p_description, const String &p_content, bool p_enabled = true);
 	void add_rule_for_test(const String &p_content, bool p_enabled = true);
+	void set_custom_instructions_for_test(const String &p_instructions);
+	String get_custom_instructions_for_test() const;
 	void select_next_marquee_preset_for_test(const String &p_preset_id);
 	String add_next_marquee_for_test(const String &p_display_name, const String &p_shader_code);
 	bool edit_next_marquee_for_test(const String &p_marquee_id, const String &p_display_name, const String &p_shader_code);

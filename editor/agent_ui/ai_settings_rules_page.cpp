@@ -1,5 +1,31 @@
 /**************************************************************************/
-/*  ai_settings_rules_page.cpp                                             */
+/*  ai_settings_rules_page.cpp                                            */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
 #include "ai_settings_rules_page.h"
@@ -41,7 +67,7 @@ Label *_make_field_label(const String &p_text, int p_width) {
 	label->set_text(p_text);
 	label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
 	label->set_custom_minimum_size(Size2(p_width, 0) * EDSCALE);
-	label->add_theme_color_override(SceneStringName(font_color), label->get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	label->add_theme_color_override(SceneStringName(font_color), label->get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	return label;
 }
 
@@ -181,7 +207,7 @@ void AISettingsRulesPage::_build_ui() {
 
 	Label *description = memnew(Label);
 	description->set_text(TTR("agent_v1 evaluates permission rules by action, resource pattern, and effect. Later matching rules take precedence."));
-	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	description->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	description->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	content->add_child(description);
 
@@ -301,23 +327,23 @@ void AISettingsRulesPage::_refresh_rule_table() {
 	rule_table->add_child(header);
 
 	Label *action_header = _make_table_label(TTR("Action"), 150);
-	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(action_header);
 
 	Label *resource_header = _make_table_label(TTR("Resource"), 220);
-	resource_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	resource_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(resource_header);
 
 	Label *effect_header = _make_table_label(TTR("Effect"), 90);
-	effect_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	effect_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(effect_header);
 
 	Label *reason_header = _make_table_label(TTR("Reason"));
-	reason_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	reason_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(reason_header);
 
 	Label *row_action_header = _make_table_label(TTR("Actions"), 150);
-	row_action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+	row_action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(row_action_header);
 
 	HSeparator *header_separator = memnew(HSeparator);
@@ -339,7 +365,7 @@ void AISettingsRulesPage::_refresh_rule_table() {
 
 		Label *empty_label = memnew(Label);
 		empty_label->set_text(TTR("No permission rules yet."));
-		empty_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("disabled_font_color"), EditorStringName(Editor)));
+		empty_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 		empty_margin->add_child(empty_label);
 	}
 }
@@ -516,7 +542,7 @@ void AISettingsRulesPage::_set_status(const String &p_status, bool p_error) {
 	}
 	status_label->set_text(p_status);
 	status_label->set_visible(!p_status.is_empty());
-	status_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(p_error ? SNAME("error_color") : SNAME("disabled_font_color"), EditorStringName(Editor)));
+	status_label->add_theme_color_override(SceneStringName(font_color), get_theme_color(p_error ? SNAME("error_color") : SNAME("font_disabled_color"), EditorStringName(Editor)));
 }
 
 void AISettingsRulesPage::build_for_test() {
