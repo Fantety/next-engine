@@ -19401,3 +19401,603 @@ msgstr ""
 "您正嘗試將模型空間的 VERTEX 位置指派給裁剪空間的頂點 POSITION。裁剪空間定義在 "
 "4.3 版已變更，若程式碼寫於 4.3 之前將不再適用。請考慮直接指定裁剪空間的 z 分"
 "量，例如使用 `vec4(VERTEX.xy, 1.0, 1.0)`。"
+
+msgid "Start a new AI chat session."
+msgstr "開始新的 AI 聊天工作階段。"
+
+msgid "Delete the selected AI chat session."
+msgstr "刪除選取的 AI 聊天工作階段。"
+
+msgid "Delete AI Chat"
+msgstr "刪除 AI 聊天"
+
+msgid "Approve AI Tool"
+msgstr "核准 AI 工具"
+
+msgid "Approve"
+msgstr "核准"
+
+msgid "Reject"
+msgstr "拒絕"
+
+msgid "Current AI chat token usage. Provider tokens come from the model API; context tokens are estimated from prompt characters."
+msgstr "目前 AI 聊天的 Token 用量。提供者 Token 來自模型 API；上下文 Token 根據提示詞字元估算。"
+
+msgid "User cancelled."
+msgstr "使用者已取消。"
+
+msgid "%d MCP server(s) failed to initialize. Open the MCP status menu for details."
+msgstr "%d 個 MCP 伺服器初始化失敗。開啟 MCP 狀態選單查看詳細資訊。"
+
+msgid "Approve AI tool call `%s`?"
+msgstr "核准 AI 工具呼叫 `%s`？"
+
+msgid "Arguments:"
+msgstr "參數："
+
+msgid "New Chat"
+msgstr "新聊天"
+
+msgid "Delete AI chat \"%s\"?\n\nThis action cannot be undone."
+msgstr "刪除 AI 聊天「%s」？\n\n此操作無法復原。"
+
+msgid "Rejected from UI."
+msgstr "已由 UI 拒絕。"
+
+msgid "Tokens  In %s  Out %s  Total %s"
+msgstr "Token  輸入 %s  輸出 %s  總計 %s"
+
+msgid "AI Agent Settings"
+msgstr "AI Agent 設定"
+
+msgid "LLM"
+msgstr "LLM"
+
+msgid "Marquee"
+msgstr "跑馬燈"
+
+msgid "MCP"
+msgstr "MCP"
+
+msgid "Skill"
+msgstr "技能"
+
+msgid "Instructions"
+msgstr "指令"
+
+msgid "Rules"
+msgstr "規則"
+
+msgid "About"
+msgstr "關於"
+
+msgid "AI Changes"
+msgstr "AI 變更"
+
+msgid "No pending AI changes."
+msgstr "沒有待處理的 AI 變更。"
+
+msgid "AI Change Diff"
+msgstr "AI 變更差異"
+
+msgid "AI Change Error"
+msgstr "AI 變更錯誤"
+
+msgid "Revert AI Change"
+msgstr "還原 AI 變更"
+
+msgid "AI Changes (%d)"
+msgstr "AI 變更（%d）"
+
+msgid "Unknown file"
+msgstr "未知檔案"
+
+msgid "View Diff"
+msgstr "檢視差異"
+
+msgid "Keep Change"
+msgstr "保留變更"
+
+msgid "Revert Change"
+msgstr "還原變更"
+
+msgid "AI change was not found."
+msgstr "找不到 AI 變更。"
+
+msgid "Could not keep AI change."
+msgstr "無法保留 AI 變更。"
+
+msgid "Revert this AI change?\n\nThis restores the file content captured before the AI edit when it is still safe to do so."
+msgstr "還原此 AI 變更？\n\n這會在仍然安全時恢復 AI 編輯前擷取的檔案內容。"
+
+msgid "Could not revert AI change."
+msgstr "無法還原 AI 變更。"
+
+msgid "Auto"
+msgstr "自動"
+
+msgid "Ask"
+msgstr "詢問"
+
+msgid "Model:"
+msgstr "模型："
+
+msgid "@clipboard"
+msgstr "@clipboard"
+
+msgid "@canvas"
+msgstr "@canvas"
+
+msgid "Reference File..."
+msgstr "引用檔案..."
+
+msgid "No model configured"
+msgstr "未設定模型"
+
+msgid "Please review the attached references."
+msgstr "請檢查附加的參考。"
+
+msgid "NEXT Engine"
+msgstr "NEXT Engine"
+
+msgid "NEXT Engine is built on Godot Engine and adds integrated AI Agent workflows."
+msgstr "NEXT Engine 基於 Godot Engine 建置，並加入整合式 AI Agent 工作流程。"
+
+msgid "Latest version: Not checked"
+msgstr "最新版本：未檢查"
+
+msgid "Update status: Not checked."
+msgstr "更新狀態：未檢查。"
+
+msgid "Open Download Page"
+msgstr "開啟下載頁面"
+
+msgid "Current version: %s"
+msgstr "目前版本：%s"
+
+msgid "Latest version: Unknown"
+msgstr "最新版本：未知"
+
+msgid "Latest version: Checking..."
+msgstr "最新版本：正在檢查..."
+
+msgid "Checking for updates..."
+msgstr "正在檢查更新..."
+
+msgid "Latest version: %s"
+msgstr "最新版本：%s"
+
+msgid "Latest version: Current"
+msgstr "最新版本：目前版本"
+
+msgid "You are using the latest version."
+msgstr "你正在使用最新版本。"
+
+msgid "Failed to check for updates."
+msgstr "檢查更新失敗。"
+
+msgid "Custom Instructions"
+msgstr "自訂指令"
+
+msgid "Additional System Instructions"
+msgstr "附加系統指令"
+
+msgid "These instructions are appended to the built-in Agent system prompt. They do not replace default safety, project, or tool guidance."
+msgstr "這些指令會附加到內建 Agent 系統提示詞。它們不會取代預設安全、專案或工具指引。"
+
+msgid "Example: Prefer concise answers. Ask before making broad project changes."
+msgstr "範例：回答盡量精簡。進行大範圍專案變更前先詢問。"
+
+msgid "Save Instructions"
+msgstr "儲存指令"
+
+msgid "Could not save custom instructions."
+msgstr "無法儲存自訂指令。"
+
+msgid "Custom instructions saved."
+msgstr "自訂指令已儲存。"
+
+msgid "MCP server is disabled."
+msgstr "MCP 伺服器已停用。"
+
+msgid "MCP server is available. Tools: %d."
+msgstr "MCP 伺服器可用。工具：%d。"
+
+msgid "MCP server is unavailable."
+msgstr "MCP 伺服器不可用。"
+
+msgid "MCP server is being checked."
+msgstr "正在檢查 MCP 伺服器。"
+
+msgid "MCP Servers"
+msgstr "MCP 伺服器"
+
+msgid "Configure the MCP servers that agent_v1 can import as external tools. Tool discovery and runtime status are handled by the agent backend through the bridge."
+msgstr "設定 agent_v1 可匯入為外部工具的 MCP 伺服器。工具探索與執行狀態由 Agent 後端透過橋接處理。"
+
+msgid "Add MCP Server"
+msgstr "新增 MCP 伺服器"
+
+msgid "Import JSON"
+msgstr "匯入 JSON"
+
+msgid "Import MCP Servers JSON"
+msgstr "匯入 MCP 伺服器 JSON"
+
+msgid "MCP Import Error"
+msgstr "MCP 匯入錯誤"
+
+msgid "Transport"
+msgstr "傳輸"
+
+msgid "Endpoint"
+msgstr "端點"
+
+msgid "Actions"
+msgstr "操作"
+
+msgid "No MCP servers yet. Add a server to make external tools available to the AI Agent."
+msgstr "尚無 MCP 伺服器。新增伺服器以向 AI Agent 提供外部工具。"
+
+msgid "Could not import MCP servers."
+msgstr "無法匯入 MCP 伺服器。"
+
+msgid "Models"
+msgstr "模型"
+
+msgid "Model Management"
+msgstr "模型管理"
+
+msgid "Configure API keys and add available models. Preset models use stable versions by default."
+msgstr "設定 API 金鑰並新增可用模型。預設模型預設使用穩定版本。"
+
+msgid "Add Model"
+msgstr "新增模型"
+
+msgid "Provider"
+msgstr "提供者"
+
+msgid "Model"
+msgstr "模型"
+
+msgid "No models yet. Add a model to make it available to the AI Agent."
+msgstr "尚無模型。新增模型以供 AI Agent 使用。"
+
+msgid "Choose the loading marquee shown while the AI Agent is working. Presets are read-only; custom marquees can be added, edited, and removed."
+msgstr "選擇 AI Agent 工作時顯示的載入跑馬燈。預設為唯讀；可新增、編輯和移除自訂跑馬燈。"
+
+msgid "Add Marquee"
+msgstr "新增跑馬燈"
+
+msgid "Marquee name"
+msgstr "跑馬燈名稱"
+
+msgid "Current"
+msgstr "目前"
+
+msgid "Use"
+msgstr "使用"
+
+msgid "Could not apply marquee."
+msgstr "無法套用跑馬燈。"
+
+msgid "Edit Marquee"
+msgstr "編輯跑馬燈"
+
+msgid "Custom marquee shader cannot be empty."
+msgstr "自訂跑馬燈著色器不能為空。"
+
+msgid "Could not update marquee. Custom marquee shader cannot be empty."
+msgstr "無法更新跑馬燈。自訂跑馬燈著色器不能為空。"
+
+msgid "Could not remove marquee."
+msgstr "無法移除跑馬燈。"
+
+msgid "Allow"
+msgstr "允許"
+
+msgid "Deny"
+msgstr "拒絕"
+
+msgid "Permission Rules"
+msgstr "權限規則"
+
+msgid "agent_v1 evaluates permission rules by action, resource pattern, and effect. Later matching rules take precedence."
+msgstr "agent_v1 會依操作、資源模式和效果評估權限規則。較晚匹配的規則優先。"
+
+msgid "file.write"
+msgstr "file.write"
+
+msgid "*"
+msgstr "*"
+
+msgid "Effect"
+msgstr "效果"
+
+msgid "Reason"
+msgstr "原因"
+
+msgid "Optional note shown with the decision."
+msgstr "隨決策顯示的選用備註。"
+
+msgid "Add Rule"
+msgstr "新增規則"
+
+msgid "No permission rules yet."
+msgstr "尚無權限規則。"
+
+msgid "Permission action cannot be empty."
+msgstr "權限操作不能為空。"
+
+msgid "Rule is no longer available."
+msgstr "規則已不再可用。"
+
+msgid "Could not save permission rule."
+msgstr "無法儲存權限規則。"
+
+msgid "Save Rule"
+msgstr "儲存規則"
+
+msgid "Skill source root scanned by agent_v1."
+msgstr "agent_v1 掃描的技能來源根目錄。"
+
+msgid "Skills"
+msgstr "技能"
+
+msgid "Skill Sources"
+msgstr "技能來源"
+
+msgid "agent_v1 loads skills from configured source folders and discovers their manifests. Add folders here; individual skill manifests are read by the backend and shown below."
+msgstr "agent_v1 會從設定的來源資料夾載入技能並探索其清單。在此新增資料夾；各個技能清單由後端讀取並顯示在下方。"
+
+msgid "Add Skill Source"
+msgstr "新增技能來源"
+
+msgid "Refresh the skill list from the agent_v1 bridge snapshot."
+msgstr "從 agent_v1 橋接快照重新整理技能清單。"
+
+msgid "Add Agent Skill Source"
+msgstr "新增 Agent 技能來源"
+
+msgid "Active"
+msgstr "已啟用"
+
+msgid "Name / Source"
+msgstr "名稱 / 來源"
+
+msgid "Kind"
+msgstr "類型"
+
+msgid "No skill sources yet. Add a folder to let agent_v1 discover skills."
+msgstr "尚無技能來源。新增資料夾讓 agent_v1 探索技能。"
+
+msgid "Managed"
+msgstr "受管理"
+
+msgid "Skill source path cannot be empty."
+msgstr "技能來源路徑不能為空。"
+
+msgid "Skill source already exists."
+msgstr "技能來源已存在。"
+
+msgid "Could not add skill source."
+msgstr "無法新增技能來源。"
+
+msgid "Added skill source: %s"
+msgstr "已新增技能來源：%s"
+
+msgid "Reference file"
+msgstr "引用檔案"
+
+msgid "Remove %s"
+msgstr "移除 %s"
+
+msgid "Clipboard Image"
+msgstr "剪貼簿影像"
+
+msgid "Clipboard"
+msgstr "剪貼簿"
+
+msgid "Image"
+msgstr "影像"
+
+msgid "Text"
+msgstr "文字"
+
+msgid "Ask about this project..."
+msgstr "詢問關於此專案的問題..."
+
+msgid "Filesystem"
+msgstr "檔案系統"
+
+msgid "Command"
+msgstr "命令"
+
+msgid "Arguments"
+msgstr "參數"
+
+msgid "Working Directory"
+msgstr "工作目錄"
+
+msgid "Environment"
+msgstr "環境"
+
+msgid "URL"
+msgstr "URL"
+
+msgid "Headers"
+msgstr "標頭"
+
+msgid "Edit MCP Server"
+msgstr "編輯 MCP 伺服器"
+
+msgid "Details"
+msgstr "詳細資訊"
+
+msgid "* Display Name"
+msgstr "* 顯示名稱"
+
+msgid "e.g. OpenAI Primary"
+msgstr "例如 OpenAI Primary"
+
+msgid "* Provider"
+msgstr "* 提供者"
+
+msgid "* Model"
+msgstr "* 模型"
+
+msgid "* API Key"
+msgstr "* API 金鑰"
+
+msgid "Enter API key"
+msgstr "輸入 API 金鑰"
+
+msgid "e.g. Local Ollama"
+msgstr "例如 Local Ollama"
+
+msgid "* Custom Endpoint"
+msgstr "* 自訂端點"
+
+msgid "Full URL"
+msgstr "完整 URL"
+
+msgid "Enter an OpenAI-compatible server endpoint without a trailing slash.\n/chat/completions will be appended to the endpoint."
+msgstr "輸入不含尾端斜線的 OpenAI 相容伺服器端點。\n/chat/completions 會附加到該端點後。"
+
+msgid "* Model ID"
+msgstr "* 模型 ID"
+
+msgid "Multimodal"
+msgstr "多模態"
+
+msgid "Enter model ID"
+msgstr "輸入模型 ID"
+
+msgid "Advanced Configuration"
+msgstr "進階設定"
+
+msgid "Output tokens set to 0 does not send max_tokens."
+msgstr "輸出 Token 設為 0 時不會傳送 max_tokens。"
+
+msgid "Output Tokens"
+msgstr "輸出 Token"
+
+msgid "0 means max_tokens is not sent to OpenAI-compatible requests."
+msgstr "0 表示不會向 OpenAI 相容請求傳送 max_tokens。"
+
+msgid "Request Timeout (ms)"
+msgstr "請求逾時（毫秒）"
+
+msgid "Connection and read timeout in milliseconds."
+msgstr "連線與讀取逾時時間，單位為毫秒。"
+
+msgid "Edit Model"
+msgstr "編輯模型"
+
+msgid "Save Model"
+msgstr "儲存模型"
+
+msgid "Canvas"
+msgstr "畫布"
+
+msgid "Confirm Requirements"
+msgstr "確認需求"
+
+msgid "Submit"
+msgstr "提交"
+
+msgid "Current skills only provide prompt/context instructions; they do not execute code, launch processes, or grant tools."
+msgstr "目前技能只提供提示詞/上下文指令；它們不會執行程式碼、啟動處理程序或授予工具。"
+
+msgid "Content"
+msgstr "內容"
+
+msgid "Skill name is required."
+msgstr "技能名稱為必填。"
+
+msgid "Skill content is required."
+msgstr "技能內容為必填。"
+
+msgid "Add Agent Skill"
+msgstr "新增 Agent 技能"
+
+msgid "Edit Agent Skill"
+msgstr "編輯 Agent 技能"
+
+msgid "Ready"
+msgstr "就緒"
+
+msgid "Waiting Approval"
+msgstr "等待核准"
+
+msgid "Checking"
+msgstr "正在檢查"
+
+msgid "Unnamed Skill Source"
+msgstr "未命名技能來源"
+
+msgid "Unnamed AgentSkill"
+msgstr "未命名 AgentSkill"
+
+msgid "MCP: no servers configured."
+msgstr "MCP：未設定伺服器。"
+
+msgid "MCP: %d failed, %d ready, %d disabled. Tools: %d."
+msgstr "MCP：%d 個失敗，%d 個就緒，%d 個已停用。工具：%d。"
+
+msgid "MCP: checking %d server(s)."
+msgstr "MCP：正在檢查 %d 個伺服器。"
+
+msgid "MCP: %d ready, %d disabled. Tools: %d."
+msgstr "MCP：%d 個就緒，%d 個已停用。工具：%d。"
+
+msgid "AgentSkills: none configured."
+msgstr "AgentSkills：未設定。"
+
+msgid "AgentSkills: %d configured, %d enabled."
+msgstr "AgentSkills：已設定 %d 個，已啟用 %d 個。"
+
+msgid "MCP and AgentSkill status."
+msgstr "MCP 和 AgentSkill 狀態。"
+
+msgid "No MCP servers configured."
+msgstr "未設定 MCP 伺服器。"
+
+msgid "Unnamed MCP"
+msgstr "未命名 MCP"
+
+msgid "%s\nStatus: %s"
+msgstr "%s\n狀態：%s"
+
+msgid "Transport: %s"
+msgstr "傳輸：%s"
+
+msgid "Tools: %d"
+msgstr "工具：%d"
+
+msgid "No AgentSkills configured."
+msgstr "未設定 AgentSkills。"
+
+msgid "%s\nStatus: %s\nKind: %s"
+msgstr "%s\n狀態：%s\n類型：%s"
+
+msgid "No file changes to display."
+msgstr "沒有可顯示的檔案變更。"
+
+msgid "Before"
+msgstr "之前"
+
+msgid "After"
+msgstr "之後"
+
+msgid "Completed %d out of %d tasks."
+msgstr "已完成 %d/%d 個任務。"
+
+msgid "Current task: %s"
+msgstr "目前任務：%s"
+
+msgid "展开任务列表"
+msgstr "展開任務列表"
+
+msgid "收起任务列表"
+msgstr "收起任務列表"
