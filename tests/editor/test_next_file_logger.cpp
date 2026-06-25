@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  ai_shader_edit_tool.cpp                                               */
+/*  test_next_file_logger.cpp                                             */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,55 +28,58 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "ai_shader_edit_tool.h"
+#include "tests/test_macros.h"
 
-#include "editor/agent_v1/tools/ai_editor_tools_v1.h"
+TEST_FORCE_LINK(test_next_file_logger);
+
+#include "core/config/project_settings.h"
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
+#include "core/os/os.h"
 #include "editor/next_file_logger.h"
 
-AIV1ShaderEditTool::AIV1ShaderEditTool() {
-	service.instantiate();
-}
+namespace TestNextFileLogger {
 
-String AIV1ShaderEditTool::get_name() const {
-	return "shader.edit";
-}
+static const String test_log_path = "user://logs/next-editor-debug.log";
 
-String AIV1ShaderEditTool::get_description() const {
-	return "Edits an existing .gdshader resource through the editor resource save flow.";
-}
-
-Dictionary AIV1ShaderEditTool::get_parameters_schema() const {
-	Dictionary properties;
-	properties["path"] = AIV1ToolHelpers::make_string_property("Existing .gdshader path under res://.");
-	properties["shader_code"] = AIV1ToolHelpers::make_string_property("Complete Godot shader source. Include the shader_type line.");
-
-	Array required;
-	required.push_back("path");
-	required.push_back("shader_code");
-	return AIV1ToolHelpers::make_object_schema(properties, required);
-}
-
-AIV1EditorToolResult AIV1ShaderEditTool::execute_tool(const Dictionary &p_arguments) {
-	const String path = AIV1ToolHelpers::get_stripped_string(p_arguments, "path");
-	const String shader_code = String(p_arguments.get("shader_code", ""));
-	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:shader.edit] Start. path=%s source_chars=%d", path, shader_code.length()));
-
-	if (path.is_empty()) {
-		NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:shader.edit] Failed: missing required path.");
-		return AIV1ToolHelpers::make_missing_required_error("path");
+void initialize_logs() {
+	ProjectSettings::get_singleton()->set_setting("application/config/name", "godot_tests");
+	DirAccess::make_dir_recursive_absolute(OS::get_singleton()->get_user_data_dir().path_join("logs"));
+	if (FileAccess::exists(test_log_path)) {
+		DirAccess::remove_absolute(ProjectSettings::get_singleton()->globalize_path(test_log_path));
 	}
-	if (shader_code.strip_edges().is_empty()) {
-		NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:shader.edit] Failed: missing required shader_code.");
-		return AIV1ToolHelpers::make_missing_required_error("shader_code");
-	}
-
-	AIV1ShaderEditingResult edit_result = service->edit_shader(path, shader_code);
-	AIV1EditorToolResult result = AIV1ToolHelpers::from_editing_result(edit_result, "Failed to edit shader.");
-	if (result.is_error()) {
-		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:shader.edit] Failed: %s", result.error));
-		return result;
-	}
-
-	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:shader.edit] Completed. %s", result.content));
-	return result;
+	NextFileLogger::set_log_path(test_log_path);
 }
+
+void cleanup_logs() {
+	NextFileLogger::reset_log_path();
+	ProjectSettings::get_singleton()->set_setting("application/config/name", "godot_tests");
+	if (FileAccess::exists(test_log_path)) {
+		DirAccess::remove_absolute(ProjectSettings::get_singleton()->globalize_path(test_log_path));
+	}
+	DirAccess::remove_absolute(OS::get_singleton()->get_user_data_dir().path_join("logs"));
+	DirAccess::remove_absolute(OS::get_singleton()->get_user_data_dir());
+}
+
+TEST_CASE("[Editor][NextFileLogger] Writes detailed diagnostic lines to file") {
+	initialize_logs();
+
+	NextFileLogger::log(NextFileLogger::LEVEL_DEBUG, "AI Agent", "tool started\nwith detail", "editor/test_next_file_logger.cpp", "test_function", 74);
+
+	Error err = OK;
+	Ref<FileAccess> log = FileAccess::open(test_log_path, FileAccess::READ, &err);
+	REQUIRE_EQ(err, OK);
+	const String text = log->get_as_text();
+
+	CHECK(text.contains("timestamp=\""));
+	CHECK(text.contains("level=DEBUG"));
+	CHECK(text.contains("category=\"AI Agent\""));
+	CHECK(text.contains("thread_id="));
+	CHECK(text.contains("source=\"editor/test_next_file_logger.cpp:74\""));
+	CHECK(text.contains("function=\"test_function\""));
+	CHECK(text.contains("message=\"tool started\\nwith detail\""));
+
+	cleanup_logs();
+}
+
+} // namespace TestNextFileLogger

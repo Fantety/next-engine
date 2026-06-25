@@ -1,6 +1,32 @@
 /**************************************************************************/
 /*  ai_script_editing_service.cpp                                         */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_script_editing_service.h"
 
@@ -15,7 +41,6 @@
 #include "core/object/script_language.h"
 #include "core/os/thread.h"
 #include "core/variant/variant.h"
-
 #include "editor/agent_v1/tools/editor/ai_change_set_store.h"
 #include "editor/agent_v1/tools/editor/ai_diff_service.h"
 #include "editor/agent_v1/tools/project/ai_project_tool_utils.h"
@@ -25,11 +50,13 @@
 #include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/file_system/editor_file_system.h"
-#include "editor/scene/scene_tree_editor.h"
+#include "editor/next_file_logger.h"
 #include "editor/scene/editor_scene_tabs.h"
-#include "modules/gdscript/gdscript_parser.h"
+#include "editor/scene/scene_tree_editor.h"
 #include "scene/main/node.h"
 #include "scene/resources/packed_scene.h"
+
+#include "modules/gdscript/gdscript_parser.h"
 
 static String _ai_indent_function_source(const String &p_source) {
 	PackedStringArray lines = p_source.replace("\r\n", "\n").replace("\r", "\n").split("\n");
@@ -52,13 +79,13 @@ static void _ai_register_script_review_change(const String &p_title, const Strin
 	Ref<AIChangeSetStore> store = AIChangeSetStore::get_singleton();
 	const String change_set_id = store->add_change_set(p_title, context->get_session_id(), context->get_tool_call_id(), changes);
 	if (change_set_id.is_empty()) {
-		print_line(vformat("[AI Agent][Review] Skipped script change. path=%s type=%s", p_path, p_change_type));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Review] Skipped script change. path=%s type=%s", p_path, p_change_type));
 		return;
 	}
 	r_metadata["review_change_set_id"] = change_set_id;
 	r_metadata["review_status"] = "pending";
 	r_metadata["review_mode"] = true;
-	print_line(vformat("[AI Agent][Review] Recorded script change. id=%s path=%s type=%s", change_set_id, p_path, p_change_type));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Review] Recorded script change. id=%s path=%s type=%s", change_set_id, p_path, p_change_type));
 }
 
 void AIV1ScriptEditingService::_bind_methods() {

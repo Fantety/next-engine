@@ -1,13 +1,39 @@
 /**************************************************************************/
 /*  ai_read_file_tool.cpp                                                 */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_read_file_tool.h"
 
 #include "core/io/file_access.h"
 #include "core/variant/variant.h"
-
 #include "editor/agent_v1/tools/project/ai_project_tool_utils.h"
+#include "editor/next_file_logger.h"
 
 String AIV1ProjectReadFileTool::get_name() const {
 	return "project.read_file";
@@ -42,32 +68,32 @@ Dictionary AIV1ProjectReadFileTool::get_parameters_schema() const {
 AIV1EditorToolResult AIV1ProjectReadFileTool::execute_tool(const Dictionary &p_arguments) {
 	AIV1EditorToolResult result;
 	String path = AIV1ProjectToolUtils::get_path_argument(p_arguments, String());
-	print_line(vformat("[AI Agent][Tool:project.read_file] Start. path=%s", path));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:project.read_file] Start. path=%s", path));
 	if (path.is_empty()) {
 		result.error = "Missing required path.";
-		print_line("[AI Agent][Tool:project.read_file] Failed: missing required path.");
+		NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:project.read_file] Failed: missing required path.");
 		return result;
 	}
 	if (!AIV1ProjectToolUtils::is_allowed_path(path)) {
 		result.error = "Only res:// project paths without traversal are allowed.";
-		print_line(vformat("[AI Agent][Tool:project.read_file] Failed: path is outside allowed project boundary. path=%s", path));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:project.read_file] Failed: path is outside allowed project boundary. path=%s", path));
 		return result;
 	}
 	if (!AIV1ProjectToolUtils::is_allowed_text_extension(path)) {
 		result.error = "File extension is not in the text allowlist.";
-		print_line(vformat("[AI Agent][Tool:project.read_file] Failed: extension is not allowlisted. path=%s", path));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:project.read_file] Failed: extension is not allowlisted. path=%s", path));
 		return result;
 	}
 	if (!FileAccess::exists(path)) {
 		result.error = "File does not exist.";
-		print_line(vformat("[AI Agent][Tool:project.read_file] Failed: file does not exist. path=%s", path));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:project.read_file] Failed: file does not exist. path=%s", path));
 		return result;
 	}
 
 	Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ);
 	if (file.is_null()) {
 		result.error = "Failed to open file.";
-		print_line(vformat("[AI Agent][Tool:project.read_file] Failed: could not open file. path=%s", path));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:project.read_file] Failed: could not open file. path=%s", path));
 		return result;
 	}
 
@@ -84,6 +110,6 @@ AIV1EditorToolResult AIV1ProjectReadFileTool::execute_tool(const Dictionary &p_a
 	result.content = text;
 	result.metadata["path"] = path;
 	result.metadata["bytes"] = (int)MIN(length, (uint64_t)max_bytes);
-	print_line(vformat("[AI Agent][Tool:project.read_file] Completed. path=%s bytes=%d truncated=%s", path, (int)MIN(length, (uint64_t)max_bytes), result.truncated ? "yes" : "no"));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:project.read_file] Completed. path=%s bytes=%d truncated=%s", path, (int)MIN(length, (uint64_t)max_bytes), result.truncated ? "yes" : "no"));
 	return result;
 }

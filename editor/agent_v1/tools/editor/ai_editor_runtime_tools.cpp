@@ -1,6 +1,32 @@
 /**************************************************************************/
 /*  ai_editor_runtime_tools.cpp                                           */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_editor_runtime_tools.h"
 
@@ -12,6 +38,7 @@
 #include "core/variant/variant.h"
 #include "editor/debugger/editor_debugger_node.h"
 #include "editor/debugger/script_editor_debugger.h"
+#include "editor/next_file_logger.h"
 #include "editor/run/editor_run_bar.h"
 
 namespace {
@@ -274,13 +301,13 @@ AIV1EditorToolResult AIV1EditorRunSceneTool::execute_tool(const Dictionary &p_ar
 	AIV1EditorToolResult result;
 	const String mode = String(p_arguments.get("mode", "current")).strip_edges();
 	const String scene_path = String(p_arguments.get("scene_path", "")).strip_edges();
-	print_line(vformat("[AI Agent][Tool:editor.run_scene] Start. mode=%s scene_path=%s", mode, scene_path));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:editor.run_scene] Start. mode=%s scene_path=%s", mode, scene_path));
 
 	String args_error;
 	Array play_args_array = _read_string_array_argument(p_arguments, "play_args", args_error);
 	if (!args_error.is_empty()) {
 		result.error = args_error;
-		print_line(vformat("[AI Agent][Tool:editor.run_scene] Failed: %s", result.error));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:editor.run_scene] Failed: %s", result.error));
 		return result;
 	}
 
@@ -294,9 +321,9 @@ AIV1EditorToolResult AIV1EditorRunSceneTool::execute_tool(const Dictionary &p_ar
 
 	_apply_tool_result(result, _dispatch_runtime_request(request));
 	if (result.is_error()) {
-		print_line(vformat("[AI Agent][Tool:editor.run_scene] Failed: %s", result.error));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:editor.run_scene] Failed: %s", result.error));
 	} else {
-		print_line(vformat("[AI Agent][Tool:editor.run_scene] Completed. %s", result.content));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:editor.run_scene] Completed. %s", result.content));
 	}
 	return result;
 }
@@ -319,15 +346,15 @@ Dictionary AIV1EditorStopRunningSceneTool::get_parameters_schema() const {
 AIV1EditorToolResult AIV1EditorStopRunningSceneTool::execute_tool(const Dictionary &p_arguments) {
 	(void)p_arguments;
 	AIV1EditorToolResult result;
-	print_line("[AI Agent][Tool:editor.stop_running_scene] Start.");
+	NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:editor.stop_running_scene] Start.");
 
 	EditorRuntimeToolRequest request;
 	request.operation = EditorRuntimeToolRequest::OP_STOP_RUNNING_SCENE;
 	_apply_tool_result(result, _dispatch_runtime_request(request));
 	if (result.is_error()) {
-		print_line(vformat("[AI Agent][Tool:editor.stop_running_scene] Failed: %s", result.error));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:editor.stop_running_scene] Failed: %s", result.error));
 	} else {
-		print_line(vformat("[AI Agent][Tool:editor.stop_running_scene] Completed. %s", result.content));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:editor.stop_running_scene] Completed. %s", result.content));
 	}
 	return result;
 }
@@ -365,7 +392,7 @@ AIV1EditorToolResult AIV1EditorGetTerminalErrorsTool::execute_tool(const Diction
 	AIV1EditorToolResult result;
 	const int max_entries = CLAMP(int(p_arguments.get("max_entries", 20)), 1, 100);
 	const bool include_warnings = bool(p_arguments.get("include_warnings", true));
-	print_line(vformat("[AI Agent][Tool:editor.get_terminal_errors] Start. max_entries=%d include_warnings=%s", max_entries, include_warnings ? "yes" : "no"));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:editor.get_terminal_errors] Start. max_entries=%d include_warnings=%s", max_entries, include_warnings ? "yes" : "no"));
 
 	EditorRuntimeToolRequest request;
 	request.operation = EditorRuntimeToolRequest::OP_GET_TERMINAL_ERRORS;
@@ -373,9 +400,9 @@ AIV1EditorToolResult AIV1EditorGetTerminalErrorsTool::execute_tool(const Diction
 	request.include_warnings = include_warnings;
 	_apply_tool_result(result, _dispatch_runtime_request(request));
 	if (result.is_error()) {
-		print_line(vformat("[AI Agent][Tool:editor.get_terminal_errors] Failed: %s", result.error));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:editor.get_terminal_errors] Failed: %s", result.error));
 	} else {
-		print_line(vformat("[AI Agent][Tool:editor.get_terminal_errors] Completed. entries=%d", int(result.metadata.get("entry_count", 0))));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:editor.get_terminal_errors] Completed. entries=%d", int(result.metadata.get("entry_count", 0))));
 	}
 	return result;
 }

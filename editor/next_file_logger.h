@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  ai_script_unbind_from_node_tool.cpp                                   */
+/*  next_file_logger.h                                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,47 +28,28 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "ai_script_unbind_from_node_tool.h"
+#pragma once
 
-#include "editor/agent_v1/tools/ai_editor_tools_v1.h"
-#include "editor/next_file_logger.h"
+#include "core/string/ustring.h"
 
-AIV1ScriptUnbindFromNodeTool::AIV1ScriptUnbindFromNodeTool() {
-	service.instantiate();
-}
+class NextFileLogger {
+public:
+	enum Level {
+		LEVEL_DEBUG,
+		LEVEL_INFO,
+		LEVEL_WARNING,
+		LEVEL_ERROR,
+	};
 
-String AIV1ScriptUnbindFromNodeTool::get_name() const {
-	return "script.unbind_from_node";
-}
+	static constexpr const char *DEFAULT_LOG_PATH = "user://net.nextengine/logs/editor-debug.log";
 
-String AIV1ScriptUnbindFromNodeTool::get_description() const {
-	return "Removes the script binding from a node in the currently edited scene using editor undo/redo APIs.";
-}
+	static void log(Level p_level, const String &p_category, const String &p_message, const char *p_file, const char *p_function, int p_line);
+	static void set_log_path(const String &p_path);
+	static void reset_log_path();
+	static String get_log_path();
+};
 
-Dictionary AIV1ScriptUnbindFromNodeTool::get_parameters_schema() const {
-	Dictionary properties;
-	properties["node_path"] = AIV1ToolHelpers::make_string_property("Node path relative to the edited scene root. Use . for the root.");
-
-	Array required;
-	required.push_back("node_path");
-	return AIV1ToolHelpers::make_object_schema(properties, required);
-}
-
-AIV1EditorToolResult AIV1ScriptUnbindFromNodeTool::execute_tool(const Dictionary &p_arguments) {
-	const String node_path = AIV1ToolHelpers::get_stripped_string(p_arguments, "node_path");
-	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:script.unbind_from_node] Start. node_path=%s", node_path));
-	if (node_path.is_empty()) {
-		NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:script.unbind_from_node] Failed: missing required node_path.");
-		return AIV1ToolHelpers::make_missing_required_error("node_path");
-	}
-
-	AIV1ScriptEditingResult edit_result = service->unbind_from_node(node_path);
-	AIV1EditorToolResult result = AIV1ToolHelpers::from_editing_result(edit_result, "Failed to unbind script from node.");
-	if (result.is_error()) {
-		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:script.unbind_from_node] Failed: %s", result.error));
-		return result;
-	}
-
-	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:script.unbind_from_node] Completed. %s", result.content));
-	return result;
-}
+#define NEXT_FILE_LOG_DEBUG(m_category, m_message) NextFileLogger::log(NextFileLogger::LEVEL_DEBUG, m_category, m_message, __FILE__, __FUNCTION__, __LINE__)
+#define NEXT_FILE_LOG_INFO(m_category, m_message) NextFileLogger::log(NextFileLogger::LEVEL_INFO, m_category, m_message, __FILE__, __FUNCTION__, __LINE__)
+#define NEXT_FILE_LOG_WARNING(m_category, m_message) NextFileLogger::log(NextFileLogger::LEVEL_WARNING, m_category, m_message, __FILE__, __FUNCTION__, __LINE__)
+#define NEXT_FILE_LOG_ERROR(m_category, m_message) NextFileLogger::log(NextFileLogger::LEVEL_ERROR, m_category, m_message, __FILE__, __FUNCTION__, __LINE__)

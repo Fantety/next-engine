@@ -1,10 +1,37 @@
 /**************************************************************************/
 /*  ai_scene_list_properties_tool.cpp                                     */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_scene_list_properties_tool.h"
 
 #include "core/variant/variant.h"
+#include "editor/next_file_logger.h"
 
 AIV1SceneListPropertiesTool::AIV1SceneListPropertiesTool() {
 	service.instantiate();
@@ -62,11 +89,11 @@ AIV1EditorToolResult AIV1SceneListPropertiesTool::execute_tool(const Dictionary 
 	const int max_properties = p_arguments.get("max_properties", 120);
 	const bool include_read_only = p_arguments.get("include_read_only", false);
 	const bool include_current_values = p_arguments.get("include_current_values", true);
-	print_line(vformat("[AI Agent][Tool:scene.list_properties] Start. node_path=%s filter=%s max_properties=%d include_read_only=%s include_current_values=%s", node_path, filter, max_properties, include_read_only ? "yes" : "no", include_current_values ? "yes" : "no"));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:scene.list_properties] Start. node_path=%s filter=%s max_properties=%d include_read_only=%s include_current_values=%s", node_path, filter, max_properties, include_read_only ? "yes" : "no", include_current_values ? "yes" : "no"));
 
 	if (node_path.is_empty()) {
 		result.error = "Missing required node_path.";
-		print_line("[AI Agent][Tool:scene.list_properties] Failed: missing required node_path.");
+		NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:scene.list_properties] Failed: missing required node_path.");
 		return result;
 	}
 
@@ -74,12 +101,12 @@ AIV1EditorToolResult AIV1SceneListPropertiesTool::execute_tool(const Dictionary 
 	if (!edit_result.success) {
 		result.error = edit_result.error.is_empty() ? String("Failed to list node properties.") : edit_result.error;
 		result.metadata = edit_result.metadata;
-		print_line(vformat("[AI Agent][Tool:scene.list_properties] Failed: %s", result.error));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:scene.list_properties] Failed: %s", result.error));
 		return result;
 	}
 
 	result.content = edit_result.message;
 	result.metadata = edit_result.metadata;
-	print_line(vformat("[AI Agent][Tool:scene.list_properties] Completed. properties=%d omitted=%d", int(result.metadata.get("matched_count", 0)), int(result.metadata.get("omitted_count", 0))));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:scene.list_properties] Completed. properties=%d omitted=%d", int(result.metadata.get("matched_count", 0)), int(result.metadata.get("omitted_count", 0))));
 	return result;
 }

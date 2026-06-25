@@ -1,13 +1,39 @@
 /**************************************************************************/
 /*  editor_user_manager.cpp                                               */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "editor_user_manager.h"
 
 #include "core/error/error_macros.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
-#include "core/string/print_string.h"
+#include "editor/next_file_logger.h"
 #include "editor/user_system/editor_user_session.h"
 
 void EditorUserManager::_bind_methods() {
@@ -121,7 +147,7 @@ bool EditorUserManager::_request_refresh_profile(bool p_allow_token_refresh_on_u
 		_set_error("Account session is not available.");
 		return false;
 	}
-	print_line(vformat("[User Auth] request_refresh_profile user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
+	NEXT_FILE_LOG_DEBUG("User Auth", vformat("[User Auth] request_refresh_profile user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
 	return _start_request(REQUEST_REFRESH_PROFILE, session, String(), String(), String(), false, p_allow_token_refresh_on_unauthorized);
 }
 
@@ -255,23 +281,23 @@ void EditorUserManager::_complete_async_request() {
 
 	bool profile_refresh_started = false;
 	if (start_profile_refresh) {
-		print_line(vformat("[User Auth] scheduling profile refresh user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
+		NEXT_FILE_LOG_DEBUG("User Auth", vformat("[User Auth] scheduling profile refresh user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
 		profile_refresh_started = _request_refresh_profile(false);
 		if (!profile_refresh_started) {
-			print_line(vformat("[User Auth] profile refresh was not started: %s", last_error));
+			NEXT_FILE_LOG_DEBUG("User Auth", vformat("[User Auth] profile refresh was not started: %s", last_error));
 		}
 	}
 
 	bool token_refresh_started = false;
 	if (start_token_refresh) {
-		print_line(vformat("[User Auth] scheduling token refresh after profile 401 user_id=%s refresh_token_present=%s", session.user_id, session.refresh_token.is_empty() ? "false" : "true"));
+		NEXT_FILE_LOG_DEBUG("User Auth", vformat("[User Auth] scheduling token refresh after profile 401 user_id=%s refresh_token_present=%s", session.user_id, session.refresh_token.is_empty() ? "false" : "true"));
 		token_refresh_started = _start_request(REQUEST_REFRESH_TOKEN, session, String(), String(), String(), false, true);
 		if (!token_refresh_started) {
-			print_line(vformat("[User Auth] token refresh was not started: %s", last_error));
+			NEXT_FILE_LOG_DEBUG("User Auth", vformat("[User Auth] token refresh was not started: %s", last_error));
 		}
 	}
 
-	print_line(vformat("[User Auth] completed request=%d success=%s message=%s user_id=%s start_profile_refresh=%s profile_refresh_started=%s start_token_refresh=%s token_refresh_started=%s", (int)request, completed_success ? "true" : "false", completed_message, session.user_id, start_profile_refresh ? "true" : "false", profile_refresh_started ? "true" : "false", start_token_refresh ? "true" : "false", token_refresh_started ? "true" : "false"));
+	NEXT_FILE_LOG_DEBUG("User Auth", vformat("[User Auth] completed request=%d success=%s message=%s user_id=%s start_profile_refresh=%s profile_refresh_started=%s start_token_refresh=%s token_refresh_started=%s", (int)request, completed_success ? "true" : "false", completed_message, session.user_id, start_profile_refresh ? "true" : "false", profile_refresh_started ? "true" : "false", start_token_refresh ? "true" : "false", token_refresh_started ? "true" : "false"));
 	emit_signal(SNAME("request_completed"), (int)request, completed_success, completed_message);
 }
 
@@ -310,7 +336,7 @@ void EditorUserManager::_thread_func(void *p_userdata) {
 			result = client->refresh_token(session);
 			break;
 		case REQUEST_REFRESH_PROFILE:
-			print_line(vformat("[User Auth] worker loading profile user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
+			NEXT_FILE_LOG_DEBUG("User Auth", vformat("[User Auth] worker loading profile user_id=%s token_present=%s", session.user_id, session.token.is_empty() ? "false" : "true"));
 			result = client->get_user(session.token);
 			break;
 		case REQUEST_LOGOUT:

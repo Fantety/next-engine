@@ -1,13 +1,39 @@
 /**************************************************************************/
 /*  ai_list_project_tool.cpp                                              */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_list_project_tool.h"
 
 #include "core/io/dir_access.h"
 #include "core/variant/variant.h"
-
 #include "editor/agent_v1/tools/project/ai_project_tool_utils.h"
+#include "editor/next_file_logger.h"
 
 String AIV1ListProjectTool::get_name() const {
 	return "project.list_tree";
@@ -44,10 +70,10 @@ Dictionary AIV1ListProjectTool::get_parameters_schema() const {
 AIV1EditorToolResult AIV1ListProjectTool::execute_tool(const Dictionary &p_arguments) {
 	AIV1EditorToolResult result;
 	String path = AIV1ProjectToolUtils::get_path_argument(p_arguments);
-	print_line(vformat("[AI Agent][Tool:project.list_tree] Start. path=%s", path));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:project.list_tree] Start. path=%s", path));
 	if (!AIV1ProjectToolUtils::is_allowed_path(path)) {
 		result.error = "Only res:// project paths without traversal are allowed.";
-		print_line(vformat("[AI Agent][Tool:project.list_tree] Failed: path is outside allowed project boundary. path=%s", path));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:project.list_tree] Failed: path is outside allowed project boundary. path=%s", path));
 		return result;
 	}
 
@@ -67,7 +93,7 @@ AIV1EditorToolResult AIV1ListProjectTool::execute_tool(const Dictionary &p_argum
 	result.truncated = truncated;
 	result.metadata["path"] = path;
 	result.metadata["entry_count"] = entry_count;
-	print_line(vformat("[AI Agent][Tool:project.list_tree] Completed. path=%s entries=%d truncated=%s", path, entry_count, truncated ? "yes" : "no"));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:project.list_tree] Completed. path=%s entries=%d truncated=%s", path, entry_count, truncated ? "yes" : "no"));
 	return result;
 }
 

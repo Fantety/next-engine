@@ -1,10 +1,37 @@
 /**************************************************************************/
 /*  ai_docs_search_tool.cpp                                               */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_docs_search_tool.h"
 
 #include "core/variant/variant.h"
+#include "editor/next_file_logger.h"
 
 AIV1DocsSearchTool::AIV1DocsSearchTool() {
 	service.instantiate();
@@ -72,11 +99,11 @@ AIV1EditorToolResult AIV1DocsSearchTool::execute_tool(const Dictionary &p_argume
 	const String kind = String(p_arguments.get("kind", "all")).strip_edges();
 	const int max_results = int(p_arguments.get("max_results", 20));
 	const bool include_descriptions = bool(p_arguments.get("include_descriptions", true));
-	print_line(vformat("[AI Agent][Tool:docs.search] Start. query=%s class_name=%s kind=%s max_results=%d include_descriptions=%s", query, class_name, kind, max_results, include_descriptions ? "yes" : "no"));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:docs.search] Start. query=%s class_name=%s kind=%s max_results=%d include_descriptions=%s", query, class_name, kind, max_results, include_descriptions ? "yes" : "no"));
 
 	if (query.is_empty() && class_name.is_empty()) {
 		result.error = "Provide query, class_name, or both.";
-		print_line("[AI Agent][Tool:docs.search] Failed: missing query and class_name.");
+		NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:docs.search] Failed: missing query and class_name.");
 		return result;
 	}
 
@@ -84,12 +111,12 @@ AIV1EditorToolResult AIV1DocsSearchTool::execute_tool(const Dictionary &p_argume
 	if (!doc_result.success) {
 		result.error = doc_result.error.is_empty() ? String("Failed to search Godot documentation.") : doc_result.error;
 		result.metadata = doc_result.metadata;
-		print_line(vformat("[AI Agent][Tool:docs.search] Failed: %s", result.error));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:docs.search] Failed: %s", result.error));
 		return result;
 	}
 
 	result.content = doc_result.message;
 	result.metadata = doc_result.metadata;
-	print_line(vformat("[AI Agent][Tool:docs.search] Completed. results=%d", int(result.metadata.get("result_count", 0))));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:docs.search] Completed. results=%d", int(result.metadata.get("result_count", 0))));
 	return result;
 }

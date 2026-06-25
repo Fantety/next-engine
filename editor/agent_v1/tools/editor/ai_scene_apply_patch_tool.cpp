@@ -1,10 +1,37 @@
 /**************************************************************************/
 /*  ai_scene_apply_patch_tool.cpp                                         */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_scene_apply_patch_tool.h"
 
 #include "core/variant/variant.h"
+#include "editor/next_file_logger.h"
 
 namespace {
 
@@ -223,33 +250,33 @@ Dictionary AIV1SceneApplyPatchTool::get_parameters_schema() const {
 
 AIV1EditorToolResult AIV1SceneApplyPatchTool::execute_tool(const Dictionary &p_arguments) {
 	AIV1EditorToolResult result;
-	print_line("[AI Agent][Tool:scene.apply_patch] Start.");
+	NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:scene.apply_patch] Start.");
 
 	if (!p_arguments.has("ops") && !p_arguments.has("create_scene")) {
 		result.error = "Missing required ops or create_scene.";
-		print_line("[AI Agent][Tool:scene.apply_patch] Failed: missing patch payload.");
+		NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:scene.apply_patch] Failed: missing patch payload.");
 		return result;
 	}
 	if (p_arguments.has("ops") && Variant(p_arguments["ops"]).get_type() != Variant::ARRAY) {
 		result.error = "ops must be an array.";
-		print_line("[AI Agent][Tool:scene.apply_patch] Failed: ops is not an array.");
+		NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:scene.apply_patch] Failed: ops is not an array.");
 		return result;
 	}
 	String delete_node_error;
 	if (_patch_contains_delete_node(p_arguments, delete_node_error)) {
 		result.error = delete_node_error;
-		print_line(vformat("[AI Agent][Tool:scene.apply_patch] Failed: %s", result.error));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:scene.apply_patch] Failed: %s", result.error));
 		return result;
 	}
 	String script_property_error;
 	if (_patch_contains_script_property_binding(p_arguments, script_property_error)) {
 		result.error = script_property_error;
-		print_line(vformat("[AI Agent][Tool:scene.apply_patch] Failed: %s", result.error));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:scene.apply_patch] Failed: %s", result.error));
 		return result;
 	}
 	if (p_arguments.has("create_scene") && Variant(p_arguments["create_scene"]).get_type() != Variant::DICTIONARY) {
 		result.error = "create_scene must be an object.";
-		print_line("[AI Agent][Tool:scene.apply_patch] Failed: create_scene is not an object.");
+		NEXT_FILE_LOG_DEBUG("AI Agent", "[AI Agent][Tool:scene.apply_patch] Failed: create_scene is not an object.");
 		return result;
 	}
 
@@ -257,12 +284,12 @@ AIV1EditorToolResult AIV1SceneApplyPatchTool::execute_tool(const Dictionary &p_a
 	if (!edit_result.success) {
 		result.error = edit_result.error.is_empty() ? String("Failed to apply scene patch.") : edit_result.error;
 		result.metadata = edit_result.metadata;
-		print_line(vformat("[AI Agent][Tool:scene.apply_patch] Failed: %s", result.error));
+		NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:scene.apply_patch] Failed: %s", result.error));
 		return result;
 	}
 
 	result.content = edit_result.message;
 	result.metadata = edit_result.metadata;
-	print_line(vformat("[AI Agent][Tool:scene.apply_patch] Completed. %s", result.content));
+	NEXT_FILE_LOG_DEBUG("AI Agent", vformat("[AI Agent][Tool:scene.apply_patch] Completed. %s", result.content));
 	return result;
 }
