@@ -62,20 +62,29 @@ Array _array_from_variant(const Variant &p_value) {
 	return Array();
 }
 
-Label *_make_field_label(const String &p_text, int p_width) {
+void _apply_editor_font_color(Label *p_label, const Control *p_theme_owner, bool p_disabled) {
+	ERR_FAIL_NULL(p_label);
+	ERR_FAIL_NULL(p_theme_owner);
+
+	const StringName color_name = p_disabled ? SNAME("font_disabled_color") : SceneStringName(font_color);
+	p_label->add_theme_color_override(SceneStringName(font_color), p_theme_owner->get_theme_color(color_name, EditorStringName(Editor)));
+}
+
+Label *_make_field_label(const Control *p_theme_owner, const String &p_text, int p_width) {
 	Label *label = memnew(Label);
 	label->set_text(p_text);
 	label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
 	label->set_custom_minimum_size(Size2(p_width, 0) * EDSCALE);
-	label->add_theme_color_override(SceneStringName(font_color), label->get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
+	_apply_editor_font_color(label, p_theme_owner, true);
 	return label;
 }
 
-Label *_make_table_label(const String &p_text, int p_width = 0) {
+Label *_make_table_label(const Control *p_theme_owner, const String &p_text, int p_width = 0) {
 	Label *label = memnew(Label);
 	label->set_text(p_text);
 	label->set_vertical_alignment(VERTICAL_ALIGNMENT_CENTER);
 	label->set_clip_text(true);
+	_apply_editor_font_color(label, p_theme_owner, false);
 	if (p_width > 0) {
 		label->set_custom_minimum_size(Size2(p_width, 0) * EDSCALE);
 	} else {
@@ -221,21 +230,21 @@ void AISettingsRulesPage::_build_ui() {
 	first_row->add_theme_constant_override("separation", 8 * EDSCALE);
 	form->add_child(first_row);
 
-	first_row->add_child(_make_field_label(TTR("Action"), 68));
+	first_row->add_child(_make_field_label(this, TTR("Action"), 68));
 	action_input = memnew(LineEdit);
 	action_input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	action_input->set_placeholder(TTR("file.write"));
 	action_input->connect(SceneStringName(text_submitted), callable_mp(this, &AISettingsRulesPage::_rule_text_submitted));
 	first_row->add_child(action_input);
 
-	first_row->add_child(_make_field_label(TTR("Resource"), 78));
+	first_row->add_child(_make_field_label(this, TTR("Resource"), 78));
 	resource_input = memnew(LineEdit);
 	resource_input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	resource_input->set_placeholder(TTR("*"));
 	resource_input->connect(SceneStringName(text_submitted), callable_mp(this, &AISettingsRulesPage::_rule_text_submitted));
 	first_row->add_child(resource_input);
 
-	first_row->add_child(_make_field_label(TTR("Effect"), 62));
+	first_row->add_child(_make_field_label(this, TTR("Effect"), 62));
 	effect_option = memnew(OptionButton);
 	effect_option->set_custom_minimum_size(Size2(110, 0) * EDSCALE);
 	effect_option->add_item(TTR("Allow"), 0);
@@ -249,7 +258,7 @@ void AISettingsRulesPage::_build_ui() {
 	second_row->add_theme_constant_override("separation", 8 * EDSCALE);
 	form->add_child(second_row);
 
-	second_row->add_child(_make_field_label(TTR("Reason"), 68));
+	second_row->add_child(_make_field_label(this, TTR("Reason"), 68));
 	reason_input = memnew(LineEdit);
 	reason_input->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	reason_input->set_placeholder(TTR("Optional note shown with the decision."));
@@ -326,23 +335,23 @@ void AISettingsRulesPage::_refresh_rule_table() {
 	header->add_theme_constant_override("separation", 8 * EDSCALE);
 	rule_table->add_child(header);
 
-	Label *action_header = _make_table_label(TTR("Action"), 150);
+	Label *action_header = _make_table_label(this, TTR("Action"), 150);
 	action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(action_header);
 
-	Label *resource_header = _make_table_label(TTR("Resource"), 220);
+	Label *resource_header = _make_table_label(this, TTR("Resource"), 220);
 	resource_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(resource_header);
 
-	Label *effect_header = _make_table_label(TTR("Effect"), 90);
+	Label *effect_header = _make_table_label(this, TTR("Effect"), 90);
 	effect_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(effect_header);
 
-	Label *reason_header = _make_table_label(TTR("Reason"));
+	Label *reason_header = _make_table_label(this, TTR("Reason"));
 	reason_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(reason_header);
 
-	Label *row_action_header = _make_table_label(TTR("Actions"), 150);
+	Label *row_action_header = _make_table_label(this, TTR("Actions"), 150);
 	row_action_header->add_theme_color_override(SceneStringName(font_color), get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)));
 	header->add_child(row_action_header);
 
@@ -381,22 +390,22 @@ void AISettingsRulesPage::_add_rule_table_row(const Dictionary &p_rule, int p_ru
 	rule_table->add_child(row);
 
 	const String action = _rule_action(rule);
-	Label *action_label = _make_table_label(action, 150);
+	Label *action_label = _make_table_label(this, action, 150);
 	action_label->set_tooltip_text(action);
 	row->add_child(action_label);
 
 	const String resource = _rule_resource(rule);
-	Label *resource_label = _make_table_label(resource, 220);
+	Label *resource_label = _make_table_label(this, resource, 220);
 	resource_label->set_tooltip_text(resource);
 	row->add_child(resource_label);
 
 	const String effect = _rule_effect(rule);
-	Label *effect_label = _make_table_label(_effect_label(effect), 90);
+	Label *effect_label = _make_table_label(this, _effect_label(effect), 90);
 	effect_label->set_tooltip_text(effect);
 	row->add_child(effect_label);
 
 	const String reason = _rule_reason(rule);
-	Label *reason_label = _make_table_label(reason);
+	Label *reason_label = _make_table_label(this, reason);
 	reason_label->set_tooltip_text(reason);
 	row->add_child(reason_label);
 

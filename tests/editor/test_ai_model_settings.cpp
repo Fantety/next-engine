@@ -40,8 +40,12 @@
 #include "editor/agent_v1/config/ai_config_service.h"
 #include "editor/agent_v1/tools/editor/ai_change_set_store.h"
 #include "editor/agent_v1/ui_adapter/ai_agent_v1_ui_bridge.h"
+#include "editor/editor_string_names.h"
 #include "editor/next_engine_update_checker.h"
+#include "scene/gui/label.h"
 #include "scene/main/http_request.h"
+#include "scene/resources/theme.h"
+#include "scene/scene_string_names.h"
 #include "tests/test_macros.h"
 
 TEST_FORCE_LINK(test_ai_model_settings);
@@ -119,6 +123,30 @@ String read_repo_file(const String &p_relative_path) {
 	return file->get_as_text();
 }
 
+void collect_label_font_colors(Node *p_node, const String &p_text, Vector<Color> &r_colors) {
+	ERR_FAIL_NULL(p_node);
+
+	Label *label = Object::cast_to<Label>(p_node);
+	if (label && label->get_text() == p_text) {
+		r_colors.push_back(label->get_theme_color(SceneStringName(font_color)));
+	}
+
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		collect_label_font_colors(p_node->get_child(i), p_text, r_colors);
+	}
+}
+
+void check_all_labels_with_text_use_color(Node *p_root, const String &p_text, const Color &p_expected_color) {
+	Vector<Color> colors;
+	collect_label_font_colors(p_root, p_text, colors);
+	REQUIRE_MESSAGE(!colors.is_empty(), vformat("Expected to find at least one label with text `%s`.", p_text));
+
+	for (int i = 0; i < colors.size(); i++) {
+		CHECK_MESSAGE(colors[i].is_equal_approx(p_expected_color),
+				vformat("Label `%s` used color %s instead of expected %s.", p_text, String(colors[i]), String(p_expected_color)));
+	}
+}
+
 } // namespace TestAIAgentV1Settings
 
 TEST_CASE("[Editor][AgentV1] Settings model page writes model profiles through bridge") {
@@ -184,6 +212,48 @@ TEST_CASE("[Editor][AgentV1] Settings skills and rules pages patch agent_v1 conf
 
 	memdelete(skills_page);
 	memdelete(rules_page);
+	AIAgentV1UIBridge::clear_singleton_for_test();
+}
+
+TEST_CASE("[Editor][AgentV1] Settings rules labels use editor theme text colors") {
+	using namespace TestAIAgentV1Settings;
+
+	Ref<AIAgentV1UIBridge> bridge = setup_bridge_for_test();
+	Array rules;
+	Dictionary rule;
+	rule["action"] = "project.read";
+	rule["resource"] = "res://*";
+	rule["effect"] = "allow";
+	rule["reason"] = "Policy note";
+	rules.push_back(rule);
+	Dictionary permissions_patch;
+	permissions_patch["rules"] = rules;
+	Dictionary patch;
+	patch["permissions"] = permissions_patch;
+	const Dictionary result = bridge->patch_settings(patch, "runtime");
+	REQUIRE(bool(result.get("success", false)));
+
+	const Color normal_color(0.92, 0.87, 0.73, 1.0);
+	const Color disabled_color(0.48, 0.70, 0.92, 1.0);
+	Ref<Theme> theme;
+	theme.instantiate();
+	theme->set_color(SceneStringName(font_color), EditorStringName(Editor), normal_color);
+	theme->set_color(SNAME("font_disabled_color"), EditorStringName(Editor), disabled_color);
+
+	AISettingsRulesPage *page = memnew(AISettingsRulesPage);
+	page->set_theme(theme);
+	page->build_for_test();
+
+	check_all_labels_with_text_use_color(page, TTR("Action"), disabled_color);
+	check_all_labels_with_text_use_color(page, TTR("Resource"), disabled_color);
+	check_all_labels_with_text_use_color(page, TTR("Effect"), disabled_color);
+	check_all_labels_with_text_use_color(page, TTR("Reason"), disabled_color);
+	check_all_labels_with_text_use_color(page, "project.read", normal_color);
+	check_all_labels_with_text_use_color(page, "res://*", normal_color);
+	check_all_labels_with_text_use_color(page, TTR("Allow"), normal_color);
+	check_all_labels_with_text_use_color(page, "Policy note", normal_color);
+
+	memdelete(page);
 	AIAgentV1UIBridge::clear_singleton_for_test();
 }
 
