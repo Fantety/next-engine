@@ -231,6 +231,7 @@ AIAgentDock::AIAgentDock() {
 	request_status_row->add_child(request_progress);
 
 	token_usage_label = memnew(Label);
+	token_usage_label->set_name(SNAME("AITokenUsageLabel"));
 	token_usage_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	token_usage_label->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	token_usage_label->add_theme_font_size_override(SceneStringName(font_size), int(11 * EDSCALE));
