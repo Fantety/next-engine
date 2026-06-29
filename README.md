@@ -13,7 +13,7 @@ NEXT Engine is a fork of Godot Engine that brings AI-assisted development direct
 NEXT Engine focuses on an editor-native AI workflow for Godot-style game and interactive project development.
 
 - Upstream project and base engine: Godot Engine 4.x.
-- Current NEXT version format: `0.0.4.7.1-preview`, combining NEXT's own version with the Godot base version.
+- Current NEXT version format: `0.1.4.7.1-preview`, combining NEXT's own version with the Godot base version.
 - Current engine metadata: `NEXT Engine 4.7.1 rc`, with docs branch `4.7` in `version.py`.
 - Key dependencies: Godot Engine, `cmark 0.31.1` in `thirdparty/cmark/`, and Alibaba PuHuiTi in `thirdparty/fonts/AlibabaPuHuiTi_3_65_Medium.woff2`.
 - License: MIT, following Godot Engine's license model. Third-party components remain under their own licenses.
@@ -35,7 +35,7 @@ The largest NEXT-specific changes are in the AI Agent runtime, editor AI UI, use
 
 ## Project Status
 
-NEXT Engine is under active development. The first preview release line is `v0.0.4.7.1-preview`, and the current focus areas are:
+NEXT Engine is under active development. The current preview release line is `v0.1.4.7.1-preview`, and the current focus areas are:
 
 - Making AI Dock interactions smoother and more predictable.
 - Hardening Agent V1 session recovery, permission handling, tool settlement, and context management.
@@ -52,9 +52,9 @@ Public architecture references:
 
 ## Releases
 
-Branch pushes run CI builds and checks. Release publishing is reserved for version tags that start with `v`, for example `v0.0.4.7.1-preview`.
+Branch pushes run CI builds and checks. Release publishing is reserved for version tags that start with `v`, for example `v0.1.4.7.1-preview`.
 
-Tag-triggered releases collect the successful build artifacts, repackage them with standard names such as `NextEngine-v0.0.4.7.1-preview-windows-editor-x86_64.zip`, and upload them to GitHub Releases. The default release workflow currently publishes Android, iOS, macOS, Windows, and Web assets; Linux builds are not part of the main CI/release workflow.
+Tag-triggered releases collect the successful build artifacts, repackage them with standard names such as `NextEngine-v0.1.4.7.1-preview-windows-editor-x86_64.zip`, and upload them to GitHub Releases. The default release workflow currently publishes Android, iOS, macOS, Windows, and Web assets; Linux builds are not part of the main CI/release workflow.
 
 ## Build from Source
 
