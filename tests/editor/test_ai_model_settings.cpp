@@ -260,14 +260,14 @@ TEST_CASE("[Editor][AgentV1] Settings rules labels use editor theme text colors"
 TEST_CASE("[Editor][AgentV1] NEXT update checker parses GitHub latest release") {
 	using namespace TestAIAgentV1Settings;
 
-	NextEngineUpdateCheckResult update = parse_next_engine_update_response(HTTPRequest::RESULT_SUCCESS, 200, utf8_body("{\"tag_name\":\"v9.0.4.7.1-preview\"}"), "0.0.4.7.1-preview");
+	NextEngineUpdateCheckResult update = parse_next_engine_update_response(HTTPRequest::RESULT_SUCCESS, 200, utf8_body("{\"tag_name\":\"v9.0.4.7.1-preview\"}"), "0.1.4.7.1-preview");
 	CHECK(update.status == NextEngineUpdateCheckStatus::UPDATE_AVAILABLE);
 	CHECK(update.latest_version == "v9.0.4.7.1-preview");
 
-	NextEngineUpdateCheckResult current = parse_next_engine_update_response(HTTPRequest::RESULT_SUCCESS, 200, utf8_body("{\"tag_name\":\"v0.0.4.7.1-preview\"}"), "0.0.4.7.1-preview");
+	NextEngineUpdateCheckResult current = parse_next_engine_update_response(HTTPRequest::RESULT_SUCCESS, 200, utf8_body("{\"tag_name\":\"v0.1.4.7.1-preview\"}"), "0.1.4.7.1-preview");
 	CHECK(current.status == NextEngineUpdateCheckStatus::UP_TO_DATE);
 
-	NextEngineUpdateCheckResult invalid = parse_next_engine_update_response(HTTPRequest::RESULT_SUCCESS, 200, utf8_body("{\"tag_name\":\"not-a-version\"}"), "0.0.4.7.1-preview");
+	NextEngineUpdateCheckResult invalid = parse_next_engine_update_response(HTTPRequest::RESULT_SUCCESS, 200, utf8_body("{\"tag_name\":\"not-a-version\"}"), "0.1.4.7.1-preview");
 	CHECK(invalid.status == NextEngineUpdateCheckStatus::ERROR);
 }
 
@@ -280,12 +280,12 @@ TEST_CASE("[Editor][AgentV1] Settings about page shows manual update results") {
 	CHECK(page->get_current_version_text_for_test().contains(NEXT_VERSION_FULL_CONFIG));
 	CHECK_FALSE(page->is_download_button_visible_for_test());
 
-	page->apply_update_response_for_test(HTTPRequest::RESULT_SUCCESS, 200, "{\"tag_name\":\"v9.0.4.7.1-preview\"}", "0.0.4.7.1-preview");
+	page->apply_update_response_for_test(HTTPRequest::RESULT_SUCCESS, 200, "{\"tag_name\":\"v9.0.4.7.1-preview\"}", "0.1.4.7.1-preview");
 	CHECK(page->get_update_status_for_test() == NextEngineUpdateCheckStatus::UPDATE_AVAILABLE);
 	CHECK(page->get_latest_version_text_for_test().contains("v9.0.4.7.1-preview"));
 	CHECK(page->is_download_button_visible_for_test());
 
-	page->apply_update_response_for_test(HTTPRequest::RESULT_SUCCESS, 200, "{\"tag_name\":\"v0.0.4.7.1-preview\"}", "0.0.4.7.1-preview");
+	page->apply_update_response_for_test(HTTPRequest::RESULT_SUCCESS, 200, "{\"tag_name\":\"v0.1.4.7.1-preview\"}", "0.1.4.7.1-preview");
 	CHECK(page->get_update_status_for_test() == NextEngineUpdateCheckStatus::UP_TO_DATE);
 	CHECK_FALSE(page->is_download_button_visible_for_test());
 

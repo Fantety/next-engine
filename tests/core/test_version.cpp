@@ -35,8 +35,8 @@
 TEST_FORCE_LINK(test_version)
 
 TEST_CASE("[Version] NEXT display version combines NEXT and Godot versions") {
-	CHECK(String(NEXT_VERSION_NUMBER) == "0.0.4.7.1");
-	CHECK(String(NEXT_VERSION_FULL_CONFIG) == "0.0.4.7.1-preview");
+	CHECK(String(NEXT_VERSION_NUMBER) == "0.1.4.7.1");
+	CHECK(String(NEXT_VERSION_FULL_CONFIG) == "0.1.4.7.1-preview");
 	CHECK(String(NEXT_VERSION_STATUS) == "preview");
 
 	CHECK(GODOT_VERSION_MAJOR == 4);
@@ -46,12 +46,12 @@ TEST_CASE("[Version] NEXT display version combines NEXT and Godot versions") {
 }
 
 TEST_CASE("[Version] NEXT update comparison accepts GitHub release tags") {
-	CHECK(is_next_engine_version_newer("v0.0.4.7.2-preview", "0.0.4.7.1-preview"));
-	CHECK(is_next_engine_version_newer("0.1.4.7.1-preview", "0.0.4.7.1-preview"));
-	CHECK(is_next_engine_version_newer("0.0.4.8.0-preview", "0.0.4.7.1-preview"));
-	CHECK(is_next_engine_version_newer("0.0.4.7.1", "0.0.4.7.1-preview"));
+	CHECK(is_next_engine_version_newer("v0.1.4.7.2-preview", "0.1.4.7.1-preview"));
+	CHECK(is_next_engine_version_newer("0.2.4.7.1-preview", "0.1.4.7.1-preview"));
+	CHECK(is_next_engine_version_newer("0.1.4.8.0-preview", "0.1.4.7.1-preview"));
+	CHECK(is_next_engine_version_newer("0.1.4.7.1", "0.1.4.7.1-preview"));
 
-	CHECK_FALSE(is_next_engine_version_newer("v0.0.4.7.1-preview", "0.0.4.7.1-preview"));
-	CHECK_FALSE(is_next_engine_version_newer("not-a-version", "0.0.4.7.1-preview"));
-	CHECK_FALSE(is_next_engine_version_newer("0.0.4.7.1-preview", "not-a-version"));
+	CHECK_FALSE(is_next_engine_version_newer("v0.1.4.7.1-preview", "0.1.4.7.1-preview"));
+	CHECK_FALSE(is_next_engine_version_newer("not-a-version", "0.1.4.7.1-preview"));
+	CHECK_FALSE(is_next_engine_version_newer("0.1.4.7.1-preview", "not-a-version"));
 }

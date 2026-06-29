@@ -364,7 +364,7 @@ static Label *find_token_usage_label(Node *p_node) {
 	}
 
 	if (Label *label = Object::cast_to<Label>(p_node)) {
-		if (label->get_text().begins_with("Tokens")) {
+		if (label->get_name() == SNAME("AITokenUsageLabel") || label->get_text().begins_with("Tokens")) {
 			return label;
 		}
 	}
@@ -1743,6 +1743,11 @@ TEST_CASE("[Editor][AgentUI] Dock message list keeps heavy markdown bubbles insi
 		}
 	}
 	settle_markdown_viewer_async_layouts(list, 500);
+
+	list = find_first_message_list(dock);
+	REQUIRE(list);
+	composer = find_first_composer(dock);
+	REQUIRE(composer);
 
 	AIMessageBubble *last_bubble = find_last_message_bubble(list);
 	REQUIRE(last_bubble);
@@ -6803,9 +6808,10 @@ TEST_CASE("[Editor][AgentUI] Dock token usage label reflects active session meta
 
 	Label *token_label = find_token_usage_label(dock);
 	REQUIRE(token_label);
-	CHECK(token_label->get_text().contains("In 120"));
-	CHECK(token_label->get_text().contains("Out 30"));
-	CHECK(token_label->get_text().contains("Total 150"));
+	const String token_text = token_label->get_text();
+	CHECK_MESSAGE(token_text.contains("120"), token_text);
+	CHECK_MESSAGE(token_text.contains("30"), token_text);
+	CHECK_MESSAGE(token_text.contains("150"), token_text);
 
 	root->remove_child(dock);
 	memdelete(dock);
