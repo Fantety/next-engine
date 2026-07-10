@@ -151,7 +151,6 @@
 #include "editor/themes/editor_theme_manager.h"
 #include "editor/translations/editor_translation_parser.h"
 #include "editor/translations/packed_scene_translation_parser_plugin.h"
-#include "editor/user_system/editor_user_avatar.h"
 #include "editor/version_control/version_control_editor_plugin.h"
 #include "main/main.h"
 #include "scene/2d/node_2d.h"
@@ -9142,9 +9141,6 @@ EditorNode::EditorNode() {
 	_update_renderer_color();
 
 	renderer->set_visible(EDITOR_GET("interface/editor/appearance/show_renderer_selector"));
-
-	user_avatar = memnew(EditorUserAvatar);
-	right_menu_hb->add_child(user_avatar);
 
 	ai_settings_button = memnew(Button);
 	ai_settings_button->set_flat(true);

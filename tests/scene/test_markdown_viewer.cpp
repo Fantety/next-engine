@@ -78,6 +78,12 @@ static bool _has_inline_type(const Vector<MarkdownViewerInline> &p_inlines, Mark
 	return false;
 }
 
+static void _allow_example_remote_images(MarkdownViewerImageLoader *p_loader) {
+	PackedStringArray allowed_hosts;
+	allowed_hosts.push_back("example.com");
+	p_loader->set_remote_image_allowed_hosts(allowed_hosts);
+}
+
 TEST_CASE("[SceneTree][MarkdownViewer] Runtime class is registered and defaults are conservative") {
 	CHECK(ClassDB::class_exists("MarkdownViewer"));
 
@@ -85,6 +91,7 @@ TEST_CASE("[SceneTree][MarkdownViewer] Runtime class is registered and defaults 
 
 	CHECK(viewer->get_markdown().is_empty());
 	CHECK_FALSE(viewer->is_remote_images_enabled());
+	CHECK(viewer->get_remote_image_allowed_hosts().is_empty());
 	CHECK_FALSE(viewer->is_open_links_enabled());
 	CHECK(viewer->is_scroll_enabled());
 	CHECK(viewer->is_syntax_highlighting_enabled());
@@ -239,6 +246,7 @@ TEST_CASE("[SceneTree][MarkdownViewer] Image loader rejects unknown buffers with
 
 TEST_CASE("[SceneTree][MarkdownViewer] Image loader marks remote image as loading when enabled") {
 	MarkdownViewerImageLoader *loader = memnew(MarkdownViewerImageLoader);
+	_allow_example_remote_images(loader);
 	loader->set_remote_images_enabled(true);
 
 	MarkdownViewerImageRequestResult result = loader->ensure_image("https://example.com/image.png");
@@ -249,12 +257,70 @@ TEST_CASE("[SceneTree][MarkdownViewer] Image loader marks remote image as loadin
 	memdelete(loader);
 }
 
+TEST_CASE("[SceneTree][MarkdownViewer] Image loader requires HTTPS and public remote hosts") {
+	MarkdownViewerImageLoader *loader = memnew(MarkdownViewerImageLoader);
+	loader->set_remote_images_enabled(true);
+
+	MarkdownViewerImageRequestResult unlisted = loader->ensure_image("https://example.com/image.png");
+	CHECK(unlisted.status == MarkdownViewerImageStatus::STATUS_FAILED);
+	CHECK_FALSE(loader->has_pending_requests());
+
+	MarkdownViewerImageRequestResult http = loader->ensure_image("http://example.com/image.png");
+	CHECK(http.status == MarkdownViewerImageStatus::STATUS_FAILED);
+	CHECK_FALSE(loader->has_pending_requests());
+
+	MarkdownViewerImageRequestResult loopback = loader->ensure_image("https://127.0.0.1/image.png");
+	CHECK(loopback.status == MarkdownViewerImageStatus::STATUS_FAILED);
+	CHECK_FALSE(loader->has_pending_requests());
+
+	memdelete(loader);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Image loader respects remote host allow lists") {
+	MarkdownViewerImageLoader *loader = memnew(MarkdownViewerImageLoader);
+	PackedStringArray allowed_hosts;
+	allowed_hosts.push_back("assets.example.com");
+	loader->set_remote_image_allowed_hosts(allowed_hosts);
+	loader->set_remote_images_enabled(true);
+
+	MarkdownViewerImageRequestResult blocked = loader->ensure_image("https://example.com/image.png");
+	CHECK(blocked.status == MarkdownViewerImageStatus::STATUS_FAILED);
+
+	MarkdownViewerImageRequestResult allowed = loader->ensure_image("https://assets.example.com/image.png");
+	CHECK(allowed.status == MarkdownViewerImageStatus::STATUS_LOADING);
+
+	memdelete(loader);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Image loader enforces decoded pixel and cache limits") {
+	Ref<Image> image = memnew(Image(4, 5, false, Image::FORMAT_RGBA8));
+	image->fill(Color(1, 0, 0, 1));
+	Vector<uint8_t> png = image->save_png_to_buffer();
+
+	MarkdownViewerImageLoader *loader = memnew(MarkdownViewerImageLoader);
+	loader->set_max_pixel_count(10);
+	MarkdownViewerImageRequestResult oversized = loader->decode_buffer_for_test("oversized.png", png);
+	CHECK(oversized.status == MarkdownViewerImageStatus::STATUS_FAILED);
+
+	loader->set_max_cache_entries(2);
+	loader->ensure_image("https://cache-a.example/image.png");
+	loader->ensure_image("https://cache-b.example/image.png");
+	loader->ensure_image("https://cache-a.example/image.png");
+	loader->ensure_image("https://cache-c.example/image.png");
+	CHECK(loader->has_cached_image_for_test("https://cache-a.example/image.png"));
+	CHECK_FALSE(loader->has_cached_image_for_test("https://cache-b.example/image.png"));
+	CHECK(loader->has_cached_image_for_test("https://cache-c.example/image.png"));
+
+	memdelete(loader);
+}
+
 TEST_CASE("[SceneTree][MarkdownViewer] Image loader can enable a previously blocked remote URL") {
 	MarkdownViewerImageLoader *loader = memnew(MarkdownViewerImageLoader);
 
 	MarkdownViewerImageRequestResult blocked = loader->ensure_image("https://example.com/image.png");
 	CHECK(blocked.status == MarkdownViewerImageStatus::STATUS_REMOTE_DISABLED);
 
+	_allow_example_remote_images(loader);
 	loader->set_remote_images_enabled(true);
 	MarkdownViewerImageRequestResult loading = loader->ensure_image("https://example.com/image.png");
 	CHECK(loading.status == MarkdownViewerImageStatus::STATUS_LOADING);
@@ -269,6 +335,7 @@ TEST_CASE("[SceneTree][MarkdownViewer] Image loader handles completed remote buf
 	Vector<uint8_t> png = image->save_png_to_buffer();
 
 	MarkdownViewerImageLoader *loader = memnew(MarkdownViewerImageLoader);
+	_allow_example_remote_images(loader);
 	loader->set_remote_images_enabled(true);
 	loader->ensure_image("https://example.com/image.png");
 	loader->complete_request_for_test("https://example.com/image.png", HTTPRequest::RESULT_SUCCESS, 200, PackedStringArray(), png);
@@ -759,6 +826,35 @@ TEST_CASE("[SceneTree][MarkdownViewer] Async parse applies only the latest markd
 
 	viewer->force_layout_for_test();
 	CHECK(viewer->get_content_height() > 0.0);
+
+	memdelete(viewer);
+}
+
+TEST_CASE("[SceneTree][MarkdownViewer] Async parsing coalesces rapid streaming updates") {
+	MarkdownViewer *viewer = memnew(MarkdownViewer);
+	viewer->set_size(Size2(320, 120));
+	viewer->set_async_parsing_enabled(true);
+	viewer->set_async_parse_minimum_length_for_test(1);
+
+	for (int i = 0; i < 24; i++) {
+		viewer->set_markdown("# Streaming update " + itos(i) + "\n\n" + String("Latest document content. ").repeat(160));
+	}
+
+	for (int i = 0; i < 400 && viewer->is_async_parse_pending_for_test(); i++) {
+		if (OS::get_singleton()) {
+			OS::get_singleton()->delay_usec(1000);
+		}
+		if (MessageQueue::get_singleton()) {
+			MessageQueue::get_singleton()->flush();
+		}
+	}
+	if (MessageQueue::get_singleton()) {
+		MessageQueue::get_singleton()->flush();
+	}
+
+	CHECK_FALSE(viewer->is_async_parse_pending_for_test());
+	CHECK(viewer->get_markdown().begins_with("# Streaming update 23"));
+	CHECK(viewer->get_document_build_count_for_test() <= 2);
 
 	memdelete(viewer);
 }

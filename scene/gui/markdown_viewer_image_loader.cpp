@@ -1,10 +1,37 @@
 /**************************************************************************/
 /*  markdown_viewer_image_loader.cpp                                      */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "markdown_viewer_image_loader.h"
 
 #include "core/io/image.h"
+#include "core/io/ip_address.h"
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
 #include "scene/resources/image_texture.h"
@@ -80,6 +107,87 @@ bool MarkdownViewerImageLoader::_is_remote_source(const String &p_source) {
 	return lower.begins_with("http://") || lower.begins_with("https://");
 }
 
+bool MarkdownViewerImageLoader::_is_private_remote_host(const String &p_host) {
+	String host = p_host.strip_edges().to_lower();
+	if (host.begins_with("[") && host.ends_with("]")) {
+		host = host.substr(1, host.length() - 2);
+	}
+	if (host == "localhost" || host.ends_with(".localhost")) {
+		return true;
+	}
+	if (!host.is_valid_ip_address()) {
+		return false;
+	}
+
+	const IPAddress address(host);
+	if (address.is_ipv4()) {
+		const uint8_t *octets = address.get_ipv4();
+		return octets[0] == 0 || octets[0] == 10 || octets[0] == 127 || (octets[0] == 169 && octets[1] == 254) || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] == 192 && octets[1] == 168);
+	}
+
+	const uint8_t *octets = address.get_ipv6();
+	bool all_zero = true;
+	for (int i = 0; i < 15; i++) {
+		all_zero = all_zero && octets[i] == 0;
+	}
+	return (all_zero && octets[15] == 1) || (octets[0] & 0xfe) == 0xfc || (octets[0] == 0xfe && (octets[1] & 0xc0) == 0x80);
+}
+
+bool MarkdownViewerImageLoader::_is_remote_source_allowed(const String &p_source, String &r_error) const {
+	String scheme;
+	String host;
+	String base_path;
+	String fragment;
+	int port = 0;
+	if (p_source.parse_url(scheme, host, port, base_path, fragment) != OK || scheme.to_lower() != "https://" || host.is_empty()) {
+		r_error = "Remote images must use a valid HTTPS URL.";
+		return false;
+	}
+
+	const String normalized_host = host.strip_edges().to_lower();
+	if (_is_private_remote_host(normalized_host)) {
+		r_error = "Remote image host is not publicly routable.";
+		return false;
+	}
+
+	bool allowed = false;
+	for (int i = 0; i < remote_image_allowed_hosts.size(); i++) {
+		const String allowed_host = remote_image_allowed_hosts[i].strip_edges().to_lower();
+		if (allowed_host == normalized_host || (allowed_host.begins_with("*.") && normalized_host.ends_with(allowed_host.substr(1)))) {
+			allowed = true;
+			break;
+		}
+	}
+	if (!allowed) {
+		r_error = "Remote image host is not in the allowed host list.";
+		return false;
+	}
+
+	return true;
+}
+
+void MarkdownViewerImageLoader::_touch_entry(ImageEntry &r_entry) {
+	r_entry.last_access = ++access_counter;
+}
+
+void MarkdownViewerImageLoader::_prune_entries() {
+	while (entries.size() > (uint32_t)max_cache_entries) {
+		String oldest_source;
+		uint64_t oldest_access = UINT64_MAX;
+		for (const KeyValue<String, ImageEntry> &E : entries) {
+			if (E.value.request || E.value.last_access >= oldest_access) {
+				continue;
+			}
+			oldest_source = E.key;
+			oldest_access = E.value.last_access;
+		}
+		if (oldest_source.is_empty()) {
+			return;
+		}
+		entries.erase(oldest_source);
+	}
+}
+
 MarkdownViewerImageRequestResult MarkdownViewerImageLoader::_decode_buffer(const String &p_source, const Vector<uint8_t> &p_data) {
 	MarkdownViewerImageRequestResult result;
 	Ref<Image> image = memnew(Image);
@@ -104,6 +212,11 @@ MarkdownViewerImageRequestResult MarkdownViewerImageLoader::_decode_buffer(const
 		result.error = "Unsupported or invalid image data: " + p_source;
 		return result;
 	}
+	if ((int64_t)image->get_width() * image->get_height() > max_pixel_count) {
+		result.status = MarkdownViewerImageStatus::STATUS_FAILED;
+		result.error = "Image exceeds the configured pixel limit: " + p_source;
+		return result;
+	}
 
 	result.texture = ImageTexture::create_from_image(image);
 	result.size = Size2(image->get_width(), image->get_height());
@@ -116,6 +229,13 @@ MarkdownViewerImageRequestResult MarkdownViewerImageLoader::_decode_buffer(const
 
 void MarkdownViewerImageLoader::_start_request(const String &p_source, ImageEntry &r_entry) {
 	ERR_FAIL_COND(r_entry.request != nullptr);
+	String validation_error;
+	if (!_is_remote_source_allowed(p_source, validation_error)) {
+		r_entry.result.status = MarkdownViewerImageStatus::STATUS_FAILED;
+		r_entry.result.error = validation_error;
+		emit_signal(SNAME("image_state_changed"), p_source);
+		return;
+	}
 
 	HTTPRequest *request = memnew(HTTPRequest);
 	request->set_body_size_limit(max_body_size);
@@ -158,6 +278,7 @@ void MarkdownViewerImageLoader::_complete_request(const String &p_source, int p_
 		body.write[i] = p_body[i];
 	}
 	entry->result = _decode_buffer(p_source, body);
+	_touch_entry(*entry);
 	emit_signal(SNAME("image_state_changed"), p_source);
 }
 
@@ -173,6 +294,17 @@ void MarkdownViewerImageLoader::set_remote_images_enabled(bool p_enabled) {
 
 	for (KeyValue<String, ImageEntry> &E : entries) {
 		if (!_is_remote_source(E.key)) {
+			continue;
+		}
+		String validation_error;
+		if (!_is_remote_source_allowed(E.key, validation_error)) {
+			if (E.value.request) {
+				E.value.request->cancel_request();
+				E.value.request->queue_free();
+				E.value.request = nullptr;
+			}
+			E.value.result.status = MarkdownViewerImageStatus::STATUS_FAILED;
+			E.value.result.error = validation_error;
 			continue;
 		}
 
@@ -198,12 +330,37 @@ bool MarkdownViewerImageLoader::is_remote_images_enabled() const {
 	return remote_images_enabled;
 }
 
+void MarkdownViewerImageLoader::set_remote_image_allowed_hosts(const PackedStringArray &p_hosts) {
+	remote_image_allowed_hosts = p_hosts;
+}
+
+PackedStringArray MarkdownViewerImageLoader::get_remote_image_allowed_hosts() const {
+	return remote_image_allowed_hosts;
+}
+
 void MarkdownViewerImageLoader::set_max_body_size(int p_bytes) {
 	max_body_size = MAX(0, p_bytes);
 }
 
 int MarkdownViewerImageLoader::get_max_body_size() const {
 	return max_body_size;
+}
+
+void MarkdownViewerImageLoader::set_max_pixel_count(int p_pixels) {
+	max_pixel_count = MAX(1, p_pixels);
+}
+
+int MarkdownViewerImageLoader::get_max_pixel_count() const {
+	return max_pixel_count;
+}
+
+void MarkdownViewerImageLoader::set_max_cache_entries(int p_entries) {
+	max_cache_entries = MAX(1, p_entries);
+	_prune_entries();
+}
+
+int MarkdownViewerImageLoader::get_max_cache_entries() const {
+	return max_cache_entries;
 }
 
 void MarkdownViewerImageLoader::set_timeout(double p_timeout) {
@@ -223,7 +380,19 @@ MarkdownViewerImageRequestResult MarkdownViewerImageLoader::ensure_image(const S
 	}
 
 	if (ImageEntry *entry = entries.getptr(p_source)) {
+		_touch_entry(*entry);
 		if (_is_remote_source(p_source)) {
+			String validation_error;
+			if (!_is_remote_source_allowed(p_source, validation_error)) {
+				if (entry->request) {
+					entry->request->cancel_request();
+					entry->request->queue_free();
+					entry->request = nullptr;
+				}
+				entry->result.status = MarkdownViewerImageStatus::STATUS_FAILED;
+				entry->result.error = validation_error;
+				return entry->result;
+			}
 			if (!remote_images_enabled && entry->result.status == MarkdownViewerImageStatus::STATUS_LOADING) {
 				if (entry->request) {
 					entry->request->cancel_request();
@@ -243,15 +412,26 @@ MarkdownViewerImageRequestResult MarkdownViewerImageLoader::ensure_image(const S
 	}
 
 	ImageEntry entry;
+	_touch_entry(entry);
 	if (_is_remote_source(p_source)) {
 		if (!remote_images_enabled) {
 			entry.result.status = MarkdownViewerImageStatus::STATUS_REMOTE_DISABLED;
 			entries.insert(p_source, entry);
+			_prune_entries();
+			return entry.result;
+		}
+		String validation_error;
+		if (!_is_remote_source_allowed(p_source, validation_error)) {
+			entry.result.status = MarkdownViewerImageStatus::STATUS_FAILED;
+			entry.result.error = validation_error;
+			entries.insert(p_source, entry);
+			_prune_entries();
 			return entry.result;
 		}
 
 		entry.result.status = MarkdownViewerImageStatus::STATUS_LOADING;
 		entries.insert(p_source, entry);
+		_prune_entries();
 
 		ImageEntry *stored = entries.getptr(p_source);
 		if (is_inside_tree()) {
@@ -271,6 +451,7 @@ MarkdownViewerImageRequestResult MarkdownViewerImageLoader::ensure_image(const S
 		entry.result.error = "Failed to load image: " + p_source;
 	}
 	entries.insert(p_source, entry);
+	_prune_entries();
 	return entry.result;
 }
 
@@ -289,6 +470,10 @@ MarkdownViewerImageRequestResult MarkdownViewerImageLoader::decode_buffer_for_te
 
 void MarkdownViewerImageLoader::complete_request_for_test(const String &p_source, int p_result, int p_response_code, const PackedStringArray &p_headers, const PackedByteArray &p_body) {
 	_complete_request(p_source, p_result, p_response_code, p_headers, p_body);
+}
+
+bool MarkdownViewerImageLoader::has_cached_image_for_test(const String &p_source) const {
+	return entries.has(p_source);
 }
 
 MarkdownViewerImageLoader::~MarkdownViewerImageLoader() {

@@ -18,7 +18,7 @@ NEXT Engine 面向 Godot 风格的游戏和交互项目开发，重点是提供�
 - 关键依赖：Godot Engine、`thirdparty/cmark/` 中的 `cmark 0.31.1`，以及 `thirdparty/fonts/AlibabaPuHuiTi_3_65_Medium.woff2` 中的阿里巴巴普惠体。
 - 许可证：沿用 Godot Engine 的 MIT 许可证模式。第三方组件保留各自许可证。
 
-本项目的主要二次开发集中在 AI Agent 运行时、编辑器 AI UI、用户系统、Markdown 解析/渲染链路、更新检查、自动发布、项目文档和相关测试。
+本项目的主要二次开发集中在 AI Agent 运行时、编辑器 AI UI、Markdown 解析/渲染链路、更新检查、自动发布、项目文档和相关测试。
 
 ## 功能特性
 
@@ -28,7 +28,6 @@ NEXT Engine 面向 Godot 风格的游戏和交互项目开发，重点是提供�
 - 统一权限流：本地工具、MCP 工具、Skill 工作流和 subagent 都进入同一套权限体系。
 - MCP 集成：支持配置 server、工具发现、资源读取、prompt 渲染、启动权限和命名空间工具 materialization。
 - Skill 系统：支持发现、选择、上下文注入和按需读取专业工作流说明。
-- 用户系统：`editor/user_system/` 中实现鉴权、服务端用户数据、本地 session 处理和 UI 集成。
 - Runtime Markdown 链路：`core/markdown` 把 cmark 封装为 `MarkdownParser` 和 `MarkdownNode`；`scene/gui/MarkdownViewer` 用自绘 `Control` 渲染 Markdown。
 - NEXT 更新检查：从 GitHub Releases 获取最新版本，并在 AI 设置的 About 页面展示。
 - GitHub Actions 自动发布：推送 `v*` tag 后发布 Android、iOS、macOS、Windows 和 Web 构建产物，并使用标准化文件名。
@@ -41,7 +40,6 @@ NEXT Engine 仍在快速迭代中。当前 preview 发布线为 `v0.1.4.7.1-prev
 - 加强 Agent V1 的会话恢复、权限处理、工具结算和上下文管理。
 - 通过可审查工具提升场景、脚本、Shader 和项目文件编辑能力。
 - 持续从 editor-only Markdown 组件迁移到 runtime `MarkdownViewer`。
-- 保持用户系统鉴权、服务端配置和本地运行状态的边界清晰。
 - 稳定 CI、发布产物、版本比较和编辑器内更新检查。
 
 公开架构参考：
@@ -82,12 +80,6 @@ MarkdownViewer 相关测试：
 bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[MarkdownViewer]*"
 ```
 
-用户系统相关测试：
-
-```powershell
-bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[UserSystem]*"
-```
-
 版本/更新检查相关测试：
 
 ```powershell
@@ -101,8 +93,6 @@ bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][Age
 editor/
   agent_v1/       Agent V1 后端、领域模型、运行时、工具、权限、MCP、Skill、agents、UI adapter
   agent_ui/       AI Dock、Composer、消息列表、设置页、审查面板、About/更新检查 UI
-  user_system/    用户鉴权、profile/session 处理、服务端集成
-
 core/
   markdown/       基于 cmark 的 MarkdownParser / MarkdownNode core 解析层
   next_version.*  NEXT 版本解析和比较工具
@@ -116,7 +106,7 @@ thirdparty/
 
 tests/
   core/           版本、文件访问和 core 回归测试
-  editor/         Agent V1、AI UI、更新检查和用户系统测试
+  editor/         Agent V1、AI UI 和更新检查测试
   scene/          MarkdownViewer runtime scene 测试
 ```
 

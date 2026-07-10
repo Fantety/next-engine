@@ -126,6 +126,12 @@ void MarkdownViewer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_markdown"), &MarkdownViewer::get_markdown);
 	ClassDB::bind_method(D_METHOD("set_remote_images_enabled", "enabled"), &MarkdownViewer::set_remote_images_enabled);
 	ClassDB::bind_method(D_METHOD("is_remote_images_enabled"), &MarkdownViewer::is_remote_images_enabled);
+	ClassDB::bind_method(D_METHOD("set_remote_image_allowed_hosts", "hosts"), &MarkdownViewer::set_remote_image_allowed_hosts);
+	ClassDB::bind_method(D_METHOD("get_remote_image_allowed_hosts"), &MarkdownViewer::get_remote_image_allowed_hosts);
+	ClassDB::bind_method(D_METHOD("set_remote_image_max_pixel_count", "pixels"), &MarkdownViewer::set_remote_image_max_pixel_count);
+	ClassDB::bind_method(D_METHOD("get_remote_image_max_pixel_count"), &MarkdownViewer::get_remote_image_max_pixel_count);
+	ClassDB::bind_method(D_METHOD("set_remote_image_cache_entries", "entries"), &MarkdownViewer::set_remote_image_cache_entries);
+	ClassDB::bind_method(D_METHOD("get_remote_image_cache_entries"), &MarkdownViewer::get_remote_image_cache_entries);
 	ClassDB::bind_method(D_METHOD("set_open_links_enabled", "enabled"), &MarkdownViewer::set_open_links_enabled);
 	ClassDB::bind_method(D_METHOD("is_open_links_enabled"), &MarkdownViewer::is_open_links_enabled);
 	ClassDB::bind_method(D_METHOD("set_scroll_enabled", "enabled"), &MarkdownViewer::set_scroll_enabled);
@@ -150,6 +156,9 @@ void MarkdownViewer::_bind_methods() {
 
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "markdown", PROPERTY_HINT_MULTILINE_TEXT), "set_markdown", "get_markdown");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "remote_images_enabled"), "set_remote_images_enabled", "is_remote_images_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::PACKED_STRING_ARRAY, "remote_image_allowed_hosts"), "set_remote_image_allowed_hosts", "get_remote_image_allowed_hosts");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "remote_image_max_pixel_count", PROPERTY_HINT_RANGE, "1,268435456,1,or_greater"), "set_remote_image_max_pixel_count", "get_remote_image_max_pixel_count");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "remote_image_cache_entries", PROPERTY_HINT_RANGE, "1,1024,1,or_greater"), "set_remote_image_cache_entries", "get_remote_image_cache_entries");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "open_links_enabled"), "set_open_links_enabled", "is_open_links_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "scroll_enabled"), "set_scroll_enabled", "is_scroll_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "syntax_highlighting_enabled"), "set_syntax_highlighting_enabled", "is_syntax_highlighting_enabled");
@@ -591,7 +600,8 @@ bool MarkdownViewer::_should_parse_async() const {
 }
 
 bool MarkdownViewer::_start_async_parse() {
-	if (async_parse_pending && async_parse_generation == document_generation) {
+	if (async_parse_pending) {
+		async_parse_reparse_requested = true;
 		return true;
 	}
 
@@ -608,10 +618,12 @@ bool MarkdownViewer::_start_async_parse() {
 
 	async_parse_generation = document_generation;
 	async_parse_pending = true;
+	async_parse_reparse_requested = false;
 
 	const WorkerThreadPool::TaskID task_id = worker_pool->add_native_task(&MarkdownViewer::_run_async_document_parse, request, false, "MarkdownViewer document parse");
 	if (task_id == WorkerThreadPool::INVALID_TASK_ID) {
 		async_parse_pending = false;
+		async_parse_reparse_requested = false;
 		memdelete(request);
 		return false;
 	}
@@ -645,14 +657,19 @@ void MarkdownViewer::_finish_async_document_parse(uint64_t p_request_ptr) {
 	}
 
 	MarkdownViewer *viewer = ObjectDB::get_instance<MarkdownViewer>(request->owner_id);
-	if (viewer && request->generation == viewer->document_generation && request->markdown == viewer->markdown) {
-		viewer->document = request->document;
-		viewer->parse_dirty = false;
+	if (viewer) {
+		const bool applies = request->generation == viewer->document_generation && request->markdown == viewer->markdown;
+		const bool reparse_requested = viewer->async_parse_reparse_requested;
 		viewer->async_parse_pending = false;
-		viewer->document_build_count_for_test++;
-		viewer->_mark_layout_dirty();
-	} else if (viewer && request->generation == viewer->async_parse_generation) {
-		viewer->async_parse_pending = false;
+		viewer->async_parse_reparse_requested = false;
+		if (applies) {
+			viewer->document = request->document;
+			viewer->parse_dirty = false;
+			viewer->document_build_count_for_test++;
+			viewer->_mark_layout_dirty();
+		} else if (reparse_requested && viewer->parse_dirty && viewer->_should_parse_async()) {
+			viewer->_start_async_parse();
+		}
 	}
 
 	memdelete(request);
@@ -889,7 +906,7 @@ void MarkdownViewer::set_markdown(const String &p_markdown) {
 	}
 	markdown = p_markdown;
 	document_generation++;
-	async_parse_pending = false;
+	async_parse_reparse_requested = false;
 	table_horizontal_scroll_offset = 0.0;
 	document.clear();
 	layout.clear();
@@ -937,6 +954,39 @@ void MarkdownViewer::set_remote_images_enabled(bool p_enabled) {
 
 bool MarkdownViewer::is_remote_images_enabled() const {
 	return remote_images_enabled;
+}
+
+void MarkdownViewer::set_remote_image_allowed_hosts(const PackedStringArray &p_hosts) {
+	remote_image_allowed_hosts = p_hosts;
+	if (image_loader) {
+		image_loader->set_remote_image_allowed_hosts(remote_image_allowed_hosts);
+	}
+}
+
+PackedStringArray MarkdownViewer::get_remote_image_allowed_hosts() const {
+	return remote_image_allowed_hosts;
+}
+
+void MarkdownViewer::set_remote_image_max_pixel_count(int p_pixels) {
+	remote_image_max_pixel_count = MAX(1, p_pixels);
+	if (image_loader) {
+		image_loader->set_max_pixel_count(remote_image_max_pixel_count);
+	}
+}
+
+int MarkdownViewer::get_remote_image_max_pixel_count() const {
+	return remote_image_max_pixel_count;
+}
+
+void MarkdownViewer::set_remote_image_cache_entries(int p_entries) {
+	remote_image_cache_entries = MAX(1, p_entries);
+	if (image_loader) {
+		image_loader->set_max_cache_entries(remote_image_cache_entries);
+	}
+}
+
+int MarkdownViewer::get_remote_image_cache_entries() const {
+	return remote_image_cache_entries;
 }
 
 void MarkdownViewer::set_open_links_enabled(bool p_enabled) {
@@ -1187,6 +1237,9 @@ MarkdownViewer::MarkdownViewer() {
 	set_focus_mode(FOCUS_ALL);
 	image_loader = memnew(MarkdownViewerImageLoader);
 	image_loader->set_remote_images_enabled(remote_images_enabled);
+	image_loader->set_remote_image_allowed_hosts(remote_image_allowed_hosts);
+	image_loader->set_max_pixel_count(remote_image_max_pixel_count);
+	image_loader->set_max_cache_entries(remote_image_cache_entries);
 	image_loader->connect("image_state_changed", callable_mp(this, &MarkdownViewer::_image_state_changed));
 	add_child(image_loader, false, INTERNAL_MODE_BACK);
 }

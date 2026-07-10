@@ -18,7 +18,7 @@ NEXT Engine focuses on an editor-native AI workflow for Godot-style game and int
 - Key dependencies: Godot Engine, `cmark 0.31.1` in `thirdparty/cmark/`, and Alibaba PuHuiTi in `thirdparty/fonts/AlibabaPuHuiTi_3_65_Medium.woff2`.
 - License: MIT, following Godot Engine's license model. Third-party components remain under their own licenses.
 
-The largest NEXT-specific changes are in the AI Agent runtime, editor AI UI, user system, Markdown parsing/rendering stack, update checking, release automation, project documentation, and related tests.
+The largest NEXT-specific changes are in the AI Agent runtime, editor AI UI, Markdown parsing/rendering stack, update checking, release automation, project documentation, and related tests.
 
 ## Features
 
@@ -28,7 +28,6 @@ The largest NEXT-specific changes are in the AI Agent runtime, editor AI UI, use
 - Unified permission flow for local tools, MCP tools, Skill-driven workflows, and subagents.
 - MCP integration for configured servers, tools, resources, prompts, startup permissions, and namespaced tool materialization.
 - Skill system for discovering, selecting, injecting, and reading specialized workflow guidance on demand.
-- User system under `editor/user_system/` for authentication, server-backed profile data, local session handling, and UI integration.
 - Runtime Markdown stack: `core/markdown` wraps cmark into `MarkdownParser` and `MarkdownNode`; `scene/gui/MarkdownViewer` renders Markdown as a self-drawn `Control`.
 - NEXT update checking from GitHub Releases, surfaced in the AI settings About page.
 - GitHub Actions release automation for `v*` tags, with standardized release asset names for Android, iOS, macOS, Windows, and Web builds.
@@ -41,7 +40,6 @@ NEXT Engine is under active development. The current preview release line is `v0
 - Hardening Agent V1 session recovery, permission handling, tool settlement, and context management.
 - Improving scene, script, Shader, and project-file editing through reviewable tools.
 - Continuing the migration from editor-only Markdown components toward the runtime `MarkdownViewer`.
-- Keeping user-system authentication and server configuration separate from local runtime state.
 - Stabilizing CI, release assets, version comparison, and in-editor update checks.
 
 Public architecture references:
@@ -82,12 +80,6 @@ MarkdownViewer tests:
 bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[MarkdownViewer]*"
 ```
 
-User system tests:
-
-```powershell
-bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[UserSystem]*"
-```
-
 Version/update tests:
 
 ```powershell
@@ -101,8 +93,6 @@ bin\next.windows.editor.dev.x86_64.console.exe --test --test-case="*[Editor][Age
 editor/
   agent_v1/       Agent V1 backend, domain model, runtime, tools, permissions, MCP, Skills, agents, UI adapter
   agent_ui/       AI Dock, Composer, message list, settings pages, review panels, About/update UI
-  user_system/    User authentication, profile/session handling, server integration
-
 core/
   markdown/       MarkdownParser and MarkdownNode core parsing layer backed by cmark
   next_version.*  NEXT version parsing and comparison helpers
@@ -116,7 +106,7 @@ thirdparty/
 
 tests/
   core/           Version, file access, and core regression tests
-  editor/         Agent V1, AI UI, update-check, and user-system tests
+  editor/         Agent V1, AI UI, and update-check tests
   scene/          MarkdownViewer runtime scene tests
 ```
 

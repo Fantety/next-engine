@@ -4990,8 +4990,9 @@ TEST_CASE("[Editor][AgentV1] todowrite replaces session todos and emits todo upd
 	service.instantiate();
 	service->get_session_store()->set_base_dir(String());
 	service->get_input_store()->set_base_dir(String());
-	service->get_event_store()->set_base_dir(String());
-	service->get_todo_store()->set_base_dir(TestUtils::get_temp_path("agent_v1/todos_store"));
+	service->get_event_store()->set_base_dir(TestUtils::get_temp_path("agent_v1/todo_events"));
+	const String todo_dir = TestUtils::get_temp_path("agent_v1/todos_store");
+	service->get_todo_store()->set_base_dir(todo_dir);
 
 	Dictionary create;
 	create["id"] = "todo-session";
@@ -5039,6 +5040,7 @@ TEST_CASE("[Editor][AgentV1] todowrite replaces session todos and emits todo upd
 	REQUIRE(stored.size() == 2);
 	CHECK(String(Dictionary(stored[0]).get("content", String())) == "Locate the bug");
 	CHECK(String(Dictionary(stored[0]).get("status", String())) == "in_progress");
+	CHECK_FALSE(FileAccess::exists(todo_dir.path_join("todos.jsonl")));
 
 	bool saw_todo_updated = false;
 	const Vector<AIEventRow> events = service->get_event_store()->list("todo-session");
@@ -5073,9 +5075,66 @@ TEST_CASE("[Editor][AgentV1] todowrite replaces session todos and emits todo upd
 	CHECK(String(Dictionary(stored[0]).get("status", String())) == "completed");
 
 	service->get_todo_store()->clear_memory();
+	service->get_event_store()->clear_memory();
 	stored = service->get_todos("todo-session");
 	REQUIRE(stored.size() == 1);
 	CHECK(String(Dictionary(stored[0]).get("status", String())) == "completed");
+}
+
+TEST_CASE("[Editor][AgentV1] todowrite does not persist a legacy snapshot when its event write fails") {
+	Ref<AITodoService> todo_service;
+	todo_service.instantiate();
+
+	Ref<AITodoStore> todo_store;
+	todo_store.instantiate();
+	const String todo_dir = TestUtils::get_temp_path("agent_v1/todo_event_failure_store");
+	todo_store->set_base_dir(todo_dir);
+	todo_service->set_todo_store(todo_store);
+
+	const String blocked_event_dir = TestUtils::get_temp_path("agent_v1/todo_event_failure_path");
+	Ref<FileAccess> blocker = FileAccess::open(blocked_event_dir, FileAccess::WRITE);
+	REQUIRE(blocker.is_valid());
+	blocker->store_string("not a directory");
+	blocker->flush();
+	blocker.unref();
+
+	Ref<AIEventStore> event_store;
+	event_store.instantiate();
+	event_store->set_base_dir(blocked_event_dir);
+	todo_service->set_event_store(event_store);
+
+	Dictionary todo;
+	todo["content"] = "This must not become a partial write";
+	todo["status"] = "pending";
+	todo["priority"] = "medium";
+	Array todos;
+	todos.push_back(todo);
+
+	Array stored;
+	AIError error;
+	CHECK_FALSE(todo_service->update_todos_struct("todo-event-failure", todos, stored, error));
+	CHECK(stored.is_empty());
+	CHECK(todo_store->get_session_todos("todo-event-failure").is_empty());
+	CHECK_FALSE(FileAccess::exists(todo_dir.path_join("todos.jsonl")));
+}
+
+TEST_CASE("[Editor][AgentV1] legacy todo store skips malformed JSONL rows during recovery") {
+	const String todo_dir = TestUtils::get_temp_path("agent_v1/todo_legacy_recovery");
+	REQUIRE(DirAccess::make_dir_recursive_absolute(todo_dir) == OK);
+
+	Ref<FileAccess> file = FileAccess::open(todo_dir.path_join("todos.jsonl"), FileAccess::WRITE);
+	REQUIRE(file.is_valid());
+	file->store_string("{not valid json}\n");
+	file->store_string("{\"session_id\":\"todo-legacy\",\"todos\":[{\"content\":\"Recovered\",\"status\":\"pending\",\"priority\":\"low\",\"position\":0}]}\n");
+	file->flush();
+	file.unref();
+
+	Ref<AITodoStore> todo_store;
+	todo_store.instantiate();
+	todo_store->set_base_dir(todo_dir);
+	const Array todos = todo_store->get_session_todos("todo-legacy");
+	REQUIRE(todos.size() == 1);
+	CHECK(String(Dictionary(todos[0]).get("content", String())) == "Recovered");
 }
 
 TEST_CASE("[Editor][AgentV1] todowrite materialization survives repeated bridge sync") {

@@ -207,10 +207,6 @@
 #include "editor/shader/shader_editor_plugin.h"
 #include "editor/shader/shader_file_editor_plugin.h"
 #include "editor/translations/editor_translation_parser.h"
-#include "editor/user_system/auth_client.h"
-#include "editor/user_system/editor_user_avatar.h"
-#include "editor/user_system/editor_user_login_dialog.h"
-#include "editor/user_system/editor_user_manager.h"
 #include "editor/version_control/editor_vcs_interface.h"
 #include "servers/rendering/rendering_server.h"
 
@@ -376,12 +372,6 @@ void register_editor_types() {
 	GDREGISTER_INTERNAL_CLASS(AISettingsSkillsPage);
 	GDREGISTER_INTERNAL_CLASS(AITextDiffViewer);
 	GDREGISTER_INTERNAL_CLASS(AITodoListPanel);
-	GDREGISTER_INTERNAL_CLASS(AuthTransport);
-	GDREGISTER_INTERNAL_CLASS(AuthHTTPTransport);
-	GDREGISTER_INTERNAL_CLASS(AuthClient);
-	GDREGISTER_INTERNAL_CLASS(EditorUserManager);
-	GDREGISTER_INTERNAL_CLASS(EditorUserLoginDialog);
-	GDREGISTER_INTERNAL_CLASS(EditorUserAvatar);
 
 	// This list is alphabetized, and plugins that depend on Node2D are in their own section below.
 	EditorPlugins::add_by_type<AnimationTreeEditorPlugin>();

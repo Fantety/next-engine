@@ -1,9 +1,36 @@
 /**************************************************************************/
 /*  markdown_viewer.h                                                     */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #pragma once
 
+#include "core/variant/variant.h"
 #include "scene/gui/control.h"
 #include "scene/gui/markdown_viewer_document.h"
 #include "scene/gui/markdown_viewer_image_loader.h"
@@ -30,6 +57,7 @@ class MarkdownViewer : public Control {
 	MarkdownViewerImageLoader *image_loader = nullptr;
 
 	bool remote_images_enabled = false;
+	PackedStringArray remote_image_allowed_hosts;
 	bool open_links_enabled = false;
 	bool scroll_enabled = true;
 	bool syntax_highlighting_enabled = true;
@@ -39,6 +67,8 @@ class MarkdownViewer : public Control {
 
 	real_t image_max_width = 800.0;
 	real_t image_max_height = 420.0;
+	int remote_image_max_pixel_count = 16 * 1024 * 1024;
+	int remote_image_cache_entries = 64;
 	real_t content_height = 0.0;
 	real_t scroll_offset = 0.0;
 	real_t table_horizontal_scroll_offset = 0.0;
@@ -49,6 +79,7 @@ class MarkdownViewer : public Control {
 	bool layout_dirty = true;
 	bool measured_layout_valid = false;
 	bool async_parse_pending = false;
+	bool async_parse_reparse_requested = false;
 	bool selectable_runs_dirty = true;
 	bool selection_dragging = false;
 	bool selection_dragged = false;
@@ -111,6 +142,12 @@ public:
 
 	void set_remote_images_enabled(bool p_enabled);
 	bool is_remote_images_enabled() const;
+	void set_remote_image_allowed_hosts(const PackedStringArray &p_hosts);
+	PackedStringArray get_remote_image_allowed_hosts() const;
+	void set_remote_image_max_pixel_count(int p_pixels);
+	int get_remote_image_max_pixel_count() const;
+	void set_remote_image_cache_entries(int p_entries);
+	int get_remote_image_cache_entries() const;
 
 	void set_open_links_enabled(bool p_enabled);
 	bool is_open_links_enabled() const;

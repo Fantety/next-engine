@@ -1,18 +1,44 @@
 /**************************************************************************/
 /*  ai_todo_service.cpp                                                   */
 /**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "ai_todo_service.h"
 
-#include "editor/agent_v1/domain/events/ai_event_types.h"
-#include "editor/agent_v1/domain/projection/ai_session_projector.h"
-
+#include "core/error/error_macros.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/json.h"
 #include "core/object/class_db.h"
 #include "core/os/time.h"
 #include "core/variant/variant.h"
+#include "editor/agent_v1/domain/events/ai_event_types.h"
+#include "editor/agent_v1/domain/projection/ai_session_projector.h"
 
 namespace {
 
@@ -135,8 +161,8 @@ bool AITodoStore::_ensure_loaded_locked(String &r_error) {
 		json.instantiate();
 		const Error parse_err = json->parse(line);
 		if (parse_err != OK || json->get_data().get_type() != Variant::DICTIONARY) {
-			r_error = "Failed to parse AI todo store row: " + path;
-			return false;
+			WARN_PRINT("Skipping malformed AI todo store row: " + path);
+			continue;
 		}
 
 		const Dictionary snapshot = json->get_data();
@@ -372,31 +398,44 @@ Ref<AISessionProjector> AITodoService::get_projector() const {
 	return projector;
 }
 
+bool AITodoService::_get_event_todos(const String &p_session_id, Array &r_todos) const {
+	if (event_store.is_null()) {
+		return false;
+	}
+
+	const Vector<AIEventRow> events = event_store->list(p_session_id);
+	for (int i = events.size() - 1; i >= 0; i--) {
+		if (events[i].type != AIDomainEventTypes::todo_updated()) {
+			continue;
+		}
+
+		const Variant todos = events[i].data.get("todos", Variant());
+		if (todos.get_type() != Variant::ARRAY) {
+			continue;
+		}
+
+		r_todos = Array(todos).duplicate(true);
+		return true;
+	}
+
+	return false;
+}
+
 bool AITodoService::update_todos_struct(const String &p_session_id, const Array &p_todos, Array &r_todos, AIError &r_error) {
 	const String session_id = p_session_id.strip_edges();
 	if (session_id.is_empty()) {
 		r_error = AIError::make(AI_ERROR_VALIDATION, "Todo session id is required.");
 		return false;
 	}
-	if (todo_store.is_null()) {
-		todo_store.instantiate();
-	}
-
 	Array normalized;
 	if (!_normalize_todos(p_todos, normalized, r_error)) {
-		return false;
-	}
-
-	String store_error;
-	if (!todo_store->update_session_todos_struct(session_id, normalized, r_todos, store_error)) {
-		r_error = AIError::make(AI_ERROR_INTERNAL, store_error);
 		return false;
 	}
 
 	if (event_store.is_valid()) {
 		Dictionary data;
 		data["session_id"] = session_id;
-		data["todos"] = r_todos.duplicate(true);
+		data["todos"] = normalized.duplicate(true);
 		data["updated_at"] = Time::get_singleton() ? Time::get_singleton()->get_unix_time_from_system() : 0;
 
 		AIEventRow row;
@@ -408,6 +447,19 @@ bool AITodoService::update_todos_struct(const String &p_session_id, const Array 
 		if (projector.is_valid()) {
 			projector->project(row);
 		}
+		r_todos = normalized.duplicate(true);
+		r_error = AIError::none();
+		return true;
+	}
+
+	if (todo_store.is_null()) {
+		todo_store.instantiate();
+	}
+
+	String store_error;
+	if (!todo_store->update_session_todos_struct(session_id, normalized, r_todos, store_error)) {
+		r_error = AIError::make(AI_ERROR_INTERNAL, store_error);
+		return false;
 	}
 
 	r_error = AIError::none();
@@ -415,11 +467,21 @@ bool AITodoService::update_todos_struct(const String &p_session_id, const Array 
 }
 
 bool AITodoService::get_todos_struct(const String &p_session_id, Array &r_todos) {
+	const String session_id = p_session_id.strip_edges();
+	if (session_id.is_empty()) {
+		r_todos = Array();
+		return false;
+	}
+
+	if (_get_event_todos(session_id, r_todos)) {
+		return true;
+	}
+
 	if (todo_store.is_null()) {
 		r_todos = Array();
 		return false;
 	}
-	return todo_store->get_session_todos_struct(p_session_id, r_todos);
+	return todo_store->get_session_todos_struct(session_id, r_todos);
 }
 
 Dictionary AITodoService::update_todos(const String &p_session_id, const Array &p_todos) {

@@ -2,7 +2,6 @@
 
 主要改动集中在：
 - editor/agent_v1 AI 相关功能
-- editor/user_system 新增用户系统
 - scene/gui 新增 MarkdownViewer 节点
 - .devdocs/ 相关文档存放位置
 
